@@ -45,11 +45,13 @@ type fileKey struct {
 	path string
 }
 
+// File represents a file.
 type File struct {
 	Content []byte
 	ModTime time.Time
 }
 
+// Project represents a project.
 type Project struct {
 	files sync.Map // path => File
 
@@ -62,7 +64,7 @@ type Project struct {
 }
 
 // NewProject creates a new project.
-func NewProject(files map[string]File, feat uint) *Project {
+func NewProject(files map[string]File, feats uint) *Project {
 	ret := &Project{
 		builders:     make(map[string]func(root *Project) (any, error)),
 		fileBuilders: make(map[string]func(path string, file File) (any, error)),
