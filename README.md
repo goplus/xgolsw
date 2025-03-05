@@ -1,4 +1,11 @@
-# spxls
+goxlsw
+========
+
+[![Build Status](https://github.com/goplus/goxlsw/actions/workflows/go.yml/badge.svg)](https://github.com/goplus/goxlsw/actions/workflows/go.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/goplus/goxlsw)](https://goreportcard.com/report/github.com/goplus/goxlsw)
+[![GitHub release](https://img.shields.io/github/v/tag/goplus/goxlsw.svg?label=release)](https://github.com/goplus/goxlsw/releases)
+[![Coverage Status](https://codecov.io/gh/goplus/goxlsw/branch/main/graph/badge.svg)](https://codecov.io/gh/goplus/goxlsw)
+[![GoDoc](https://pkg.go.dev/badge/github.com/goplus/goxlsw.svg)](https://pkg.go.dev/github.com/goplus/goxlsw)
 
 A lightweight Go+ language server for [spx](https://github.com/goplus/spx) that runs in the browser using WebAssembly.
 
