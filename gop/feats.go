@@ -41,9 +41,9 @@ func buildAST(proj *Project, path string, file File) (any, error) {
 	return parser.ParseFile(proj.Fset, path, file.Content, parserMode)
 }
 
-// GetAST returns the AST of a Go+ source file.
-func (p *Project) GetAST(path string) (ret *ast.File, err error) {
-	c, err := p.GetFileCache("ast", path)
+// AST returns the AST of a Go+ source file.
+func (p *Project) AST(path string) (ret *ast.File, err error) {
+	c, err := p.FileCache("ast", path)
 	if err != nil {
 		return
 	}
