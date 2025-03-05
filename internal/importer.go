@@ -5,8 +5,8 @@ import (
 	"go/types"
 	"sync"
 
-	"github.com/goplus/builder/tools/spxls/internal/pkgdata"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/internal/pkgdata"
 	"golang.org/x/tools/go/gcexportdata"
 )
 

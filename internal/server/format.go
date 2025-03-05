@@ -9,10 +9,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/goplus/builder/tools/spxls/internal/vfs"
 	gopast "github.com/goplus/gop/ast"
 	gopfmt "github.com/goplus/gop/format"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/internal/vfs"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_formatting

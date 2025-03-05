@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/goplus/builder/tools/spxls/internal/pkgdoc"
 	gopast "github.com/goplus/gop/ast"
+	"github.com/goplus/goxlsw/internal/pkgdoc"
 )
 
 // SpxReferencePkg is a reference to an imported package.

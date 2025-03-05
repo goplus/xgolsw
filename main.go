@@ -9,9 +9,9 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/goplus/builder/tools/spxls/internal/jsonrpc2"
-	"github.com/goplus/builder/tools/spxls/internal/server"
-	"github.com/goplus/builder/tools/spxls/internal/vfs"
+	"github.com/goplus/goxlsw/internal/jsonrpc2"
+	"github.com/goplus/goxlsw/internal/server"
+	"github.com/goplus/goxlsw/internal/vfs"
 )
 
 // Spxls implements a lightweight Go+ language server for spx that runs in the

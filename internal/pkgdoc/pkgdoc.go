@@ -7,9 +7,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/goplus/builder/tools/spxls/internal/util"
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 // PkgDoc is the documentation for a package.

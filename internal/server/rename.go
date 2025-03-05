@@ -5,8 +5,8 @@ import (
 	"go/types"
 	"slices"
 
-	"github.com/goplus/builder/tools/spxls/internal/util"
 	gopast "github.com/goplus/gop/ast"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
