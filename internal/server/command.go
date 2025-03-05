@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/protocol"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
-func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, error) {
+func (s *Server) workspaceExecuteCommand(params *protocol.ExecuteCommandParams) (any, error) {
 	switch params.Command {
 	case "spx.renameResources":
 		var cmdParams []SpxRenameResourceParams
