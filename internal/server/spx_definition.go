@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/goplus/builder/tools/spxls/internal"
-	"github.com/goplus/builder/tools/spxls/internal/pkgdata"
-	"github.com/goplus/builder/tools/spxls/internal/pkgdoc"
-	"github.com/goplus/builder/tools/spxls/internal/util"
+	"github.com/goplus/goxlsw/internal"
+	"github.com/goplus/goxlsw/internal/pkgdata"
+	"github.com/goplus/goxlsw/internal/pkgdoc"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 // SpxDefinition represents an spx definition.

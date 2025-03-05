@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/goplus/builder/tools/spxls/internal/util"
+	"github.com/goplus/goxlsw/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

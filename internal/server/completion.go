@@ -9,12 +9,12 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/goplus/builder/tools/spxls/internal/pkgdata"
-	"github.com/goplus/builder/tools/spxls/internal/pkgdoc"
-	"github.com/goplus/builder/tools/spxls/internal/util"
 	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/internal/pkgdata"
+	"github.com/goplus/goxlsw/internal/pkgdoc"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_completion

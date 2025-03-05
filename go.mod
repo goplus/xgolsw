@@ -1,4 +1,4 @@
-module github.com/goplus/builder/tools/spxls
+module github.com/goplus/goxlsw
 
 go 1.23.4
 

@@ -15,7 +15,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/goplus/builder/tools/spxls/internal/pkgdoc"
+	"github.com/goplus/goxlsw/internal/pkgdoc"
 	_ "github.com/goplus/spx"
 	"golang.org/x/tools/go/gcexportdata"
 )
