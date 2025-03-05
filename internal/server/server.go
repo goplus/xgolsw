@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/goplus/goxlsw/internal/jsonrpc2"
 	"github.com/goplus/goxlsw/internal/vfs"
+	"github.com/goplus/goxlsw/jsonrpc2"
 )
 
 // MessageReplier is an interface for sending messages back to the client.
