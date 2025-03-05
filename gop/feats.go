@@ -16,6 +16,12 @@
 
 package gop
 
+import (
+	"go/parser"
+
+	"github.com/goplus/gop/ast"
+)
+
 type supportedFeat struct {
 	feat     uint
 	kind     string
@@ -29,8 +35,19 @@ var supportedFeats = []supportedFeat{
 
 // -----------------------------------------------------------------------------
 
+const parserMode = parser.ParseComments
+
 func buildAST(proj *Project, path string, file File) (any, error) {
-	panic("todo")
+	return parser.ParseFile(proj.Fset, path, file.Content, parserMode)
+}
+
+// GetAST returns the AST of a Go+ source file.
+func (p *Project) GetAST(path string) (ret *ast.File, err error) {
+	c, err := p.GetFileCache("ast", path)
+	if err != nil {
+		return
+	}
+	return c.(*ast.File), nil
 }
 
 // -----------------------------------------------------------------------------
