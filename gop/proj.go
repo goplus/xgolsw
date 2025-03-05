@@ -131,8 +131,8 @@ func (p *Project) PutFile(path string, file File) {
 	p.deleteCache(path)
 }
 
-// GetFile gets a file from the project.
-func (p *Project) GetFile(path string) (ret File, ok bool) {
+// File gets a file from the project.
+func (p *Project) File(path string) (ret File, ok bool) {
 	v, ok := p.files.Load(path)
 	if ok {
 		ret = v.(File)
@@ -152,7 +152,8 @@ func (p *Project) InitCache(kind string, builder func(root *Project) (any, error
 	p.builders[kind] = builder
 }
 
-func (p *Project) GetFileCache(kind, path string) (any, error) {
+// FileCache gets a file level cache.
+func (p *Project) FileCache(kind, path string) (any, error) {
 	key := fileKey{kind, path}
 	if v, ok := p.fileCaches.Load(key); ok {
 		return decodeDataOrErr(v)
@@ -161,7 +162,7 @@ func (p *Project) GetFileCache(kind, path string) (any, error) {
 	if !ok {
 		return nil, ErrUnknownKind
 	}
-	file, ok := p.GetFile(path)
+	file, ok := p.File(path)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -170,8 +171,8 @@ func (p *Project) GetFileCache(kind, path string) (any, error) {
 	return data, err
 }
 
-// GetCache gets a project level cache.
-func (p *Project) GetCache(kind string) (any, error) {
+// Cache gets a project level cache.
+func (p *Project) Cache(kind string) (any, error) {
 	if v, ok := p.caches.Load(kind); ok {
 		return decodeDataOrErr(v)
 	}
