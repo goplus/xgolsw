@@ -18,6 +18,7 @@ package gop
 
 import (
 	"errors"
+	"go/token"
 	"sync"
 	"time"
 )
@@ -40,6 +41,14 @@ const (
 
 // -----------------------------------------------------------------------------
 
+// Builder represents a project level cache builder.
+type Builder = func(proj *Project) (any, error)
+
+// FileBuilder represents a file level cache builder.
+type FileBuilder = func(proj *Project, path string, file File) (any, error)
+
+// -----------------------------------------------------------------------------
+
 type fileKey struct {
 	kind string
 	path string
@@ -59,20 +68,31 @@ type Project struct {
 	fileCaches sync.Map // (kind, path) => dataOrErr
 
 	// kind => builder
-	builders     map[string]func(proj *Project) (any, error)
-	fileBuilders map[string]func(path string, file File) (any, error)
+	builders     map[string]Builder
+	fileBuilders map[string]FileBuilder
+
+	Fset *token.FileSet
 }
 
 // NewProject creates a new project.
-func NewProject(files map[string]File, feats uint) *Project {
+func NewProject(fset *token.FileSet, files map[string]File, feats uint) *Project {
 	ret := &Project{
+		Fset:         fset,
 		builders:     make(map[string]func(root *Project) (any, error)),
-		fileBuilders: make(map[string]func(path string, file File) (any, error)),
+		fileBuilders: make(map[string]func(proj *Project, path string, file File) (any, error)),
 	}
 	for path, file := range files {
 		ret.files.Store(path, file)
 	}
-	// TODO(xsw): support features
+	for _, f := range supportedFeats {
+		if f.feat&feats != 0 {
+			if f.fileFeat {
+				ret.InitFileCache(f.kind, f.builder.(FileBuilder))
+			} else {
+				ret.InitCache(f.kind, f.builder.(Builder))
+			}
+		}
+	}
 	return ret
 }
 
@@ -123,7 +143,7 @@ func (p *Project) GetFile(path string) (ret File, ok bool) {
 // -----------------------------------------------------------------------------
 
 // InitFileCache initializes a file level cache.
-func (p *Project) InitFileCache(kind string, builder func(path string, file File) (any, error)) {
+func (p *Project) InitFileCache(kind string, builder func(proj *Project, path string, file File) (any, error)) {
 	p.fileBuilders[kind] = builder
 }
 
@@ -141,7 +161,11 @@ func (p *Project) GetFileCache(kind, path string) (any, error) {
 	if !ok {
 		return nil, ErrUnknownKind
 	}
-	data, err := builder(path, File{})
+	file, ok := p.GetFile(path)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	data, err := builder(p, path, file)
 	p.fileCaches.Store(key, encodeDataOrErr(data, err))
 	return data, err
 }
