@@ -23,4 +23,9 @@ jobs:
       - name: Run unit test cases
         env:
           GODEBUG: gotypesalias=1
-        run: go test -v -race ./...
+        run: go test -v -race -coverprofile=coverage.txt ./...
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
