@@ -17,9 +17,8 @@
 package gop
 
 import (
-	"go/parser"
-
 	"github.com/goplus/gop/ast"
+	"github.com/goplus/gop/parser"
 )
 
 type supportedFeat struct {
@@ -35,10 +34,13 @@ var supportedFeats = []supportedFeat{
 
 // -----------------------------------------------------------------------------
 
-const parserMode = parser.ParseComments
+// TODO(xsw): always ParseGoPlusClass?
+const parserMode = parser.ParseComments | parser.AllErrors | parser.ParseGoPlusClass
 
 func buildAST(proj *Project, path string, file File) (any, error) {
-	return parser.ParseFile(proj.Fset, path, file.Content, parserMode)
+	return parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
+		Mode: parserMode,
+	})
 }
 
 // AST returns the AST of a Go+ source file.
