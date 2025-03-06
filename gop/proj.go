@@ -19,8 +19,12 @@ package gop
 import (
 	"errors"
 	"go/token"
+	"go/types"
 	"sync"
 	"time"
+
+	"github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/mod/gopmod"
 )
 
 var (
@@ -37,8 +41,9 @@ var (
 const (
 	// FeatAST represents to build AST cache.
 	FeatAST = 1 << iota
+	FeatTypeInfo
 
-	FeatAll = FeatAST
+	FeatAll = FeatAST | FeatTypeInfo
 )
 
 // -----------------------------------------------------------------------------
@@ -73,7 +78,21 @@ type Project struct {
 	builders     map[string]Builder
 	fileBuilders map[string]FileBuilder
 
+	// initialized by NewProject
 	Fset *token.FileSet
+
+	// The caller is responsible for initialization (required).
+	Mod *gopmod.Module
+
+	// The caller is responsible for initialization (optional).
+	Path string
+	Name string
+
+	// The caller is responsible for initialization (required).
+	Importer types.Importer
+
+	// The caller is responsible for initialization (optional).
+	NewTypeInfo func() *typesutil.Info
 }
 
 // NewProject creates a new project.
@@ -86,6 +105,7 @@ func NewProject(fset *token.FileSet, files any, feats uint) *Project {
 		Fset:         fset,
 		builders:     make(map[string]Builder),
 		fileBuilders: make(map[string]FileBuilder),
+		NewTypeInfo:  defaultNewTypeInfo,
 	}
 	if files != nil {
 		var iniFiles map[string]File
@@ -178,6 +198,13 @@ func (p *Project) File(path string) (ret File, ok bool) {
 		ret = v.(File)
 	}
 	return
+}
+
+// RangeFiles ranges all files in the project.
+func (p *Project) RangeFiles(f func(path string) bool) {
+	p.files.Range(func(k, _ any) bool {
+		return f(k.(string))
+	})
 }
 
 // -----------------------------------------------------------------------------

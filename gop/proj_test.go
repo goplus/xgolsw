@@ -68,13 +68,23 @@ func TestBasic(t *testing.T) {
 
 func TestNewNil(t *testing.T) {
 	proj := NewProject(nil, nil, FeatAll)
-	proj.PutFile("main.spx", file("echo 100"))
-	f, err := proj.AST("main.spx")
+	proj.PutFile("main.gop", file("echo 100"))
+	f, err := proj.AST("main.gop")
 	if err != nil || f == nil {
 		t.Fatal(err)
 	}
 	if body := f.ShadowEntry.Body.List; len(body) != 1 {
 		t.Fatal("body:", body)
+	}
+	if files, err := proj.ASTFiles(); err != nil || len(files) != 1 {
+		t.Fatal("ASTFiles:", files, err)
+	}
+	pkg, _, err := proj.TypeInfo()
+	if err != nil {
+		t.Fatal("TypeInfo:", err)
+	}
+	if o := pkg.Scope().Lookup("main"); o == nil {
+		t.Fatal("Scope.Lookup main failed")
 	}
 }
 
@@ -90,5 +100,8 @@ func TestNewCallback(t *testing.T) {
 	}
 	if body := f.ShadowEntry.Body.List; len(body) != 1 {
 		t.Fatal("body:", body)
+	}
+	if _, err = proj.FileCache("unknown", "main.spx"); err != ErrUnknownKind {
+		t.Fatal("FileCache:", err)
 	}
 }
