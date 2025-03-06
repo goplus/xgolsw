@@ -96,6 +96,30 @@ func NewProject(fset *token.FileSet, files map[string]File, feats uint) *Project
 	return ret
 }
 
+// -----------------------------------------------------------------------------
+
+// Snapshot creates a snapshot of the project.
+func (p *Project) Snapshot() *Project {
+	ret := &Project{
+		builders:     p.builders,
+		fileBuilders: p.fileBuilders,
+		Fset:         p.Fset,
+	}
+	copyMap(&ret.files, &p.files)
+	copyMap(&ret.caches, &p.caches)
+	copyMap(&ret.fileCaches, &p.fileCaches)
+	return ret
+}
+
+func copyMap(dst, src *sync.Map) {
+	src.Range(func(k, v any) bool {
+		dst.Store(k, v)
+		return true
+	})
+}
+
+// -----------------------------------------------------------------------------
+
 func (p *Project) deleteCache(path string) {
 	p.caches.Clear()
 	for kind := range p.fileBuilders {
