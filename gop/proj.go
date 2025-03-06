@@ -75,13 +75,22 @@ type Project struct {
 }
 
 // NewProject creates a new project.
-func NewProject(fset *token.FileSet, files map[string]File, feats uint) *Project {
+// files can be a map[string]File or a func() map[string]File.
+func NewProject(fset *token.FileSet, files any, feats uint) *Project {
 	ret := &Project{
 		Fset:         fset,
-		builders:     make(map[string]func(root *Project) (any, error)),
-		fileBuilders: make(map[string]func(proj *Project, path string, file File) (any, error)),
+		builders:     make(map[string]Builder),
+		fileBuilders: make(map[string]FileBuilder),
 	}
-	for path, file := range files {
+	var iniFiles map[string]File
+	if v, ok := files.(map[string]File); ok {
+		iniFiles = v
+	} else if getf, ok := files.(func() map[string]File); ok {
+		iniFiles = getf()
+	} else {
+		panic("NewProject: invalid files")
+	}
+	for path, file := range iniFiles {
 		ret.files.Store(path, file)
 	}
 	for _, f := range supportedFeats {
