@@ -17,8 +17,13 @@
 package gop
 
 import (
+	"go/types"
+
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/parser"
+	"github.com/goplus/gop/scanner"
+	"github.com/goplus/gop/x/typesutil"
+	"github.com/qiniu/x/errors"
 )
 
 type supportedFeat struct {
@@ -30,6 +35,7 @@ type supportedFeat struct {
 
 var supportedFeats = []supportedFeat{
 	{FeatAST, "ast", buildAST, true},
+	{FeatTypeInfo, "typeinfo", buildTypeInfo, false},
 }
 
 // -----------------------------------------------------------------------------
@@ -50,6 +56,86 @@ func (p *Project) AST(path string) (ret *ast.File, err error) {
 		return
 	}
 	return c.(*ast.File), nil
+}
+
+// ASTFiles returns the AST of all Go+ source files.
+func (p *Project) ASTFiles() (ret []*ast.File, err error) {
+	ret, errs := p.getASTFiles()
+	err = errs.ToError()
+	return
+}
+
+func (p *Project) getASTFiles() (ret []*ast.File, errs errors.List) {
+	p.RangeFiles(func(path string) bool {
+		f, e := p.AST(path)
+		if e != nil {
+			if el, ok := e.(scanner.ErrorList); ok {
+				for _, e := range el {
+					errs = append(errs, e)
+				}
+			} else {
+				errs = append(errs, e)
+			}
+		} else {
+			ret = append(ret, f)
+		}
+		return true
+	})
+	return
+}
+
+// -----------------------------------------------------------------------------
+
+func defaultNewTypeInfo() *typesutil.Info {
+	return &typesutil.Info{
+		Types:      make(map[ast.Expr]types.TypeAndValue),
+		Defs:       make(map[*ast.Ident]types.Object),
+		Uses:       make(map[*ast.Ident]types.Object),
+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
+		Implicits:  make(map[ast.Node]types.Object),
+		Scopes:     make(map[ast.Node]*types.Scope),
+	}
+}
+
+func buildTypeInfo(proj *Project) (any, error) {
+	var errs errors.List
+	pkg := types.NewPackage(proj.Path, proj.Name)
+	info := proj.NewTypeInfo()
+	chk := typesutil.NewChecker(
+		&types.Config{
+			Error:    func(err error) { errs.Add(err) },
+			Importer: proj.Importer,
+		},
+		&typesutil.Config{
+			Types: pkg,
+			Fset:  proj.Fset,
+			Mod:   proj.Mod,
+		},
+		nil,
+		info,
+	)
+	files, err := proj.getASTFiles()
+	errs = append(errs, err...)
+	if e := chk.Files(nil, files); e != nil && len(errs) == 0 {
+		errs.Add(e)
+	}
+	return &typeInfoRet{pkg, info, errs}, nil
+}
+
+type typeInfoRet struct {
+	pkg  *types.Package
+	info *typesutil.Info
+	errs errors.List
+}
+
+// TypeInfo returns the type information of a Go+ project.
+func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err error) {
+	c, err := p.Cache("typeinfo")
+	if err != nil {
+		return
+	}
+	ret := c.(*typeInfoRet)
+	return ret.pkg, ret.info, ret.errs.ToError()
 }
 
 // -----------------------------------------------------------------------------
