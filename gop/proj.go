@@ -37,6 +37,8 @@ var (
 const (
 	// FeatAST represents to build AST cache.
 	FeatAST = 1 << iota
+
+	FeatAll = FeatAST
 )
 
 // -----------------------------------------------------------------------------
@@ -77,21 +79,26 @@ type Project struct {
 // NewProject creates a new project.
 // files can be a map[string]File or a func() map[string]File.
 func NewProject(fset *token.FileSet, files any, feats uint) *Project {
+	if fset == nil {
+		fset = token.NewFileSet()
+	}
 	ret := &Project{
 		Fset:         fset,
 		builders:     make(map[string]Builder),
 		fileBuilders: make(map[string]FileBuilder),
 	}
-	var iniFiles map[string]File
-	if v, ok := files.(map[string]File); ok {
-		iniFiles = v
-	} else if getf, ok := files.(func() map[string]File); ok {
-		iniFiles = getf()
-	} else {
-		panic("NewProject: invalid files")
-	}
-	for path, file := range iniFiles {
-		ret.files.Store(path, file)
+	if files != nil {
+		var iniFiles map[string]File
+		if v, ok := files.(map[string]File); ok {
+			iniFiles = v
+		} else if getf, ok := files.(func() map[string]File); ok {
+			iniFiles = getf()
+		} else {
+			panic("NewProject: invalid files")
+		}
+		for path, file := range iniFiles {
+			ret.files.Store(path, file)
+		}
 	}
 	for _, f := range supportedFeats {
 		if f.feat&feats != 0 {
