@@ -86,6 +86,13 @@ func TestNewNil(t *testing.T) {
 	if o := pkg.Scope().Lookup("main"); o == nil {
 		t.Fatal("Scope.Lookup main failed")
 	}
+	pkg2, _, err2 := proj.Snapshot().TypeInfo()
+	if pkg2 != pkg || err2 != err {
+		t.Fatal("Snapshot TypeInfo:", pkg2, err2)
+	}
+	if _, e := proj.Cache("unknown"); e != ErrUnknownKind {
+		t.Fatal("Cache unknown:", e)
+	}
 }
 
 func TestNewCallback(t *testing.T) {
@@ -103,5 +110,17 @@ func TestNewCallback(t *testing.T) {
 	}
 	if _, err = proj.FileCache("unknown", "main.spx"); err != ErrUnknownKind {
 		t.Fatal("FileCache:", err)
+	}
+}
+
+func TestErr(t *testing.T) {
+	proj := NewProject(nil, map[string]File{
+		"main.spx": file("100_err"),
+	}, FeatAll)
+	if _, err := proj.AST("main.spx"); err == nil {
+		t.Fatal("AST no error?")
+	}
+	if _, err2 := proj.Snapshot().AST("main.spx"); err2 == nil {
+		t.Fatal("Snapshot AST no error?")
 	}
 }
