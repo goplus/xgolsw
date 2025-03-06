@@ -123,4 +123,16 @@ func TestErr(t *testing.T) {
 	if _, err2 := proj.Snapshot().AST("main.spx"); err2 == nil {
 		t.Fatal("Snapshot AST no error?")
 	}
+	if _, err3 := proj.ASTFiles(); err3 == nil {
+		t.Fatal("ASTFiles no error?")
+	}
+	proj.PutFile("main.spx", file("echo 100"))
+	if _, _, err4 := proj.TypeInfo(); err4 == nil {
+		t.Fatal("TypeInfo no error?")
+	}
+
+	proj = NewProject(nil, nil, 0)
+	if _, _, err5 := proj.TypeInfo(); err5 != ErrUnknownKind {
+		t.Fatal("TypeInfo:", err5)
+	}
 }
