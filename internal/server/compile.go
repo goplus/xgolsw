@@ -615,7 +615,7 @@ func (r *compileResult) fromPosition(astFile *gopast.File, position goptoken.Pos
 	line := position.Line
 	lineStart := int(tokenFile.LineStart(line))
 	relLineStart := lineStart - tokenFile.Base()
-	lineContent := astFile.Code[relLineStart : relLineStart+position.Column]
+	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
 	utf16Offset := utf8OffsetToUTF16(string(lineContent), position.Column-1)
 
 	return Position{
@@ -920,7 +920,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	snapshot.Path, snapshot.Name = "main", "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
-	if result.mainPkg, result.typeInfo, err = snapshot.TypeInfo(); err != nil {
+	if result.mainPkg, result.typeInfo, err, _ = snapshot.TypeInfo(); err != nil {
 		switch err := err.(type) {
 		case errors.List:
 			for _, e := range err {

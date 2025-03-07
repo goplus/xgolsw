@@ -25,6 +25,7 @@ import (
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/parser"
 	"github.com/goplus/gop/scanner"
+	"github.com/goplus/gop/token"
 	"github.com/goplus/gop/x/typesutil"
 	"github.com/qiniu/x/errors"
 )
@@ -79,25 +80,24 @@ func (p *Project) AST(path string) (file *ast.File, err error) {
 // ASTFiles returns the AST of all Go+ source files.
 func (p *Project) ASTFiles() (ret []*ast.File, err error) {
 	ret, errs := p.getASTFiles()
-	err = errs.ToError()
+	err = errs.Err()
 	return
 }
 
-func (p *Project) getASTFiles() (ret []*ast.File, errs errors.List) {
+func (p *Project) getASTFiles() (ret []*ast.File, errs scanner.ErrorList) {
 	p.RangeFiles(func(path string) bool {
 		switch filepath.Ext(path) { // TODO(xsw): use gopmod
 		case ".spx", ".gop", ".gox":
 			f, e := p.AST(path)
+			if f != nil {
+				ret = append(ret, f)
+			}
 			if e != nil {
 				if el, ok := e.(scanner.ErrorList); ok {
-					for _, e := range el {
-						errs = append(errs, e)
-					}
+					errs = append(errs, el...)
 				} else {
-					errs = append(errs, e)
+					errs.Add(token.Position{}, e.Error())
 				}
-			} else {
-				ret = append(ret, f)
 			}
 		}
 		return true
@@ -135,28 +135,28 @@ func buildTypeInfo(proj *Project) (any, error) {
 		nil,
 		info,
 	)
-	files, err := proj.getASTFiles()
-	errs = append(errs, err...)
+	files, astErr := proj.getASTFiles()
 	if e := chk.Files(nil, files); e != nil && len(errs) == 0 {
 		errs.Add(e)
 	}
-	return &typeInfoRet{pkg, info, errs}, nil
+	return &typeInfoRet{pkg, info, errs, astErr}, nil
 }
 
 type typeInfoRet struct {
-	pkg  *types.Package
-	info *typesutil.Info
-	errs errors.List
+	pkg    *types.Package
+	info   *typesutil.Info
+	typErr errors.List
+	astErr error
 }
 
 // TypeInfo returns the type information of a Go+ project.
-func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err error) {
+func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, astErr error) {
 	c, err := p.Cache("typeinfo")
 	if err != nil {
 		return
 	}
 	ret := c.(*typeInfoRet)
-	return ret.pkg, ret.info, ret.errs.ToError()
+	return ret.pkg, ret.info, ret.typErr.ToError(), ret.astErr
 }
 
 // -----------------------------------------------------------------------------

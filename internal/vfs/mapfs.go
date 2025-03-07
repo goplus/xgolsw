@@ -36,7 +36,7 @@ func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
 func ReadFile(rootFS *MapFS, name string) ([]byte, error) {
 	ret, ok := rootFS.File(name)
 	if !ok {
-		return nil, gop.ErrNotFound
+		return nil, fs.ErrNotExist
 	}
 	return ret.Content, nil
 }
