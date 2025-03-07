@@ -105,7 +105,6 @@ func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) 
 
 // formatSpxGop formats an spx source file with Go+ formatter.
 func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	// original, err := fs.ReadFile(snapshot, spxFile)
 	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, err

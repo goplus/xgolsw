@@ -81,7 +81,6 @@ type SpxResourceSet struct {
 }
 
 // NewSpxResourceSet creates a new spx resource set.
-// func NewSpxResourceSet(rootFS fs.FS) (*SpxResourceSet, error) {
 func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	set := &SpxResourceSet{
 		backdrops: make(map[string]*SpxBackdropResource),
@@ -91,7 +90,6 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	}
 
 	// Read and parse the main index.json for backdrops and widgets.
-	// metadata, err := fs.ReadFile(rootFS, "index.json")
 	metadata, err := rootFS.ReadFile("index.json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read index.json: %w", err)
@@ -121,7 +119,6 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	}
 
 	// Read sounds directory.
-	// soundEntries, err := fs.ReadDir(rootFS, "sounds")
 	soundEntries, err := rootFS.Readdir("sounds")
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("failed to read sounds directory: %w", err)
@@ -132,7 +129,6 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 		}
 
 		soundName := entry.Name()
-		// soundMetadata, err := fs.ReadFile(rootFS, path.Join("sounds", soundName, "index.json"))
 		soundMetadata, err := rootFS.ReadFile(path.Join("sounds", soundName, "index.json"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read sound metadata: %w", err)
@@ -148,7 +144,6 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	}
 
 	// Read sprites directory.
-	// spriteEntries, err := fs.ReadDir(rootFS, "sprites")
 	spriteEntries, err := rootFS.Readdir("sprites")
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("failed to read sprites directory: %w", err)
@@ -159,7 +154,6 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 		}
 
 		spriteName := entry.Name()
-		// spriteMetadata, err := fs.ReadFile(rootFS, path.Join("sprites", spriteName, "index.json"))
 		spriteMetadata, err := rootFS.ReadFile(path.Join("sprites", spriteName, "index.json"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read sprite metadata: %w", err)

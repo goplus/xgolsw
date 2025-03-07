@@ -706,7 +706,7 @@ type compileCache struct {
 func (s *Server) compile() (*compileResult, error) {
 	snapshot := s.workspaceRootFS.Snapshot()
 
-	/* NOTE: dont need cache
+	/* NOTE(xsw): dont need cache
 	spxFiles, err := listSpxFiles(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get spx files: %w", err)
@@ -748,7 +748,7 @@ func (s *Server) compile() (*compileResult, error) {
 		return nil, err
 	}
 
-	/* NOTE: dont need cache
+	/* NOTE(xsw): dont need cache
 	// Update cache.
 	modTimes := make(map[string]time.Time, len(spxFiles))
 	for _, spxFile := range spxFiles {
@@ -769,7 +769,6 @@ func (s *Server) compile() (*compileResult, error) {
 // compileAt compiles spx source files at the given snapshot and returns the
 // compile result.
 func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
-	// spxFiles, err := listSpxFiles(snapshot)
 	spxFiles, err := vfs.ListSpxFiles(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get spx files: %w", err)
