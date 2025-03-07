@@ -704,54 +704,10 @@ func (r *compileResult) locationForNode(node gopast.Node) Location {
 	}
 }
 
-/*
-// compileCache represents a cache for compilation results.
-type compileCache struct {
-	result          *compileResult
-	spxFileModTimes map[string]time.Time
-}
-*/
-
 // compile compiles spx source files and returns compile result. It uses cached
 // result if available.
 func (s *Server) compile() (*compileResult, error) {
 	snapshot := s.workspaceRootFS.Snapshot()
-
-	/* NOTE(xsw): dont need cache
-	spxFiles, err := listSpxFiles(snapshot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get spx files: %w", err)
-	}
-	if len(spxFiles) == 0 {
-		return nil, errNoMainSpxFile
-	}
-	slices.Sort(spxFiles)
-
-	s.lastCompileCacheMu.Lock()
-	defer s.lastCompileCacheMu.Unlock()
-
-	// Try to use cache first.
-	if cache := s.lastCompileCache; cache != nil {
-		// Check if spx file set has changed.
-		cachedSpxFiles := slices.Sorted(maps.Keys(cache.spxFileModTimes))
-		if slices.Equal(spxFiles, cachedSpxFiles) {
-			// Check if any spx file has been modified.
-			modified := false
-			for _, spxFile := range spxFiles {
-				fi, err := fs.Stat(snapshot, spxFile)
-				if err != nil {
-					return nil, fmt.Errorf("failed to stat file %q: %w", spxFile, err)
-				}
-				if cachedModTime, ok := cache.spxFileModTimes[spxFile]; !ok || !fi.ModTime().Equal(cachedModTime) {
-					modified = true
-					break
-				}
-			}
-			if !modified {
-				return cache.result, nil
-			}
-		}
-	} */
 
 	// Compile at the given snapshot if cache is not used.
 	result, err := s.compileAt(snapshot)
@@ -759,21 +715,6 @@ func (s *Server) compile() (*compileResult, error) {
 		return nil, err
 	}
 
-	/* NOTE(xsw): dont need cache
-	// Update cache.
-	modTimes := make(map[string]time.Time, len(spxFiles))
-	for _, spxFile := range spxFiles {
-		fi, err := fs.Stat(snapshot, spxFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to stat file %q: %w", spxFile, err)
-		}
-		modTimes[spxFile] = fi.ModTime()
-	}
-	s.lastCompileCache = &compileCache{
-		result:          result,
-		spxFileModTimes: modTimes,
-	}
-	*/
 	return result, nil
 }
 
@@ -792,28 +733,12 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		result      = newCompileResult(snapshot.Fset)
 		spriteNames = make([]string, 0, len(spxFiles)-1)
 	)
-	// var gpfs     = vfs.NewGopParserFS(snapshot)
 
 	for _, spxFile := range spxFiles {
 		documentURI := s.toDocumentURI(spxFile)
 		result.diagnostics[documentURI] = []Diagnostic{}
 		result.documentURIs[spxFile] = documentURI
 
-		/* var (
-			astFile *gopast.File
-			err     error
-		)
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					err = fmt.Errorf("parser panic: %v", r)
-				}
-			}()
-			astFile, err = gopparser.ParseFSEntry(result.fset, gpfs, spxFile, nil, gopparser.Config{
-				Mode: gopparser.ParseComments | gopparser.AllErrors | gopparser.ParseGoPlusClass,
-			})
-		}()
-		*/
 		astFile, err := snapshot.AST(spxFile)
 		if err != nil {
 			var (
@@ -901,22 +826,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 			})
 		}
 	}
-	/* if err := goptypesutil.NewChecker(
-		&types.Config{
-			Error:    handleErr,
-			Importer: internal.Importer,
-		},
-		&goptypesutil.Config{
-			Types: result.mainPkg,
-			Fset:  result.fset,
-			Mod:   mod,
-		},
-		nil,
-		result.typeInfo,
-	).Files(nil, slices.Collect(maps.Values(result.mainASTPkg.Files))); err != nil {
-		// Errors should be handled by the type checker.
-	}
-	*/
+
 	snapshot.Path, snapshot.Name = "main", "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
