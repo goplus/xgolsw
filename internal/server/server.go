@@ -28,8 +28,6 @@ type Server struct {
 	workspaceRootFS  *vfs.MapFS
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
-	// lastCompileCache   *compileCache
-	// lastCompileCacheMu sync.Mutex
 }
 
 // New creates a new Server instance.
