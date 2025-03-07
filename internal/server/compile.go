@@ -991,7 +991,6 @@ func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileRe
 	if spxResourceRootDir == "" {
 		spxResourceRootDir = "assets"
 	}
-	// spxResourceRootFS, _ := fs.Sub(snapshot, spxResourceRootDir)
 	spxResourceRootFS := vfs.Sub(snapshot, spxResourceRootDir)
 
 	spxResourceSet, err := NewSpxResourceSet(spxResourceRootFS)

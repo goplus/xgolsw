@@ -25,7 +25,6 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	}
 
 	snapshot := s.workspaceRootFS.Snapshot()
-	// original, err := fs.ReadFile(snapshot, spxFile)
 	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
