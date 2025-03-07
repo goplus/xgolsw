@@ -18,7 +18,7 @@ through its API interfaces.
 
 * `goxls` runs locally, while `goxlsw` runs in the browser using WebAssembly.
 * `goxls` supports a workspace (multiple projects), while `goxlsw` supports a single project.
-* `goxls` supports mixed programming of Go and Go+, while `goxlsw` is a pure Go+ project.
+* `goxls` supports mixed programming of Go and Go+, while `goxlsw` only supports a pure Go+ project.
 
 ## Building from source
 
