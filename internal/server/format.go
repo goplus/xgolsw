@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
-	"io/fs"
 	"path"
 	"slices"
 	"time"
@@ -26,7 +25,8 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	}
 
 	snapshot := s.workspaceRootFS.Snapshot()
-	original, err := fs.ReadFile(snapshot, spxFile)
+	// original, err := fs.ReadFile(snapshot, spxFile)
+	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
@@ -84,12 +84,19 @@ func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) 
 			return nil, err
 		}
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			snapshot = snapshot.WithOverlay(map[string]vfs.MapFile{
+			/* snapshot = snapshot.WithOverlay(map[string]vfs.MapFile{
 				spxFile: {
 					Content: subFormatted,
 					ModTime: time.Now(),
 				},
 			}).Snapshot()
+			*/
+			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
+				spxFile: {
+					Content: subFormatted,
+					ModTime: time.Now(),
+				},
+			})
 			formatted = subFormatted
 		}
 	}
@@ -98,7 +105,8 @@ func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) 
 
 // formatSpxGop formats an spx source file with Go+ formatter.
 func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	original, err := fs.ReadFile(snapshot, spxFile)
+	// original, err := fs.ReadFile(snapshot, spxFile)
+	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, err
 	}

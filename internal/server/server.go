@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
@@ -22,11 +21,11 @@ type MessageReplier interface {
 
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
-	workspaceRootURI   DocumentURI
-	workspaceRootFS    *vfs.MapFS
-	replier            MessageReplier
-	lastCompileCache   *compileCache
-	lastCompileCacheMu sync.Mutex
+	workspaceRootURI DocumentURI
+	workspaceRootFS  *vfs.MapFS
+	replier          MessageReplier
+	// lastCompileCache   *compileCache
+	// lastCompileCacheMu sync.Mutex
 }
 
 // New creates a new Server instance.
