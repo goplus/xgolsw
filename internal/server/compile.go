@@ -917,6 +917,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		// Errors should be handled by the type checker.
 	}
 	*/
+	snapshot.Path, snapshot.Name = "main", "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
 	if result.mainPkg, result.typeInfo, err = snapshot.TypeInfo(); err != nil {
