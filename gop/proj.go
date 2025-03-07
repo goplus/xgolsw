@@ -140,6 +140,11 @@ func (p *Project) Snapshot() *Project {
 		builders:     p.builders,
 		fileBuilders: p.fileBuilders,
 		Fset:         p.Fset,
+		Mod:          p.Mod,
+		Path:         p.Path,
+		Name:         p.Name,
+		Importer:     p.Importer,
+		NewTypeInfo:  p.NewTypeInfo,
 	}
 	copyMap(&ret.files, &p.files)
 	copyMap(&ret.caches, &p.caches)
