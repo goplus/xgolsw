@@ -16,6 +16,7 @@ import (
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
 	goptypesutil "github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/pkgdoc"
 	"github.com/goplus/goxlsw/internal/util"
@@ -906,6 +907,8 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		// Errors should be handled by the type checker.
 	}
 	*/
+	snapshot.Mod = mod
+	snapshot.Importer = internal.Importer
 	if result.mainPkg, result.typeInfo, err = snapshot.TypeInfo(); err != nil {
 		switch err := err.(type) {
 		case errors.List:
