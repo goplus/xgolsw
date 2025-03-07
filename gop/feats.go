@@ -55,18 +55,25 @@ func buildAST(proj *Project, path string, file File) (ret any, err error) {
 	if !strings.HasSuffix(path, ".gop") { // TODO(xsw): use gopmod
 		mode |= parser.ParseGoPlusClass
 	}
-	return parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
+	f, e := parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
 		Mode: mode,
 	})
+	return &astRet{f, e}, nil
+}
+
+type astRet struct {
+	file *ast.File
+	err  error
 }
 
 // AST returns the AST of a Go+ source file.
-func (p *Project) AST(path string) (ret *ast.File, err error) {
+func (p *Project) AST(path string) (file *ast.File, err error) {
 	c, err := p.FileCache("ast", path)
 	if err != nil {
 		return
 	}
-	return c.(*ast.File), nil
+	ret := c.(*astRet)
+	return ret.file, ret.err
 }
 
 // ASTFiles returns the AST of all Go+ source files.
