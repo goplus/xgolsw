@@ -2,21 +2,17 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
-	"io/fs"
-	"maps"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/goplus/gogen"
 	gopast "github.com/goplus/gop/ast"
-	gopparser "github.com/goplus/gop/parser"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
 	goptypesutil "github.com/goplus/gop/x/typesutil"
@@ -29,7 +25,8 @@ import (
 	"github.com/goplus/goxlsw/internal/util"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/mod/gopmod"
-	gopmodload "github.com/goplus/mod/modload"
+	"github.com/goplus/mod/modload"
+	"github.com/qiniu/x/errors"
 )
 
 // errNoMainSpxFile is the error returned when no valid main.spx file is found
@@ -130,22 +127,22 @@ type astFileLine struct {
 }
 
 // newCompileResult creates a new [compileResult].
-func newCompileResult() *compileResult {
+func newCompileResult(fset *token.FileSet) *compileResult {
 	return &compileResult{
-		fset:                      goptoken.NewFileSet(),
-		mainPkg:                   types.NewPackage("main", "main"),
+		fset:                      fset,
+		mainPkg:                   nil, // types.NewPackage("main", "main")
 		mainASTPkg:                &gopast.Package{Name: "main", Files: make(map[string]*gopast.File)},
 		mainASTPkgSpecToGenDecl:   make(map[gopast.Spec]*gopast.GenDecl),
 		mainASTPkgIdentToFuncDecl: make(map[*gopast.Ident]*gopast.FuncDecl),
 		firstVarBlocks:            make(map[*gopast.File]*gopast.GenDecl),
-		typeInfo: &goptypesutil.Info{
+		typeInfo:                  nil, /* &goptypesutil.Info{
 			Types:      make(map[gopast.Expr]types.TypeAndValue),
 			Defs:       make(map[*gopast.Ident]types.Object),
 			Uses:       make(map[*gopast.Ident]types.Object),
 			Implicits:  make(map[gopast.Node]types.Object),
 			Selections: make(map[*gopast.SelectorExpr]*types.Selection),
 			Scopes:     make(map[gopast.Node]*types.Scope),
-		},
+		}, */
 		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
 		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
@@ -618,7 +615,7 @@ func (r *compileResult) fromPosition(astFile *gopast.File, position goptoken.Pos
 	line := position.Line
 	lineStart := int(tokenFile.LineStart(line))
 	relLineStart := lineStart - tokenFile.Base()
-	lineContent := astFile.Code[relLineStart : relLineStart+position.Column]
+	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
 	utf16Offset := utf8OffsetToUTF16(string(lineContent), position.Column-1)
 
 	return Position{
@@ -707,16 +704,20 @@ func (r *compileResult) locationForNode(node gopast.Node) Location {
 	}
 }
 
+/*
 // compileCache represents a cache for compilation results.
 type compileCache struct {
 	result          *compileResult
 	spxFileModTimes map[string]time.Time
 }
+*/
 
 // compile compiles spx source files and returns compile result. It uses cached
 // result if available.
 func (s *Server) compile() (*compileResult, error) {
 	snapshot := s.workspaceRootFS.Snapshot()
+
+	/* NOTE(xsw): dont need cache
 	spxFiles, err := listSpxFiles(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get spx files: %w", err)
@@ -750,7 +751,7 @@ func (s *Server) compile() (*compileResult, error) {
 				return cache.result, nil
 			}
 		}
-	}
+	} */
 
 	// Compile at the given snapshot if cache is not used.
 	result, err := s.compileAt(snapshot)
@@ -758,6 +759,7 @@ func (s *Server) compile() (*compileResult, error) {
 		return nil, err
 	}
 
+	/* NOTE(xsw): dont need cache
 	// Update cache.
 	modTimes := make(map[string]time.Time, len(spxFiles))
 	for _, spxFile := range spxFiles {
@@ -771,14 +773,14 @@ func (s *Server) compile() (*compileResult, error) {
 		result:          result,
 		spxFileModTimes: modTimes,
 	}
-
+	*/
 	return result, nil
 }
 
 // compileAt compiles spx source files at the given snapshot and returns the
 // compile result.
 func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
-	spxFiles, err := listSpxFiles(snapshot)
+	spxFiles, err := vfs.ListSpxFiles(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get spx files: %w", err)
 	}
@@ -787,16 +789,17 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 
 	var (
-		result      = newCompileResult()
-		gpfs        = vfs.NewGopParserFS(snapshot)
+		result      = newCompileResult(snapshot.Fset)
 		spriteNames = make([]string, 0, len(spxFiles)-1)
 	)
+	// var gpfs     = vfs.NewGopParserFS(snapshot)
+
 	for _, spxFile := range spxFiles {
 		documentURI := s.toDocumentURI(spxFile)
 		result.diagnostics[documentURI] = []Diagnostic{}
 		result.documentURIs[spxFile] = documentURI
 
-		var (
+		/* var (
 			astFile *gopast.File
 			err     error
 		)
@@ -810,6 +813,8 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 				Mode: gopparser.ParseComments | gopparser.AllErrors | gopparser.ParseGoPlusClass,
 			})
 		}()
+		*/
+		astFile, err := snapshot.AST(spxFile)
 		if err != nil {
 			var (
 				errorList gopscanner.ErrorList
@@ -882,22 +887,23 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 
 	result.mainPkgDoc = pkgdoc.NewForSpxMainPackage(result.mainASTPkg)
 
-	mod := gopmod.New(gopmodload.Default)
+	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
 		return nil, fmt.Errorf("failed to import classes: %w", err)
 	}
-	if err := goptypesutil.NewChecker(
+	handleErr := func(err error) {
+		if typeErr, ok := err.(types.Error); ok {
+			position := typeErr.Fset.Position(typeErr.Pos)
+			result.addDiagnosticsForSpxFile(position.Filename, Diagnostic{
+				Severity: SeverityError,
+				Range:    result.rangeForPos(typeErr.Pos),
+				Message:  typeErr.Msg,
+			})
+		}
+	}
+	/* if err := goptypesutil.NewChecker(
 		&types.Config{
-			Error: func(err error) {
-				if typeErr, ok := err.(types.Error); ok {
-					position := typeErr.Fset.Position(typeErr.Pos)
-					result.addDiagnosticsForSpxFile(position.Filename, Diagnostic{
-						Severity: SeverityError,
-						Range:    result.rangeForPos(typeErr.Pos),
-						Message:  typeErr.Msg,
-					})
-				}
-			},
+			Error:    handleErr,
 			Importer: internal.Importer,
 		},
 		&goptypesutil.Config{
@@ -909,6 +915,20 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		result.typeInfo,
 	).Files(nil, slices.Collect(maps.Values(result.mainASTPkg.Files))); err != nil {
 		// Errors should be handled by the type checker.
+	}
+	*/
+	snapshot.Path, snapshot.Name = "main", "main"
+	snapshot.Mod = mod
+	snapshot.Importer = internal.Importer
+	if result.mainPkg, result.typeInfo, err, _ = snapshot.TypeInfo(); err != nil {
+		switch err := err.(type) {
+		case errors.List:
+			for _, e := range err {
+				handleErr(e)
+			}
+		default:
+			handleErr(err)
+		}
 	}
 
 	if obj := result.mainPkg.Scope().Lookup("Game"); obj != nil {
@@ -984,7 +1004,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileRe
 	if spxResourceRootDir == "" {
 		spxResourceRootDir = "assets"
 	}
-	spxResourceRootFS, _ := fs.Sub(snapshot, spxResourceRootDir)
+	spxResourceRootFS := vfs.Sub(snapshot, spxResourceRootDir)
 
 	spxResourceSet, err := NewSpxResourceSet(spxResourceRootFS)
 	if err != nil {

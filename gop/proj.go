@@ -20,6 +20,7 @@ import (
 	"errors"
 	"go/token"
 	"go/types"
+	"io/fs"
 	"sync"
 	"time"
 
@@ -30,12 +31,6 @@ import (
 var (
 	// ErrUnknownKind represents an error of unknown kind.
 	ErrUnknownKind = errors.New("unknown kind")
-
-	// ErrNotFound represents an error of not found.
-	ErrNotFound = errors.New("not found")
-
-	// ErrFileExists represents an error of file exists.
-	ErrFileExists = errors.New("file exists")
 )
 
 const (
@@ -172,13 +167,13 @@ func (p *Project) deleteCache(path string) {
 func (p *Project) Rename(oldPath, newPath string) error {
 	if v, ok := p.files.Load(oldPath); ok {
 		if _, ok := p.files.LoadOrStore(newPath, v); ok {
-			return ErrFileExists
+			return fs.ErrExist
 		}
 		p.files.Delete(oldPath)
 		p.deleteCache(oldPath)
 		return nil
 	}
-	return ErrNotFound
+	return fs.ErrNotExist
 }
 
 // DeleteFile deletes a file from the project.
@@ -187,7 +182,7 @@ func (p *Project) DeleteFile(path string) error {
 		p.deleteCache(path)
 		return nil
 	}
-	return ErrNotFound
+	return fs.ErrNotExist
 }
 
 // PutFile puts a file into the project.
@@ -243,7 +238,7 @@ func (p *Project) FileCache(kind, path string) (any, error) {
 	}
 	file, ok := p.File(path)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fs.ErrNotExist
 	}
 	data, err := builder(p, path, file)
 	p.fileCaches.Store(key, encodeDataOrErr(data, err))

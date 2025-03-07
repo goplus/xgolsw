@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
@@ -25,12 +24,12 @@ type MessageReplier interface {
 
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
-	workspaceRootURI   DocumentURI
-	workspaceRootFS    *vfs.MapFS
-	replier            MessageReplier
-	lastCompileCache   *compileCache
-	lastCompileCacheMu sync.Mutex
-	analyzers          []*analysis.Analyzer
+	workspaceRootURI DocumentURI
+	workspaceRootFS  *vfs.MapFS
+	replier          MessageReplier
+	analyzers        []*analysis.Analyzer
+	// lastCompileCache   *compileCache
+	// lastCompileCacheMu sync.Mutex
 }
 
 // New creates a new Server instance.

@@ -25,6 +25,7 @@ import (
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/parser"
 	"github.com/goplus/gop/scanner"
+	"github.com/goplus/gop/token"
 	"github.com/goplus/gop/x/typesutil"
 	"github.com/qiniu/x/errors"
 )
@@ -55,42 +56,48 @@ func buildAST(proj *Project, path string, file File) (ret any, err error) {
 	if !strings.HasSuffix(path, ".gop") { // TODO(xsw): use gopmod
 		mode |= parser.ParseGoPlusClass
 	}
-	return parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
+	f, e := parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
 		Mode: mode,
 	})
+	return &astRet{f, e}, nil
+}
+
+type astRet struct {
+	file *ast.File
+	err  error
 }
 
 // AST returns the AST of a Go+ source file.
-func (p *Project) AST(path string) (ret *ast.File, err error) {
+func (p *Project) AST(path string) (file *ast.File, err error) {
 	c, err := p.FileCache("ast", path)
 	if err != nil {
 		return
 	}
-	return c.(*ast.File), nil
+	ret := c.(*astRet)
+	return ret.file, ret.err
 }
 
 // ASTFiles returns the AST of all Go+ source files.
 func (p *Project) ASTFiles() (ret []*ast.File, err error) {
 	ret, errs := p.getASTFiles()
-	err = errs.ToError()
+	err = errs.Err()
 	return
 }
 
-func (p *Project) getASTFiles() (ret []*ast.File, errs errors.List) {
+func (p *Project) getASTFiles() (ret []*ast.File, errs scanner.ErrorList) {
 	p.RangeFiles(func(path string) bool {
 		switch filepath.Ext(path) { // TODO(xsw): use gopmod
 		case ".spx", ".gop", ".gox":
 			f, e := p.AST(path)
+			if f != nil {
+				ret = append(ret, f)
+			}
 			if e != nil {
 				if el, ok := e.(scanner.ErrorList); ok {
-					for _, e := range el {
-						errs = append(errs, e)
-					}
+					errs = append(errs, el...)
 				} else {
-					errs = append(errs, e)
+					errs.Add(token.Position{}, e.Error())
 				}
-			} else {
-				ret = append(ret, f)
 			}
 		}
 		return true
@@ -128,28 +135,28 @@ func buildTypeInfo(proj *Project) (any, error) {
 		nil,
 		info,
 	)
-	files, err := proj.getASTFiles()
-	errs = append(errs, err...)
+	files, astErr := proj.getASTFiles()
 	if e := chk.Files(nil, files); e != nil && len(errs) == 0 {
 		errs.Add(e)
 	}
-	return &typeInfoRet{pkg, info, errs}, nil
+	return &typeInfoRet{pkg, info, errs, astErr}, nil
 }
 
 type typeInfoRet struct {
-	pkg  *types.Package
-	info *typesutil.Info
-	errs errors.List
+	pkg    *types.Package
+	info   *typesutil.Info
+	typErr errors.List
+	astErr error
 }
 
 // TypeInfo returns the type information of a Go+ project.
-func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err error) {
+func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, astErr error) {
 	c, err := p.Cache("typeinfo")
 	if err != nil {
 		return
 	}
 	ret := c.(*typeInfoRet)
-	return ret.pkg, ret.info, ret.errs.ToError()
+	return ret.pkg, ret.info, ret.typErr.ToError(), ret.astErr
 }
 
 // -----------------------------------------------------------------------------

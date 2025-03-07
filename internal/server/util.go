@@ -5,10 +5,8 @@ import (
 	"go/constant"
 	"go/types"
 	"html/template"
-	"io/fs"
 	"regexp"
 	"strconv"
-	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -16,25 +14,6 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
 )
-
-// listSpxFiles returns a list of .spx files in the rootFS.
-func listSpxFiles(rootFS fs.ReadDirFS) ([]string, error) {
-	entries, err := fs.ReadDir(rootFS, ".")
-	if err != nil {
-		return nil, err
-	}
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(entry.Name(), ".spx") {
-			continue
-		}
-		files = append(files, entry.Name())
-	}
-	return files, nil
-}
 
 // unwrapPointerType returns the underlying type of t. For pointer types, it
 // returns the element type that the pointer points to. For non-pointer types,
