@@ -93,6 +93,12 @@ func TestNewNil(t *testing.T) {
 	if _, e := proj.Cache("unknown"); e != ErrUnknownKind {
 		t.Fatal("Cache unknown:", e)
 	}
+	proj.RangeFileContents(func(path string, file File) bool {
+		if path != "main.gop" {
+			t.Fatal("RangeFileContents:", path)
+		}
+		return true
+	})
 }
 
 func TestNewCallback(t *testing.T) {

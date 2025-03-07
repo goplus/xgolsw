@@ -212,6 +212,13 @@ func (p *Project) RangeFiles(f func(path string) bool) {
 	})
 }
 
+// RangeFileContents ranges all file contents in the project.
+func (p *Project) RangeFileContents(f func(path string, file File) bool) {
+	p.files.Range(func(k, v any) bool {
+		return f(k.(string), v.(File))
+	})
+}
+
 // -----------------------------------------------------------------------------
 
 // InitFileCache initializes a file level cache.
