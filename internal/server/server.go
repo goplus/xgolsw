@@ -3,8 +3,11 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
+	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
 )
@@ -24,6 +27,7 @@ type Server struct {
 	workspaceRootURI DocumentURI
 	workspaceRootFS  *vfs.MapFS
 	replier          MessageReplier
+	analyzers        []*analysis.Analyzer
 	// lastCompileCache   *compileCache
 	// lastCompileCacheMu sync.Mutex
 }
@@ -31,10 +35,21 @@ type Server struct {
 // New creates a new Server instance.
 func New(mapFS *vfs.MapFS, replier MessageReplier) *Server {
 	return &Server{
-		workspaceRootURI: "file:///", // TODO: Allow setting this via the `initialize` request.
+		// TODO(spxls): Initialize request should set workspaceRootURI value
+		workspaceRootURI: "file:///",
 		workspaceRootFS:  mapFS,
 		replier:          replier,
+		analyzers:        initAnalyzers(true),
 	}
+}
+
+// InitAnalyzers initializes the analyzers for the server.
+func initAnalyzers(staticcheck bool) []*analysis.Analyzer {
+	analyzers := slices.Collect(maps.Values(analysis.DefaultAnalyzers))
+	if staticcheck {
+		analyzers = slices.AppendSeq(analyzers, maps.Values(analysis.StaticcheckAnalyzers))
+	}
+	return analyzers
 }
 
 // HandleMessage handles an incoming LSP message.
