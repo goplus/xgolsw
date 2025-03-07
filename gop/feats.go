@@ -17,7 +17,10 @@
 package gop
 
 import (
+	"fmt"
 	"go/types"
+	"path/filepath"
+	"strings"
 
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/parser"
@@ -40,12 +43,20 @@ var supportedFeats = []supportedFeat{
 
 // -----------------------------------------------------------------------------
 
-// TODO(xsw): always ParseGoPlusClass?
-const parserMode = parser.ParseComments | parser.AllErrors | parser.ParseGoPlusClass
+const parserMode = parser.ParseComments | parser.AllErrors
 
-func buildAST(proj *Project, path string, file File) (any, error) {
+func buildAST(proj *Project, path string, file File) (ret any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("parser panic: %v", r)
+		}
+	}()
+	mode := parserMode
+	if !strings.HasSuffix(path, ".gop") { // TODO(xsw): use gopmod
+		mode |= parser.ParseGoPlusClass
+	}
 	return parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
-		Mode: parserMode,
+		Mode: mode,
 	})
 }
 
@@ -67,17 +78,20 @@ func (p *Project) ASTFiles() (ret []*ast.File, err error) {
 
 func (p *Project) getASTFiles() (ret []*ast.File, errs errors.List) {
 	p.RangeFiles(func(path string) bool {
-		f, e := p.AST(path)
-		if e != nil {
-			if el, ok := e.(scanner.ErrorList); ok {
-				for _, e := range el {
+		switch filepath.Ext(path) { // TODO(xsw): use gopmod
+		case ".spx", ".gop", ".gox":
+			f, e := p.AST(path)
+			if e != nil {
+				if el, ok := e.(scanner.ErrorList); ok {
+					for _, e := range el {
+						errs = append(errs, e)
+					}
+				} else {
 					errs = append(errs, e)
 				}
 			} else {
-				errs = append(errs, e)
+				ret = append(ret, f)
 			}
-		} else {
-			ret = append(ret, f)
 		}
 		return true
 	})
