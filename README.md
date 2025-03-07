@@ -7,12 +7,18 @@ goxlsw
 [![Coverage Status](https://codecov.io/gh/goplus/goxlsw/branch/main/graph/badge.svg)](https://codecov.io/gh/goplus/goxlsw)
 [![GoDoc](https://pkg.go.dev/badge/github.com/goplus/goxlsw.svg)](https://pkg.go.dev/github.com/goplus/goxlsw)
 
-A lightweight Go+ language server for [spx](https://github.com/goplus/spx) that runs in the browser using WebAssembly.
+A lightweight Go+ language server that runs in the browser using WebAssembly.
 
 This project follows the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/)
 using [JSON-RPC 2.0](https://www.jsonrpc.org/specification) for message exchange. However, unlike traditional LSP
 implementations that require a network transport layer, this project operates directly in the browser's memory space
 through its API interfaces.
+
+## Difference between `goxls` and `goxlsw`
+
+* `goxls` runs locally, while `goxlsw` runs in the browser using WebAssembly.
+* `goxls` supports a workspace (multiple projects), while `goxlsw` supports a single project.
+* `goxls` supports mixed programming of Go and Go+, while `goxlsw` is a pure Go+ project.
 
 ## Building from source
 
