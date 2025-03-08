@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goplus/gop/ast"
+	"github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 	xfs "github.com/qiniu/x/http/fs"
 )
@@ -14,6 +16,19 @@ import (
 type MapFile = gop.File
 type MapFileImpl = gop.FileImpl
 type MapFS = gop.Project
+
+// RangeASTSpecs iterates AST specs.
+func RangeASTSpecs(rootFS *MapFS, tok token.Token, f func(spec ast.Spec)) {
+	rootFS.RangeASTFiles(func(_ string, file *ast.File) {
+		for _, decl := range file.Decls {
+			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
+				for _, spec := range decl.Specs {
+					f(spec)
+				}
+			}
+		}
+	})
+}
 
 // RangeSpriteNames iterates sprite names.
 func RangeSpriteNames(rootFS *MapFS, f func(name string) bool) {
@@ -39,29 +54,6 @@ func HasSpriteType(rootFS *MapFS, typ types.Type) (has bool) {
 	return
 }
 
-/*
-// SpriteTypes returns a list of sprite types.
-func SpriteTypes(rootFS *MapFS) (spriteTypes []*types.Named) {
-	pkg, _, _, _ := rootFS.TypeInfo()
-	RangeSpriteNames(rootFS, func(name string) bool {
-		if obj := pkg.Scope().Lookup(name); obj != nil {
-			spriteTypes = append(spriteTypes, obj.Type().(*types.Named))
-		}
-		return true
-	})
-	return
-}
-*/
-
-// WithOverlay returns a new MapFS with overlay files.
-func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {
-	ret := rootFS.Snapshot()
-	for k, v := range overlay {
-		ret.PutFile(k, v)
-	}
-	return ret
-}
-
 // ListSpxFiles returns a list of .spx files in the rootFS.
 func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
 	rootFS.RangeFiles(func(path string) bool {
@@ -71,6 +63,15 @@ func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
 		return true
 	})
 	return
+}
+
+// WithOverlay returns a new MapFS with overlay files.
+func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {
+	ret := rootFS.Snapshot()
+	for k, v := range overlay {
+		ret.PutFile(k, v)
+	}
+	return ret
 }
 
 // ReadFile reads a file from the rootFS.
