@@ -166,4 +166,8 @@ func TestErr(t *testing.T) {
 	if err != ErrUnknownKind {
 		t.Fatal("PkgDoc:", err)
 	}
+	_, err = buildPkgDoc(proj)
+	if err == nil || err.Error() != "unknown kind" {
+		t.Fatal("buildPkgDoc:", err)
+	}
 }
