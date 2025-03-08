@@ -21,9 +21,9 @@ import (
 	"github.com/goplus/goxlsw/internal/analysis/passes/inspect"
 	"github.com/goplus/goxlsw/internal/analysis/protocol"
 	"github.com/goplus/goxlsw/internal/pkgdata"
-	"github.com/goplus/goxlsw/internal/pkgdoc"
 	"github.com/goplus/goxlsw/internal/util"
 	"github.com/goplus/goxlsw/internal/vfs"
+	"github.com/goplus/goxlsw/pkgdoc"
 	"github.com/goplus/mod/gopmod"
 	"github.com/goplus/mod/modload"
 	"github.com/qiniu/x/errors"
@@ -810,7 +810,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		return result, nil
 	}
 
-	result.mainPkgDoc = pkgdoc.NewForSpxMainPackage(result.mainASTPkg)
+	result.mainPkgDoc = pkgdoc.NewGop("main", result.mainASTPkg)
 
 	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {

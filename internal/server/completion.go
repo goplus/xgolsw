@@ -13,8 +13,8 @@ import (
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/internal/pkgdata"
-	"github.com/goplus/goxlsw/internal/pkgdoc"
 	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/pkgdoc"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_completion

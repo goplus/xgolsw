@@ -15,7 +15,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/goplus/goxlsw/internal/pkgdoc"
+	"github.com/goplus/goxlsw/pkgdoc"
 	_ "github.com/goplus/spx"
 	"golang.org/x/tools/go/gcexportdata"
 )
@@ -260,7 +260,7 @@ func generate() error {
 				continue
 			}
 
-			pkgDoc = pkgdoc.New(astPkg, pkgPath)
+			pkgDoc = pkgdoc.NewGo(astPkg, pkgPath)
 		}
 		if zf, err := zw.Create(pkgPath + ".pkgdoc"); err != nil {
 			return err

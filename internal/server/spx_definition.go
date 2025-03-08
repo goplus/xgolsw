@@ -9,8 +9,8 @@ import (
 
 	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/pkgdata"
-	"github.com/goplus/goxlsw/internal/pkgdoc"
 	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/pkgdoc"
 )
 
 // SpxDefinition represents an spx definition.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/goplus/goxlsw/internal/pkgdoc"
+	"github.com/goplus/goxlsw/pkgdoc"
 )
 
 //go:generate go run ./gen/main.go

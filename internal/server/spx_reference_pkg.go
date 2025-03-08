@@ -2,7 +2,7 @@ package server
 
 import (
 	gopast "github.com/goplus/gop/ast"
-	"github.com/goplus/goxlsw/internal/pkgdoc"
+	"github.com/goplus/goxlsw/pkgdoc"
 )
 
 // SpxReferencePkg is a reference to an imported package.
