@@ -27,6 +27,7 @@ import (
 	"github.com/goplus/gop/scanner"
 	"github.com/goplus/gop/token"
 	"github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/pkgdoc"
 	"github.com/qiniu/x/errors"
 )
 
@@ -40,6 +41,7 @@ type supportedFeat struct {
 var supportedFeats = []supportedFeat{
 	{FeatAST, "ast", buildAST, true},
 	{FeatTypeInfo, "typeinfo", buildTypeInfo, false},
+	{FeatPkgDoc, "pkgdoc", buildPkgDoc, false},
 }
 
 // -----------------------------------------------------------------------------
@@ -177,6 +179,25 @@ func (p *Project) ASTPackage() (pkg *ast.Package, err error) {
 		pkg.Files[path] = f
 	})
 	return
+}
+
+// -----------------------------------------------------------------------------
+
+func buildPkgDoc(proj *Project) (ret any, err error) {
+	pkg, err := proj.ASTPackage()
+	if err != nil {
+		return
+	}
+	return pkgdoc.NewGop(proj.Path, pkg), nil
+}
+
+// PkgDoc returns the package documentation of a Go+ project.
+func (p *Project) PkgDoc() (pkg *pkgdoc.PkgDoc, err error) {
+	c, err := p.Cache("pkgdoc")
+	if err != nil {
+		return
+	}
+	return c.(*pkgdoc.PkgDoc), nil
 }
 
 // -----------------------------------------------------------------------------
