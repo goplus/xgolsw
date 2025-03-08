@@ -15,6 +15,7 @@ import (
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/pkgdoc"
 )
 
@@ -774,7 +775,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	if named == GetSpxSpriteType() {
 		return ctx.result.spxResourceSet.sprites[ident.Name]
 	}
-	if slices.Contains(ctx.result.mainPkgSpriteTypes, named) {
+	if vfs.HasSpriteType(ctx.proj, named) {
 		return ctx.result.spxResourceSet.sprites[obj.Name()]
 	}
 	return nil

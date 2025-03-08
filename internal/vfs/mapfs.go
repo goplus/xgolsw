@@ -1,7 +1,9 @@
 package vfs
 
 import (
+	"go/types"
 	"io/fs"
+	"path"
 	"sort"
 	"strings"
 
@@ -12,6 +14,44 @@ import (
 type MapFile = gop.File
 type MapFileImpl = gop.FileImpl
 type MapFS = gop.Project
+
+// RangeSpriteNames iterates sprite names.
+func RangeSpriteNames(rootFS *MapFS, f func(name string) bool) {
+	rootFS.RangeFiles(func(filename string) bool {
+		name := path.Base(filename)
+		if strings.HasSuffix(name, ".spx") {
+			return f(name[:len(name)-4])
+		}
+		return true
+	})
+}
+
+// HasSpriteType checks if there is specified sprite type.
+func HasSpriteType(rootFS *MapFS, typ types.Type) (has bool) {
+	pkg, _, _, _ := rootFS.TypeInfo()
+	RangeSpriteNames(rootFS, func(name string) bool {
+		if obj := pkg.Scope().Lookup(name); obj != nil && obj.Type() == typ {
+			has = true
+			return false
+		}
+		return true
+	})
+	return
+}
+
+/*
+// SpriteTypes returns a list of sprite types.
+func SpriteTypes(rootFS *MapFS) (spriteTypes []*types.Named) {
+	pkg, _, _, _ := rootFS.TypeInfo()
+	RangeSpriteNames(rootFS, func(name string) bool {
+		if obj := pkg.Scope().Lookup(name); obj != nil {
+			spriteTypes = append(spriteTypes, obj.Type().(*types.Named))
+		}
+		return true
+	})
+	return
+}
+*/
 
 // WithOverlay returns a new MapFS with overlay files.
 func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {

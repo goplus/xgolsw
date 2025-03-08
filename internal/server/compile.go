@@ -58,12 +58,6 @@ func getASTPkg(proj *gop.Project) *gopast.Package {
 type compileResult struct {
 	proj *gop.Project
 
-	// mainPkgGameType is the Game type in the main package.
-	mainPkgGameType *types.Named
-
-	// mainPkgSpriteTypes stores sprite types in the main package.
-	mainPkgSpriteTypes []*types.Named
-
 	// mainASTPkgSpecToGenDecl maps each spec in the main package AST to its
 	// parent general declaration.
 	mainASTPkgSpecToGenDecl map[gopast.Spec]*gopast.GenDecl
@@ -731,11 +725,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		return nil, errNoMainSpxFile
 	}
 
-	var (
-		result      = newCompileResult(snapshot)
-		spriteNames = make([]string, 0, len(spxFiles)-1)
-	)
-
+	result := newCompileResult(snapshot)
 	for _, spxFile := range spxFiles {
 		documentURI := s.toDocumentURI(spxFile)
 		result.diagnostics[documentURI] = []Diagnostic{}
@@ -785,8 +775,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 
 		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
 			result.mainSpxFile = spxFile
-		} else {
-			spriteNames = append(spriteNames, strings.TrimSuffix(spxFileBaseName, ".spx"))
 		}
 
 		for _, decl := range astFile.Decls {
@@ -829,7 +817,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	snapshot.Path = "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
-	pkg, _, err, _ := snapshot.TypeInfo()
+	_, _, err, _ = snapshot.TypeInfo()
 	if err != nil {
 		switch err := err.(type) {
 		case errors.List:
@@ -838,17 +826,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 			}
 		default:
 			handleErr(err)
-		}
-	}
-
-	if obj := pkg.Scope().Lookup("Game"); obj != nil {
-		result.mainPkgGameType = obj.Type().(*types.Named)
-	}
-
-	result.mainPkgSpriteTypes = make([]*types.Named, 0, len(spriteNames))
-	for _, spxSpriteName := range spriteNames {
-		if obj := pkg.Scope().Lookup(spxSpriteName); obj != nil {
-			result.mainPkgSpriteTypes = append(result.mainPkgSpriteTypes, obj.Type().(*types.Named))
 		}
 	}
 
@@ -1035,7 +1012,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 		case GetSpxSpriteType():
 			isSpxSpriteResourceAutoBinding = result.spxResourceSet.Sprite(v.Name()) != nil
 		default:
-			isSpxSpriteResourceAutoBinding = v.Name() == varType.Obj().Name() && slices.Contains(result.mainPkgSpriteTypes, varType)
+			isSpxSpriteResourceAutoBinding = v.Name() == varType.Obj().Name() && vfs.HasSpriteType(result.proj, varType)
 		}
 		if !isSpxSoundResourceAutoBinding && !isSpxSpriteResourceAutoBinding {
 			continue
@@ -1185,7 +1162,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 	case GetSpxWidgetNameType():
 		s.inspectSpxWidgetResourceRefAtExpr(result, expr, typ)
 	default:
-		if slices.ContainsFunc(result.mainPkgSpriteTypes, func(named *types.Named) bool { return named == typ }) {
+		if vfs.HasSpriteType(result.proj, typ) {
 			s.inspectSpxSpriteResourceRefAtExpr(result, expr, typ)
 		}
 	}
