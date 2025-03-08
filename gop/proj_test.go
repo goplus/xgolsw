@@ -22,7 +22,7 @@ import (
 )
 
 func file(text string) File {
-	return File{Content: []byte(text)}
+	return &FileImpl{Content: []byte(text)}
 }
 
 func TestBasic(t *testing.T) {
