@@ -58,10 +58,6 @@ func getASTPkg(proj *gop.Project) *gopast.Package {
 type compileResult struct {
 	proj *gop.Project
 
-	// mainASTPkgSpecToGenDecl maps each spec in the main package AST to its
-	// parent general declaration.
-	mainASTPkgSpecToGenDecl map[gopast.Spec]*gopast.GenDecl
-
 	// mainASTPkgIdentToFuncDecl maps each function identifier in the main
 	// package AST to its function declaration.
 	mainASTPkgIdentToFuncDecl map[*gopast.Ident]*gopast.FuncDecl
@@ -130,7 +126,6 @@ type astFileLine struct {
 func newCompileResult(proj *gop.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
-		mainASTPkgSpecToGenDecl:       make(map[gopast.Spec]*gopast.GenDecl),
 		mainASTPkgIdentToFuncDecl:     make(map[*gopast.Ident]*gopast.FuncDecl),
 		firstVarBlocks:                make(map[*gopast.File]*gopast.GenDecl),
 		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
@@ -780,10 +775,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
 			case *gopast.GenDecl:
-				for _, spec := range decl.Specs {
-					result.mainASTPkgSpecToGenDecl[spec] = decl
-				}
-
 				if result.firstVarBlocks[astFile] == nil && decl.Tok == goptoken.VAR {
 					result.firstVarBlocks[astFile] = decl
 				}

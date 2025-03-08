@@ -39,29 +39,6 @@ func HasSpriteType(rootFS *MapFS, typ types.Type) (has bool) {
 	return
 }
 
-/*
-// SpriteTypes returns a list of sprite types.
-func SpriteTypes(rootFS *MapFS) (spriteTypes []*types.Named) {
-	pkg, _, _, _ := rootFS.TypeInfo()
-	RangeSpriteNames(rootFS, func(name string) bool {
-		if obj := pkg.Scope().Lookup(name); obj != nil {
-			spriteTypes = append(spriteTypes, obj.Type().(*types.Named))
-		}
-		return true
-	})
-	return
-}
-*/
-
-// WithOverlay returns a new MapFS with overlay files.
-func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {
-	ret := rootFS.Snapshot()
-	for k, v := range overlay {
-		ret.PutFile(k, v)
-	}
-	return ret
-}
-
 // ListSpxFiles returns a list of .spx files in the rootFS.
 func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
 	rootFS.RangeFiles(func(path string) bool {
@@ -71,6 +48,15 @@ func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
 		return true
 	})
 	return
+}
+
+// WithOverlay returns a new MapFS with overlay files.
+func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {
+	ret := rootFS.Snapshot()
+	for k, v := range overlay {
+		ret.PutFile(k, v)
+	}
+	return ret
 }
 
 // ReadFile reads a file from the rootFS.

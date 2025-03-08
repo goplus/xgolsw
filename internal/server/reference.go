@@ -4,6 +4,7 @@ import (
 	"go/types"
 
 	gopast "github.com/goplus/gop/ast"
+	"github.com/goplus/gop/token"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_references
@@ -93,18 +94,15 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 		}
 		seenIfaces[current] = true
 
-		for spec := range result.mainASTPkgSpecToGenDecl {
-			typeSpec, ok := spec.(*gopast.TypeSpec)
-			if !ok {
-				continue
-			}
+		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				continue
+				return
 			}
 			embedIface, ok := typeName.Type().Underlying().(*types.Interface)
 			if !ok {
-				continue
+				return
 			}
 
 			for i := range embedIface.NumEmbeddeds() {
@@ -116,7 +114,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 					find(embedIface)
 				}
 			}
-		}
+		})
 	}
 	find(iface)
 	return locations
@@ -127,26 +125,23 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 func (s *Server) findImplementingMethodReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
 	typeInfo := getTypeInfo(result.proj)
 	var locations []Location
-	for spec := range result.mainASTPkgSpecToGenDecl {
-		typeSpec, ok := spec.(*gopast.TypeSpec)
-		if !ok {
-			continue
-		}
+	result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+		typeSpec := spec.(*gopast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
-			continue
+			return
 		}
 		named, ok := typeName.Type().(*types.Named)
 		if !ok || !types.Implements(named, iface) {
-			continue
+			return
 		}
 
 		method, index, _ := types.LookupFieldOrMethod(named, false, named.Obj().Pkg(), methodName)
 		if method == nil || index == nil {
-			continue
+			return
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
-	}
+	})
 	return locations
 }
 
@@ -158,28 +153,25 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 	recvType := fn.Type().(*types.Signature).Recv().Type()
 	seenIfaces := make(map[*types.Interface]bool)
 
-	for spec := range result.mainASTPkgSpecToGenDecl {
-		typeSpec, ok := spec.(*gopast.TypeSpec)
-		if !ok {
-			continue
-		}
+	result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+		typeSpec := spec.(*gopast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
-			continue
+			return
 		}
 		ifaceType, ok := typeName.Type().Underlying().(*types.Interface)
 		if !ok || !types.Implements(recvType, ifaceType) || seenIfaces[ifaceType] {
-			continue
+			return
 		}
 		seenIfaces[ifaceType] = true
 
 		method, index, _ := types.LookupFieldOrMethod(ifaceType, false, typeName.Pkg(), fn.Name())
 		if method == nil || index == nil {
-			continue
+			return
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
 		locations = append(locations, s.findEmbeddedInterfaceReferences(result, ifaceType, fn.Name())...)
-	}
+	})
 	return locations
 }
 
@@ -194,22 +186,19 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.
 		}
 
 		seenTypes := make(map[types.Type]bool)
-		for spec := range result.mainASTPkgSpecToGenDecl {
-			typeSpec, ok := spec.(*gopast.TypeSpec)
-			if !ok {
-				continue
-			}
+		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				continue
+				return
 			}
 			named, ok := typeName.Type().(*types.Named)
 			if !ok {
-				continue
+				return
 			}
 
 			locations = append(locations, s.findEmbeddedMethodReferences(result, fn, named, recv.Type(), seenTypes)...)
-		}
+		})
 	}
 	return locations
 }
@@ -250,22 +239,19 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 	}
 	if hasEmbed {
 		typeInfo := getTypeInfo(result.proj)
-		for spec := range result.mainASTPkgSpecToGenDecl {
-			typeSpec, ok := spec.(*gopast.TypeSpec)
-			if !ok {
-				continue
-			}
+		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				continue
+				return
 			}
 			named, ok := typeName.Type().(*types.Named)
 			if !ok {
-				continue
+				return
 			}
 
 			locations = append(locations, s.findEmbeddedMethodReferences(result, fn, named, named, seenTypes)...)
-		}
+		})
 	}
 	return locations
 }

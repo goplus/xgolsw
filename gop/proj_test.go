@@ -19,6 +19,9 @@ package gop
 import (
 	"io/fs"
 	"testing"
+
+	"github.com/goplus/gop/ast"
+	"github.com/goplus/gop/token"
 )
 
 func file(text string) File {
@@ -132,6 +135,18 @@ func TestNewCallback(t *testing.T) {
 	if _, err = proj.FileCache("unknown", "main.spx"); err != ErrUnknownKind {
 		t.Fatal("FileCache:", err)
 	}
+}
+
+func TestRangeASTSpecs(t *testing.T) {
+	proj := NewProject(nil, map[string]File{
+		"main.gop": file("type A = int"),
+	}, FeatAll)
+	proj.RangeASTSpecs(token.TYPE, func(spec ast.Spec) {
+		ts := spec.(*ast.TypeSpec)
+		if ts.Name.Name != "A" || ts.Assign == 0 {
+			t.Fatal("RangeASTSpecs:", *ts)
+		}
+	})
 }
 
 func TestErr(t *testing.T) {

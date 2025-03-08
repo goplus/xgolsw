@@ -143,6 +143,19 @@ func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, ast
 
 // -----------------------------------------------------------------------------
 
+// RangeASTSpecs iterates all Go+ AST specs.
+func (p *Project) RangeASTSpecs(tok token.Token, f func(spec ast.Spec)) {
+	p.RangeASTFiles(func(_ string, file *ast.File) {
+		for _, decl := range file.Decls {
+			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
+				for _, spec := range decl.Specs {
+					f(spec)
+				}
+			}
+		}
+	})
+}
+
 // RangeASTFiles iterates all Go+ AST files.
 func (p *Project) RangeASTFiles(fn func(path string, f *ast.File)) (name string, err error) {
 	var errs scanner.ErrorList
