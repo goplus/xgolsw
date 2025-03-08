@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/goplus/gop/ast"
-	"github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 	xfs "github.com/qiniu/x/http/fs"
 )
@@ -16,19 +14,6 @@ import (
 type MapFile = gop.File
 type MapFileImpl = gop.FileImpl
 type MapFS = gop.Project
-
-// RangeASTSpecs iterates AST specs.
-func RangeASTSpecs(rootFS *MapFS, tok token.Token, f func(spec ast.Spec)) {
-	rootFS.RangeASTFiles(func(_ string, file *ast.File) {
-		for _, decl := range file.Decls {
-			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
-				for _, spec := range decl.Specs {
-					f(spec)
-				}
-			}
-		}
-	})
-}
 
 // RangeSpriteNames iterates sprite names.
 func RangeSpriteNames(rootFS *MapFS, f func(name string) bool) {
