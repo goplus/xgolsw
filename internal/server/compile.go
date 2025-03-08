@@ -827,7 +827,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		}
 	}
 
-	snapshot.Path, snapshot.Name = "main", "main"
+	snapshot.Path = "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
 	if result.mainPkg, result.typeInfo, err, _ = snapshot.TypeInfo(); err != nil {

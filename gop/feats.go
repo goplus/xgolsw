@@ -78,29 +78,9 @@ func (p *Project) AST(path string) (file *ast.File, err error) {
 }
 
 // ASTFiles returns the AST of all Go+ source files.
-func (p *Project) ASTFiles() (ret []*ast.File, err error) {
-	ret, errs := p.getASTFiles()
-	err = errs.Err()
-	return
-}
-
-func (p *Project) getASTFiles() (ret []*ast.File, errs scanner.ErrorList) {
-	p.RangeFiles(func(path string) bool {
-		switch filepath.Ext(path) { // TODO(xsw): use gopmod
-		case ".spx", ".gop", ".gox":
-			f, e := p.AST(path)
-			if f != nil {
-				ret = append(ret, f)
-			}
-			if e != nil {
-				if el, ok := e.(scanner.ErrorList); ok {
-					errs = append(errs, el...)
-				} else {
-					errs.Add(token.Position{}, e.Error())
-				}
-			}
-		}
-		return true
+func (p *Project) ASTFiles() (name string, ret []*ast.File, err error) {
+	name, err = p.RangeASTFiles(func(_ string, f *ast.File) {
+		ret = append(ret, f)
 	})
 	return
 }
@@ -120,7 +100,8 @@ func defaultNewTypeInfo() *typesutil.Info {
 
 func buildTypeInfo(proj *Project) (any, error) {
 	var errs errors.List
-	pkg := types.NewPackage(proj.Path, proj.Name)
+	name, files, astErr := proj.ASTFiles()
+	pkg := types.NewPackage(proj.Path, name)
 	info := proj.NewTypeInfo()
 	chk := typesutil.NewChecker(
 		&types.Config{
@@ -135,7 +116,6 @@ func buildTypeInfo(proj *Project) (any, error) {
 		nil,
 		info,
 	)
-	files, astErr := proj.getASTFiles()
 	if e := chk.Files(nil, files); e != nil && len(errs) == 0 {
 		errs.Add(e)
 	}
@@ -157,6 +137,46 @@ func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, ast
 	}
 	ret := c.(*typeInfoRet)
 	return ret.pkg, ret.info, ret.typErr.ToError(), ret.astErr
+}
+
+// -----------------------------------------------------------------------------
+
+// RangeASTFiles iterates all Go+ AST files.
+func (p *Project) RangeASTFiles(fn func(path string, f *ast.File)) (name string, err error) {
+	var errs scanner.ErrorList
+	p.RangeFiles(func(path string) bool {
+		switch filepath.Ext(path) { // TODO(xsw): use gopmod
+		case ".spx", ".gop", ".gox":
+			f, e := p.AST(path)
+			if f != nil {
+				if name == "" {
+					name = f.Name.Name
+				}
+				fn(path, f)
+			}
+			if e != nil {
+				if el, ok := e.(scanner.ErrorList); ok {
+					errs = append(errs, el...)
+				} else {
+					errs.Add(token.Position{}, e.Error())
+				}
+			}
+		}
+		return true
+	})
+	err = errs.Err()
+	return
+}
+
+// ASTPackage returns the AST package of a Go+ project.
+func (p *Project) ASTPackage() (pkg *ast.Package, err error) {
+	pkg = &ast.Package{
+		Files: make(map[string]*ast.File),
+	}
+	pkg.Name, err = p.RangeASTFiles(func(path string, f *ast.File) {
+		pkg.Files[path] = f
+	})
+	return
 }
 
 // -----------------------------------------------------------------------------

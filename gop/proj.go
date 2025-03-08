@@ -36,6 +36,8 @@ var (
 const (
 	// FeatAST represents to build AST cache.
 	FeatAST = 1 << iota
+
+	// FeatTypeInfo represents to build TypeInfo cache.
 	FeatTypeInfo
 
 	FeatAll = FeatAST | FeatTypeInfo
@@ -81,7 +83,6 @@ type Project struct {
 
 	// The caller is responsible for initialization (optional).
 	Path string
-	Name string
 
 	// The caller is responsible for initialization (required).
 	Importer types.Importer
@@ -137,7 +138,6 @@ func (p *Project) Snapshot() *Project {
 		Fset:         p.Fset,
 		Mod:          p.Mod,
 		Path:         p.Path,
-		Name:         p.Name,
 		Importer:     p.Importer,
 		NewTypeInfo:  p.NewTypeInfo,
 	}
@@ -200,14 +200,14 @@ func (p *Project) File(path string) (ret File, ok bool) {
 	return
 }
 
-// RangeFiles ranges all files in the project.
+// RangeFiles iterates all files in the project.
 func (p *Project) RangeFiles(f func(path string) bool) {
 	p.files.Range(func(k, _ any) bool {
 		return f(k.(string))
 	})
 }
 
-// RangeFileContents ranges all file contents in the project.
+// RangeFileContents iterates all file contents in the project.
 func (p *Project) RangeFileContents(f func(path string, file File) bool) {
 	p.files.Range(func(k, v any) bool {
 		return f(k.(string), v.(File))

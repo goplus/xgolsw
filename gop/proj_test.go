@@ -37,6 +37,13 @@ func TestBasic(t *testing.T) {
 	if body := f.ShadowEntry.Body.List; len(body) != 1 {
 		t.Fatal("body:", body)
 	}
+	pkg, err := proj.ASTPackage()
+	if err != nil {
+		t.Fatal("ASTPackage:", err)
+	}
+	if pkg.Name != "main" || len(pkg.Files) != 2 {
+		t.Fatal("pkg.Name:", pkg.Name, "Files:", len(pkg.Files))
+	}
 	proj2 := proj.Snapshot()
 	f2, err2 := proj2.AST("main.spx")
 	if f2 != f || err2 != nil {
@@ -77,7 +84,7 @@ func TestNewNil(t *testing.T) {
 	if body := f.ShadowEntry.Body.List; len(body) != 1 {
 		t.Fatal("body:", body)
 	}
-	if files, err := proj.ASTFiles(); err != nil || len(files) != 1 {
+	if _, files, err := proj.ASTFiles(); err != nil || len(files) != 1 {
 		t.Fatal("ASTFiles:", files, err)
 	}
 	pkg, _, err, _ := proj.TypeInfo()
@@ -130,7 +137,7 @@ func TestErr(t *testing.T) {
 	if _, err2 := proj.Snapshot().AST("main.spx"); err2 == nil {
 		t.Fatal("Snapshot AST no error?")
 	}
-	if _, err3 := proj.ASTFiles(); err3 == nil {
+	if _, _, err3 := proj.ASTFiles(); err3 == nil {
 		t.Fatal("ASTFiles no error?")
 	}
 	proj.PutFile("main.spx", file("echo 100"))
