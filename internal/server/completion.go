@@ -37,14 +37,15 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 		return nil, nil
 	}
 
+	proj := result.proj
 	ctx := &completionContext{
 		proj:           s.getProj(),
 		itemSet:        newCompletionItemSet(),
 		result:         result,
 		spxFile:        spxFile,
 		astFile:        astFile,
-		astFileScope:   result.typeInfo.Scopes[astFile],
-		tokenFile:      result.fset.File(astFile.Pos()),
+		astFileScope:   getTypeInfo(proj).Scopes[astFile],
+		tokenFile:      proj.Fset.File(astFile.Pos()),
 		pos:            pos,
 		innermostScope: innermostScope,
 	}
@@ -108,6 +109,7 @@ func (ctx *completionContext) pkgDoc() *pkgdoc.PkgDoc {
 
 // analyze analyzes the completion context to determine the kind of completion needed.
 func (ctx *completionContext) analyze() {
+	typeInfo := getTypeInfo(ctx.proj)
 	path, _ := util.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
 	for i, node := range slices.Backward(path) {
 		switch node := node.(type) {
@@ -122,7 +124,7 @@ func (ctx *completionContext) analyze() {
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node
 		case *gopast.CompositeLit:
-			tv, ok := ctx.result.typeInfo.Types[node]
+			tv, ok := typeInfo.Types[node]
 			if !ok {
 				continue
 			}
@@ -142,11 +144,11 @@ func (ctx *completionContext) analyze() {
 				}
 				if j < len(node.Lhs) {
 					ctx.kind = completionKindAssignOrDefine
-					if tv, ok := ctx.result.typeInfo.Types[node.Lhs[j]]; ok {
+					if tv, ok := typeInfo.Types[node.Lhs[j]]; ok {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
 					if ident, ok := node.Lhs[j].(*gopast.Ident); ok {
-						defIdent := ctx.result.defIdentFor(ctx.result.typeInfo.ObjectOf(ident))
+						defIdent := ctx.result.defIdentFor(typeInfo.ObjectOf(ident))
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
 						}
@@ -187,7 +189,7 @@ func (ctx *completionContext) analyze() {
 						continue
 					}
 					ctx.kind = completionKindDecl
-					if typ := ctx.result.typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
+					if typ := typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
 						ctx.expectedTypes = []types.Type{typ}
 					}
 					ctx.assignTargets = valueSpec.Names
@@ -300,12 +302,13 @@ func (ctx *completionContext) isLineStart() bool {
 
 // enclosingFunction gets the function signature containing the current position.
 func (ctx *completionContext) enclosingFunction(path []gopast.Node) *types.Signature {
+	typeInfo := getTypeInfo(ctx.proj)
 	for _, node := range path {
 		funcDecl, ok := node.(*gopast.FuncDecl)
 		if !ok {
 			continue
 		}
-		obj := ctx.result.typeInfo.ObjectOf(funcDecl.Name)
+		obj := typeInfo.ObjectOf(funcDecl.Name)
 		if obj == nil {
 			continue
 		}
@@ -398,8 +401,9 @@ func (ctx *completionContext) collectGeneral() error {
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
 
 	// Add local definitions from innermost scope and its parents.
+	pkg := getPkg(ctx.proj)
 	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
-		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == ctx.result.mainPkg.Scope()
+		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
 			if !isExportedOrMainPkgObject(obj) {
@@ -511,19 +515,20 @@ func (ctx *completionContext) collectImport() error {
 
 // collectDot collects dot completions for member access.
 func (ctx *completionContext) collectDot() error {
+	typeInfo := getTypeInfo(ctx.proj)
 	if ctx.selectorExpr == nil {
 		return nil
 	}
 
 	if ident, ok := ctx.selectorExpr.X.(*gopast.Ident); ok {
-		if obj := ctx.result.typeInfo.ObjectOf(ident); obj != nil {
+		if obj := typeInfo.ObjectOf(ident); obj != nil {
 			if pkgName, ok := obj.(*types.PkgName); ok {
 				return ctx.collectPackageMembers(pkgName.Imported())
 			}
 		}
 	}
 
-	tv, ok := ctx.result.typeInfo.Types[ctx.selectorExpr.X]
+	tv, ok := typeInfo.Types[ctx.selectorExpr.X]
 	if !ok {
 		return nil
 	}
@@ -575,7 +580,8 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
-	tv, ok := ctx.result.typeInfo.Types[callExpr.Fun]
+	typeInfo := getTypeInfo(ctx.proj)
+	tv, ok := typeInfo.Types[callExpr.Fun]
 	if !ok {
 		return nil
 	}
@@ -592,11 +598,11 @@ func (ctx *completionContext) collectCall() error {
 	var fun *types.Func
 	switch expr := callExpr.Fun.(type) {
 	case *gopast.Ident:
-		if obj := ctx.result.typeInfo.ObjectOf(expr); obj != nil {
+		if obj := typeInfo.ObjectOf(expr); obj != nil {
 			fun, _ = obj.(*types.Func)
 		}
 	case *gopast.SelectorExpr:
-		if obj := ctx.result.typeInfo.ObjectOf(expr.Sel); obj != nil {
+		if obj := typeInfo.ObjectOf(expr.Sel); obj != nil {
 			fun, _ = obj.(*types.Func)
 		}
 	}
@@ -756,7 +762,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	if !ok {
 		return nil
 	}
-	obj := ctx.result.typeInfo.ObjectOf(ident)
+	obj := getTypeInfo(ctx.proj).ObjectOf(ident)
 	if obj == nil {
 		return nil
 	}
@@ -825,7 +831,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 		return nil
 	}
 
-	tv, ok := ctx.result.typeInfo.Types[ctx.switchTag]
+	tv, ok := getTypeInfo(ctx.proj).Types[ctx.switchTag]
 	if !ok {
 		return nil
 	}

@@ -19,7 +19,8 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	targetObj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	typeInfo := getTypeInfo(result.proj)
+	targetObj := typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if targetObj == nil {
 		return nil, nil
 	}
@@ -33,7 +34,7 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		if !ok {
 			return true
 		}
-		obj := result.typeInfo.ObjectOf(ident)
+		obj := typeInfo.ObjectOf(ident)
 		if obj != targetObj {
 			return true
 		}

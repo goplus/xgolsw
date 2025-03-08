@@ -24,7 +24,8 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	if ident == nil {
 		return nil, nil
 	}
-	obj := result.typeInfo.ObjectOf(ident)
+	typeInfo := getTypeInfo(result.proj)
+	obj := typeInfo.ObjectOf(ident)
 	if !isRenameableObject(obj) {
 		return nil, nil
 	}
@@ -56,7 +57,8 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		}})
 	}
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	typeInfo := getTypeInfo(result.proj)
+	obj := typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if !isRenameableObject(obj) {
 		return nil, nil
 	}
@@ -91,24 +93,26 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID, newName string) map[DocumentURI][]TextEdit {
 	changes := make(map[DocumentURI][]TextEdit)
 	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
+	fset := result.proj.Fset
+	typeInfo := getTypeInfo(result.proj)
 	for _, ref := range result.spxResourceRefs {
 		if ref.ID != id {
 			continue
 		}
 
-		nodePos := result.fset.Position(ref.Node.Pos())
-		nodeEnd := result.fset.Position(ref.Node.End())
+		nodePos := fset.Position(ref.Node.Pos())
+		nodeEnd := fset.Position(ref.Node.End())
 
-		if expr, ok := ref.Node.(gopast.Expr); ok && types.AssignableTo(result.typeInfo.TypeOf(expr), types.Typ[types.String]) {
+		if expr, ok := ref.Node.(gopast.Expr); ok && types.AssignableTo(typeInfo.TypeOf(expr), types.Typ[types.String]) {
 			if ident, ok := expr.(*gopast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
-				defIdent := result.defIdentFor(result.typeInfo.ObjectOf(ident))
+				defIdent := result.defIdentFor(typeInfo.ObjectOf(ident))
 				if defIdent != nil && result.isInFset(defIdent.Pos()) {
 					parent, ok := defIdent.Obj.Decl.(*gopast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {
-						nodePos = result.fset.Position(parent.Values[0].Pos())
-						nodeEnd = result.fset.Position(parent.Values[0].End())
+						nodePos = fset.Position(parent.Values[0].Pos())
+						nodeEnd = fset.Position(parent.Values[0].End())
 					}
 				}
 			}
@@ -166,7 +170,8 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 	}
 	changes := s.spxRenameResourceAtRefs(result, id, newName)
 	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
-	for expr, tv := range result.typeInfo.Types {
+	typeInfo := getTypeInfo(result.proj)
+	for expr, tv := range typeInfo.Types {
 		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() {
 			continue
 		}

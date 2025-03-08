@@ -16,7 +16,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if obj == nil {
 		return nil, nil
 	}
