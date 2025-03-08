@@ -79,17 +79,20 @@ func (p *Project) AST(path string) (file *ast.File, err error) {
 
 // ASTFiles returns the AST of all Go+ source files.
 func (p *Project) ASTFiles() (ret []*ast.File, err error) {
-	ret, errs := p.getASTFiles()
+	_, ret, errs := p.getASTFiles()
 	err = errs.Err()
 	return
 }
 
-func (p *Project) getASTFiles() (ret []*ast.File, errs scanner.ErrorList) {
+func (p *Project) getASTFiles() (name string, ret []*ast.File, errs scanner.ErrorList) {
 	p.RangeFiles(func(path string) bool {
 		switch filepath.Ext(path) { // TODO(xsw): use gopmod
 		case ".spx", ".gop", ".gox":
 			f, e := p.AST(path)
 			if f != nil {
+				if name == "" {
+					name = f.Name.Name
+				}
 				ret = append(ret, f)
 			}
 			if e != nil {
@@ -120,7 +123,8 @@ func defaultNewTypeInfo() *typesutil.Info {
 
 func buildTypeInfo(proj *Project) (any, error) {
 	var errs errors.List
-	pkg := types.NewPackage(proj.Path, proj.Name)
+	name, files, astErr := proj.getASTFiles()
+	pkg := types.NewPackage(proj.Path, name)
 	info := proj.NewTypeInfo()
 	chk := typesutil.NewChecker(
 		&types.Config{
@@ -135,7 +139,6 @@ func buildTypeInfo(proj *Project) (any, error) {
 		nil,
 		info,
 	)
-	files, astErr := proj.getASTFiles()
 	if e := chk.Files(nil, files); e != nil && len(errs) == 0 {
 		errs.Add(e)
 	}
