@@ -44,6 +44,13 @@ func TestBasic(t *testing.T) {
 	if pkg.Name != "main" || len(pkg.Files) != 2 {
 		t.Fatal("pkg.Name:", pkg.Name, "Files:", len(pkg.Files))
 	}
+	doc, err := proj.PkgDoc()
+	if err != nil {
+		t.Fatal("PkgDoc:", err)
+	}
+	if doc.Name != "main" || len(doc.Funcs) != 0 {
+		t.Fatal("doc.Name:", doc.Name, "Funcs:", len(doc.Funcs))
+	}
 	proj2 := proj.Snapshot()
 	f2, err2 := proj2.AST("main.spx")
 	if f2 != f || err2 != nil {
@@ -145,8 +152,18 @@ func TestErr(t *testing.T) {
 		t.Fatal("TypeInfo no error?")
 	}
 
-	proj = NewProject(nil, nil, 0)
+	proj = NewProject(nil, map[string]File{
+		"main.spx": file("100_err"),
+	}, 0)
 	if _, _, err5, _ := proj.TypeInfo(); err5 != ErrUnknownKind {
 		t.Fatal("TypeInfo:", err5)
+	}
+	_, err := proj.ASTPackage()
+	if err == nil || err.Error() != "unknown kind" {
+		t.Fatal("ASTPackage:", err)
+	}
+	_, err = proj.PkgDoc()
+	if err != ErrUnknownKind {
+		t.Fatal("PkgDoc:", err)
 	}
 }

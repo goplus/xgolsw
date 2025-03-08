@@ -40,7 +40,10 @@ const (
 	// FeatTypeInfo represents to build TypeInfo cache.
 	FeatTypeInfo
 
-	FeatAll = FeatAST | FeatTypeInfo
+	// FeatPkgDoc represents to build PkgDoc cache.
+	FeatPkgDoc
+
+	FeatAll = FeatAST | FeatTypeInfo | FeatPkgDoc
 )
 
 // -----------------------------------------------------------------------------
