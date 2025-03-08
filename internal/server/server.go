@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
@@ -28,6 +29,10 @@ type Server struct {
 	workspaceRootFS  *vfs.MapFS
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
+}
+
+func (s *Server) getProj() *gop.Project {
+	return s.workspaceRootFS
 }
 
 // New creates a new Server instance.
