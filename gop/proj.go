@@ -200,14 +200,14 @@ func (p *Project) File(path string) (ret File, ok bool) {
 	return
 }
 
-// RangeFiles ranges all files in the project.
+// RangeFiles iterates all files in the project.
 func (p *Project) RangeFiles(f func(path string) bool) {
 	p.files.Range(func(k, _ any) bool {
 		return f(k.(string))
 	})
 }
 
-// RangeFileContents ranges all file contents in the project.
+// RangeFileContents iterates all file contents in the project.
 func (p *Project) RangeFileContents(f func(path string, file File) bool) {
 	p.files.Range(func(k, v any) bool {
 		return f(k.(string), v.(File))
