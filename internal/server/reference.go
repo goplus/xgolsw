@@ -17,7 +17,8 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	typeInfo := getTypeInfo(result.proj)
+	obj := typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if obj == nil {
 		return nil, nil
 	}
@@ -83,6 +84,7 @@ func (s *Server) handleMethodReferences(result *compileResult, fn *types.Func) [
 func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
 	var locations []Location
 	seenIfaces := make(map[*types.Interface]bool)
+	typeInfo := getTypeInfo(result.proj)
 
 	var find func(*types.Interface)
 	find = func(current *types.Interface) {
@@ -96,7 +98,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 			if !ok {
 				continue
 			}
-			typeName := result.typeInfo.ObjectOf(typeSpec.Name)
+			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				continue
 			}
@@ -123,13 +125,14 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 // findImplementingMethodReferences finds references to all methods that
 // implement the given interface method.
 func (s *Server) findImplementingMethodReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
+	typeInfo := getTypeInfo(result.proj)
 	var locations []Location
 	for spec := range result.mainASTPkgSpecToGenDecl {
 		typeSpec, ok := spec.(*gopast.TypeSpec)
 		if !ok {
 			continue
 		}
-		typeName := result.typeInfo.ObjectOf(typeSpec.Name)
+		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
 			continue
 		}
@@ -150,6 +153,7 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 // findInterfaceMethodReferences finds references to interface methods that this
 // method implements, including methods from embedded interfaces.
 func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.Func) []Location {
+	typeInfo := getTypeInfo(result.proj)
 	var locations []Location
 	recvType := fn.Type().(*types.Signature).Recv().Type()
 	seenIfaces := make(map[*types.Interface]bool)
@@ -159,7 +163,7 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 		if !ok {
 			continue
 		}
-		typeName := result.typeInfo.ObjectOf(typeSpec.Name)
+		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
 			continue
 		}
@@ -181,6 +185,7 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 
 // handleEmbeddedFieldReferences finds all references through embedded fields.
 func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.Object) []Location {
+	typeInfo := getTypeInfo(result.proj)
 	var locations []Location
 	if fn, ok := obj.(*types.Func); ok {
 		recv := fn.Type().(*types.Signature).Recv()
@@ -194,7 +199,7 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.
 			if !ok {
 				continue
 			}
-			typeName := result.typeInfo.ObjectOf(typeSpec.Name)
+			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				continue
 			}
@@ -244,12 +249,13 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 		}
 	}
 	if hasEmbed {
+		typeInfo := getTypeInfo(result.proj)
 		for spec := range result.mainASTPkgSpecToGenDecl {
 			typeSpec, ok := spec.(*gopast.TypeSpec)
 			if !ok {
 				continue
 			}
-			typeName := result.typeInfo.ObjectOf(typeSpec.Name)
+			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				continue
 			}

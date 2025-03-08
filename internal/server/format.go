@@ -117,7 +117,7 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	astFile, ok := compileResult.mainASTPkg.Files[spxFile]
+	astFile, ok := getASTPkg(snapshot).Files[spxFile]
 	if !ok {
 		return nil, nil
 	}
@@ -127,7 +127,7 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 
 	// Format the modified AST.
 	var formattedBuf bytes.Buffer
-	if err := gopfmt.Node(&formattedBuf, compileResult.fset, astFile); err != nil {
+	if err := gopfmt.Node(&formattedBuf, snapshot.Fset, astFile); err != nil {
 		return nil, err
 	}
 
@@ -140,11 +140,7 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 
 // formatSpxDecls formats an spx source file by reordering declarations.
 func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	compileResult, err := s.compileAt(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	astFile, ok := compileResult.mainASTPkg.Files[spxFile]
+	astFile, ok := getASTPkg(snapshot).Files[spxFile]
 	if !ok {
 		return nil, nil
 	}
@@ -184,6 +180,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		otherDecls        []gopast.Decl
 		processedComments = make(map[*gopast.CommentGroup]struct{})
 	)
+	fset := snapshot.Fset
 	for _, decl := range astFile.Decls {
 		// Skip the declaration if it appears after the error position.
 		if errorPos.IsValid() && decl.Pos() >= errorPos {
@@ -220,13 +217,13 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		if doc := getDeclDoc(decl); doc != nil {
 			processedComments[doc] = struct{}{}
 		}
-		startLine := compileResult.fset.Position(decl.Pos()).Line
-		endLine := compileResult.fset.Position(decl.End()).Line
+		startLine := fset.Position(decl.Pos()).Line
+		endLine := fset.Position(decl.End()).Line
 		for _, cg := range astFile.Comments {
 			if _, ok := processedComments[cg]; ok {
 				continue
 			}
-			cgStartLine := compileResult.fset.Position(cg.Pos()).Line
+			cgStartLine := fset.Position(cg.Pos()).Line
 			if cgStartLine >= startLine && cgStartLine <= endLine {
 				processedComments[cg] = struct{}{}
 			}
@@ -268,9 +265,9 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 
 	// Find comments that appears on the same line after the given position.
 	findInlineComments := func(pos goptoken.Pos) *gopast.CommentGroup {
-		line := compileResult.fset.Position(pos).Line
+		line := fset.Position(pos).Line
 		for _, cg := range astFile.Comments {
-			if compileResult.fset.Position(cg.Pos()).Line != line {
+			if fset.Position(cg.Pos()).Line != line {
 				continue
 			}
 			if cg.Pos() > pos {
@@ -288,8 +285,8 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 
 				var doc []byte
 				if varBlock.Doc != nil && len(varBlock.Doc.List) > 0 {
-					docStart := compileResult.fset.Position(varBlock.Doc.Pos()).Offset
-					docEnd := compileResult.fset.Position(varBlock.Doc.End()).Offset
+					docStart := fset.Position(varBlock.Doc.Pos()).Offset
+					docEnd := fset.Position(varBlock.Doc.End()).Offset
 					doc = astFile.Code[docStart:docEnd]
 				}
 
@@ -314,8 +311,8 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 				var bodyStartPos goptoken.Pos
 				if varBlock.Lparen.IsValid() {
 					if cg := findInlineComments(varBlock.Lparen); cg != nil {
-						cgStart := compileResult.fset.Position(cg.Pos()).Offset
-						cgEnd := compileResult.fset.Position(cg.End()).Offset
+						cgStart := fset.Position(cg.Pos()).Offset
+						cgEnd := fset.Position(cg.End()).Offset
 						formattedBuf.Write(astFile.Code[cgStart:cgEnd])
 						formattedBuf.WriteByte('\n')
 						if i > 0 {
@@ -338,16 +335,16 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 						bodyEndPos = cg.End()
 					}
 				}
-				bodyStart := compileResult.fset.Position(bodyStartPos).Offset
-				bodyEnd := compileResult.fset.Position(bodyEndPos).Offset
+				bodyStart := fset.Position(bodyStartPos).Offset
+				bodyEnd := fset.Position(bodyEndPos).Offset
 				formattedBuf.Write(astFile.Code[bodyStart:bodyEnd])
 				formattedBuf.WriteByte('\n')
 
 				var trailingComments []byte
 				if varBlock.Rparen.IsValid() {
 					if cg := findInlineComments(varBlock.Rparen); cg != nil {
-						cgStart := compileResult.fset.Position(cg.Pos()).Offset
-						cgEnd := compileResult.fset.Position(cg.End()).Offset
+						cgStart := fset.Position(cg.Pos()).Offset
+						cgEnd := fset.Position(cg.End()).Offset
 						trailingComments = astFile.Code[cgStart:cgEnd]
 					}
 				}
@@ -382,8 +379,8 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 			}
 
 			ensureTrailingNewlines(2)
-			start := compileResult.fset.Position(startPos).Offset
-			end := compileResult.fset.Position(endPos).Offset
+			start := fset.Position(startPos).Offset
+			end := fset.Position(endPos).Offset
 			formattedBuf.Write(astFile.Code[start:end])
 			ensureTrailingNewlines(1)
 		}
@@ -426,8 +423,8 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 
 		// Add the floating comment.
 		ensureTrailingNewlines(2)
-		start := compileResult.fset.Position(cg.Pos()).Offset
-		end := compileResult.fset.Position(cg.End()).Offset
+		start := fset.Position(cg.Pos()).Offset
+		end := fset.Position(cg.End()).Offset
 		formattedBuf.Write(astFile.Code[start:end])
 		ensureTrailingNewlines(1)
 	}
@@ -442,7 +439,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	// Add the shadow entry if it exists and not empty.
 	if shadowEntryPos.IsValid() {
 		ensureTrailingNewlines(2)
-		start := compileResult.fset.Position(shadowEntryPos).Offset
+		start := fset.Position(shadowEntryPos).Offset
 		formattedBuf.Write(astFile.Code[start:])
 		ensureTrailingNewlines(1)
 	}
@@ -559,7 +556,7 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
 func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := compileResult.typeInfo.ObjectOf(funIdent)
+	funTypeObj := getTypeInfo(compileResult.proj).ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
@@ -606,8 +603,9 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 }
 
 func isIdentUsed(compileResult *compileResult, ident *gopast.Ident) bool {
-	obj := compileResult.typeInfo.ObjectOf(ident)
-	for _, usedObj := range compileResult.typeInfo.Uses {
+	typeInfo := getTypeInfo(compileResult.proj)
+	obj := typeInfo.ObjectOf(ident)
+	for _, usedObj := range typeInfo.Uses {
 		if usedObj == obj {
 			return true
 		}

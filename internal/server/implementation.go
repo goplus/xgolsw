@@ -13,7 +13,8 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	typeInfo := getTypeInfo(result.proj)
+	obj := typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if !isMainPkgObject(obj) {
 		return nil, nil
 	}
@@ -32,7 +33,8 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 // methods that implement the given interface method.
 func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface *types.Interface, methodName string) []Location {
 	var implementations []Location
-	for _, obj := range result.typeInfo.Defs {
+	typeInfo := getTypeInfo(result.proj)
+	for _, obj := range typeInfo.Defs {
 		if obj == nil {
 			continue
 		}

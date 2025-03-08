@@ -111,7 +111,7 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 	if astFile == nil {
 		return nil, nil
 	}
-	astFileScope := result.typeInfo.Scopes[astFile]
+	astFileScope := getTypeInfo(result.proj).Scopes[astFile]
 
 	// Find the innermost scope contains the position.
 	pos := result.posAt(astFile, param.Position)
@@ -142,7 +142,7 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 
 	// Add local definitions from innermost scope and its parents.
 	for scope := innermostScope; scope != nil && scope != types.Universe; scope = scope.Parent() {
-		isInMainScope := innermostScope == astFileScope && scope == result.mainPkg.Scope()
+		isInMainScope := innermostScope == astFileScope && scope == getPkg(result.proj).Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
 			if obj == nil {

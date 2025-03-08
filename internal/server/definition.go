@@ -22,7 +22,7 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if !isMainPkgObject(obj) {
 		return nil, nil
 	}
@@ -51,7 +51,7 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	}
 	position := result.toPosition(astFile, params.Position)
 
-	obj := result.typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
+	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
 	if !isMainPkgObject(obj) {
 		return nil, nil
 	}

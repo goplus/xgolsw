@@ -14,7 +14,7 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
-	goptypesutil "github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis/ast/inspector"
@@ -33,12 +33,23 @@ import (
 // in the main package while compiling.
 var errNoMainSpxFile = errors.New("no valid main.spx file found in main package")
 
-// getPkgDoc returns the package documentation for the given project.
 func getPkgDoc(proj *gop.Project) *pkgdoc.PkgDoc {
-	ret, err := proj.PkgDoc()
-	if err != nil {
-		return nil // TODO(xsw): use empty pkgdoc?
-	}
+	ret, _ := proj.PkgDoc()
+	return ret
+}
+
+func getTypeInfo(proj *gop.Project) *typesutil.Info {
+	_, ret, _, _ := proj.TypeInfo()
+	return ret
+}
+
+func getPkg(proj *gop.Project) *types.Package {
+	ret, _, _, _ := proj.TypeInfo()
+	return ret
+}
+
+func getASTPkg(proj *gop.Project) *gopast.Package {
+	ret, _ := proj.ASTPackage()
 	return ret
 }
 
@@ -47,20 +58,11 @@ func getPkgDoc(proj *gop.Project) *pkgdoc.PkgDoc {
 type compileResult struct {
 	proj *gop.Project
 
-	// fset is the source file set used for parsing the spx files.
-	fset *goptoken.FileSet
-
-	// mainPkg is the main package.
-	mainPkg *types.Package
-
 	// mainPkgGameType is the Game type in the main package.
 	mainPkgGameType *types.Named
 
 	// mainPkgSpriteTypes stores sprite types in the main package.
 	mainPkgSpriteTypes []*types.Named
-
-	// mainASTPkg is the main package AST.
-	mainASTPkg *gopast.Package
 
 	// mainASTPkgSpecToGenDecl maps each spec in the main package AST to its
 	// parent general declaration.
@@ -75,10 +77,6 @@ type compileResult struct {
 
 	// firstVarBlocks maps each AST file to its first var block.
 	firstVarBlocks map[*gopast.File]*gopast.GenDecl
-
-	// typeInfo contains type information collected during the compile
-	// process.
-	typeInfo *goptypesutil.Info
 
 	// spxResourceSet is the set of spx resources.
 	spxResourceSet SpxResourceSet
@@ -137,21 +135,10 @@ type astFileLine struct {
 // newCompileResult creates a new [compileResult].
 func newCompileResult(proj *gop.Project) *compileResult {
 	return &compileResult{
-		proj:                      proj,
-		fset:                      proj.Fset,
-		mainPkg:                   nil, // types.NewPackage("main", "main")
-		mainASTPkg:                &gopast.Package{Name: "main", Files: make(map[string]*gopast.File)},
-		mainASTPkgSpecToGenDecl:   make(map[gopast.Spec]*gopast.GenDecl),
-		mainASTPkgIdentToFuncDecl: make(map[*gopast.Ident]*gopast.FuncDecl),
-		firstVarBlocks:            make(map[*gopast.File]*gopast.GenDecl),
-		typeInfo:                  nil, /* &goptypesutil.Info{
-			Types:      make(map[gopast.Expr]types.TypeAndValue),
-			Defs:       make(map[*gopast.Ident]types.Object),
-			Uses:       make(map[*gopast.Ident]types.Object),
-			Implicits:  make(map[gopast.Node]types.Object),
-			Selections: make(map[*gopast.SelectorExpr]*types.Selection),
-			Scopes:     make(map[gopast.Node]*types.Scope),
-		}, */
+		proj:                          proj,
+		mainASTPkgSpecToGenDecl:       make(map[gopast.Spec]*gopast.GenDecl),
+		mainASTPkgIdentToFuncDecl:     make(map[*gopast.Ident]*gopast.FuncDecl),
+		firstVarBlocks:                make(map[*gopast.File]*gopast.GenDecl),
 		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
 		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
@@ -161,18 +148,19 @@ func newCompileResult(proj *gop.Project) *compileResult {
 
 // isInFset reports whether the given position exists in the file set.
 func (r *compileResult) isInFset(pos goptoken.Pos) bool {
-	return r.fset.File(pos) != nil
+	return r.proj.Fset.File(pos) != nil
 }
 
 // innermostScopeAt returns the innermost scope that contains the given
 // position. It returns nil if not found.
 func (r *compileResult) innermostScopeAt(pos goptoken.Pos) *types.Scope {
-	fileScope := r.typeInfo.Scopes[r.posASTFile(pos)]
+	typeInfo := getTypeInfo(r.proj)
+	fileScope := typeInfo.Scopes[r.posASTFile(pos)]
 	if fileScope == nil {
 		return nil
 	}
 	innermostScope := fileScope
-	for _, scope := range r.typeInfo.Scopes {
+	for _, scope := range typeInfo.Scopes {
 		if scope.Contains(pos) && fileScope.Contains(scope.Pos()) && innermostScope.Contains(scope.Pos()) {
 			innermostScope = scope
 		}
@@ -191,20 +179,22 @@ func (r *compileResult) identsAtASTFileLine(astFile *gopast.File, line int) (ide
 		r.computedCache.identsAtASTFileLines.Store(astFileLine, slices.Clip(idents))
 	}()
 
-	astFilePos := r.fset.Position(astFile.Pos())
+	fset := r.proj.Fset
+	astFilePos := fset.Position(astFile.Pos())
 	collectIdentAtLine := func(ident *gopast.Ident) {
-		identPos := r.fset.Position(ident.Pos())
+		identPos := fset.Position(ident.Pos())
 		if identPos.Filename == astFilePos.Filename && identPos.Line == line {
 			idents = append(idents, ident)
 		}
 	}
-	for ident := range r.typeInfo.Defs {
+	typeInfo := getTypeInfo(r.proj)
+	for ident := range typeInfo.Defs {
 		if funcDecl, ok := r.mainASTPkgIdentToFuncDecl[ident]; ok && funcDecl.Shadow {
 			continue
 		}
 		collectIdentAtLine(ident)
 	}
-	for ident, obj := range r.typeInfo.Uses {
+	for ident, obj := range typeInfo.Uses {
 		if funcDecl, ok := r.mainASTPkgIdentToFuncDecl[r.defIdentFor(obj)]; ok && funcDecl.Shadow {
 			continue
 		}
@@ -220,9 +210,10 @@ func (r *compileResult) identAtASTFilePosition(astFile *gopast.File, position go
 		bestIdent    *gopast.Ident
 		bestNodeSpan int
 	)
+	fset := r.proj.Fset
 	for _, ident := range r.identsAtASTFileLine(astFile, position.Line) {
-		identPos := r.fset.Position(ident.Pos())
-		identEnd := r.fset.Position(ident.End())
+		identPos := fset.Position(ident.Pos())
+		identEnd := fset.Position(ident.End())
 		if position.Column < identPos.Column || position.Column > identEnd.Column {
 			continue
 		}
@@ -241,7 +232,7 @@ func (r *compileResult) defIdentFor(obj types.Object) *gopast.Ident {
 	if obj == nil {
 		return nil
 	}
-	for ident, o := range r.typeInfo.Defs {
+	for ident, o := range getTypeInfo(r.proj).Defs {
 		if o == obj {
 			return ident
 		}
@@ -255,7 +246,7 @@ func (r *compileResult) refIdentsFor(obj types.Object) []*gopast.Ident {
 		return nil
 	}
 	var idents []*gopast.Ident
-	for ident, o := range r.typeInfo.Uses {
+	for ident, o := range getTypeInfo(r.proj).Uses {
 		if o == obj {
 			idents = append(idents, ident)
 		}
@@ -277,7 +268,7 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 			if !ok {
 				continue
 			}
-			tv, ok := r.typeInfo.Types[sel.X]
+			tv, ok := getTypeInfo(r.proj).Types[sel.X]
 			if !ok {
 				continue
 			}
@@ -299,12 +290,13 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 		}
 	}
 
-	obj := r.typeInfo.ObjectOf(ident)
+	typeInfo := getTypeInfo(r.proj)
+	obj := typeInfo.ObjectOf(ident)
 	if obj == nil || obj.Pkg() == nil {
 		return ""
 	}
 	if isSpxPkgObject(obj) {
-		astFileScope := r.typeInfo.Scopes[astFile]
+		astFileScope := typeInfo.Scopes[astFile]
 		innermostScope := r.innermostScopeAt(ident.Pos())
 		if innermostScope == astFileScope {
 			spxFile := r.nodeFilename(ident)
@@ -320,7 +312,7 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 			return ""
 		}
 
-		for _, def := range r.typeInfo.Defs {
+		for _, def := range typeInfo.Defs {
 			if def == nil {
 				continue
 			}
@@ -436,7 +428,8 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 // It returns multiple definitions only if the identifier is a Go+ overloadable
 // function.
 func (r *compileResult) spxDefinitionsForIdent(ident *gopast.Ident) []SpxDefinition {
-	return r.spxDefinitionsFor(r.typeInfo.ObjectOf(ident), r.selectorTypeNameForIdent(ident))
+	typeInfo := getTypeInfo(r.proj)
+	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), r.selectorTypeNameForIdent(ident))
 }
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
@@ -464,6 +457,7 @@ func (r *compileResult) isInSpxEventHandler(pos goptoken.Pos) bool {
 		return false
 	}
 
+	typeInfo := getTypeInfo(r.proj)
 	path, _ := util.PathEnclosingInterval(astFile, pos-1, pos)
 	for _, node := range path {
 		callExpr, ok := node.(*gopast.CallExpr)
@@ -474,7 +468,7 @@ func (r *compileResult) isInSpxEventHandler(pos goptoken.Pos) bool {
 		if !ok {
 			continue
 		}
-		funcObj := r.typeInfo.ObjectOf(funcIdent)
+		funcObj := typeInfo.ObjectOf(funcIdent)
 		if !isSpxPkgObject(funcObj) {
 			continue
 		}
@@ -493,9 +487,10 @@ func (r *compileResult) spxResourceRefAtASTFilePosition(astFile *gopast.File, po
 		bestRef      *SpxResourceRef
 		bestNodeSpan int
 	)
+	fset := r.proj.Fset
 	for _, ref := range r.spxResourceRefs {
-		nodePos := r.fset.Position(ref.Node.Pos())
-		nodeEnd := r.fset.Position(ref.Node.End())
+		nodePos := fset.Position(ref.Node.Pos())
+		nodeEnd := fset.Position(ref.Node.End())
 		if nodePos.Filename != position.Filename ||
 			position.Line != nodePos.Line ||
 			position.Column < nodePos.Column ||
@@ -514,9 +509,10 @@ func (r *compileResult) spxResourceRefAtASTFilePosition(astFile *gopast.File, po
 
 // spxImportsAtASTFilePosition returns the import at the given position in the given AST file.
 func (r *compileResult) spxImportsAtASTFilePosition(astFile *gopast.File, position goptoken.Position) *SpxReferencePkg {
+	fset := r.proj.Fset
 	for _, imp := range astFile.Imports {
-		nodePos := r.fset.Position(imp.Pos())
-		nodeEnd := r.fset.Position(imp.End())
+		nodePos := fset.Position(imp.Pos())
+		nodeEnd := fset.Position(imp.End())
 		if nodePos.Filename != position.Filename ||
 			position.Line != nodePos.Line ||
 			position.Column < nodePos.Column ||
@@ -589,7 +585,7 @@ func (r *compileResult) addDiagnosticsForSpxFile(spxFile string, diags ...Diagno
 
 // posFilename returns the filename for the given position.
 func (r *compileResult) posFilename(pos goptoken.Pos) string {
-	return r.fset.Position(pos).Filename
+	return r.proj.Fset.Position(pos).Filename
 }
 
 // nodeFilename returns the filename for the given node.
@@ -599,7 +595,7 @@ func (r *compileResult) nodeFilename(node gopast.Node) string {
 
 // posASTFile returns the AST file for the given position.
 func (r *compileResult) posASTFile(pos goptoken.Pos) *gopast.File {
-	return r.mainASTPkg.Files[r.posFilename(pos)]
+	return getASTPkg(r.proj).Files[r.posFilename(pos)]
 }
 
 // nodeASTFile returns the AST file for the given node.
@@ -619,7 +615,7 @@ func (r *compileResult) nodeDocumentURI(node gopast.Node) DocumentURI {
 
 // fromPosition converts a [goptoken.Position] to a protocol [Position].
 func (r *compileResult) fromPosition(astFile *gopast.File, position goptoken.Position) Position {
-	tokenFile := r.fset.File(astFile.Pos())
+	tokenFile := r.proj.Fset.File(astFile.Pos())
 
 	line := position.Line
 	lineStart := int(tokenFile.LineStart(line))
@@ -635,7 +631,7 @@ func (r *compileResult) fromPosition(astFile *gopast.File, position goptoken.Pos
 
 // toPosition converts a protocol [Position] to a [goptoken.Position].
 func (r *compileResult) toPosition(astFile *gopast.File, position Position) goptoken.Position {
-	tokenFile := r.fset.File(astFile.Pos())
+	tokenFile := r.proj.Fset.File(astFile.Pos())
 
 	line := min(int(position.Line)+1, tokenFile.LineCount())
 	lineStart := int(tokenFile.LineStart(line))
@@ -657,7 +653,7 @@ func (r *compileResult) toPosition(astFile *gopast.File, position Position) gopt
 
 // posAt returns the [goptoken.Pos] of the given position in the given AST file.
 func (r *compileResult) posAt(astFile *gopast.File, position Position) goptoken.Pos {
-	tokenFile := r.fset.File(astFile.Pos())
+	tokenFile := r.proj.Fset.File(astFile.Pos())
 	if int(position.Line) > tokenFile.LineCount()-1 {
 		return goptoken.Pos(tokenFile.Base() + tokenFile.Size()) // EOF
 	}
@@ -673,22 +669,24 @@ func (r *compileResult) rangeForASTFilePosition(astFile *gopast.File, position g
 
 // rangeForPos returns the [Range] for the given position.
 func (r *compileResult) rangeForPos(pos goptoken.Pos) Range {
-	return r.rangeForASTFilePosition(r.posASTFile(pos), r.fset.Position(pos))
+	return r.rangeForASTFilePosition(r.posASTFile(pos), r.proj.Fset.Position(pos))
 }
 
 // rangeForASTFileNode returns the [Range] for the given node in the given AST file.
 func (r *compileResult) rangeForASTFileNode(astFile *gopast.File, node gopast.Node) Range {
+	fset := r.proj.Fset
 	return Range{
-		Start: r.fromPosition(astFile, r.fset.Position(node.Pos())),
-		End:   r.fromPosition(astFile, r.fset.Position(node.End())),
+		Start: r.fromPosition(astFile, fset.Position(node.Pos())),
+		End:   r.fromPosition(astFile, fset.Position(node.End())),
 	}
 }
 
 // rangeForStartEnd returns the [Range] for the given start and end positions.
 func (r *compileResult) rangeForStartEnd(astFile *gopast.File, start, end goptoken.Pos) Range {
+	fset := r.proj.Fset
 	return Range{
-		Start: r.fromPosition(astFile, r.fset.Position(start)),
-		End:   r.fromPosition(astFile, r.fset.Position(end)),
+		Start: r.fromPosition(astFile, fset.Position(start)),
+		End:   r.fromPosition(astFile, fset.Position(end)),
 	}
 }
 
@@ -785,7 +783,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 			continue
 		}
 
-		result.mainASTPkg.Files[spxFile] = astFile
 		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
 			result.mainSpxFile = spxFile
 		} else {
@@ -832,7 +829,8 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	snapshot.Path = "main"
 	snapshot.Mod = mod
 	snapshot.Importer = internal.Importer
-	if result.mainPkg, result.typeInfo, err, _ = snapshot.TypeInfo(); err != nil {
+	pkg, _, err, _ := snapshot.TypeInfo()
+	if err != nil {
 		switch err := err.(type) {
 		case errors.List:
 			for _, e := range err {
@@ -843,13 +841,13 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		}
 	}
 
-	if obj := result.mainPkg.Scope().Lookup("Game"); obj != nil {
+	if obj := pkg.Scope().Lookup("Game"); obj != nil {
 		result.mainPkgGameType = obj.Type().(*types.Named)
 	}
 
 	result.mainPkgSpriteTypes = make([]*types.Named, 0, len(spriteNames))
 	for _, spxSpriteName := range spriteNames {
-		if obj := result.mainPkg.Scope().Lookup(spxSpriteName); obj != nil {
+		if obj := pkg.Scope().Lookup(spxSpriteName); obj != nil {
 			result.mainPkgSpriteTypes = append(result.mainPkgSpriteTypes, obj.Type().(*types.Named))
 		}
 	}
@@ -876,14 +874,15 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to compile: %w", err)
 	}
-	astFile = result.mainASTPkg.Files[spxFile]
+	astFile = getASTPkg(result.proj).Files[spxFile]
 	return
 }
 
 // inspectForSpxResourceSet inspects for spx resource set in main.spx.
 func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileResult) {
+	var typeInfo = getTypeInfo(snapshot)
 	var spxResourceRootDir string
-	gopast.Inspect(result.mainASTPkg.Files[result.mainSpxFile], func(node gopast.Node) bool {
+	gopast.Inspect(getASTPkg(result.proj).Files[result.mainSpxFile], func(node gopast.Node) bool {
 		callExpr, ok := node.(*gopast.CallExpr)
 		if !ok {
 			return true
@@ -897,7 +896,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileRe
 			return true
 		}
 		firstArg := callExpr.Args[0]
-		firstArgTV, ok := result.typeInfo.Types[firstArg]
+		firstArgTV, ok := typeInfo.Types[firstArg]
 		if !ok {
 			return true
 		}
@@ -946,13 +945,16 @@ func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileRe
 //   - Error: For analyzer failures or serious code issues
 //   - Warning: For potential problems that don't prevent compilation
 func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
-	for spxFile, astFile := range result.mainASTPkg.Files {
+	proj := result.proj
+	fset := proj.Fset
+	typeInfo := getTypeInfo(proj)
+	for spxFile, astFile := range getASTPkg(proj).Files {
 
 		var diagnostics []Diagnostic
 		pass := &protocol.Pass{
-			Fset:      result.fset,
+			Fset:      fset,
 			Files:     []*gopast.File{astFile},
-			TypesInfo: result.typeInfo,
+			TypesInfo: typeInfo,
 			Report: func(d protocol.Diagnostic) {
 				diagnostics = append(diagnostics, Diagnostic{
 					Range:    result.rangeForStartEnd(astFile, d.Pos, d.End),
@@ -981,10 +983,12 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 
 // inspectForSpxResourceRefs inspects for spx resource references in the code.
 func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
-	mainSpxFileScope := result.typeInfo.Scopes[result.mainASTPkg.Files[result.mainSpxFile]]
+	proj := result.proj
+	typeInfo := getTypeInfo(proj)
+	mainSpxFileScope := typeInfo.Scopes[getASTPkg(proj).Files[result.mainSpxFile]]
 
 	// Check all identifier definitions.
-	for ident, obj := range result.typeInfo.Defs {
+	for ident, obj := range typeInfo.Defs {
 		if ident == nil || !ident.Pos().IsValid() || obj == nil {
 			continue
 		}
@@ -1065,7 +1069,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 	}
 
 	// Check all identifier uses.
-	for ident, obj := range result.typeInfo.Uses {
+	for ident, obj := range typeInfo.Uses {
 		if ident == nil || !ident.Pos().IsValid() || obj == nil {
 			continue
 		}
@@ -1073,14 +1077,14 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 	}
 
 	// Check all type-checked expressions.
-	for expr, tv := range result.typeInfo.Types {
+	for expr, tv := range typeInfo.Types {
 		if expr == nil || !expr.Pos().IsValid() || tv.IsType() || tv.Type == nil {
 			continue // Skip type identifiers.
 		}
 
 		switch expr := expr.(type) {
 		case *gopast.CallExpr:
-			funcTV, ok := result.typeInfo.Types[expr.Fun]
+			funcTV, ok := typeInfo.Types[expr.Fun]
 			if !ok {
 				continue
 			}
@@ -1193,7 +1197,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 func (s *Server) inspectSpxBackdropResourceRefAtExpr(result *compileResult, expr gopast.Expr, declaredType types.Type) *SpxBackdropResource {
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := getTypeInfo(result.proj).Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {
@@ -1241,9 +1245,10 @@ func (s *Server) inspectSpxBackdropResourceRefAtExpr(result *compileResult, expr
 // at an expression. It returns the spx sprite resource if it was successfully
 // retrieved.
 func (s *Server) inspectSpxSpriteResourceRefAtExpr(result *compileResult, expr gopast.Expr, declaredType types.Type) *SpxSpriteResource {
+	typeInfo := getTypeInfo(result.proj)
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := typeInfo.Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {
@@ -1282,7 +1287,7 @@ func (s *Server) inspectSpxSpriteResourceRefAtExpr(result *compileResult, expr g
 			if !ok {
 				return nil
 			}
-			obj := result.typeInfo.ObjectOf(ident)
+			obj := typeInfo.ObjectOf(ident)
 			if obj == nil {
 				return nil
 			}
@@ -1323,9 +1328,10 @@ func (s *Server) inspectSpxSpriteResourceRefAtExpr(result *compileResult, expr g
 // resource reference at an expression. It returns the spx sprite costume
 // resource if it was successfully retrieved.
 func (s *Server) inspectSpxSpriteCostumeResourceRefAtExpr(result *compileResult, spxSpriteResource *SpxSpriteResource, expr gopast.Expr, declaredType types.Type) *SpxSpriteCostumeResource {
+	typeInfo := getTypeInfo(result.proj)
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := typeInfo.Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {
@@ -1373,9 +1379,10 @@ func (s *Server) inspectSpxSpriteCostumeResourceRefAtExpr(result *compileResult,
 // resource reference at an expression. It returns the spx sprite animation
 // resource if it was successfully retrieved.
 func (s *Server) inspectSpxSpriteAnimationResourceRefAtExpr(result *compileResult, spxSpriteResource *SpxSpriteResource, expr gopast.Expr, declaredType types.Type) *SpxSpriteAnimationResource {
+	typeInfo := getTypeInfo(result.proj)
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := typeInfo.Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {
@@ -1423,9 +1430,10 @@ func (s *Server) inspectSpxSpriteAnimationResourceRefAtExpr(result *compileResul
 // an expression. It returns the spx sound resource if it was successfully
 // retrieved.
 func (s *Server) inspectSpxSoundResourceRefAtExpr(result *compileResult, expr gopast.Expr, declaredType types.Type) *SpxSoundResource {
+	typeInfo := getTypeInfo(result.proj)
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := typeInfo.Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {
@@ -1452,7 +1460,7 @@ func (s *Server) inspectSpxSoundResourceRefAtExpr(result *compileResult, expr go
 		if !ok {
 			return nil
 		}
-		obj := result.typeInfo.ObjectOf(ident)
+		obj := typeInfo.ObjectOf(ident)
 		if obj == nil {
 			return nil
 		}
@@ -1494,9 +1502,10 @@ func (s *Server) inspectSpxSoundResourceRefAtExpr(result *compileResult, expr go
 // at an expression. It returns the spx widget resource if it was successfully
 // retrieved.
 func (s *Server) inspectSpxWidgetResourceRefAtExpr(result *compileResult, expr gopast.Expr, declaredType types.Type) *SpxWidgetResource {
+	typeInfo := getTypeInfo(result.proj)
 	exprDocumentURI := result.nodeDocumentURI(expr)
 	exprRange := result.rangeForNode(expr)
-	exprTV := result.typeInfo.Types[expr]
+	exprTV := typeInfo.Types[expr]
 
 	typ := exprTV.Type
 	if declaredType != nil {

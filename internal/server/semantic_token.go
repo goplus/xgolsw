@@ -90,14 +90,16 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 		}
 	}()
 
+	var fset = result.proj.Fset
+	var typeInfo = getTypeInfo(result.proj)
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos goptoken.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
 		if !startPos.IsValid() || !endPos.IsValid() {
 			return
 		}
 
-		start := result.fset.Position(startPos)
-		end := result.fset.Position(endPos)
+		start := fset.Position(startPos)
+		end := fset.Position(endPos)
 		if start.Line <= 0 || start.Column <= 0 || end.Offset <= start.Offset {
 			return
 		}
@@ -127,7 +129,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 				addToken(node.Semicolon, node.Semicolon+1, OperatorType, nil)
 			}
 		case *gopast.Ident:
-			obj := result.typeInfo.ObjectOf(node)
+			obj := typeInfo.ObjectOf(node)
 			if obj == nil {
 				if goptoken.Lookup(node.Name).IsKeyword() {
 					addToken(node.Pos(), node.End(), KeywordType, nil)
@@ -481,8 +483,8 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 		prevLine, prevChar uint32
 	)
 	for _, info := range tokenInfos {
-		start := result.fset.Position(info.startPos)
-		end := result.fset.Position(info.endPos)
+		start := fset.Position(info.startPos)
+		end := fset.Position(info.endPos)
 
 		line := uint32(start.Line - 1)
 		char := uint32(start.Column - 1)
