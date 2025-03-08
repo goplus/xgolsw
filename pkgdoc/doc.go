@@ -56,7 +56,7 @@ type TypeDoc struct {
 }
 
 // NewGo creates a new [PkgDoc] from the given Go [ast.Package].
-func NewGo(pkg *ast.Package, pkgPath string) *PkgDoc {
+func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 	docPkg := doc.New(pkg, pkgPath, doc.AllDecls|doc.AllMethods|doc.PreserveAST)
 	pkgDoc := &PkgDoc{
 		Doc:    docPkg.Doc,
