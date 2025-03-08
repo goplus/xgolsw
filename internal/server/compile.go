@@ -707,15 +707,10 @@ func (r *compileResult) locationForNode(node gopast.Node) Location {
 // compile compiles spx source files and returns compile result. It uses cached
 // result if available.
 func (s *Server) compile() (*compileResult, error) {
-	snapshot := s.workspaceRootFS.Snapshot()
+	// NOTE(xsw): don't create a snapshot
+	snapshot := s.workspaceRootFS // .Snapshot()
 
-	// Compile at the given snapshot if cache is not used.
-	result, err := s.compileAt(snapshot)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return s.compileAt(snapshot)
 }
 
 // compileAt compiles spx source files at the given snapshot and returns the
@@ -810,7 +805,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		return result, nil
 	}
 
-	result.mainPkgDoc = pkgdoc.NewGop("main", result.mainASTPkg)
+	result.mainPkgDoc, _ = snapshot.PkgDoc()
 
 	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
