@@ -10,6 +10,7 @@ import (
 )
 
 type MapFile = gop.File
+type MapFileImpl = gop.FileImpl
 type MapFS = gop.Project
 
 // WithOverlay returns a new MapFS with overlay files.

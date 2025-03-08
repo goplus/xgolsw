@@ -62,7 +62,8 @@ type fileKey struct {
 }
 
 // File represents a file.
-type File struct {
+type File = *FileImpl
+type FileImpl struct {
 	Content []byte
 	ModTime time.Time
 }

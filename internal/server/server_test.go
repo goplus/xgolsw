@@ -9,7 +9,7 @@ func newMapFSWithoutModTime(files map[string][]byte) *vfs.MapFS {
 	return gop.NewProject(nil, func() map[string]vfs.MapFile {
 		fileMap := make(map[string]vfs.MapFile)
 		for k, v := range files {
-			fileMap[k] = vfs.MapFile{Content: v}
+			fileMap[k] = &vfs.MapFileImpl{Content: v}
 		}
 		return fileMap
 	}, gop.FeatAll)
