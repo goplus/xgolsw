@@ -12,6 +12,7 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/util"
 	"github.com/goplus/goxlsw/pkgdoc"
@@ -37,6 +38,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	}
 
 	ctx := &completionContext{
+		proj:           s.getProj(),
 		itemSet:        newCompletionItemSet(),
 		result:         result,
 		spxFile:        spxFile,
@@ -76,6 +78,7 @@ const (
 type completionContext struct {
 	itemSet *completionItemSet
 
+	proj           *gop.Project
 	result         *compileResult
 	spxFile        string
 	astFile        *gopast.File
@@ -97,6 +100,10 @@ type completionContext struct {
 
 	inStringLit       bool
 	inSpxEventHandler bool
+}
+
+func (ctx *completionContext) pkgDoc() *pkgdoc.PkgDoc {
+	return getPkgDoc(ctx.proj)
 }
 
 // analyze analyzes the completion context to determine the kind of completion needed.
@@ -533,7 +540,7 @@ func (ctx *completionContext) collectDot() error {
 			}
 
 			recvTypeName := ctx.result.selectorTypeNameForIdent(ctx.result.defIdentFor(method))
-			ctx.itemSet.addSpxDefs(GetSpxDefinitionForFunc(method, recvTypeName, ctx.result.mainPkgDoc))
+			ctx.itemSet.addSpxDefs(GetSpxDefinitionForFunc(method, recvTypeName, ctx.pkgDoc()))
 		}
 	} else if named, ok := typ.(*types.Named); ok && isNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
@@ -549,7 +556,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if pkgPath := pkg.Path(); pkgPath == "main" {
-		pkgDoc = ctx.result.mainPkgDoc
+		pkgDoc = ctx.pkgDoc()
 	} else {
 		var err error
 		pkgDoc, err = pkgdata.GetPkgDoc(pkgPath)
@@ -798,7 +805,7 @@ func (ctx *completionContext) collectStructLit() error {
 
 		selectorTypeName := ctx.result.selectorTypeNameForIdent(ctx.result.defIdentFor(field))
 		forceVar := ctx.result.isDefinedInFirstVarBlock(field)
-		spxDef := GetSpxDefinitionForVar(field, selectorTypeName, forceVar, ctx.result.mainPkgDoc)
+		spxDef := GetSpxDefinitionForVar(field, selectorTypeName, forceVar, ctx.pkgDoc())
 		spxDef.CompletionItemInsertText = field.Name() + ": ${1:}"
 		spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
 		ctx.itemSet.addSpxDefs(spxDef)
@@ -833,7 +840,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if pkg.Path() == "main" {
-		pkgDoc = ctx.result.mainPkgDoc
+		pkgDoc = ctx.pkgDoc()
 	} else {
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkg.Path())
 	}

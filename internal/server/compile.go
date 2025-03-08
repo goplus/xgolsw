@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"go/token"
 	"go/types"
 	"path"
 	"slices"
@@ -16,6 +15,7 @@ import (
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
 	goptypesutil "github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis/ast/inspector"
 	"github.com/goplus/goxlsw/internal/analysis/passes/inspect"
@@ -33,9 +33,20 @@ import (
 // in the main package while compiling.
 var errNoMainSpxFile = errors.New("no valid main.spx file found in main package")
 
+// getPkgDoc returns the package documentation for the given project.
+func getPkgDoc(proj *gop.Project) *pkgdoc.PkgDoc {
+	ret, err := proj.PkgDoc()
+	if err != nil {
+		return nil // TODO(xsw): use empty pkgdoc?
+	}
+	return ret
+}
+
 // compileResult contains the compile results and additional information from
 // the compile process.
 type compileResult struct {
+	proj *gop.Project
+
 	// fset is the source file set used for parsing the spx files.
 	fset *goptoken.FileSet
 
@@ -58,9 +69,6 @@ type compileResult struct {
 	// mainASTPkgIdentToFuncDecl maps each function identifier in the main
 	// package AST to its function declaration.
 	mainASTPkgIdentToFuncDecl map[*gopast.Ident]*gopast.FuncDecl
-
-	// mainPkgDoc is the documentation for the main package.
-	mainPkgDoc *pkgdoc.PkgDoc
 
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
@@ -127,9 +135,10 @@ type astFileLine struct {
 }
 
 // newCompileResult creates a new [compileResult].
-func newCompileResult(fset *token.FileSet) *compileResult {
+func newCompileResult(proj *gop.Project) *compileResult {
 	return &compileResult{
-		fset:                      fset,
+		proj:                      proj,
+		fset:                      proj.Fset,
 		mainPkg:                   nil, // types.NewPackage("main", "main")
 		mainASTPkg:                &gopast.Package{Name: "main", Files: make(map[string]*gopast.File)},
 		mainASTPkgSpecToGenDecl:   make(map[gopast.Spec]*gopast.GenDecl),
@@ -390,7 +399,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if pkgPath := obj.Pkg().Path(); pkgPath == "main" {
-		pkgDoc = r.mainPkgDoc
+		pkgDoc = getPkgDoc(r.proj)
 	} else {
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
@@ -725,7 +734,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 
 	var (
-		result      = newCompileResult(snapshot.Fset)
+		result      = newCompileResult(snapshot)
 		spriteNames = make([]string, 0, len(spxFiles)-1)
 	)
 
@@ -804,8 +813,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		}
 		return result, nil
 	}
-
-	result.mainPkgDoc, _ = snapshot.PkgDoc()
 
 	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
