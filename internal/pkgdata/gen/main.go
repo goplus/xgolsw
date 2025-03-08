@@ -260,7 +260,7 @@ func generate() error {
 				continue
 			}
 
-			pkgDoc = pkgdoc.NewGo(astPkg, pkgPath)
+			pkgDoc = pkgdoc.NewGo(pkgPath, astPkg)
 		}
 		if zf, err := zw.Create(pkgPath + ".pkgdoc"); err != nil {
 			return err
