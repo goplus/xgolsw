@@ -34,3 +34,15 @@ func RangeASTSpecs(proj *gop.Project, tok token.Token, f func(spec ast.Spec)) {
 		}
 	})
 }
+
+// IsShadow checks if the ident is shadowed.
+func IsShadow(proj *gop.Project, ident *ast.Ident) (shadow bool) {
+	proj.RangeASTFiles(func(_ string, file *ast.File) {
+		if e := file.ShadowEntry; e != nil {
+			if e.Name == ident {
+				shadow = true
+			}
+		}
+	})
+	return
+}
