@@ -62,9 +62,6 @@ type compileResult struct {
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
 
-	// firstVarBlocks maps each AST file to its first var block.
-	firstVarBlocks map[*gopast.File]*gopast.GenDecl
-
 	// spxResourceSet is the set of spx resources.
 	spxResourceSet SpxResourceSet
 
@@ -123,7 +120,6 @@ type astFileLine struct {
 func newCompileResult(proj *gop.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
-		firstVarBlocks:                make(map[*gopast.File]*gopast.GenDecl),
 		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
 		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
@@ -356,7 +352,7 @@ func (r *compileResult) isDefinedInFirstVarBlock(obj types.Object) bool {
 	if astFile == nil {
 		return false
 	}
-	firstVarBlock := r.firstVarBlocks[astFile]
+	firstVarBlock := goputil.ClassFieldsDecl(astFile)
 	if firstVarBlock == nil {
 		return false
 	}
@@ -766,15 +762,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 
 		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
 			result.mainSpxFile = spxFile
-		}
-
-		for _, decl := range astFile.Decls {
-			switch decl := decl.(type) {
-			case *gopast.GenDecl:
-				if result.firstVarBlocks[astFile] == nil && decl.Tok == goptoken.VAR {
-					result.firstVarBlocks[astFile] = decl
-				}
-			}
 		}
 	}
 	if result.mainSpxFile == "" {
