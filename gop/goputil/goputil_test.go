@@ -39,3 +39,16 @@ func TestRangeASTSpecs(t *testing.T) {
 		}
 	})
 }
+
+func TestIsShadow(t *testing.T) {
+	proj := gop.NewProject(nil, map[string]gop.File{
+		"main.gop": file("echo 100"),
+	}, gop.FeatAll)
+	f, err := proj.AST("main.gop")
+	if err != nil {
+		t.Fatal("AST:", err)
+	}
+	if !IsShadow(proj, f.ShadowEntry.Name) {
+		t.Fatal("IsShadow: failed")
+	}
+}
