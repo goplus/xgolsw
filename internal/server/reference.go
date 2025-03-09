@@ -5,6 +5,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	"github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_references
@@ -94,7 +95,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 		}
 		seenIfaces[current] = true
 
-		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+		goputil.RangeASTSpecs(result.proj, token.TYPE, func(spec gopast.Spec) {
 			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
@@ -125,7 +126,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 func (s *Server) findImplementingMethodReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
 	typeInfo := getTypeInfo(result.proj)
 	var locations []Location
-	result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+	goputil.RangeASTSpecs(result.proj, token.TYPE, func(spec gopast.Spec) {
 		typeSpec := spec.(*gopast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
@@ -153,7 +154,7 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 	recvType := fn.Type().(*types.Signature).Recv().Type()
 	seenIfaces := make(map[*types.Interface]bool)
 
-	result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+	goputil.RangeASTSpecs(result.proj, token.TYPE, func(spec gopast.Spec) {
 		typeSpec := spec.(*gopast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
@@ -186,7 +187,7 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.
 		}
 
 		seenTypes := make(map[types.Type]bool)
-		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+		goputil.RangeASTSpecs(result.proj, token.TYPE, func(spec gopast.Spec) {
 			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
@@ -239,7 +240,7 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 	}
 	if hasEmbed {
 		typeInfo := getTypeInfo(result.proj)
-		result.proj.RangeASTSpecs(token.TYPE, func(spec gopast.Spec) {
+		goputil.RangeASTSpecs(result.proj, token.TYPE, func(spec gopast.Spec) {
 			typeSpec := spec.(*gopast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
