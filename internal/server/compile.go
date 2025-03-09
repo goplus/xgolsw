@@ -16,6 +16,7 @@ import (
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis/ast/inspector"
 	"github.com/goplus/goxlsw/internal/analysis/passes/inspect"
@@ -57,10 +58,6 @@ func getASTPkg(proj *gop.Project) *gopast.Package {
 // the compile process.
 type compileResult struct {
 	proj *gop.Project
-
-	// mainASTPkgIdentToFuncDecl maps each function identifier in the main
-	// package AST to its function declaration.
-	mainASTPkgIdentToFuncDecl map[*gopast.Ident]*gopast.FuncDecl
 
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
@@ -126,7 +123,6 @@ type astFileLine struct {
 func newCompileResult(proj *gop.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
-		mainASTPkgIdentToFuncDecl:     make(map[*gopast.Ident]*gopast.FuncDecl),
 		firstVarBlocks:                make(map[*gopast.File]*gopast.GenDecl),
 		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
 		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
@@ -178,13 +174,13 @@ func (r *compileResult) identsAtASTFileLine(astFile *gopast.File, line int) (ide
 	}
 	typeInfo := getTypeInfo(r.proj)
 	for ident := range typeInfo.Defs {
-		if funcDecl, ok := r.mainASTPkgIdentToFuncDecl[ident]; ok && funcDecl.Shadow {
+		if goputil.IsShadow(r.proj, ident) {
 			continue
 		}
 		collectIdentAtLine(ident)
 	}
 	for ident, obj := range typeInfo.Uses {
-		if funcDecl, ok := r.mainASTPkgIdentToFuncDecl[r.defIdentFor(obj)]; ok && funcDecl.Shadow {
+		if goputil.IsShadow(r.proj, r.defIdentFor(obj)) {
 			continue
 		}
 		collectIdentAtLine(ident)
@@ -393,7 +389,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 	case *types.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
 	case *types.Func:
-		if funcDecl, ok := r.mainASTPkgIdentToFuncDecl[r.defIdentFor(obj)]; ok && funcDecl.Shadow {
+		if goputil.IsShadow(r.proj, r.defIdentFor(obj)) {
 			return nil
 		}
 		if isUnexpandableGopOverloadableFunc(obj) {
@@ -778,8 +774,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 				if result.firstVarBlocks[astFile] == nil && decl.Tok == goptoken.VAR {
 					result.firstVarBlocks[astFile] = decl
 				}
-			case *gopast.FuncDecl:
-				result.mainASTPkgIdentToFuncDecl[decl.Name] = decl
 			}
 		}
 	}
