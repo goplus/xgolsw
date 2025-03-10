@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentHover(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import (
 	"fmt"
@@ -66,7 +66,8 @@ onTouchStart ["MySprite"], => {}
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 			"assets/sounds/MySound/index.json":   []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mySoundHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -465,9 +466,10 @@ onTouchStart ["MySprite"], => {}
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`var x int`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -485,7 +487,7 @@ onTouchStart ["MySprite"], => {}
 	})
 
 	t.Run("ImportsAtASTFilePosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import (
 	"fmt"
@@ -494,7 +496,8 @@ import (
 
 fmt.Println("Hello, World!")
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		importHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -517,12 +520,13 @@ fmt.Println("Hello, World!")
 	})
 
 	t.Run("Append", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var nums []int
 nums = append(nums, 1)
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -540,12 +544,13 @@ nums = append(nums, 1)
 	})
 
 	t.Run("WithGopBuiltins", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var num int128
 echo num
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		hover1, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -577,7 +582,7 @@ echo num
 	})
 
 	t.Run("WithNonENCharacters", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onStart => {
 	var 中文 []int
@@ -585,7 +590,8 @@ onStart => {
 	println "非英文", 中文
 }
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		hover1, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

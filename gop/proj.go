@@ -195,6 +195,30 @@ func (p *Project) PutFile(path string, file File) {
 	p.deleteCache(path)
 }
 
+// UpdateFiles updates all files in the project with the provided map of files.
+// This will remove existing files not present in the new map and add/update files from the new map.
+func (p *Project) UpdateFiles(newFiles map[string]File) {
+	// Store existing paths to track deletions
+	var existingPaths []string
+	p.RangeFiles(func(path string) bool {
+		existingPaths = append(existingPaths, path)
+		return true
+	})
+
+	// Delete files that are not in the new map
+	for _, path := range existingPaths {
+		if _, exists := newFiles[path]; !exists {
+			p.files.Delete(path)
+			p.deleteCache(path)
+		}
+	}
+
+	// Add or update files from the new map
+	for path, file := range newFiles {
+		p.PutFile(path, file)
+	}
+}
+
 // File gets a file from the project.
 func (p *Project) File(path string) (ret File, ok bool) {
 	v, ok := p.files.Load(path)

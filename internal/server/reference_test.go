@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentReferences(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -24,7 +24,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxMySpriteRef, err := s.textDocumentReferences(&ReferenceParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -89,9 +90,10 @@ onStart => {
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`var x int`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		refs, err := s.textDocumentReferences(&ReferenceParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

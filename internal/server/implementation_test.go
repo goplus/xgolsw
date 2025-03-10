@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentImplementation(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 type MyInterface interface {
 	myMethod()
@@ -25,7 +25,8 @@ func (t MyType2) myMethod() {}
 
 var x MyInterface
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		implementations, err := s.textDocumentImplementation(&ImplementationParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -55,13 +56,14 @@ var x MyInterface
 	})
 
 	t.Run("NonInterfaceMethod", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 type MyType struct{}
 
 func (t MyType) myMethod() {}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		implementation, err := s.textDocumentImplementation(&ImplementationParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -83,11 +85,12 @@ func (t MyType) myMethod() {}
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 type MyType struct{}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		implementation, err := s.textDocumentImplementation(&ImplementationParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

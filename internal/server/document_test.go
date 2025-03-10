@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentDocumentLink(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 const Backdrop1 BackdropName = "backdrop1"
 const Backdrop1a = Backdrop1
@@ -33,7 +33,8 @@ onStart => {
 			"assets/index.json":                  []byte(`{"backdrops":[{"name":"backdrop1"}],"zorder":[{"name":"widget1","type":"monitor"}]}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}],"fAnimations":{"anim1":{}}}`),
 			"assets/sounds/MySound/index.json":   []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		paramsForMainSpx := &DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -258,9 +259,10 @@ onStart => {
 	})
 
 	t.Run("NonSpxFile", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.gop": []byte(`echo "Hello, Go+!"`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.gop"},
 		}
@@ -271,7 +273,7 @@ onStart => {
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil)
+		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}))
 		params := &DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
 		}
@@ -282,7 +284,7 @@ onStart => {
 	})
 
 	t.Run("ParseError", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 // Invalid syntax
 var (
@@ -290,7 +292,8 @@ var (
 `),
 			"assets/index.json":                []byte(`{}`),
 			"assets/sounds/MySound/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}

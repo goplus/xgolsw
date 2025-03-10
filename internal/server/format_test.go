@@ -10,7 +10,7 @@ import (
 
 func TestServerTextDocumentFormatting(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 // An spx game.
 
@@ -21,7 +21,8 @@ var (
 type Score int
 run "assets",    { Title:    "Bullet (by Go+)" }
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -49,9 +50,10 @@ run "assets", {Title: "Bullet (by Go+)"}
 	})
 
 	t.Run("NonSpxFile", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.gop": []byte(`echo "Hello, Go+!"`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.gop"},
 		}
@@ -62,7 +64,7 @@ run "assets", {Title: "Bullet (by Go+)"}
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil)
+		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
 		}
@@ -73,9 +75,10 @@ run "assets", {Title: "Bullet (by Go+)"}
 	})
 
 	t.Run("NoChangesNeeded", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`run "assets", {Title: "Bullet (by Go+)"}` + "\n"),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -86,13 +89,14 @@ run "assets", {Title: "Bullet (by Go+)"}
 	})
 
 	t.Run("AcceptableFormatError", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var MyAircraft MyAircraft
 !InvalidSyntax
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -117,7 +121,7 @@ var (
 	})
 
 	t.Run("WithFormatSpx", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 // The first var block.
@@ -149,7 +153,8 @@ var (
 	Bullet6 Bullet // The sixth bullet.
 ) // Trailing comment for the last var block.
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -202,7 +207,7 @@ var (
 	})
 
 	t.Run("VarBlockWithoutDoc", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var (
@@ -212,7 +217,8 @@ var (
 
 var Bullet Bullet
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -238,7 +244,7 @@ var (
 	})
 
 	t.Run("NoTypeSpriteVarDeclaration", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var (
@@ -247,7 +253,8 @@ var (
 
 run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -258,7 +265,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("WithImportStmt", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 import "math"
 
@@ -268,7 +275,8 @@ onClick => {
 
 run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -279,7 +287,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("WithUnusedLambdaParams", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 onKey [KeyLeft, KeyRight], (key) => {
 	println "key"
@@ -289,7 +297,8 @@ onKey [KeyLeft, KeyRight], (key) => {
 	println key
 }
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -316,7 +325,7 @@ onKey [KeyLeft, KeyRight], (key) => {
 	})
 
 	t.Run("WithUnusedLambdaParamsForSprite", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": {},
 			"MySprite.spx": []byte(`// An spx game.
 onKey [KeyLeft, KeyRight], (key) => {
@@ -332,7 +341,8 @@ onTouchStart (s, t) => { // type mismatch
 onTouchStart 123, (s) => { // type mismatch
 }
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
 		}
@@ -366,9 +376,10 @@ onTouchStart 123, (s) => { // type mismatch
 	})
 
 	t.Run("EmptyFile", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(``),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -379,9 +390,10 @@ onTouchStart 123, (s) => { // type mismatch
 	})
 
 	t.Run("WhitespaceOnlyFile", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(` `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -399,7 +411,7 @@ onTouchStart 123, (s) => { // type mismatch
 	})
 
 	t.Run("WithFloatingComments", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`import "fmt"
 
 // floating comment1
@@ -425,7 +437,8 @@ run "assets", {Title: "My Game"}
 
 // floating comment5
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -469,7 +482,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("WithTrailingComments", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`import "fmt" // trailing comment for import "fmt"
 
 const foo = "bar" // trailing comment for const foo
@@ -478,7 +491,8 @@ var a int // trailing comment for var a
 
 func test() {} // trailing comment for func test
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}

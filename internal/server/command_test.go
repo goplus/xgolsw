@@ -11,7 +11,7 @@ import (
 
 func TestServerSpxGetDefinitions(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -26,7 +26,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxFileScopeParams := []SpxGetDefinitionsParams{
 			{
@@ -157,13 +158,14 @@ onStart => {
 	})
 
 	t.Run("ParseError", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 // Invalid syntax
 var (
 	MySprite Sprite
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxFileScopeParams := []SpxGetDefinitionsParams{
 			{
@@ -195,7 +197,7 @@ var (
 	})
 
 	t.Run("TrailingEmptyLinesOfSpriteCode", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -212,7 +214,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mySpriteSpxFileScopeParams := []SpxGetDefinitionsParams{
 			{
@@ -245,11 +248,12 @@ onStart => {
 	})
 
 	t.Run("EOF", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onStart => {}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxOnStartScopeParams := []SpxGetDefinitionsParams{
 			{
@@ -286,7 +290,7 @@ onStart => {}
 
 	// See https://github.com/goplus/builder/issues/1398.
 	t.Run("Issue#1398", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -297,7 +301,8 @@ onTouchStart "" => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		params := []SpxGetDefinitionsParams{
 			{

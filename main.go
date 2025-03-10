@@ -37,10 +37,12 @@ func NewSpxls(this js.Value, args []js.Value) any {
 	s := &Spxls{
 		messageReplier: args[1],
 	}
-	s.server = server.New(gop.NewProject(nil, func() map[string]vfs.MapFile {
+
+	filesMapGetter := func() map[string]vfs.MapFile {
 		files := filesProvider.Invoke()
 		return ConvertJSFilesToMap(files)
-	}, gop.FeatAll), s)
+	}
+	s.server = server.New(gop.NewProject(nil, filesMapGetter, gop.FeatAll), s, filesMapGetter)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})

@@ -171,3 +171,54 @@ func TestErr(t *testing.T) {
 		t.Fatal("buildPkgDoc:", err)
 	}
 }
+
+func TestUpdateFiles(t *testing.T) {
+	// Initial project with two files
+	proj := NewProject(nil, map[string]File{
+		"main.spx": file("echo 100"),
+		"bar.spx":  file("echo 200"),
+	}, FeatAll)
+
+	// Create new files map with one existing file modified and one new file
+	newFiles := map[string]File{
+		"main.spx":  file("echo 300"), // Modified file
+		"third.spx": file("echo 400"), // New file
+		// bar.spx will be deleted
+	}
+
+	// Update all files
+	proj.UpdateFiles(newFiles)
+
+	// Test deleted file
+	if f, err := proj.AST("bar.spx"); f != nil || err != fs.ErrNotExist {
+		t.Fatal("Expected bar.spx to be deleted, got:", f, err)
+	}
+
+	// Test modified file
+	f1, err1 := proj.AST("main.spx")
+	if err1 != nil || f1 == nil {
+		t.Fatal("Failed to get modified file main.spx:", err1)
+	}
+	if val, ok := proj.files.Load("main.spx"); !ok || string(val.(File).Content) != "echo 300" {
+		t.Fatal("main.spx content not updated correctly")
+	}
+
+	// Test new file
+	f2, err2 := proj.AST("third.spx")
+	if err2 != nil || f2 == nil {
+		t.Fatal("Failed to get new file third.spx:", err2)
+	}
+	if val, ok := proj.files.Load("third.spx"); !ok || string(val.(File).Content) != "echo 400" {
+		t.Fatal("third.spx content not set correctly")
+	}
+
+	// Verify total number of files
+	fileCount := 0
+	proj.RangeFiles(func(path string) bool {
+		fileCount++
+		return true
+	})
+	if fileCount != 2 {
+		t.Fatal("Expected 2 files after update, got:", fileCount)
+	}
+}

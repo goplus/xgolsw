@@ -23,12 +23,16 @@ type MessageReplier interface {
 	ReplyMessage(m jsonrpc2.Message) error
 }
 
+// FileMapGetter is a function that returns a map of file names to [vfs.MapFile]s.
+type FileMapGetter func() map[string]vfs.MapFile
+
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
 	workspaceRootURI DocumentURI
 	workspaceRootFS  *vfs.MapFS
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
+	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
 }
 
 func (s *Server) getProj() *gop.Project {
@@ -36,13 +40,14 @@ func (s *Server) getProj() *gop.Project {
 }
 
 // New creates a new Server instance.
-func New(mapFS *vfs.MapFS, replier MessageReplier) *Server {
+func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) *Server {
 	return &Server{
 		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  mapFS,
 		replier:          replier,
 		analyzers:        initAnalyzers(true),
+		fileMapGetter:    fileMapGetter,
 	}
 }
 
