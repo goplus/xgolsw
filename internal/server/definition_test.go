@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentDefinition(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -24,7 +24,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxMySpriteDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -71,11 +72,12 @@ onStart => {
 	})
 
 	t.Run("BuiltinType", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var x int
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -88,11 +90,12 @@ var x int
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 this.run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -105,11 +108,12 @@ this.run "assets", {Title: "My Game"}
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var x int
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -122,12 +126,13 @@ var x int
 	})
 
 	t.Run("ImportedPackage", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import "fmt"
 fmt.println "Hello, spx!"
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -148,12 +153,13 @@ fmt.println "Hello, spx!"
 	})
 
 	t.Run("ImportedPackageWithAlias", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import fmt2 "fmt"
 fmt2.println "Hello, spx!"
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -176,14 +182,15 @@ fmt2.println "Hello, spx!"
 
 func TestServerTextDocumentTypeDefinition(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 type MyType struct {
 	field int
 }
 var x MyType
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -204,7 +211,7 @@ var x MyType
 	})
 
 	t.Run("SpriteType", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -212,7 +219,8 @@ var (
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -225,11 +233,12 @@ var (
 	})
 
 	t.Run("BuiltinType", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var x int
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -242,11 +251,12 @@ var x int
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var x int
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

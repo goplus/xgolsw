@@ -9,7 +9,7 @@ import (
 
 func TestTextDocumentSignatureHelp(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import "fmt"
 var (
@@ -26,7 +26,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

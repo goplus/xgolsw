@@ -52,7 +52,7 @@ onCloned => {
 
 func TestServerTextDocumentDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil)
+		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()))
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -74,7 +74,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 var (
 	MyAircraft MyAircraft
 `)
-		s := New(newMapFSWithoutModTime(fileMap), nil)
+		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap))
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -108,7 +108,7 @@ var (
 	t.Run("NonSpxFile", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.gop"] = []byte(`echo "Hello, Go+!"`)
-		s := New(newMapFSWithoutModTime(fileMap), nil)
+		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap))
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.gop"},
 		}
@@ -126,7 +126,7 @@ var (
 	t.Run("NonMainPackageDecl", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.spx"] = []byte("package nonmain")
-		s := New(newMapFSWithoutModTime(fileMap), nil)
+		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap))
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -150,7 +150,7 @@ var (
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil)
+		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()))
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
 		}
@@ -168,7 +168,7 @@ var (
 
 func TestServerWorkspaceDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil)
+		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestServerWorkspaceDiagnostic(t *testing.T) {
 	})
 
 	t.Run("ParseError", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 // Invalid syntax, missing closing parenthesis
 var (
@@ -197,7 +197,8 @@ var (
 `),
 			"MyAircraft.spx":    []byte(`var x int`),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -230,7 +231,7 @@ var (
 	})
 
 	t.Run("EmptyWorkspace", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil)
+		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.EqualError(t, err, "no valid main.spx file found in main package")
@@ -238,7 +239,7 @@ var (
 	})
 
 	t.Run("SoundResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sound1 Sound
@@ -263,7 +264,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -306,7 +308,7 @@ onStart => {
 	})
 
 	t.Run("BackdropResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onBackdrop "", func() {}
 onBackdrop "NonExistentBackdrop", func() {}
@@ -323,7 +325,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -376,7 +379,7 @@ onStart => {
 	})
 
 	t.Run("SpriteResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite1 Sprite
@@ -399,7 +402,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -450,7 +454,7 @@ onStart => {
 	})
 
 	t.Run("SpriteCostumeResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -462,7 +466,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -497,7 +502,7 @@ onStart => {
 	})
 
 	t.Run("SpriteAnimationResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -509,7 +514,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -544,7 +550,7 @@ onStart => {
 	})
 
 	t.Run("WidgetResourceNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -560,7 +566,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -603,7 +610,7 @@ onStart => {
 	})
 
 	t.Run("WithNonBasicTypeAliases", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -616,7 +623,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -630,7 +638,7 @@ onStart => {
 	})
 
 	t.Run("OnKey", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onKey KeyLeft, => {}
 
@@ -639,7 +647,8 @@ onKey [KeyRight, KeyUp, KeyDown], => {}
 run "assets", {Title: "My Game"}
 `),
 			"assets/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -653,7 +662,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("NoTypeSpriteVarDeclaration", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var (
@@ -665,7 +674,8 @@ run "assets", {Title: "My Game"}
 			"MySprite.spx":                       []byte(``),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)

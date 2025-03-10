@@ -9,7 +9,7 @@ import (
 
 func TestServerTextDocumentPrepareRename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -24,7 +24,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -63,7 +64,7 @@ onStart => {
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onClick => {
 	_ = this
@@ -77,7 +78,8 @@ onClick => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -101,7 +103,7 @@ onClick => {
 
 func TestServerTextDocumentRename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -118,7 +120,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -151,7 +154,7 @@ onStart => {
 	})
 
 	t.Run("RenameReference", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -168,7 +171,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
@@ -201,7 +205,7 @@ onStart => {
 	})
 
 	t.Run("SpxResource", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -216,7 +220,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -256,7 +261,7 @@ onStart => {
 	})
 
 	t.Run("SpxResourceInOtherSpriteFiles", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MyAircraft MyAircraft
@@ -290,7 +295,8 @@ onCloned => {
 			"assets/index.json":                    []byte(`{}`),
 			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
 			"assets/sprites/Bullet/index.json":     []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///Bullet.spx"},
@@ -337,7 +343,7 @@ onCloned => {
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onClick => {
 	_ = this
@@ -351,7 +357,8 @@ onClick => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		mainSpxWorkspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -373,7 +380,7 @@ onClick => {
 
 func TestServerSpxRenameBackdropResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onBackdrop "backdrop1", func() {}
 run "assets", {Title: "My Game"}
@@ -384,7 +391,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -418,7 +426,7 @@ onStart => {
 	})
 
 	t.Run("ConstantName", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 const Backdrop1 = "backdrop1"
 onBackdrop Backdrop1, func() {}
@@ -430,7 +438,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -457,7 +466,7 @@ onStart => {
 	})
 
 	t.Run("TypedConstantName", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 const Backdrop1 BackdropName = "backdrop1"
 onBackdrop "backdrop1", func() {}
@@ -469,7 +478,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -510,13 +520,14 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onBackdrop "backdrop1", func() {}
 run "assets", {Title: "My Game"}
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"},{"name":"backdrop2","path":"backdrop2.png"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -532,7 +543,7 @@ run "assets", {Title: "My Game"}
 
 func TestServerSpxRenameSoundResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sound1 Sound
@@ -547,7 +558,8 @@ onStart => {
 `),
 			"assets/index.json":               []byte(`{}`),
 			"assets/sounds/Sound1/index.json": []byte(`{"path":"sound1.wav"}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -588,7 +600,7 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 play "Sound1"
 run "assets", {Title: "My Game"}
@@ -596,7 +608,8 @@ run "assets", {Title: "My Game"}
 			"assets/index.json":               []byte(`{}`),
 			"assets/sounds/Sound1/index.json": []byte(`{"path":"sound1.wav"}`),
 			"assets/sounds/Sound2/index.json": []byte(`{"path":"sound2.wav"}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -612,7 +625,7 @@ run "assets", {Title: "My Game"}
 
 func TestServerSpxRenameSpriteResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sprite1 Sprite
@@ -627,7 +640,8 @@ onStart => {
 `),
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -668,7 +682,7 @@ onStart => {
 	})
 
 	t.Run("SpriteType", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sprite1 Sprite1
@@ -683,7 +697,8 @@ onStart => {
 `),
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -731,7 +746,7 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sprite1 Sprite
@@ -754,7 +769,8 @@ onStart => {
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -770,7 +786,7 @@ onStart => {
 
 func TestServerSpxRenameSpriteCostumeResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -785,7 +801,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -819,7 +836,7 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -834,7 +851,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"},{"name":"costume2"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -848,7 +866,7 @@ onStart => {
 	})
 
 	t.Run("NonExistentSprite", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -863,7 +881,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -879,7 +898,7 @@ onStart => {
 
 func TestServerSpxRenameSpriteAnimationResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -894,7 +913,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -928,7 +948,7 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -943,7 +963,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{},"anim2":{}}}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -957,7 +978,7 @@ onStart => {
 	})
 
 	t.Run("NonExistentSprite", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -972,7 +993,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -988,7 +1010,7 @@ onStart => {
 
 func TestServerSpxRenameWidgetResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -998,7 +1020,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -1022,7 +1045,7 @@ onStart => {
 	})
 
 	t.Run("AlreadyExists", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -1032,7 +1055,8 @@ onStart => {
 }
 `),
 			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"},{"name":"widget2"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 		result, err := s.compile()
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)

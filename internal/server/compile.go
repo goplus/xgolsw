@@ -698,6 +698,8 @@ func (s *Server) compile() (*compileResult, error) {
 	// NOTE(xsw): don't create a snapshot
 	snapshot := s.workspaceRootFS // .Snapshot()
 
+	// TODO(wyvern): remove this once we have a better way to update files.
+	snapshot.UpdateFiles(s.fileMapGetter())
 	return s.compileAt(snapshot)
 }
 

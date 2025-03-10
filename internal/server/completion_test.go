@@ -11,7 +11,7 @@ import (
 
 func TestServerTextDocumentCompletion(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -27,7 +27,8 @@ onStart => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		emptyLineItems, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -95,14 +96,15 @@ onStart => {
 	})
 
 	t.Run("InSpxEventHandler", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onStart => {
 
 }
 run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -124,11 +126,12 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("InStringLit", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "a
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -142,12 +145,13 @@ run "a
 	})
 
 	t.Run("InComment", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 // Run My G
 run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -161,11 +165,12 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("InStringLit", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "a
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -179,11 +184,12 @@ run "a
 	})
 
 	t.Run("InImportStringLit", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import "f
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -198,12 +204,13 @@ import "f
 	})
 
 	t.Run("InImportGroupStringLit", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import (
 	"f
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -218,12 +225,13 @@ import (
 	})
 
 	t.Run("PackageMember", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 import "fmt"
 fmt.
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -238,7 +246,7 @@ fmt.
 	})
 
 	t.Run("GeneralOrUnknown", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 
 onStart => {
@@ -246,7 +254,8 @@ onStart => {
 }
 run "assets", {Title: "My Game"}
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items1, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -282,7 +291,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("VarDecl", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 func test() {}
 onStart => {
@@ -294,7 +303,8 @@ run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -314,7 +324,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("VarDeclAndAssign", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onStart => {
 	var x SpriteName = "m"
@@ -325,7 +335,8 @@ run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -340,14 +351,15 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("SpxSoundResourceStringLit", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 play "r"
 run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -362,7 +374,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("FuncOverloads", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	recording Sound
@@ -373,7 +385,8 @@ run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -389,7 +402,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("WithImplicitSpxSpriteResource", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 run "assets", {Title: "My Game"}
 `),
@@ -400,7 +413,8 @@ onClick => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -415,7 +429,7 @@ onClick => {
 	})
 
 	t.Run("WithExplicitSpxSpriteResource", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -428,7 +442,8 @@ run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -443,7 +458,7 @@ run "assets", {Title: "My Game"}
 	})
 
 	t.Run("WithCrossSpxSpriteResource", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	Sprite1 Sprite
@@ -461,7 +476,8 @@ onClick => {
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -476,13 +492,14 @@ onClick => {
 	})
 
 	t.Run("AtLineStartWithAnIdentifier", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onClick => {
 	pr
 }
 `),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -497,7 +514,7 @@ onClick => {
 	})
 
 	t.Run("AtLineStartWithAMemberAccessExpression", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
 	MySprite Sprite
@@ -510,7 +527,8 @@ onClick => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items1, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -536,7 +554,7 @@ onClick => {
 	})
 
 	t.Run("WithGopBuiltins", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{
+		m := map[string][]byte{
 			"main.spx": []byte(`
 onClick => {
 	var n in
@@ -549,7 +567,8 @@ onClick => {
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}), nil)
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 		items1, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
