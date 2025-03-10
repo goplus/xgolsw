@@ -9,6 +9,7 @@ import (
 	"syscall/js"
 	"time"
 
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/internal/server"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
@@ -36,10 +37,10 @@ func NewSpxls(this js.Value, args []js.Value) any {
 	s := &Spxls{
 		messageReplier: args[1],
 	}
-	s.server = server.New(vfs.NewMapFS(func() map[string]vfs.MapFile {
+	s.server = server.New(gop.NewProject(nil, func() map[string]vfs.MapFile {
 		files := filesProvider.Invoke()
 		return ConvertJSFilesToMap(files)
-	}), s)
+	}, gop.FeatAll), s)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})
@@ -117,7 +118,7 @@ func ConvertJSFilesToMap(files js.Value) map[string]vfs.MapFile {
 		key := keys.Index(i).String()
 		value := files.Get(key)
 		if value.InstanceOf(js.Global().Get("Object")) {
-			result[key] = vfs.MapFile{
+			result[key] = &vfs.MapFileImpl{
 				Content: JSUint8ArrayToBytes(value.Get("content")),
 				ModTime: time.UnixMilli(int64(value.Get("modTime").Int())),
 			}
