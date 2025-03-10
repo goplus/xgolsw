@@ -32,7 +32,7 @@ type Server struct {
 	workspaceRootFS  *vfs.MapFS
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
-	fileMapGetter    FileMapGetter // TODO: Remove this field.
+	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
 }
 
 func (s *Server) getProj() *gop.Project {
