@@ -214,8 +214,16 @@ func (p *Project) UpdateFiles(newFiles map[string]File) {
 	}
 
 	// Add or update files from the new map
-	for path, file := range newFiles {
-		p.PutFile(path, file)
+	for path, newFile := range newFiles {
+		if oldFile, ok := p.File(path); ok {
+			// Only update if ModTime changed
+			if !oldFile.ModTime.Equal(newFile.ModTime) {
+				p.PutFile(path, newFile)
+			}
+		} else {
+			// New file, always add
+			p.PutFile(path, newFile)
+		}
 	}
 }
 
