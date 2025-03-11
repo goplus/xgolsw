@@ -19,6 +19,7 @@ package gop
 import (
 	"io/fs"
 	"testing"
+	"time"
 )
 
 func file(text string) File {
@@ -173,43 +174,56 @@ func TestErr(t *testing.T) {
 }
 
 func TestUpdateFiles(t *testing.T) {
+	now := time.Now()
+	later := now.Add(time.Hour)
+
 	// Initial project with two files
 	proj := NewProject(nil, map[string]File{
-		"main.spx": file("echo 100"),
-		"bar.spx":  file("echo 200"),
+		"main.spx": &FileImpl{
+			Content: []byte("echo 100"),
+			ModTime: now,
+		},
+		"bar.spx": &FileImpl{
+			Content: []byte("echo 200"),
+			ModTime: now,
+		},
 	}, FeatAll)
 
-	// Create new files map with one existing file modified and one new file
+	// Create new files map with:
+	// 1. Modified file with new ModTime
+	// 2. Modified file with same ModTime (should not update)
+	// 3. New file
 	newFiles := map[string]File{
-		"main.spx":  file("echo 300"), // Modified file
-		"third.spx": file("echo 400"), // New file
-		// bar.spx will be deleted
+		"main.spx": &FileImpl{
+			Content: []byte("echo 300"),
+			ModTime: later, // Changed ModTime
+		},
+		"bar.spx": &FileImpl{
+			Content: []byte("echo 999"), // Changed content
+			ModTime: now,                // Same ModTime
+		},
+		"third.spx": &FileImpl{
+			Content: []byte("echo 400"),
+			ModTime: now,
+		},
 	}
 
 	// Update all files
 	proj.UpdateFiles(newFiles)
 
-	// Test deleted file
-	if f, err := proj.AST("bar.spx"); f != nil || err != fs.ErrNotExist {
-		t.Fatal("Expected bar.spx to be deleted, got:", f, err)
+	// Test that file with changed ModTime was updated
+	if f1, ok := proj.File("main.spx"); !ok || string(f1.Content) != "echo 300" {
+		t.Fatal("main.spx should be updated")
 	}
 
-	// Test modified file
-	f1, err1 := proj.AST("main.spx")
-	if err1 != nil || f1 == nil {
-		t.Fatal("Failed to get modified file main.spx:", err1)
-	}
-	if val, ok := proj.files.Load("main.spx"); !ok || string(val.(File).Content) != "echo 300" {
-		t.Fatal("main.spx content not updated correctly")
+	// Test that file with same ModTime was not updated
+	if f2, ok := proj.File("bar.spx"); !ok || string(f2.Content) != "echo 200" {
+		t.Fatal("bar.spx should not be updated")
 	}
 
-	// Test new file
-	f2, err2 := proj.AST("third.spx")
-	if err2 != nil || f2 == nil {
-		t.Fatal("Failed to get new file third.spx:", err2)
-	}
-	if val, ok := proj.files.Load("third.spx"); !ok || string(val.(File).Content) != "echo 400" {
-		t.Fatal("third.spx content not set correctly")
+	// Test new file was added
+	if f3, ok := proj.File("third.spx"); !ok || string(f3.Content) != "echo 400" {
+		t.Fatal("third.spx should be added")
 	}
 
 	// Verify total number of files
@@ -218,7 +232,29 @@ func TestUpdateFiles(t *testing.T) {
 		fileCount++
 		return true
 	})
-	if fileCount != 2 {
-		t.Fatal("Expected 2 files after update, got:", fileCount)
+	if fileCount != 3 {
+		t.Fatal("Expected 3 files after update, got:", fileCount)
+	}
+
+	// Test cache invalidation
+	// Make a change that should trigger cache update
+	newerFiles := map[string]File{
+		"main.spx": &FileImpl{
+			Content: []byte("echo 500"),
+			ModTime: later.Add(time.Hour),
+		},
+	}
+
+	// Get AST before update to verify cache invalidation
+	astBefore, _ := proj.AST("main.spx")
+
+	proj.UpdateFiles(newerFiles)
+
+	// Get AST after update
+	astAfter, _ := proj.AST("main.spx")
+
+	// Verify cache was invalidated
+	if astBefore == astAfter {
+		t.Fatal("Cache should be invalidated when ModTime changes")
 	}
 }
