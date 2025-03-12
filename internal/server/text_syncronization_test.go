@@ -13,7 +13,7 @@ import (
 	"github.com/goplus/goxlsw/protocol"
 )
 
-// MockProject 实现模拟的项目接口
+// MockProject implements a mock Project interface for testing
 type MockProject struct {
 	files        map[string]gop.File
 	astError     error
@@ -21,22 +21,24 @@ type MockProject struct {
 	updatedPaths []string
 }
 
+// AST returns a mock AST file or an error if astError is set
 func (m *MockProject) AST(path string) (*ast.File, error) {
 	if m.astError != nil {
 		return nil, m.astError
 	}
-	// 创建一个最小的 ast.File 实例
+	// Create a minimal ast.File instance
 	return &ast.File{
 		Name: &ast.Ident{Name: "main"},
 	}, nil
 }
 
+// TypeInfo returns mock type information or an error if typeError is set
 func (m *MockProject) TypeInfo() (*types.Package, *typesutil.Info, error, error) {
 	if m.typeError != nil {
 		return nil, nil, m.typeError, nil
 	}
 
-	// 创建最小的类型信息实例
+	// Create minimal type information instances
 	pkg := types.NewPackage("main", "main")
 	info := &typesutil.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
@@ -47,6 +49,7 @@ func (m *MockProject) TypeInfo() (*types.Package, *typesutil.Info, error, error)
 	return pkg, info, nil, nil
 }
 
+// ModifyFiles tracks file modifications for testing
 func (m *MockProject) ModifyFiles(changes []gop.FileChange) {
 	for _, change := range changes {
 		m.files[change.Path] = &gop.FileImpl{
@@ -56,16 +59,18 @@ func (m *MockProject) ModifyFiles(changes []gop.FileChange) {
 	}
 }
 
+// File returns a file by path if it exists in the mock project
 func (m *MockProject) File(path string) (gop.File, bool) {
 	file, ok := m.files[path]
 	return file, ok
 }
 
-// MockReplier 实现模拟的消息回复接口
+// MockReplier implements a message replier for testing
 type MockReplier struct {
 	notifications []*jsonrpc2.Notification
 }
 
+// ReplyMessage records notifications for later verification
 func (m *MockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	if n, ok := msg.(*jsonrpc2.Notification); ok {
 		m.notifications = append(m.notifications, n)
@@ -73,22 +78,25 @@ func (m *MockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	return nil
 }
 
-// TestServer 实现测试用的服务器
+// TestServer implements a server for testing
 type TestServer struct {
 	proj         *MockProject
 	replier      *MockReplier
 	convertError error
 }
 
+// getProj returns the mock project
 func (s *TestServer) getProj() *MockProject {
 	return s.proj
 }
 
+// fromDocumentURI converts a URI to a filesystem path or returns an error
+// if convertError is set
 func (s *TestServer) fromDocumentURI(uri protocol.DocumentURI) (string, error) {
 	if s.convertError != nil {
 		return "", s.convertError
 	}
-	// 简单地将URI转换为路径，移除file://前缀
+	// Simply convert URI to path by removing file:// prefix
 	path := string(uri)
 	if len(path) > 7 && path[:7] == "file://" {
 		path = path[7:]
@@ -96,10 +104,12 @@ func (s *TestServer) fromDocumentURI(uri protocol.DocumentURI) (string, error) {
 	return path, nil
 }
 
+// toDocumentURI converts a filesystem path to a DocumentURI
 func (s *TestServer) toDocumentURI(path string) protocol.DocumentURI {
 	return protocol.DocumentURI("file://" + path)
 }
 
+// publishDiagnostics creates and sends a publishDiagnostics notification
 func (s *TestServer) publishDiagnostics(uri protocol.DocumentURI, diagnostics []protocol.Diagnostic) error {
 	params := &protocol.PublishDiagnosticsParams{
 		URI:         uri,
@@ -109,6 +119,7 @@ func (s *TestServer) publishDiagnostics(uri protocol.DocumentURI, diagnostics []
 	return s.replier.ReplyMessage(notification)
 }
 
+// didOpen implements the textDocument/didOpen handler for testing
 func (s *TestServer) didOpen(params *protocol.DidOpenTextDocumentParams) error {
 	path, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
@@ -122,6 +133,7 @@ func (s *TestServer) didOpen(params *protocol.DidOpenTextDocumentParams) error {
 	}})
 }
 
+// didChange implements the textDocument/didChange handler for testing
 func (s *TestServer) didChange(params *protocol.DidChangeTextDocumentParams) error {
 	path, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
@@ -137,6 +149,7 @@ func (s *TestServer) didChange(params *protocol.DidChangeTextDocumentParams) err
 	return s.didModifyFile(changes)
 }
 
+// didSave implements the textDocument/didSave handler for testing
 func (s *TestServer) didSave(params *protocol.DidSaveTextDocumentParams) error {
 	if params.Text == nil {
 		return nil
@@ -154,14 +167,16 @@ func (s *TestServer) didSave(params *protocol.DidSaveTextDocumentParams) error {
 	}})
 }
 
+// didClose implements the textDocument/didClose handler for testing
 func (s *TestServer) didClose(params *protocol.DidCloseTextDocumentParams) error {
 	return s.publishDiagnostics(params.TextDocument.URI, nil)
 }
 
+// didModifyFile performs file modifications and synchronously handles diagnostics for testing
 func (s *TestServer) didModifyFile(changes []gop.FileChange) error {
 	s.proj.ModifyFiles(changes)
 
-	// 同步处理诊断，简化测试
+	// Process diagnostics synchronously to simplify testing
 	for _, change := range changes {
 		uri := s.toDocumentURI(change.Path)
 		diagnostics, _ := s.getDiagnostics(change.Path)
@@ -171,10 +186,11 @@ func (s *TestServer) didModifyFile(changes []gop.FileChange) error {
 	return nil
 }
 
+// getDiagnostics generates diagnostics for testing
 func (s *TestServer) getDiagnostics(path string) ([]protocol.Diagnostic, error) {
 	var diagnostics []protocol.Diagnostic
 
-	// 检查 AST 错误
+	// Check for AST errors
 	if s.proj.astError != nil {
 		return []protocol.Diagnostic{{
 			Range: protocol.Range{
@@ -187,7 +203,7 @@ func (s *TestServer) getDiagnostics(path string) ([]protocol.Diagnostic, error) 
 		}}, nil
 	}
 
-	// 检查类型错误
+	// Check for type errors
 	if s.proj.typeError != nil {
 		diagnostics = append(diagnostics, protocol.Diagnostic{
 			Range: protocol.Range{
@@ -203,8 +219,9 @@ func (s *TestServer) getDiagnostics(path string) ([]protocol.Diagnostic, error) 
 	return diagnostics, nil
 }
 
-// 以下是测试函数
+// Test functions below
 
+// TestDidOpen tests the didOpen handler functionality
 func TestDidOpen(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -243,7 +260,7 @@ func TestDidOpen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockProj := &MockProject{
 				files: make(map[string]gop.File),
 			}
@@ -255,17 +272,17 @@ func TestDidOpen(t *testing.T) {
 				convertError: tt.convertError,
 			}
 
-			// 执行测试
+			// Execute test
 			err := server.didOpen(tt.params)
 
-			// 验证结果
+			// Verify results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("didOpen() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr {
-				// 验证文件是否被正确更新
+				// Verify file was correctly updated
 				if len(mockProj.updatedPaths) == 0 {
 					t.Errorf("No files were updated")
 					return
@@ -285,7 +302,7 @@ func TestDidOpen(t *testing.T) {
 					t.Errorf("File content = %q, want %q", string(file.Content), tt.expectedContent)
 				}
 
-				// 验证是否发送了诊断通知
+				// Verify diagnostic notification was sent
 				if len(mockReplier.notifications) == 0 {
 					t.Errorf("No diagnostics notifications were sent")
 				} else if mockReplier.notifications[0].Method() != "textDocument/publishDiagnostics" {
@@ -296,6 +313,7 @@ func TestDidOpen(t *testing.T) {
 	}
 }
 
+// TestDidChange tests the didChange handler functionality
 func TestDidChange(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -342,7 +360,7 @@ func TestDidChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockProj := &MockProject{
 				files: make(map[string]gop.File),
 			}
@@ -354,17 +372,17 @@ func TestDidChange(t *testing.T) {
 				convertError: tt.convertError,
 			}
 
-			// 执行测试
+			// Execute test
 			err := server.didChange(tt.params)
 
-			// 验证结果
+			// Verify results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("didChange() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr {
-				// 验证文件是否被正确更新
+				// Verify file was correctly updated
 				if len(mockProj.updatedPaths) == 0 {
 					t.Errorf("No files were updated")
 					return
@@ -384,7 +402,7 @@ func TestDidChange(t *testing.T) {
 					t.Errorf("File content = %q, want %q", string(file.Content), tt.expectedContent)
 				}
 
-				// 验证是否发送了诊断通知
+				// Verify diagnostic notification was sent
 				if len(mockReplier.notifications) == 0 {
 					t.Errorf("No diagnostics notifications were sent")
 				} else if mockReplier.notifications[0].Method() != "textDocument/publishDiagnostics" {
@@ -395,6 +413,7 @@ func TestDidChange(t *testing.T) {
 	}
 }
 
+// TestDidSave tests the didSave handler functionality
 func TestDidSave(t *testing.T) {
 	content := "package main\n\nfunc main() {}"
 	tests := []struct {
@@ -445,7 +464,7 @@ func TestDidSave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockProj := &MockProject{
 				files: make(map[string]gop.File),
 			}
@@ -457,17 +476,17 @@ func TestDidSave(t *testing.T) {
 				convertError: tt.convertError,
 			}
 
-			// 执行测试
+			// Execute test
 			err := server.didSave(tt.params)
 
-			// 验证结果
+			// Verify results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("didSave() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !tt.wantErr && tt.wantUpdate {
-				// 验证文件是否被正确更新
+				// Verify file was correctly updated
 				if len(mockProj.updatedPaths) == 0 {
 					t.Errorf("No files were updated")
 					return
@@ -487,7 +506,7 @@ func TestDidSave(t *testing.T) {
 					t.Errorf("File content = %q, want %q", string(file.Content), tt.expectedContent)
 				}
 
-				// 验证是否发送了诊断通知
+				// Verify diagnostic notification was sent
 				if len(mockReplier.notifications) == 0 {
 					t.Errorf("No diagnostics notifications were sent")
 				}
@@ -502,6 +521,7 @@ func TestDidSave(t *testing.T) {
 	}
 }
 
+// TestDidClose tests the didClose handler functionality
 func TestDidClose(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -521,23 +541,23 @@ func TestDidClose(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockReplier := &MockReplier{}
 
 			server := &TestServer{
 				replier: mockReplier,
 			}
 
-			// 执行测试
+			// Execute test
 			err := server.didClose(tt.params)
 
-			// 验证结果
+			// Verify results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("didClose() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
-			// 验证是否发送了清空诊断的通知
+			// Verify empty diagnostics notification was sent
 			if len(mockReplier.notifications) == 0 {
 				t.Errorf("No diagnostics notifications were sent")
 				return
@@ -546,7 +566,8 @@ func TestDidClose(t *testing.T) {
 			if mockReplier.notifications[0].Method() != "textDocument/publishDiagnostics" {
 				t.Errorf("Wrong notification method: %s", mockReplier.notifications[0].Method())
 			}
-			// 检查诊断是否为空
+
+			// Verify diagnostics are empty
 			var params protocol.PublishDiagnosticsParams
 			if err := json.Unmarshal(mockReplier.notifications[0].Params(), &params); err != nil {
 				t.Errorf("Failed to unmarshal notification params: %v", err)
@@ -560,6 +581,7 @@ func TestDidClose(t *testing.T) {
 	}
 }
 
+// TestGetDiagnostics tests the getDiagnostics functionality
 func TestGetDiagnostics(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -596,7 +618,7 @@ func TestGetDiagnostics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockProj := &MockProject{
 				files:     make(map[string]gop.File),
 				astError:  tt.astError,
@@ -607,10 +629,10 @@ func TestGetDiagnostics(t *testing.T) {
 				proj: mockProj,
 			}
 
-			// 执行测试
+			// Execute test
 			diagnostics, err := server.getDiagnostics(tt.path)
 
-			// 验证结果
+			// Verify results
 			if err != nil {
 				t.Errorf("getDiagnostics() error = %v", err)
 				return
@@ -633,6 +655,7 @@ func TestGetDiagnostics(t *testing.T) {
 	}
 }
 
+// TestDidModifyFile tests the didModifyFile functionality
 func TestDidModifyFile(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -684,7 +707,7 @@ func TestDidModifyFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 准备测试环境
+			// Setup test environment
 			mockProj := &MockProject{
 				files:     make(map[string]gop.File),
 				astError:  tt.astError,
@@ -697,16 +720,16 @@ func TestDidModifyFile(t *testing.T) {
 				replier: mockReplier,
 			}
 
-			// 执行测试
+			// Execute test
 			err := server.didModifyFile(tt.changes)
 
-			// 验证结果
+			// Verify results
 			if err != nil {
 				t.Errorf("didModifyFile() error = %v", err)
 				return
 			}
 
-			// 验证文件是否被更新
+			// Verify files were updated
 			if len(mockProj.updatedPaths) != len(tt.changes) {
 				t.Errorf("Updated %d files, want %d", len(mockProj.updatedPaths), len(tt.changes))
 			}
@@ -728,7 +751,7 @@ func TestDidModifyFile(t *testing.T) {
 				}
 			}
 
-			// 验证是否发送了诊断通知
+			// Verify diagnostic notifications were sent
 			if len(mockReplier.notifications) != len(tt.changes) {
 				t.Errorf("Sent %d notifications, want %d", len(mockReplier.notifications), len(tt.changes))
 			}
@@ -738,7 +761,7 @@ func TestDidModifyFile(t *testing.T) {
 					t.Errorf("Wrong notification method: %s", notification.Method())
 				}
 
-				// 检查诊断内容
+				// Check diagnostic content
 				var params protocol.PublishDiagnosticsParams
 				if err := json.Unmarshal(notification.Params(), &params); err != nil {
 					t.Errorf("Failed to unmarshal notification params: %v", err)
