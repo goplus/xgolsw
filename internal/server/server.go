@@ -242,25 +242,26 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didOpen params: %w", err)
 		}
-		return errors.New("TODO")
+
+		return s.didOpen(&params)
 	case "textDocument/didChange":
 		var params DidChangeTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didChange params: %w", err)
 		}
-		return errors.New("TODO")
+		return s.didChange(&params)
 	case "textDocument/didSave":
 		var params DidSaveTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didSave params: %w", err)
 		}
-		return errors.New("TODO")
+		return s.didSave(&params)
 	case "textDocument/didClose":
 		var params DidCloseTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didClose params: %w", err)
 		}
-		return errors.New("TODO")
+		return s.didClose(&params)
 	}
 	return nil
 }
