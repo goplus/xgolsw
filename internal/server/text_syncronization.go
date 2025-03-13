@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
+	"sync"
 	"time"
 
 	"github.com/goplus/gogen"
@@ -241,6 +242,8 @@ func (s *Server) PositionOffset(content []byte, position Position) int {
 	return lineOffset + utf8Offset
 }
 
+var mu sync.Mutex
+
 // getDiagnostics generates diagnostic information for a specific file.
 // It performs two checks:
 // 1. AST parsing - reports syntax errors
@@ -251,6 +254,8 @@ func (s *Server) PositionOffset(content []byte, position Position) int {
 // Returns a slice of diagnostics and an error (if diagnostic generation failed).
 func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	var diagnostics []Diagnostic
+	mu.Lock()
+	defer mu.Unlock()
 
 	proj := s.getProj()
 
