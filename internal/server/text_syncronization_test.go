@@ -241,7 +241,7 @@ func TestDidChange(t *testing.T) {
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
 					TextDocumentIdentifier: protocol.TextDocumentIdentifier{
-						URI: "file://workspace/test.gop",
+						URI: "file://error/test.gop",
 					},
 					Version: 2,
 				},
