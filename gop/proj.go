@@ -202,6 +202,7 @@ func (p *Project) PutFile(path string, file File) {
 	p.deleteCache(path)
 }
 
+// ModifyFiles modifies files in the project.
 func (p *Project) ModifyFiles(changes []FileChange) {
 	// Process all changes in a batch
 	for _, change := range changes {
