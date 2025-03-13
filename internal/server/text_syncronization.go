@@ -1,7 +1,19 @@
 package server
 
 import (
+	"bytes"
+	"fmt"
+	"go/types"
+	"time"
+
+	"github.com/goplus/gogen"
+	gopast "github.com/goplus/gop/ast"
+	gopscanner "github.com/goplus/gop/scanner"
+	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
+	"github.com/goplus/goxlsw/jsonrpc2"
+	"github.com/goplus/goxlsw/protocol"
+	"github.com/qiniu/x/errors"
 )
 
 // didOpen handles the textDocument/didOpen notification from the LSP client.
@@ -31,12 +43,15 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 		return err
 	}
 
-	// Convert all changes to FileChange
-	// Note: We currently take only the final state of the document
-	// rather than applying incremental changes
+	content, err := s.changedText(path, params.ContentChanges)
+	if err != nil {
+		return err
+	}
+
+	// Create a file change record
 	changes := []gop.FileChange{{
 		Path:    path,
-		Content: []byte(params.ContentChanges[len(params.ContentChanges)-1].Text),
+		Content: content,
 		Version: int(params.TextDocument.Version),
 	}}
 
@@ -58,7 +73,7 @@ func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
 		return s.didModifyFile([]gop.FileChange{{
 			Path:    path,
 			Content: []byte(*params.Text),
-			Version: 0, // Save notifications don't include versions
+			Version: int(time.Now().UnixMilli()),
 		}})
 	}
 	return nil
@@ -107,6 +122,125 @@ func (s *Server) didModifyFile(changes []gop.FileChange) error {
 	return nil
 }
 
+// changedText processes document content changes from the client.
+// It supports two modes of operation:
+// 1. Full replacement: Replace the entire document content (when only one change with no range is provided)
+// 2. Incremental updates: Apply specific changes to portions of the document
+//
+// Returns the updated document content or an error if the changes couldn't be applied.
+func (s *Server) changedText(uri string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
+	if len(changes) == 0 {
+		return nil, fmt.Errorf("%w: no content changes provided", jsonrpc2.ErrInternal)
+	}
+
+	// Check if the client sent the full content of the file.
+	// We accept a full content change even if the server expected incremental changes.
+	if len(changes) == 1 && changes[0].Range == nil && changes[0].RangeLength == 0 {
+		// Full replacement mode
+		return []byte(changes[0].Text), nil
+	}
+
+	// Incremental update mode
+	return s.applyIncrementalChanges(uri, changes)
+}
+
+// applyIncrementalChanges applies a sequence of changes to the document content.
+// For each change, it:
+// 1. Computes the byte offsets for the specified range
+// 2. Verifies the range is valid
+// 3. Replaces the specified range with the new text
+//
+// Returns the updated document content or an error if the changes couldn't be applied.
+func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
+	// Get current file content
+	file, ok := s.getProj().File(path)
+	if !ok {
+		return nil, fmt.Errorf("%w: file not found", jsonrpc2.ErrInternal)
+	}
+
+	content := file.Content
+
+	// Apply each change sequentially
+	for _, change := range changes {
+		// Ensure the change includes range information
+		if change.Range == nil {
+			return nil, fmt.Errorf("%w: unexpected nil range for change", jsonrpc2.ErrInternal)
+		}
+
+		// Convert LSP positions to byte offsets
+		start := s.PositionOffset(content, change.Range.Start)
+		end := s.PositionOffset(content, change.Range.End)
+
+		// Validate range
+		if end < start {
+			return nil, fmt.Errorf("%w: invalid range for content change", jsonrpc2.ErrInternal)
+		}
+
+		// Apply the change
+		var buf bytes.Buffer
+		buf.Write(content[:start])
+		buf.WriteString(change.Text)
+		buf.Write(content[end:])
+		content = buf.Bytes()
+	}
+
+	return content, nil
+}
+
+// PositionOffset converts an LSP position (line, character) to a byte offset in the document.
+// It calculates the offset by:
+// 1. Finding the starting byte offset of the requested line
+// 2. Adding the character offset within that line, converting from UTF-16 to UTF-8 if needed
+//
+// Parameters:
+// - content: The file content as a byte array
+// - position: The LSP position with line and character numbers (0-based)
+//
+// Returns the byte offset from the beginning of the document
+func (s *Server) PositionOffset(content []byte, position Position) int {
+	// If content is empty or position is beyond the content, return 0
+	if len(content) == 0 {
+		return 0
+	}
+
+	// Find all line start positions in the document
+	lineStarts := []int{0} // First line always starts at position 0
+	for i := 0; i < len(content); i++ {
+		if content[i] == '\n' {
+			lineStarts = append(lineStarts, i+1) // Next line starts after the newline
+		}
+	}
+
+	// Ensure the requested line is within range
+	lineIndex := int(position.Line)
+	if lineIndex >= len(lineStarts) {
+		// If line is beyond available lines, return the end of content
+		return len(content)
+	}
+
+	// Get the starting offset of the requested line
+	lineOffset := lineStarts[lineIndex]
+
+	// Extract the content of the requested line
+	lineEndOffset := len(content)
+	if lineIndex+1 < len(lineStarts) {
+		lineEndOffset = lineStarts[lineIndex+1] - 1 // -1 to exclude the newline character
+	}
+
+	// Ensure we don't go beyond the end of content
+	if lineOffset >= len(content) {
+		return len(content)
+	}
+
+	lineContent := content[lineOffset:min(lineEndOffset, len(content))]
+
+	// Convert UTF-16 character offset to UTF-8 byte offset
+	utf8Offset := utf16OffsetToUTF8(string(lineContent), int(position.Character))
+
+	// Ensure the final offset doesn't exceed the content length
+	return lineOffset + utf8Offset
+}
+
 // getDiagnostics generates diagnostic information for a specific file.
 // It performs two checks:
 // 1. AST parsing - reports syntax errors
@@ -122,18 +256,49 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 
 	// 1. Get AST diagnostics
 	// Parse the file and check for syntax errors
-	_, err := proj.AST(path)
+	astFile, err := proj.AST(path)
 	if err != nil {
-		// Convert syntax errors to diagnostics with position at the start of file
-		return []Diagnostic{{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 0, Character: 0},
-			},
-			Severity: SeverityError,
-			Source:   "goxlsw",
-			Message:  err.Error(),
-		}}, nil
+		var (
+			errorList gopscanner.ErrorList
+			codeError *gogen.CodeError
+		)
+		if errors.As(err, &errorList) {
+			// Handle parse errors.
+			for _, e := range errorList {
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity: SeverityError,
+					Range:    s.rangeForASTFilePosition(astFile, e.Pos),
+					Message:  e.Msg,
+				})
+			}
+		} else if errors.As(err, &codeError) {
+			// Handle code generation errors.
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity: SeverityError,
+				Range:    s.rangeForPos(codeError.Pos),
+				Message:  codeError.Error(),
+			})
+		} else {
+			// Handle unknown errors (including recovered panics).
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("failed to parse spx file: %v", err),
+			})
+		}
+	}
+
+	if astFile == nil {
+		return diagnostics, nil
+	}
+
+	handleErr := func(err error) {
+		if typeErr, ok := err.(types.Error); ok {
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity: SeverityError,
+				Range:    s.rangeForPos(typeErr.Pos),
+				Message:  typeErr.Msg,
+			})
+		}
 	}
 
 	// 2. Get type checking diagnostics
@@ -141,16 +306,52 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	_, _, err, _ = proj.TypeInfo()
 	if err != nil {
 		// Add type checking errors to diagnostics
-		diagnostics = append(diagnostics, Diagnostic{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 0, Character: 0},
-			},
-			Severity: SeverityError,
-			Source:   "goxlsw",
-			Message:  err.Error(),
-		})
+		switch err := err.(type) {
+		case errors.List:
+			for _, e := range err {
+				handleErr(e)
+			}
+		default:
+			handleErr(err)
+		}
 	}
 
 	return diagnostics, nil
+}
+
+// fromPosition converts a token.Position to an LSP Position.
+func (s *Server) fromPosition(astFile *gopast.File, position goptoken.Position) Position {
+	tokenFile := s.getProj().Fset.File(astFile.Pos())
+
+	line := position.Line
+	lineStart := int(tokenFile.LineStart(line))
+	relLineStart := lineStart - tokenFile.Base()
+	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
+	utf16Offset := utf8OffsetToUTF16(string(lineContent), position.Column-1)
+
+	return Position{
+		Line:      uint32(position.Line - 1),
+		Character: uint32(utf16Offset),
+	}
+}
+
+// rangeForASTFilePosition returns a [Range] for the given position in an AST file.
+func (s *Server) rangeForASTFilePosition(astFile *gopast.File, position goptoken.Position) Range {
+	p := s.fromPosition(astFile, position)
+	return Range{Start: p, End: p}
+}
+
+// rangeForPos returns the [Range] for the given position.
+func (s *Server) rangeForPos(pos goptoken.Pos) Range {
+	return s.rangeForASTFilePosition(s.posASTFile(pos), s.getProj().Fset.Position(pos))
+}
+
+// posASTFile returns the AST file for the given position.
+func (s *Server) posASTFile(pos goptoken.Pos) *gopast.File {
+	return getASTPkg(s.getProj()).Files[s.posFilename(pos)]
+}
+
+// posFilename returns the filename for the given position.
+func (s *Server) posFilename(pos goptoken.Pos) string {
+	return s.getProj().Fset.Position(pos).Filename
 }
