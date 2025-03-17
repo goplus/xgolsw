@@ -26,6 +26,7 @@ import (
 
 	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/mod/gopmod"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -95,6 +96,9 @@ type Project struct {
 
 	// The caller is responsible for initialization (optional).
 	NewTypeInfo func() *typesutil.Info
+
+	// singleflight group to avoid duplicate builder calls
+	group singleflight.Group
 }
 
 // NewProject creates a new project.
@@ -265,6 +269,8 @@ func (p *Project) InitCache(kind string, builder func(root *Project) (any, error
 }
 
 // FileCache gets a file level cache.
+// It uses singleflight to prevent duplicate builder calls when multiple
+// goroutines request the same cache simultaneously.
 func (p *Project) FileCache(kind, path string) (any, error) {
 	key := fileKey{kind, path}
 	if v, ok := p.fileCaches.Load(key); ok {
@@ -278,12 +284,20 @@ func (p *Project) FileCache(kind, path string) (any, error) {
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
-	data, err := builder(p, path, file)
-	p.fileCaches.Store(key, encodeDataOrErr(data, err))
-	return data, err
+
+	// Use singleflight to ensure only one builder is running for the same key
+	v, err, _ := p.group.Do(path, func() (interface{}, error) {
+		data, err := builder(p, path, file)
+		p.fileCaches.Store(key, encodeDataOrErr(data, err))
+		return data, nil
+	})
+
+	return v, err
 }
 
 // Cache gets a project level cache.
+// It uses singleflight to prevent duplicate builder calls when multiple
+// goroutines request the same cache simultaneously.
 func (p *Project) Cache(kind string) (any, error) {
 	if v, ok := p.caches.Load(kind); ok {
 		return decodeDataOrErr(v)
@@ -292,9 +306,14 @@ func (p *Project) Cache(kind string) (any, error) {
 	if !ok {
 		return nil, ErrUnknownKind
 	}
-	data, err := builder(p)
-	p.caches.Store(kind, encodeDataOrErr(data, err))
-	return data, err
+
+	// Use singleflight to ensure only one builder is running for the same key
+	v, err, _ := p.group.Do(p.Path, func() (interface{}, error) {
+		data, err := builder(p)
+		p.caches.Store(kind, encodeDataOrErr(data, err))
+		return data, err
+	})
+	return v, err
 }
 
 func decodeDataOrErr(v any) (any, error) {
