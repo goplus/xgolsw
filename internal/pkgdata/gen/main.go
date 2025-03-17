@@ -125,10 +125,10 @@ var pkgPaths = []string{
 
 	// See github.com/goplus/gop/cl.newBuiltinDefault for the list of packages required by Go+ builtins.
 	"github.com/goplus/gop/builtin",
-	"github.com/goplus/gop/builtin/ng",
 	"github.com/goplus/gop/builtin/iox",
-	"github.com/qiniu/x/stringutil",
+	"github.com/goplus/gop/builtin/ng",
 	"github.com/goplus/gop/builtin/stringslice",
+	"github.com/qiniu/x/stringutil",
 
 	"github.com/goplus/spx",
 	"github.com/hajimehoshi/ebiten/v2",

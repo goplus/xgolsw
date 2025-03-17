@@ -195,8 +195,9 @@ func TestServerWorkspaceDiagnostic(t *testing.T) {
 var (
 	MyAircraft MyAircraft
 `),
-			"MyAircraft.spx":    []byte(`var x int`),
-			"assets/index.json": []byte(`{}`),
+			"MyAircraft.spx":                       []byte(`var x int`),
+			"assets/index.json":                    []byte(`{}`),
+			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
 		}
 		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
@@ -413,6 +414,15 @@ onStart => {
 			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
+			case "file:///main.spx":
+				assert.Contains(t, fullReport.Items, Diagnostic{
+					Severity: SeverityError,
+					Message:  `sprite resource "MySprite2" not found`,
+					Range: Range{
+						Start: Position{Line: 3, Character: 1},
+						End:   Position{Line: 3, Character: 10},
+					},
+				})
 			case "file:///MySprite1.spx":
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
