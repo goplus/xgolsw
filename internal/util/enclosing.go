@@ -7,8 +7,6 @@ package util
 // This file defines utilities for working with source positions.
 
 import (
-	"reflect"
-	"slices"
 	"sort"
 
 	"github.com/goplus/gop/ast"
@@ -469,8 +467,6 @@ func childrenOf(n ast.Node) []ast.Node {
 		// nop
 	}
 
-	children = slices.DeleteFunc(children, isNilNode)
-
 	// TODO(adonovan): opt: merge the logic of ast.Inspect() into
 	// the switch above so we can make interleaved callbacks for
 	// both Nodes and Tokens in the right order and avoid the need
@@ -492,15 +488,4 @@ func (sl byPos) Less(i, j int) bool {
 
 func (sl byPos) Swap(i, j int) {
 	sl[i], sl[j] = sl[j], sl[i]
-}
-
-func isNilNode(n ast.Node) bool {
-	if n == nil {
-		return true
-	}
-	v := reflect.ValueOf(n)
-	if v.Kind() == reflect.Ptr {
-		return v.IsNil()
-	}
-	return false
 }
