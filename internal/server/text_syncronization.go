@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
-	"sync"
 	"time"
 
 	"github.com/goplus/gogen"
-	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
-	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/jsonrpc2"
 	"github.com/goplus/goxlsw/protocol"
@@ -27,7 +24,7 @@ func (s *Server) didOpen(params *DidOpenTextDocumentParams) error {
 		return err
 	}
 
-	return s.didModifyFile([]gop.FileChange{{
+	return s.didModifyFile([]FileChange{{
 		Path:    path,
 		Content: []byte(params.TextDocument.Text),
 		Version: int(params.TextDocument.Version),
@@ -50,7 +47,7 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 	}
 
 	// Create a file change record
-	changes := []gop.FileChange{{
+	changes := []FileChange{{
 		Path:    path,
 		Content: content,
 		Version: int(params.TextDocument.Version),
@@ -71,7 +68,7 @@ func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
 			return err
 		}
 
-		return s.didModifyFile([]gop.FileChange{{
+		return s.didModifyFile([]FileChange{{
 			Path:    path,
 			Content: []byte(*params.Text),
 			Version: int(time.Now().UnixMilli()),
@@ -94,9 +91,9 @@ func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
 // 1. Updates the project's files with the provided changes
 // 2. Starts a goroutine to generate and publish diagnostics for each changed file
 // 3. Returns immediately after updating files for better responsiveness
-func (s *Server) didModifyFile(changes []gop.FileChange) error {
+func (s *Server) didModifyFile(changes []FileChange) error {
 	// 1. Update files synchronously
-	s.getProj().ModifyFiles(changes)
+	s.ModifyFiles(changes)
 
 	// 2. Asynchronously generate and publish diagnostics
 	// This allows for quick response while diagnostics computation happens in background
@@ -242,8 +239,6 @@ func (s *Server) PositionOffset(content []byte, position Position) int {
 	return lineOffset + utf8Offset
 }
 
-var mu sync.Mutex
-
 // getDiagnostics generates diagnostic information for a specific file.
 // It performs two checks:
 // 1. AST parsing - reports syntax errors
@@ -254,8 +249,6 @@ var mu sync.Mutex
 // Returns a slice of diagnostics and an error (if diagnostic generation failed).
 func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	var diagnostics []Diagnostic
-	mu.Lock()
-	defer mu.Unlock()
 
 	proj := s.getProj()
 
@@ -296,13 +289,18 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 		return diagnostics, nil
 	}
 
+	astFilePos := proj.Fset.Position(astFile.Pos())
+
 	handleErr := func(err error) {
 		if typeErr, ok := err.(types.Error); ok {
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: SeverityError,
-				Range:    s.rangeForPos(typeErr.Pos),
-				Message:  typeErr.Msg,
-			})
+			position := typeErr.Fset.Position(typeErr.Pos)
+			if position.Filename == astFilePos.Filename {
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity: SeverityError,
+					Range:    s.rangeForPos(typeErr.Pos),
+					Message:  typeErr.Msg,
+				})
+			}
 		}
 	}
 
@@ -324,39 +322,34 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	return diagnostics, nil
 }
 
-// fromPosition converts a token.Position to an LSP Position.
-func (s *Server) fromPosition(astFile *gopast.File, position goptoken.Position) Position {
-	tokenFile := s.getProj().Fset.File(astFile.Pos())
+// FileChange represents a file change.
+type FileChange struct {
+	Path    string
+	Content []byte
+	Version int // Version is timestamp in milliseconds
+}
 
-	line := position.Line
-	lineStart := int(tokenFile.LineStart(line))
-	relLineStart := lineStart - tokenFile.Base()
-	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
-	utf16Offset := utf8OffsetToUTF16(string(lineContent), position.Column-1)
+// ModifyFiles modifies files in the project.
+func (s *Server) ModifyFiles(changes []FileChange) {
+	// Get project
+	p := s.getProj()
+	// Process all changes in a batch
+	for _, change := range changes {
+		// Create new file with updated content
+		file := &gop.FileImpl{
+			Content: change.Content,
+			Version: change.Version,
+		}
 
-	return Position{
-		Line:      uint32(position.Line - 1),
-		Character: uint32(utf16Offset),
+		// Check if file exists
+		if oldFile, ok := p.File(change.Path); ok {
+			// Only update if version is newer
+			if change.Version > oldFile.Version {
+				p.PutFile(change.Path, file)
+			}
+		} else {
+			// New file, always add
+			p.PutFile(change.Path, file)
+		}
 	}
-}
-
-// rangeForASTFilePosition returns a [Range] for the given position in an AST file.
-func (s *Server) rangeForASTFilePosition(astFile *gopast.File, position goptoken.Position) Range {
-	p := s.fromPosition(astFile, position)
-	return Range{Start: p, End: p}
-}
-
-// rangeForPos returns the [Range] for the given position.
-func (s *Server) rangeForPos(pos goptoken.Pos) Range {
-	return s.rangeForASTFilePosition(s.posASTFile(pos), s.getProj().Fset.Position(pos))
-}
-
-// posASTFile returns the AST file for the given position.
-func (s *Server) posASTFile(pos goptoken.Pos) *gopast.File {
-	return getASTPkg(s.getProj()).Files[s.posFilename(pos)]
-}
-
-// posFilename returns the filename for the given position.
-func (s *Server) posFilename(pos goptoken.Pos) string {
-	return s.getProj().Fset.Position(pos).Filename
 }

@@ -65,14 +65,9 @@ type fileKey struct {
 type File = *FileImpl
 type FileImpl struct {
 	Content []byte
+	// Deprecated: ModTime is no longer supported due to lsp text sync specification. Use Version instead.
 	ModTime time.Time
-}
-
-// FileChange represents a file change.
-type FileChange struct {
-	Path    string
-	Content []byte
-	Version int // Version is timestamp in milliseconds
+	Version int
 }
 
 // Project represents a project.
@@ -200,29 +195,6 @@ func (p *Project) DeleteFile(path string) error {
 func (p *Project) PutFile(path string, file File) {
 	p.files.Store(path, file)
 	p.deleteCache(path)
-}
-
-// ModifyFiles modifies files in the project.
-func (p *Project) ModifyFiles(changes []FileChange) {
-	// Process all changes in a batch
-	for _, change := range changes {
-		// Create new file with updated content
-		file := &FileImpl{
-			Content: change.Content,
-			ModTime: time.UnixMilli(int64(change.Version)),
-		}
-
-		// Check if file exists
-		if oldFile, ok := p.File(change.Path); ok {
-			// Only update if version is newer
-			if change.Version > int(oldFile.ModTime.UnixMilli()) {
-				p.PutFile(change.Path, file)
-			}
-		} else {
-			// New file, always add
-			p.PutFile(change.Path, file)
-		}
-	}
 }
 
 // UpdateFiles updates all files in the project with the provided map of files.

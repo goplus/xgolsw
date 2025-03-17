@@ -34,6 +34,138 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func TestModifyFiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial map[string]gop.File
+		changes []FileChange
+		want    map[string]string // path -> expected content
+	}{
+		{
+			name:    "add new files",
+			initial: map[string]gop.File{},
+			changes: []FileChange{
+				{
+					Path:    "new.go",
+					Content: []byte("package main"),
+					Version: 100,
+				},
+			},
+			want: map[string]string{
+				"new.go": "package main",
+			},
+		},
+		{
+			name: "update existing file with newer version",
+			initial: map[string]gop.File{
+				"main.go": &gop.FileImpl{
+					Content: []byte("old content"),
+					ModTime: time.UnixMilli(100),
+				},
+			},
+			changes: []FileChange{
+				{
+					Path:    "main.go",
+					Content: []byte("new content"),
+					Version: 200,
+				},
+			},
+			want: map[string]string{
+				"main.go": "new content",
+			},
+		},
+		{
+			name: "ignore older version update",
+			initial: map[string]gop.File{
+				"main.go": &gop.FileImpl{
+					Content: []byte("current content"),
+					Version: 200,
+				},
+			},
+			changes: []FileChange{
+				{
+					Path:    "main.go",
+					Content: []byte("old content"),
+					Version: 100,
+				},
+			},
+			want: map[string]string{
+				"main.go": "current content",
+			},
+		},
+		{
+			name: "multiple file changes",
+			initial: map[string]gop.File{
+				"file1.go": &gop.FileImpl{
+					Content: []byte("content1"),
+					ModTime: time.UnixMilli(100),
+				},
+				"file2.go": &gop.FileImpl{
+					Content: []byte("content2"),
+					ModTime: time.UnixMilli(100),
+				},
+			},
+			changes: []FileChange{
+				{
+					Path:    "file1.go",
+					Content: []byte("new content1"),
+					Version: 200,
+				},
+				{
+					Path:    "file3.go",
+					Content: []byte("content3"),
+					Version: 200,
+				},
+			},
+			want: map[string]string{
+				"file1.go": "new content1",
+				"file2.go": "content2",
+				"file3.go": "content3",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create new project with initial files
+			proj := gop.NewProject(token.NewFileSet(), tt.initial, gop.FeatAll)
+
+			// Create a TestServer that extends the real Server
+			server := &Server{
+				workspaceRootFS: proj,
+			}
+
+			// Apply changes
+			server.ModifyFiles(tt.changes)
+
+			// Verify results
+			for path, wantContent := range tt.want {
+				file, ok := proj.File(path)
+				if !ok {
+					t.Errorf("file %s not found", path)
+					continue
+				}
+				if got := string(file.Content); got != wantContent {
+					t.Errorf("%s file %s content = %q, want %q", tt.name, path, got, wantContent)
+				}
+			}
+
+			// Verify no extra files exist
+			count := 0
+			proj.RangeFiles(func(path string) bool {
+				count++
+				if _, ok := tt.want[path]; !ok {
+					t.Errorf("unexpected file: %s", path)
+				}
+				return true
+			})
+			if count != len(tt.want) {
+				t.Errorf("got %d files, want %d", count, len(tt.want))
+			}
+		})
+	}
+}
+
 // TestDidOpen tests the didOpen handler functionality
 func TestDidOpen(t *testing.T) {
 	tests := []struct {
@@ -830,10 +962,10 @@ func TestGetDiagnostics(t *testing.T) {
 				return
 			}
 
-			for _, d := range diagnostics {
-				t.Logf("%s Diagnostic: %v; Range: %d/%d %d/%d", tt.name, d.Message,
-					d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Line, d.Range.End.Character)
-			}
+			// for _, d := range diagnostics {
+			// 	t.Logf("%s Diagnostic: %v; Range: %d/%d %d/%d", tt.name, d.Message,
+			// 		d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Line, d.Range.End.Character)
+			// }
 
 			if len(diagnostics) != tt.wantDiagCount {
 				t.Errorf("%s getDiagnostics() returned %v diagnostics, want %d", tt.name, len(diagnostics), tt.wantDiagCount)
