@@ -1003,20 +1003,11 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 
 		switch {
 		case isSpxSoundResourceAutoBinding:
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSoundResourceID{SoundName: ident.Name},
-				Kind: SpxResourceRefKindAutoBinding,
-				Node: ident,
-			})
 			result.spxSoundResourceAutoBindings[obj] = struct{}{}
 		case isSpxSpriteResourceAutoBinding:
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteResourceID{SpriteName: ident.Name},
-				Kind: SpxResourceRefKindAutoBinding,
-				Node: ident,
-			})
 			result.spxSpriteResourceAutoBindings[obj] = struct{}{}
 		}
+		s.inspectSpxResourceRefForTypeAtExpr(result, ident, unwrapPointerType(obj.Type()), nil)
 	}
 
 	// Check all identifier uses.
@@ -1246,7 +1237,12 @@ func (s *Server) inspectSpxSpriteResourceRefAtExpr(result *compileResult, expr g
 				return nil
 			}
 			spxSpriteName = obj.Name()
-			spxResourceRefKind = SpxResourceRefKindAutoBindingReference
+			defIdent := result.defIdentFor(obj)
+			if defIdent == ident {
+				spxResourceRefKind = SpxResourceRefKindAutoBinding
+			} else {
+				spxResourceRefKind = SpxResourceRefKindAutoBindingReference
+			}
 		}
 		if spxSpriteName == "" {
 			result.addDiagnostics(exprDocumentURI, Diagnostic{
@@ -1419,7 +1415,12 @@ func (s *Server) inspectSpxSoundResourceRefAtExpr(result *compileResult, expr go
 			return nil
 		}
 		spxSoundName = obj.Name()
-		spxResourceRefKind = SpxResourceRefKindAutoBindingReference
+		defIdent := result.defIdentFor(obj)
+		if defIdent == ident {
+			spxResourceRefKind = SpxResourceRefKindAutoBinding
+		} else {
+			spxResourceRefKind = SpxResourceRefKindAutoBindingReference
+		}
 	default:
 		return nil
 	}

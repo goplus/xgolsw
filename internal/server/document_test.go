@@ -36,10 +36,9 @@ onStart => {
 		}
 		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
-		paramsForMainSpx := &DocumentLinkParams{
+		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		}
-		linksForMainSpx, err := s.textDocumentDocumentLink(paramsForMainSpx)
+		})
 		require.NoError(t, err)
 		require.Len(t, linksForMainSpx, 14)
 		assert.Contains(t, linksForMainSpx, DocumentLink{
@@ -153,10 +152,9 @@ onStart => {
 			Target: toURI("gop:github.com/goplus/spx?Game.Title"),
 		})
 
-		paramsForMySpriteSpx := &DocumentLinkParams{
+		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-		}
-		linksForMySpriteSpx, err := s.textDocumentDocumentLink(paramsForMySpriteSpx)
+		})
 		require.NoError(t, err)
 		require.Len(t, linksForMySpriteSpx, 21)
 		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
@@ -263,22 +261,20 @@ onStart => {
 			"main.gop": []byte(`echo "Hello, Go+!"`),
 		}
 		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
-		params := &DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.gop"},
-		}
 
-		links, err := s.textDocumentDocumentLink(params)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.gop"},
+		})
 		assert.EqualError(t, err, `file "main.gop" does not have .spx extension`)
 		assert.Nil(t, links)
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
 		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}))
-		params := &DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
-		}
 
-		links, err := s.textDocumentDocumentLink(params)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
+		})
 		assert.ErrorIs(t, err, errNoMainSpxFile)
 		assert.Nil(t, links)
 	})
@@ -294,11 +290,10 @@ var (
 			"assets/sounds/MySound/index.json": []byte(`{}`),
 		}
 		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
-		params := &DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		}
 
-		links, err := s.textDocumentDocumentLink(params)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
 		require.NoError(t, err)
 		require.Len(t, links, 3)
 		assert.Contains(t, links, DocumentLink{
@@ -324,6 +319,146 @@ var (
 				End:   Position{Line: 3, Character: 14},
 			},
 			Target: toURI("gop:github.com/goplus/spx?Sound"),
+		})
+	})
+
+	t.Run("AutoBindingSprite", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	MySprite Sprite
+)
+`),
+			"MySprite.spx":                       []byte(``),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.Len(t, links, 3)
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("spx://resources/sprites/MySprite"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBinding,
+			},
+		})
+		assert.NotContains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("spx://resources/sprites/MySprite"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBindingReference,
+			},
+		})
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("gop:main?Game.MySprite"),
+		})
+	})
+
+	t.Run("AutoBindingSpriteAsEmbeddedField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	MySprite
+)
+`),
+			"MySprite.spx":                       []byte(``),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.Len(t, links, 3)
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("spx://resources/sprites/MySprite"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBinding,
+			},
+		})
+		assert.NotContains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("spx://resources/sprites/MySprite"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBindingReference,
+			},
+		})
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
+			},
+			Target: toURI("gop:main?Game.MySprite"),
+		})
+	})
+
+	t.Run("AutoBindingSound", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	MySound Sound
+)
+`),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sounds/MySound/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.Len(t, links, 3)
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 8},
+			},
+			Target: toURI("spx://resources/sounds/MySound"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBinding,
+			},
+		})
+		assert.NotContains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 8},
+			},
+			Target: toURI("spx://resources/sounds/MySound"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindAutoBindingReference,
+			},
+		})
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 8},
+			},
+			Target: toURI("gop:main?Game.MySound"),
 		})
 	})
 }
