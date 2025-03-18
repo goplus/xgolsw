@@ -166,8 +166,8 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 		}
 
 		// Convert LSP positions to byte offsets
-		start := s.PositionOffset(content, change.Range.Start)
-		end := s.PositionOffset(content, change.Range.End)
+		start := positionOffset(content, change.Range.Start)
+		end := positionOffset(content, change.Range.End)
 
 		// Validate range
 		if end < start {
@@ -183,60 +183,6 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 	}
 
 	return content, nil
-}
-
-// PositionOffset converts an LSP position (line, character) to a byte offset in the document.
-// It calculates the offset by:
-// 1. Finding the starting byte offset of the requested line
-// 2. Adding the character offset within that line, converting from UTF-16 to UTF-8 if needed
-//
-// Parameters:
-// - content: The file content as a byte array
-// - position: The LSP position with line and character numbers (0-based)
-//
-// Returns the byte offset from the beginning of the document
-func (s *Server) PositionOffset(content []byte, position Position) int {
-	// If content is empty or position is beyond the content, return 0
-	if len(content) == 0 {
-		return 0
-	}
-
-	// Find all line start positions in the document
-	lineStarts := []int{0} // First line always starts at position 0
-	for i := 0; i < len(content); i++ {
-		if content[i] == '\n' {
-			lineStarts = append(lineStarts, i+1) // Next line starts after the newline
-		}
-	}
-
-	// Ensure the requested line is within range
-	lineIndex := int(position.Line)
-	if lineIndex >= len(lineStarts) {
-		// If line is beyond available lines, return the end of content
-		return len(content)
-	}
-
-	// Get the starting offset of the requested line
-	lineOffset := lineStarts[lineIndex]
-
-	// Extract the content of the requested line
-	lineEndOffset := len(content)
-	if lineIndex+1 < len(lineStarts) {
-		lineEndOffset = lineStarts[lineIndex+1] - 1 // -1 to exclude the newline character
-	}
-
-	// Ensure we don't go beyond the end of content
-	if lineOffset >= len(content) {
-		return len(content)
-	}
-
-	lineContent := content[lineOffset:min(lineEndOffset, len(content))]
-
-	// Convert UTF-16 character offset to UTF-8 byte offset
-	utf8Offset := utf16OffsetToUTF8(string(lineContent), int(position.Character))
-
-	// Ensure the final offset doesn't exceed the content length
-	return lineOffset + utf8Offset
 }
 
 // getDiagnostics generates diagnostic information for a specific file.
