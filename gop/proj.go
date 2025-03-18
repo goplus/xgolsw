@@ -65,7 +65,9 @@ type fileKey struct {
 type File = *FileImpl
 type FileImpl struct {
 	Content []byte
+	// Deprecated: ModTime is no longer supported due to lsp text sync specification. Use Version instead.
 	ModTime time.Time
+	Version int
 }
 
 // Project represents a project.
@@ -276,6 +278,7 @@ func (p *Project) FileCache(kind, path string) (any, error) {
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
+
 	data, err := builder(p, path, file)
 	p.fileCaches.Store(key, encodeDataOrErr(data, err))
 	return data, err
@@ -290,6 +293,7 @@ func (p *Project) Cache(kind string) (any, error) {
 	if !ok {
 		return nil, ErrUnknownKind
 	}
+
 	data, err := builder(p)
 	p.caches.Store(kind, encodeDataOrErr(data, err))
 	return data, err
