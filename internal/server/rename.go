@@ -7,6 +7,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/internal/vfs"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
@@ -172,10 +173,10 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
 	typeInfo := getTypeInfo(result.proj)
 	for expr, tv := range typeInfo.Types {
-		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() {
+		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() || tv.Type == nil {
 			continue
 		}
-		if tv.Type.String() == "main."+id.SpriteName {
+		if vfs.HasSpriteType(result.proj, tv.Type) && tv.Type.String() == "main."+id.SpriteName {
 			documentURI := result.nodeDocumentURI(expr)
 			textEdit := TextEdit{
 				Range:   result.rangeForNode(expr),

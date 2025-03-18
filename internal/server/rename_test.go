@@ -782,6 +782,49 @@ onStart => {
 		require.EqualError(t, err, `sprite resource "Sprite2" already exists`)
 		require.Nil(t, changes)
 	})
+
+	// See https://github.com/goplus/builder/issues/1470.
+	t.Run("WrongCodeWithInvalidType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	Sprite1 Sprite
+)
+
+onStart => {
+	invalidFunc()
+}
+
+func invalidFunc() {
+	invalidVar = [rand(-200,200), rand(-200,200)]
+}
+`),
+			"MySprite.spx":                      []byte(``),
+			"assets/index.json":                 []byte(`{}`),
+			"assets/sprites/Sprite1/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.True(t, result.hasErrorSeverityDiagnostic)
+
+		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
+		require.NoError(t, err)
+
+		changes, err := s.spxRenameSpriteResource(result, id.(SpxSpriteResourceID), "Sprite2")
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
+		require.Len(t, mainSpxChanges, 1)
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 8},
+			},
+			NewText: "Sprite2",
+		})
+	})
 }
 
 func TestServerSpxRenameSpriteCostumeResource(t *testing.T) {
