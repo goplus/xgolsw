@@ -25,13 +25,13 @@ through its API interfaces.
 1. Generate required package data:
 
   ```bash
-  GODEBUG=gotypesalias=1 go generate ./internal/pkgdata
+  go generate ./internal/pkgdata
   ```
 
 2. Build the project:
 
   ```bash
-  GOOS=js GOARCH=wasm GODEBUG=gotypesalias=1 go build -trimpath -o spxls.wasm
+  GOOS=js GOARCH=wasm go build -trimpath -o spxls.wasm
   ```
 
 ## Usage
