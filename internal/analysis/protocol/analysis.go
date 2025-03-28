@@ -9,7 +9,7 @@ import (
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/token"
 	goptypesutil "github.com/goplus/gop/x/typesutil"
-	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // An Analyzer describes an analysis function and its options.
@@ -190,7 +190,7 @@ func (pass *Pass) ReportRangef(rng Range, format string, args ...interface{}) {
 }
 
 func (pass *Pass) String() string {
-	return fmt.Sprintf("%s@%s", pass.Analyzer.Name, util.PackagePath(pass.Pkg))
+	return fmt.Sprintf("%s@%s", pass.Analyzer.Name, goputil.PkgPath(pass.Pkg))
 }
 
 // A Fact is an intermediate fact produced during analysis.

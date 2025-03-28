@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/url"
 
 	"github.com/goplus/goxlsw/protocol"
@@ -179,7 +180,7 @@ type SpxResourceURI string
 
 // HTML returns the HTML representation of the spx resource URI.
 func (u SpxResourceURI) HTML() string {
-	return fmt.Sprintf("<resource-preview resource=%s />\n", attr(string(u)))
+	return fmt.Sprintf("<resource-preview resource=%q />\n", template.HTMLEscapeString(string(u)))
 }
 
 // SpxResourceContextURI represents a URI for resource context.

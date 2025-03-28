@@ -11,6 +11,7 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopfmt "github.com/goplus/gop/format"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/vfs"
 )
 
@@ -46,14 +47,13 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	if lastNewLine >= 0 {
 		lastLineContent = lastLineContent[lastNewLine+1:]
 	}
-	utf16Offset := utf8OffsetToUTF16(string(lastLineContent), len(lastLineContent))
 	return []TextEdit{
 		{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
 				End: Position{
 					Line:      uint32(lines),
-					Character: uint32(utf16Offset),
+					Character: uint32(UTF16Offset(string(lastLineContent))),
 				},
 			},
 			NewText: string(formatted),
@@ -499,13 +499,15 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 
 // eliminateUnusedLambdaParams eliminates useless lambda parameter declarations.
 // A lambda parameter is considered "useless" if:
-// 1. The parameter is not used.
-// 2. The lambda is passed to a function that has a overload which receives the lambda without the parameter.
+//  1. The parameter is not used.
+//  2. The lambda is passed to a function that has a overload which receives the lambda without the parameter.
+//
 // Then we can omit its declaration safely.
 //
 // NOTE: There are limitations with current implementation:
-// 1. Only `LambdaExpr2` (not `LambdaExpr`) is supported.
-// 2. Only the last parameter of the lambda is checked.
+//  1. Only `LambdaExpr2` (not `LambdaExpr`) is supported.
+//  2. Only the last parameter of the lambda is checked.
+//
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.File) {
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
@@ -602,7 +604,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	if recvTypeName == "" {
 		return
 	}
-	if isSpxPkgObject(funTypeObj) && recvTypeName == "Sprite" {
+	if IsInSpxPkg(funTypeObj) && recvTypeName == "Sprite" {
 		recvTypeName = "SpriteImpl"
 	}
 
@@ -611,16 +613,16 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 		return
 	}
 	recvNamed, ok := recvType.(*types.Named)
-	if !ok || !isNamedStructType(recvNamed) {
+	if !ok || !goputil.IsNamedStructType(recvNamed) {
 		return
 	}
 	var underlineFunType *types.Func
-	walkStruct(recvNamed, func(member types.Object, selector *types.Named) bool {
+	goputil.WalkStruct(recvNamed, func(member types.Object, selector *types.Named) bool {
 		method, ok := member.(*types.Func)
 		if !ok {
 			return true
 		}
-		if pn, overloadId := parseGopFuncName(method.Name()); pn == funIdent.Name && overloadId == nil {
+		if pn, overloadId := goputil.ParseGopFuncName(method.Name()); pn == funIdent.Name && overloadId == nil {
 			underlineFunType = method
 			return false
 		}
@@ -629,7 +631,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	if underlineFunType == nil {
 		return
 	}
-	return funType, expandGopOverloadableFunc(underlineFunType)
+	return funType, goputil.ExpandGopOverloadableFunc(underlineFunType)
 }
 
 func isIdentUsed(compileResult *compileResult, ident *gopast.Ident) bool {

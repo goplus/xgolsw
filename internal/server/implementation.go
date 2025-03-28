@@ -1,6 +1,10 @@
 package server
 
-import "go/types"
+import (
+	"go/types"
+
+	"github.com/goplus/goxlsw/gop/goputil"
+)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_implementation
 func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, error) {
@@ -11,22 +15,22 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	if astFile == nil {
 		return nil, nil
 	}
-	position := result.toPosition(astFile, params.Position)
+	position := ToPosition(result.proj, astFile, params.Position)
 
-	typeInfo := getTypeInfo(result.proj)
-	obj := typeInfo.ObjectOf(result.identAtASTFilePosition(astFile, position))
-	if !isMainPkgObject(obj) {
+	ident := goputil.IdentAtPosition(result.proj, astFile, position)
+	obj := getTypeInfo(result.proj).ObjectOf(ident)
+	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
 	if method, ok := obj.(*types.Func); ok && method.Type().(*types.Signature).Recv() != nil {
 		if recv := method.Type().(*types.Signature).Recv().Type(); types.IsInterface(recv) {
 			locations := s.findImplementingMethodDefinitions(result, recv.(*types.Interface), method.Name())
-			return deduplicateLocations(locations), nil
+			return DedupeLocations(locations), nil
 		}
 	}
 
-	return result.locationForPos(obj.Pos()), nil
+	return s.locationForPos(result.proj, obj.Pos()), nil
 }
 
 // findImplementingMethodDefinitions finds the definition locations of all
@@ -52,7 +56,7 @@ func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface 
 				continue
 			}
 
-			implementations = append(implementations, result.locationForPos(method.Pos()))
+			implementations = append(implementations, s.locationForPos(result.proj, method.Pos()))
 		}
 	}
 	return implementations

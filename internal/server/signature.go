@@ -3,6 +3,8 @@ package server
 import (
 	"go/types"
 	"strings"
+
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_signatureHelp
@@ -14,9 +16,10 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if astFile == nil {
 		return nil, nil
 	}
-	position := result.toPosition(astFile, params.Position)
+	position := ToPosition(result.proj, astFile, params.Position)
 
-	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
+	ident := goputil.IdentAtPosition(result.proj, astFile, position)
+	obj := getTypeInfo(result.proj).ObjectOf(ident)
 	if obj == nil {
 		return nil, nil
 	}
@@ -33,7 +36,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	var paramsInfo []ParameterInformation
 	for param := range sig.Params().Variables() {
 		paramsInfo = append(paramsInfo, ParameterInformation{
-			Label: param.Name() + " " + getSimplifiedTypeString(param.Type()),
+			Label: param.Name() + " " + GetSimplifiedTypeString(param.Type()),
 			// TODO: Add documentation.
 		})
 	}
@@ -51,7 +54,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if results := sig.Results(); results != nil && results.Len() > 0 {
 		var returnTypes []string
 		for result := range results.Variables() {
-			returnTypes = append(returnTypes, getSimplifiedTypeString(result.Type()))
+			returnTypes = append(returnTypes, GetSimplifiedTypeString(result.Type()))
 		}
 		label += " (" + strings.Join(returnTypes, ", ") + ")"
 	}

@@ -10,6 +10,7 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
@@ -345,39 +346,28 @@ func (s *Server) toDocumentURI(path string) DocumentURI {
 	return DocumentURI(string(s.workspaceRootURI) + path)
 }
 
-// fromPosition converts a token.Position to an LSP Position.
-func (s *Server) fromPosition(astFile *gopast.File, position goptoken.Position) Position {
-	tokenFile := s.getProj().Fset.File(astFile.Pos())
+// posDocumentURI returns the [DocumentURI] for the given position in the project.
+func (s *Server) posDocumentURI(proj *gop.Project, pos goptoken.Pos) DocumentURI {
+	return s.toDocumentURI(goputil.PosFilename(proj, pos))
+}
 
-	line := position.Line
-	lineStart := int(tokenFile.LineStart(line))
-	relLineStart := lineStart - tokenFile.Base()
-	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
-	utf16Offset := utf8OffsetToUTF16(string(lineContent), position.Column-1)
+// nodeDocumentURI returns the [DocumentURI] for the given node in the project.
+func (s *Server) nodeDocumentURI(proj *gop.Project, node gopast.Node) DocumentURI {
+	return s.posDocumentURI(proj, node.Pos())
+}
 
-	return Position{
-		Line:      uint32(position.Line - 1),
-		Character: uint32(utf16Offset),
+// locationForPos returns the [Location] for the given position in the project.
+func (s *Server) locationForPos(proj *gop.Project, pos goptoken.Pos) Location {
+	return Location{
+		URI:   s.posDocumentURI(proj, pos),
+		Range: RangeForPos(proj, pos),
 	}
 }
 
-// rangeForASTFilePosition returns a [Range] for the given position in an AST file.
-func (s *Server) rangeForASTFilePosition(astFile *gopast.File, position goptoken.Position) Range {
-	p := s.fromPosition(astFile, position)
-	return Range{Start: p, End: p}
-}
-
-// rangeForPos returns the [Range] for the given position.
-func (s *Server) rangeForPos(pos goptoken.Pos) Range {
-	return s.rangeForASTFilePosition(s.posASTFile(pos), s.getProj().Fset.Position(pos))
-}
-
-// posASTFile returns the AST file for the given position.
-func (s *Server) posASTFile(pos goptoken.Pos) *gopast.File {
-	return getASTPkg(s.getProj()).Files[s.posFilename(pos)]
-}
-
-// posFilename returns the filename for the given position.
-func (s *Server) posFilename(pos goptoken.Pos) string {
-	return s.getProj().Fset.Position(pos).Filename
+// locationForNode returns the [Location] for the given node in the project.
+func (s *Server) locationForNode(proj *gop.Project, node gopast.Node) Location {
+	return Location{
+		URI:   s.nodeDocumentURI(proj, node),
+		Range: RangeForNode(proj, node),
+	}
 }
