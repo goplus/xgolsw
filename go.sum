@@ -48,8 +48,8 @@ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZN
 github.com/qiniu/audio v0.2.1 h1:lAc3dWfr7uAfn7mfee2u0/fl/QSQA9oTOqdBtxyFZAM=
 github.com/qiniu/audio v0.2.1/go.mod h1:APMJRPaS4toviejZnDzzZ8wVyr12jqZhd3xfKr/qYnE=
 github.com/qiniu/x v1.11.5/go.mod h1:03Ni9tj+N2h2aKnAz+6N0Xfl8FwMEDRC2PAlxekASDs=
-github.com/qiniu/x v1.13.17 h1:x5GJNg3rN2PagEZ5JvXmusoIaK1iaGGppFK41i0VAis=
-github.com/qiniu/x v1.13.17/go.mod h1:AiovSOCaRijaf3fj+0CBOpR1457pn24b0Vdb1JpwhII=
+github.com/qiniu/x v1.13.19 h1:rZzWpifNjMtaMhhVnYHw9RGUn+84KGtclDZ9HAKtuZQ=
+github.com/qiniu/x v1.13.19/go.mod h1:AiovSOCaRijaf3fj+0CBOpR1457pn24b0Vdb1JpwhII=
 github.com/srwiley/oksvg v0.0.0-20210519022825-9fc0c575d5fe h1:J5Ga/gb+4/WgJBupg9Fp8F6JQnUT3UF+asoTweLi9Jc=
 github.com/srwiley/oksvg v0.0.0-20210519022825-9fc0c575d5fe/go.mod h1:afMbS0qvv1m5tfENCwnOdZGOF8RGR/FsZ7bvBxQGZG4=
 github.com/srwiley/rasterx v0.0.0-20210519020934-456a8d69b780 h1:oDMiXaTMyBEuZMU53atpxqYsSB3U1CHkeAu2zr6wTeY=
