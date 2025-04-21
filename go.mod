@@ -5,9 +5,9 @@ go 1.23.4
 require (
 	github.com/goplus/gogen v1.17.1
 	github.com/goplus/gop v1.3.9
-	github.com/goplus/mod v0.15.1
+	github.com/goplus/mod v0.16.0
 	github.com/goplus/spx v1.1.1-0.20250214074125-e9e1f6362499
-	github.com/qiniu/x v1.13.17
+	github.com/qiniu/x v1.13.19
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/tools v0.32.0
 )
