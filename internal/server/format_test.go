@@ -517,4 +517,47 @@ func test() {} // trailing comment for func test
 `,
 		})
 	})
+
+	t.Run("WithMethods", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+
+type Foo struct{}
+
+var (
+	flag bool
+)
+
+func (Foo) Bar() {}
+
+func Bar() {}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 11, Character: 0},
+			},
+			NewText: `// An spx game.
+
+type Foo struct{}
+
+func (Foo) Bar() {}
+
+var (
+	flag bool
+)
+
+func Bar() {}
+`,
+		})
+	})
 }
