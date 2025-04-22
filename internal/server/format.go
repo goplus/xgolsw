@@ -173,10 +173,10 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	var (
 		importDecls       []gopast.Decl
 		typeDecls         []gopast.Decl
+		methodDecls       []gopast.Decl
 		constDecls        []gopast.Decl
 		varBlocks         []*gopast.GenDecl
 		funcDecls         []gopast.Decl
-		overloadFuncDecls []gopast.Decl
 		otherDecls        []gopast.Decl
 		processedComments = make(map[*gopast.CommentGroup]struct{})
 	)
@@ -205,9 +205,17 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 			if decl.Shadow {
 				continue
 			}
-			funcDecls = append(funcDecls, decl)
+			if decl.Recv != nil && !decl.IsClass {
+				methodDecls = append(methodDecls, decl)
+			} else {
+				funcDecls = append(funcDecls, decl)
+			}
 		case *gopast.OverloadFuncDecl:
-			overloadFuncDecls = append(overloadFuncDecls, decl)
+			if decl.Recv != nil && !decl.IsClass {
+				methodDecls = append(methodDecls, decl)
+			} else {
+				funcDecls = append(funcDecls, decl)
+			}
 		default:
 			otherDecls = append(otherDecls, decl)
 		}
@@ -236,6 +244,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	sortedDecls := make([]gopast.Decl, 0, len(astFile.Decls))
 	sortedDecls = append(sortedDecls, importDecls...)
 	sortedDecls = append(sortedDecls, typeDecls...)
+	sortedDecls = append(sortedDecls, methodDecls...)
 	sortedDecls = append(sortedDecls, constDecls...)
 	if len(varBlocks) > 0 {
 		// Add the first var block to reserve the correct position in declaration order.
@@ -243,7 +252,6 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		sortedDecls = append(sortedDecls, varBlocks[0])
 	}
 	sortedDecls = append(sortedDecls, funcDecls...)
-	sortedDecls = append(sortedDecls, overloadFuncDecls...)
 	sortedDecls = append(sortedDecls, otherDecls...)
 
 	// Format the sorted declarations.
