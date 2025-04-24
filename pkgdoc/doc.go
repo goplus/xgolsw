@@ -150,7 +150,7 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		}
 		switch {
 		case strings.HasPrefix(f.Name, util.GoptPrefix):
-			recvTypeName, methodName, ok := util.SplitGoptMethod(f.Name)
+			recvTypeName, methodName, ok := util.SplitGoptMethodName(f.Name)
 			if !ok {
 				continue
 			}
