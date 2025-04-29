@@ -30,6 +30,14 @@ declare global {
    * @param data - Custom package data as a Uint8Array containing a valid pkgdata.zip file.
    */
   function SetCustomPkgdataZip(data: Uint8Array): Error | null
+
+  /**
+   * Sets the auto-imported packages for the classfile specified by id.
+   *
+   * @param id - The identifier of the classfile.
+   * @param packages - A map where keys are package names and values are the full import paths.
+   */
+  function SetClassfileAutoImportedPackages(id: string, packages: Record<string, string>): Error | null
 }
 
 /**
