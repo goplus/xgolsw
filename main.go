@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/goplus/goxlsw/gop"
+	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/server"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
@@ -90,6 +91,20 @@ func (s *Spxls) ReplyMessage(m jsonrpc2.Message) (err error) {
 	return nil
 }
 
+// SetCustomPkgdataZip sets custom package data that will be used with higher
+// priority than the embedded package data.
+func SetCustomPkgdataZip(this js.Value, args []js.Value) any {
+	if len(args) != 1 {
+		return errors.New("SetCustomPkgdataZip: expected 1 argument")
+	}
+	if args[0].Type() != js.TypeObject || !args[0].InstanceOf(js.Global().Get("Uint8Array")) {
+		return errors.New("SetCustomPkgdataZip: argument must be a Uint8Array")
+	}
+	customPkgdataZip := JSUint8ArrayToBytes(args[0])
+	pkgdata.SetCustomPkgdataZip(customPkgdataZip)
+	return nil
+}
+
 // JSFuncOfWithError returns a function to be used by JavaScript that can return
 // an error.
 func JSFuncOfWithError(fn func(this js.Value, args []js.Value) any) js.Func {
@@ -131,5 +146,6 @@ func ConvertJSFilesToMap(files js.Value) map[string]vfs.MapFile {
 
 func main() {
 	js.Global().Set("NewSpxls", JSFuncOfWithError(NewSpxls))
+	js.Global().Set("SetCustomPkgdataZip", JSFuncOfWithError(SetCustomPkgdataZip))
 	select {}
 }
