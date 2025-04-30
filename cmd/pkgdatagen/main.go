@@ -1,9 +1,26 @@
+/*
+ * Copyright (c) 2025 The GoPlus Authors (goplus.org). All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package main
 
 import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -14,17 +31,15 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/goplus/goxlsw/pkgdoc"
 	_ "github.com/goplus/spx"
 	"golang.org/x/tools/go/gcexportdata"
 )
 
-// pkgPaths is the list of package paths to generate the exported symbols for.
-//
-// NOTE: All package paths listed here must also be imported in
-// `github.com/goplus/builder/tools/ispx/embedded_pkgs.go`.
-var pkgPaths = []string{
+// stdPkgPaths is the list of standard package paths to generate the exported symbols for.
+var stdPkgPaths = []string{
 	"builtin",
 
 	"archive/tar",
@@ -134,9 +149,9 @@ var pkgPaths = []string{
 	"github.com/hajimehoshi/ebiten/v2",
 }
 
-// generate generates the pkgdata.zip file containing the exported symbols of
+// generate generates the package data file containing the exported symbols of
 // the given packages.
-func generate() error {
+func generate(pkgPaths []string, outputFile string) error {
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	for _, pkgPath := range pkgPaths {
@@ -271,7 +286,7 @@ func generate() error {
 	if err := zw.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile("pkgdata.zip", zipBuf.Bytes(), 0o644)
+	return os.WriteFile(outputFile, zipBuf.Bytes(), 0o644)
 }
 
 // execGo executes the given go command.
@@ -289,7 +304,22 @@ func execGo(args ...string) ([]byte, error) {
 }
 
 func main() {
-	if err := generate(); err != nil {
-		panic(err)
+	outputFile := flag.String("o", "pkgdata.zip", "output file")
+	noStd := flag.Bool("no-std", false, "do not generate standard packages")
+	flag.Parse()
+
+	var pkgPaths []string
+	if !*noStd {
+		pkgPaths = stdPkgPaths
+	}
+	for _, pkgPath := range flag.Args() {
+		if !slices.Contains(pkgPaths, pkgPath) {
+			pkgPaths = append(pkgPaths, pkgPath)
+		}
+	}
+
+	if err := generate(pkgPaths, *outputFile); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to generate package data: %v\n", err)
+		os.Exit(1)
 	}
 }
