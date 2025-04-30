@@ -5,9 +5,11 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,8 +18,19 @@ import (
 
 //go:generate go run github.com/goplus/goxlsw/cmd/pkgdatagen@latest
 
-//go:embed pkgdata.zip
-var pkgdataZip []byte
+var (
+	//go:embed pkgdata.zip
+	pkgdataZip []byte
+
+	// customPkgdataZip holds the user-provided package data which has
+	// higher priority than the embedded one.
+	customPkgdataZip []byte
+)
+
+// SetCustomPkgdataZip sets the customPkgdataZip.
+func SetCustomPkgdataZip(data []byte) {
+	customPkgdataZip = data
+}
 
 const (
 	pkgExportSuffix = ".pkgexport"
@@ -26,7 +39,25 @@ const (
 
 // ListPkgs lists all packages in the pkgdata.zip file.
 func ListPkgs() ([]string, error) {
-	zr, err := zip.NewReader(bytes.NewReader(pkgdataZip), int64(len(pkgdataZip)))
+	pkgs, err := listPkgs(pkgdataZip)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list embed packages: %w", err)
+	}
+	if len(customPkgdataZip) > 0 {
+		customPkgs, err := listPkgs(customPkgdataZip)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list custom packages: %w", err)
+		}
+		pkgs = append(pkgs, customPkgs...)
+		slices.Sort(pkgs)
+		pkgs = slices.Compact(pkgs)
+	}
+	return pkgs, nil
+}
+
+// listPkgs lists all packages in the provided zip data.
+func listPkgs(zipData []byte) ([]string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zip reader: %w", err)
 	}
@@ -41,7 +72,20 @@ func ListPkgs() ([]string, error) {
 
 // OpenExport opens a package export file.
 func OpenExport(pkgPath string) (io.ReadCloser, error) {
-	zr, err := zip.NewReader(bytes.NewReader(pkgdataZip), int64(len(pkgdataZip)))
+	if len(customPkgdataZip) > 0 {
+		rc, err := openExport(customPkgdataZip, pkgPath)
+		if err == nil {
+			return rc, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("failed to open custom package export file: %w", err)
+		}
+	}
+	return openExport(pkgdataZip, pkgPath)
+}
+
+// openExport opens a package export file from the provided zip data.
+func openExport(zipData []byte, pkgPath string) (io.ReadCloser, error) {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zip reader: %w", err)
 	}
@@ -68,7 +112,20 @@ func GetPkgDoc(pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
 		}
 	}()
 
-	zr, err := zip.NewReader(bytes.NewReader(pkgdataZip), int64(len(pkgdataZip)))
+	if len(customPkgdataZip) > 0 {
+		pkgDoc, err = getPkgDoc(customPkgdataZip, pkgPath)
+		if err == nil {
+			return pkgDoc, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("failed to get custom package doc: %w", err)
+		}
+	}
+	return getPkgDoc(pkgdataZip, pkgPath)
+}
+
+// getPkgDoc gets the documentation for a package from the provided zip data.
+func getPkgDoc(zipData []byte, pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zip reader: %w", err)
 	}

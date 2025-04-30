@@ -23,6 +23,13 @@ declare global {
    *                        handle these messages according to the LSP specification.
    */
   function NewSpxls(filesProvider: () => Files, messageReplier: (message: ResponseMessage | NotificationMessage) => void): Spxls | Error
+
+  /**
+   * Sets custom package data that will be used with higher priority than the embedded package data.
+   *
+   * @param data - Custom package data as a Uint8Array containing a valid pkgdata.zip file.
+   */
+  function SetCustomPkgdataZip(data: Uint8Array): Error | null
 }
 
 /**
