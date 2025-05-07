@@ -3,7 +3,7 @@ module github.com/goplus/goxlsw
 go 1.23.4
 
 require (
-	github.com/goplus/gogen v1.17.3
+	github.com/goplus/gogen v1.18.0
 	github.com/goplus/gop v1.4.0
 	github.com/goplus/mod v0.16.1
 	github.com/qiniu/x v1.14.0
