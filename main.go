@@ -105,6 +105,36 @@ func SetCustomPkgdataZip(this js.Value, args []js.Value) any {
 	return nil
 }
 
+// SetClassfileAutoImportedPackages sets the auto-imported packages for the
+// classfile specified by id.
+func SetClassfileAutoImportedPackages(this js.Value, args []js.Value) any {
+	if len(args) != 2 {
+		return errors.New("SetClassfileAutoImportedPackages: expected 2 argument")
+	}
+	if args[0].Type() != js.TypeString {
+		return errors.New("SetClassfileAutoImportedPackages: first argument must be a string")
+	}
+	if args[1].Type() != js.TypeObject {
+		return errors.New("SetClassfileAutoImportedPackages: argument must be an object")
+	}
+
+	id := args[0].String()
+
+	pkgs := make(map[string]string)
+	keys := js.Global().Get("Object").Call("keys", args[1])
+	for i := range keys.Length() {
+		key := keys.Index(i).String()
+		value := args[1].Get(key)
+		if value.Type() != js.TypeString {
+			return errors.New("SetClassfileAutoImportedPackages: all values must be strings")
+		}
+		pkgs[key] = value.String()
+	}
+
+	gop.SetClassfileAutoImportedPackages(id, pkgs)
+	return nil
+}
+
 // JSFuncOfWithError returns a function to be used by JavaScript that can return
 // an error.
 func JSFuncOfWithError(fn func(this js.Value, args []js.Value) any) js.Func {
@@ -147,5 +177,6 @@ func ConvertJSFilesToMap(files js.Value) map[string]vfs.MapFile {
 func main() {
 	js.Global().Set("NewSpxls", JSFuncOfWithError(NewSpxls))
 	js.Global().Set("SetCustomPkgdataZip", JSFuncOfWithError(SetCustomPkgdataZip))
+	js.Global().Set("SetClassfileAutoImportedPackages", JSFuncOfWithError(SetClassfileAutoImportedPackages))
 	select {}
 }
