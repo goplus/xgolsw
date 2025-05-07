@@ -560,4 +560,211 @@ func Bar() {}
 `,
 		})
 	})
+
+	t.Run("VarBlocksWithAndWithoutInit", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+
+var (
+	dir int
+	snakeBodyParts []Sprite
+)
+
+var (
+	moveStep int = 20
+)
+
+run "assets", {Title: "Snake Game"}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 12, Character: 0},
+			},
+			NewText: `// An spx game.
+
+var (
+	dir            int
+	snakeBodyParts []Sprite
+)
+
+var (
+	moveStep int = 20
+)
+
+run "assets", {Title: "Snake Game"}
+`,
+		})
+	})
+
+	t.Run("MultipleVarBlocksWithMultipleTypes", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+
+var (
+    score int
+    highScore int
+)
+
+var (
+    playerName string = "Player1"
+    gameStarted bool = false
+)
+
+var (
+    lives int
+)
+
+var (
+    gameSpeed int = 5
+)
+
+run "assets", {Title: "Game"}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 21, Character: 0},
+			},
+			NewText: `// An spx game.
+
+var (
+	score     int
+	highScore int
+
+	lives int
+)
+
+var (
+	playerName  string = "Player1"
+	gameStarted bool   = false
+
+	gameSpeed int = 5
+)
+
+run "assets", {Title: "Game"}
+`,
+		})
+	})
+
+	t.Run("MixedVarDeclarationsWithComments", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+
+// Variables without initialization
+var (
+    // Score for the player
+    playerScore int
+    // Lives remaining
+    livesRemaining int
+)
+
+// Variables with initialization
+var (
+    // Game speed setting
+    speed int = 10
+    // Player name
+    name string = "DefaultPlayer"
+)
+
+run "assets", {Title: "Game With Comments"}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 19, Character: 0},
+			},
+			NewText: `// An spx game.
+
+// Variables without initialization
+var (
+	// Score for the player
+	playerScore int
+	// Lives remaining
+	livesRemaining int
+)
+
+// Variables with initialization
+var (
+	// Game speed setting
+	speed int = 10
+	// Player name
+	name string = "DefaultPlayer"
+)
+
+run "assets", {Title: "Game With Comments"}
+`,
+		})
+	})
+
+	t.Run("SingleVarDeclarationsWithMixedInit", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+
+var x int
+var y int = 10
+var z string
+var name string = "Player"
+
+run "assets", {Title: "Single Vars"}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 8, Character: 0},
+			},
+			NewText: `// An spx game.
+
+var (
+	x int
+
+	z string
+)
+
+var (
+	y int = 10
+
+	name string = "Player"
+)
+
+run "assets", {Title: "Single Vars"}
+`,
+		})
+	})
 }

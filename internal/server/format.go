@@ -83,13 +83,6 @@ func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) 
 			return nil, err
 		}
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			/* snapshot = snapshot.WithOverlay(map[string]vfs.MapFile{
-				spxFile: {
-					Content: subFormatted,
-					ModTime: time.Now(),
-				},
-			}).Snapshot()
-			*/
 			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
 				spxFile: {
 					Content: subFormatted,
@@ -238,18 +231,42 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		}
 	}
 
-	// Reorder declarations: imports -> types -> consts -> vars -> funcs -> others.
-	//
-	// See https://github.com/goplus/builder/issues/591 and https://github.com/goplus/builder/issues/752.
+	// Split var blocks into two groups: with initialization and without initialization.
+	var (
+		varBlocksWithInit    []*gopast.GenDecl // Blocks with initialization
+		varBlocksWithoutInit []*gopast.GenDecl // Blocks without initialization
+	)
+
+	for _, decl := range varBlocks {
+		hasInit := false
+		// Check if the variable declaration has initialization expressions.
+		for _, spec := range decl.Specs {
+			if vs, ok := spec.(*gopast.ValueSpec); ok && len(vs.Values) > 0 {
+				hasInit = true
+				break
+			}
+		}
+
+		if hasInit {
+			varBlocksWithInit = append(varBlocksWithInit, decl)
+		} else {
+			varBlocksWithoutInit = append(varBlocksWithoutInit, decl)
+		}
+	}
+
+	// Reorder declarations: imports -> types -> consts -> vars (without init) -> vars (with init) -> funcs -> others.
 	sortedDecls := make([]gopast.Decl, 0, len(astFile.Decls))
 	sortedDecls = append(sortedDecls, importDecls...)
 	sortedDecls = append(sortedDecls, typeDecls...)
 	sortedDecls = append(sortedDecls, methodDecls...)
 	sortedDecls = append(sortedDecls, constDecls...)
-	if len(varBlocks) > 0 {
-		// Add the first var block to reserve the correct position in declaration order.
-		// All var blocks will be merged and processed together later.
-		sortedDecls = append(sortedDecls, varBlocks[0])
+	if len(varBlocksWithoutInit) > 0 {
+		// Add the first var block without initialization to reserve the correct position in declaration order.
+		sortedDecls = append(sortedDecls, varBlocksWithoutInit[0])
+	}
+	if len(varBlocksWithInit) > 0 {
+		// Add the first var block with initialization to reserve the correct position in declaration order.
+		sortedDecls = append(sortedDecls, varBlocksWithInit[0])
 	}
 	sortedDecls = append(sortedDecls, funcDecls...)
 	sortedDecls = append(sortedDecls, otherDecls...)
@@ -288,7 +305,24 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	// Handle declarations and floating comments in order of their position.
 	processDecl := func(decl gopast.Decl) error {
 		if genDecl, ok := decl.(*gopast.GenDecl); ok && genDecl.Tok == goptoken.VAR {
-			for i, varBlock := range varBlocks {
+			// Determine the type of var block being processed.
+			var currentVarBlocks []*gopast.GenDecl
+			hasInit := false
+			for _, spec := range genDecl.Specs {
+				if vs, ok := spec.(*gopast.ValueSpec); ok && len(vs.Values) > 0 {
+					hasInit = true
+					break
+				}
+			}
+
+			if hasInit {
+				currentVarBlocks = varBlocksWithInit
+			} else {
+				currentVarBlocks = varBlocksWithoutInit
+			}
+
+			// Process only the same type of var blocks (with or without initialization).
+			for i, varBlock := range currentVarBlocks {
 				ensureTrailingNewlines(2)
 
 				var doc []byte
@@ -298,7 +332,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 					doc = astFile.Code[docStart:docEnd]
 				}
 
-				if doc != nil && varBlock.Lparen.IsValid() && (i > 0 || len(varBlocks) == 1) {
+				if doc != nil && varBlock.Lparen.IsValid() && (i > 0 || len(currentVarBlocks) == 1) {
 					formattedBuf.Write(doc)
 					formattedBuf.WriteByte('\n')
 					doc = nil
@@ -309,7 +343,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 				}
 
 				if doc != nil {
-					if !varBlock.Lparen.IsValid() || len(varBlocks) > 1 {
+					if !varBlock.Lparen.IsValid() || len(currentVarBlocks) > 1 {
 						formattedBuf.WriteByte('\n')
 					}
 					formattedBuf.Write(doc)
@@ -357,7 +391,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 					}
 				}
 
-				if i == len(varBlocks)-1 {
+				if i == len(currentVarBlocks)-1 {
 					if i > 0 {
 						formattedBuf.WriteString("\n\t")
 						formattedBuf.Write(trailingComments)
@@ -375,6 +409,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 				}
 				formattedBuf.WriteByte('\n')
 			}
+
 		} else {
 			startPos := decl.Pos()
 			if doc := getDeclDoc(decl); doc != nil {
