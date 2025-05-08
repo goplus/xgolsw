@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"go/ast"
 	"go/constant"
 	"go/types"
 	"html/template"
@@ -13,6 +14,8 @@ import (
 	"github.com/goplus/gogen"
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 // unwrapPointerType returns the underlying type of t. For pointer types, it
@@ -392,4 +395,95 @@ func positionOffset(content []byte, position Position) int {
 
 	// Ensure the final offset doesn't exceed the content length
 	return lineOffset + utf8Offset
+}
+
+// WalkNodesFromInterval walks the AST path starting from a position interval,
+// calling walkFn for each node. The function walks from the smallest enclosing
+// node outward through parent nodes. If walkFn returns false, the walk stops.
+func WalkNodesFromInterval(root *gopast.File, start, end goptoken.Pos, walkFn func(node ast.Node) bool) {
+	path, _ := util.PathEnclosingInterval(root, start, end)
+	for _, node := range path {
+		if !walkFn(node) {
+			break
+		}
+	}
+}
+
+// createCallExprFromBranchStmt attempts to create a call expression from a
+// branch statement. This handles cases in spx where the `Sprite.Goto` method
+// is intended to precede the goto statement.
+func createCallExprFromBranchStmt(typeInfo *typesutil.Info, stmt *gopast.BranchStmt) *gopast.CallExpr {
+	if stmt.Tok != goptoken.GOTO {
+		// Currently, we only need to handle goto statements.
+		return nil
+	}
+
+	for ident, obj := range typeInfo.Uses {
+		if ident.Pos() == stmt.TokPos && ident.End() == stmt.TokPos+goptoken.Pos(len(stmt.Tok.String())) {
+			if _, ok := obj.(*types.Func); ok {
+				return &gopast.CallExpr{
+					Fun:  ident,
+					Args: []gopast.Expr{stmt.Label},
+				}
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// funcFromCallExpr returns the function object from a call expression.
+func funcFromCallExpr(typeInfo *typesutil.Info, expr *gopast.CallExpr) *types.Func {
+	var ident *gopast.Ident
+	switch fun := expr.Fun.(type) {
+	case *gopast.Ident:
+		ident = fun
+	case *gopast.SelectorExpr:
+		ident = fun.Sel
+	default:
+		return nil
+	}
+
+	obj := typeInfo.ObjectOf(ident)
+	if obj == nil {
+		return nil
+	}
+	fun, ok := obj.(*types.Func)
+	if !ok {
+		return nil
+	}
+	return fun
+}
+
+// walkCallExprArgs walks the arguments of a call expression and calls the
+// provided walkFn for each argument.
+func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn func(fun *types.Func, param *types.Var, arg gopast.Expr) bool) {
+	fun := funcFromCallExpr(typeInfo, expr)
+	if fun == nil {
+		return
+	}
+	sig := fun.Signature()
+	params := sig.Params()
+	if util.IsGoptMethod(fun) {
+		vars := make([]*types.Var, 0, params.Len()-1)
+		for i := 1; i < params.Len(); i++ {
+			vars = append(vars, params.At(i))
+		}
+		params = types.NewTuple(vars...)
+	}
+
+	for i, arg := range expr.Args {
+		var param *types.Var
+		if i < params.Len() {
+			param = params.At(i)
+		} else if sig.Variadic() && params.Len() > 0 {
+			param = params.At(params.Len() - 1)
+		} else {
+			break
+		}
+
+		if !walkFn(fun, param, arg) {
+			break
+		}
+	}
 }

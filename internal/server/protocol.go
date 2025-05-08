@@ -175,6 +175,13 @@ func (u SpxResourceURI) HTML() string {
 	return fmt.Sprintf("<resource-preview resource=%s />\n", attr(string(u)))
 }
 
+// SpxResourceContextURI represents a URI for resource context.
+// Examples:
+// - `spx://resources/sprites`
+// - `spx://resources/sounds`
+// - `spx://resources/sprites/<sName>/costumes`
+type SpxResourceContextURI string
+
 // SpxGetDefinitionsParams represents parameters to get definitions at a
 // specific position in a document.
 type SpxGetDefinitionsParams struct {
@@ -220,6 +227,84 @@ func (id SpxDefinitionIdentifier) String() string {
 	}
 	return s
 }
+
+// SpxGetInputSlotsParams represents parameters to get input slots for a
+// specific document.
+type SpxGetInputSlotsParams struct {
+	// The text document indentifier.
+	TextDocument protocol.TextDocumentIdentifier `json:"textDocument"`
+}
+
+// SpxInputSlot represents a modifiable item in the code.
+type SpxInputSlot struct {
+	Kind            SpxInputSlotKind   `json:"kind"`
+	Accept          SpxInputSlotAccept `json:"accept"`
+	Input           SpxInput           `json:"input"`
+	PredefinedNames []string           `json:"predefinedNames"`
+	Range           Range              `json:"range"`
+}
+
+// SpxInputSlotKind represents the kind of input slot.
+type SpxInputSlotKind string
+
+// SpxInputSlotKind constants.
+const (
+	// SpxInputSlotKindValue slot accepts value, which may be an in-place value or a predefined identifier.
+	SpxInputSlotKindValue SpxInputSlotKind = "value"
+
+	// SpxInputSlotKindAddress slot accepts address, which must be a predefined identifier.
+	SpxInputSlotKindAddress SpxInputSlotKind = "address"
+)
+
+// SpxInputSlotAccept represents info about what inputs are accepted by a slot.
+type SpxInputSlotAccept struct {
+	// Type of input accepted by the slot.
+	Type SpxInputType `json:"type"`
+
+	// Resource context for SpxInputTypeResourceName.
+	// Only valid when Type is SpxInputTypeResourceName.
+	ResourceContext *SpxResourceContextURI `json:"resourceContext,omitempty"`
+}
+
+// SpxInputType represents the type of input for a slot.
+type SpxInputType string
+
+// SpxInputType constants.
+const (
+	SpxInputTypeInteger       SpxInputType = "integer"
+	SpxInputTypeDecimal       SpxInputType = "decimal"
+	SpxInputTypeString        SpxInputType = "string"
+	SpxInputTypeBoolean       SpxInputType = "boolean"
+	SpxInputTypeResourceName  SpxInputType = "spx-resource-name"
+	SpxInputTypeDirection     SpxInputType = "spx-direction"
+	SpxInputTypeColor         SpxInputType = "spx-color"
+	SpxInputTypeEffectKind    SpxInputType = "spx-effect-kind"
+	SpxInputTypeKey           SpxInputType = "spx-key"
+	SpxInputTypePlayAction    SpxInputType = "spx-play-action"
+	SpxInputTypeSpecialObj    SpxInputType = "spx-special-obj"
+	SpxInputTypeRotationStyle SpxInputType = "spx-rotation-style"
+	SpxInputTypeUnknown       SpxInputType = "unknown"
+)
+
+// SpxInput represents the current input in a slot.
+type SpxInput struct {
+	Kind  SpxInputKind `json:"kind"`
+	Type  SpxInputType `json:"type"`
+	Value any          `json:"value,omitempty"` // For InPlace kind
+	Name  string       `json:"name,omitempty"`  // For Predefined kind
+}
+
+// SpxInputKind represents the kind of input.
+type SpxInputKind string
+
+// SpxInputKind constants.
+const (
+	// SpxInputKindInPlace in-place value like "hello world", 123, true, etc.
+	SpxInputKindInPlace SpxInputKind = "in-place"
+
+	// SpxInputKindPredefined reference to user predefined identifier.
+	SpxInputKindPredefined SpxInputKind = "predefined"
+)
 
 // SpxResourceRefDocumentLinkData represents data for an spx resource reference
 // document link.

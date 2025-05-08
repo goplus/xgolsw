@@ -18,6 +18,7 @@ import (
 type SpxResourceID interface {
 	Name() string
 	URI() SpxResourceURI
+	ContextURI() SpxResourceContextURI
 }
 
 // SpxResourceRef is a reference to an spx resource.
@@ -254,7 +255,15 @@ func (id SpxBackdropResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxBackdropResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/backdrops/%s", id.BackdropName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.BackdropName))
+}
+
+// SpxBackdropResourceContextURI is the [SpxResourceContextURI] of [SpxBackdropResource].
+const SpxBackdropResourceContextURI SpxResourceContextURI = "spx://resources/backdrops"
+
+// ContextURI implements [SpxResourceID].
+func (id SpxBackdropResourceID) ContextURI() SpxResourceContextURI {
+	return SpxBackdropResourceContextURI
 }
 
 // SpxSoundResource represents a sound resource in spx.
@@ -276,7 +285,15 @@ func (id SpxSoundResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxSoundResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/sounds/%s", id.SoundName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.SoundName))
+}
+
+// SpxSoundResourceContextURI is the [SpxResourceContextURI] of [SpxSoundResource].
+const SpxSoundResourceContextURI SpxResourceContextURI = "spx://resources/sounds"
+
+// ContextURI implements [SpxResourceID].
+func (id SpxSoundResourceID) ContextURI() SpxResourceContextURI {
+	return SpxSoundResourceContextURI
 }
 
 type spxSpriteFAnimation struct {
@@ -309,7 +326,15 @@ func (id SpxSpriteResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxSpriteResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/sprites/%s", id.SpriteName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.SpriteName))
+}
+
+// SpxSpriteResourceContextURI is the [SpxResourceContextURI] of [SpxSpriteResource].
+const SpxSpriteResourceContextURI SpxResourceContextURI = "spx://resources/sprites"
+
+// ContextURI implements [SpxResourceID].
+func (id SpxSpriteResourceID) ContextURI() SpxResourceContextURI {
+	return SpxSpriteResourceContextURI
 }
 
 // Costume returns the costume with the given name. It returns nil if not found.
@@ -354,7 +379,18 @@ func (id SpxSpriteCostumeResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxSpriteCostumeResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/sprites/%s/costumes/%s", id.SpriteName, id.CostumeName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.CostumeName))
+}
+
+// FormatSpxSpriteCostumeResourceContextURI formats the [SpxResourceContextURI]
+// for a sprite's costume resources.
+func FormatSpxSpriteCostumeResourceContextURI(spriteName string) SpxResourceContextURI {
+	return SpxResourceContextURI(fmt.Sprintf("%s/%s/costumes", SpxSpriteResourceContextURI, spriteName))
+}
+
+// ContextURI implements [SpxResourceID].
+func (id SpxSpriteCostumeResourceID) ContextURI() SpxResourceContextURI {
+	return FormatSpxSpriteCostumeResourceContextURI(id.SpriteName)
 }
 
 // SpxSpriteAnimationResource represents an spx sprite animation resource.
@@ -385,7 +421,18 @@ func (id SpxSpriteAnimationResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxSpriteAnimationResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/sprites/%s/animations/%s", id.SpriteName, id.AnimationName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.AnimationName))
+}
+
+// FormatSpxSpriteAnimationResourceContextURI formats the [SpxResourceContextURI]
+// for a sprite's animation resources.
+func FormatSpxSpriteAnimationResourceContextURI(spriteName string) SpxResourceContextURI {
+	return SpxResourceContextURI(fmt.Sprintf("%s/%s/animations", SpxSpriteResourceContextURI, spriteName))
+}
+
+// ContextURI implements [SpxResourceID].
+func (id SpxSpriteAnimationResourceID) ContextURI() SpxResourceContextURI {
+	return FormatSpxSpriteAnimationResourceContextURI(id.SpriteName)
 }
 
 // SpxWidgetResource represents a widget resource in spx.
@@ -409,7 +456,15 @@ func (id SpxWidgetResourceID) Name() string {
 
 // URI implements [SpxResourceID].
 func (id SpxWidgetResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("spx://resources/widgets/%s", id.WidgetName))
+	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), id.WidgetName))
+}
+
+// SpxWidgetResourceContextURI is the [SpxResourceContextURI] of [SpxWidgetResource].
+const SpxWidgetResourceContextURI SpxResourceContextURI = "spx://resources/widgets"
+
+// ContextURI implements [SpxResourceID].
+func (id SpxWidgetResourceID) ContextURI() SpxResourceContextURI {
+	return SpxWidgetResourceContextURI
 }
 
 func getCostumeIndex(name string, costumes []SpxSpriteCostumeResource) *int {

@@ -437,6 +437,48 @@ var (
 		return spxPkg.Scope().Lookup("WidgetName").Type().(*types.Alias)
 	})
 
+	// GetSpxSpecialDirType returns the [spx.SpecialDir] type.
+	GetSpxSpecialDirType = sync.OnceValue(func() *types.Alias {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("Left").Type().(*types.Alias)
+	})
+
+	// GetSpxColorType returns the [spx.Color] type.
+	GetSpxColorType = sync.OnceValue(func() *types.Alias {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("Color").Type().(*types.Alias)
+	})
+
+	// GetSpxEffectKindType returns the [spx.EffectKind] type.
+	GetSpxEffectKindType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("EffectKind").Type().(*types.Named)
+	})
+
+	// GetSpxKeyType returns the [spx.Key] type.
+	GetSpxKeyType = sync.OnceValue(func() *types.Alias {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("Key").Type().(*types.Alias)
+	})
+
+	// GetSpxPlayActionType returns the [spx.PlayAction] type.
+	GetSpxPlayActionType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("PlayAction").Type().(*types.Named)
+	})
+
+	// GetSpxSpecialObjType returns the [spx.SpecialObj] type.
+	GetSpxSpecialObjType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("Edge").Type().(*types.Named)
+	})
+
+	// GetSpxRotationStyleType returns the [spx.RotationStyle] type.
+	GetSpxRotationStyleType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("RotationStyle").Type().(*types.Named)
+	})
+
 	// GetSpxPkgDefinitions returns the spx definitions for the spx package.
 	GetSpxPkgDefinitions = sync.OnceValue(func() []SpxDefinition {
 		spxPkg := GetSpxPkg()
@@ -445,6 +487,18 @@ var (
 			panic(fmt.Errorf("failed to get spx package doc: %w", err))
 		}
 		return GetSpxDefinitionsForPkg(spxPkg, spxPkgDoc)
+	})
+
+	// GetSpxRGBFunc returns the [spx.RGB] type.
+	GetSpxRGBFunc = sync.OnceValue(func() *types.Func {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("RGB").(*types.Func)
+	})
+
+	// GetSpxRGBAFunc returns the [spx.RGBA] type.
+	GetSpxRGBAFunc = sync.OnceValue(func() *types.Func {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("RGBA").(*types.Func)
 	})
 )
 
@@ -759,7 +813,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 	} else if isGopPkg {
 		switch {
 		case strings.HasPrefix(name, util.GoptPrefix):
-			recvTypeName, methodName, ok := util.SplitGoptMethod(name)
+			recvTypeName, methodName, ok := util.SplitGoptMethodName(name)
 			if !ok {
 				break
 			}
