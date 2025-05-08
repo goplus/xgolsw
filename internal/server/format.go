@@ -238,14 +238,11 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	)
 
 	for _, decl := range varBlocks {
-		hasInit := false
 		// Check if the variable declaration has initialization expressions.
-		for _, spec := range decl.Specs {
-			if vs, ok := spec.(*gopast.ValueSpec); ok && len(vs.Values) > 0 {
-				hasInit = true
-				break
-			}
-		}
+		hasInit := slices.ContainsFunc(decl.Specs, func(spec gopast.Spec) bool {
+			vs, ok := spec.(*gopast.ValueSpec)
+			return ok && len(vs.Values) > 0
+		})
 
 		if hasInit {
 			varBlocksWithInit = append(varBlocksWithInit, decl)
@@ -305,20 +302,9 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 	// Handle declarations and floating comments in order of their position.
 	processDecl := func(decl gopast.Decl) error {
 		if genDecl, ok := decl.(*gopast.GenDecl); ok && genDecl.Tok == goptoken.VAR {
-			// Determine the type of var block being processed.
-			var currentVarBlocks []*gopast.GenDecl
-			hasInit := false
-			for _, spec := range genDecl.Specs {
-				if vs, ok := spec.(*gopast.ValueSpec); ok && len(vs.Values) > 0 {
-					hasInit = true
-					break
-				}
-			}
-
-			if hasInit {
+			currentVarBlocks := varBlocksWithoutInit
+			if len(currentVarBlocks) == 0 || currentVarBlocks[0] != genDecl {
 				currentVarBlocks = varBlocksWithInit
-			} else {
-				currentVarBlocks = varBlocksWithoutInit
 			}
 
 			// Process only the same type of var blocks (with or without initialization).
