@@ -214,6 +214,14 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		s.runWithResponse(c.ID(), func() (any, error) {
 			return s.textDocumentSemanticTokensFull(&params)
 		})
+	case "textDocument/inlayHint":
+		var params InlayHintParams
+		if err := UnmarshalJSON(c.Params(), &params); err != nil {
+			return s.replyParseError(c.ID(), err)
+		}
+		s.runWithResponse(c.ID(), func() (any, error) {
+			return s.textDocumentInlayHint(&params)
+		})
 	case "workspace/executeCommand":
 		var params ExecuteCommandParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
