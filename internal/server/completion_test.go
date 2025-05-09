@@ -76,12 +76,12 @@ onStart => {
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    util.ToPtr("github.com/goplus/spx"),
 			Name:       util.ToPtr("Sprite.turn"),
-			OverloadID: util.ToPtr("1"),
+			OverloadID: util.ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    util.ToPtr("github.com/goplus/spx"),
 			Name:       util.ToPtr("Sprite.turn"),
-			OverloadID: util.ToPtr("2"),
+			OverloadID: util.ToPtr("1"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    util.ToPtr("github.com/goplus/spx"),

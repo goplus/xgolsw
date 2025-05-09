@@ -437,16 +437,10 @@ var (
 		return spxPkg.Scope().Lookup("WidgetName").Type().(*types.Alias)
 	})
 
-	// GetSpxSpecialDirType returns the [spx.SpecialDir] type.
-	GetSpxSpecialDirType = sync.OnceValue(func() *types.Alias {
+	// GetSpxDirectionType returns the [spx.Direction] type.
+	GetSpxDirectionType = sync.OnceValue(func() *types.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Left").Type().(*types.Alias)
-	})
-
-	// GetSpxColorType returns the [spx.Color] type.
-	GetSpxColorType = sync.OnceValue(func() *types.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Color").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("Direction").Type().(*types.Alias)
 	})
 
 	// GetSpxEffectKindType returns the [spx.EffectKind] type.
@@ -499,6 +493,18 @@ var (
 	GetSpxRGBAFunc = sync.OnceValue(func() *types.Func {
 		spxPkg := GetSpxPkg()
 		return spxPkg.Scope().Lookup("RGBA").(*types.Func)
+	})
+
+	// GetSpxHSBFunc returns the [spx.HSB] type.
+	GetSpxHSBFunc = sync.OnceValue(func() *types.Func {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("HSB").(*types.Func)
+	})
+
+	// GetSpxHSBAFunc returns the [spx.HSBA] type.
+	GetSpxHSBAFunc = sync.OnceValue(func() *types.Func {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("HSBA").(*types.Func)
 	})
 )
 
