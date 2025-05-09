@@ -688,9 +688,9 @@ onStart => {
 	require.NoError(t, err)
 	require.NotNil(t, astFile)
 
-	inputSlots, err := findInputSlots(result, astFile)
-	require.NoError(t, err)
+	inputSlots := findInputSlots(result, astFile)
 	require.NotNil(t, inputSlots)
+	assert.NotEmpty(t, inputSlots)
 
 	t.Run("ValueSlots", func(t *testing.T) {
 		for _, tt := range []struct {
@@ -819,9 +819,9 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inputSlots, err := findInputSlots(result, astFile)
-		require.NoError(t, err)
+		inputSlots := findInputSlots(result, astFile)
 		require.NotNil(t, inputSlots)
+		assert.NotEmpty(t, inputSlots)
 
 		slot := findInputSlot(inputSlots, nil, "name", SpxInputTypeString, SpxInputKindPredefined)
 		require.NotNil(t, slot)
@@ -841,9 +841,9 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inputSlots, err := findInputSlots(result, astFile)
-		require.NoError(t, err)
+		inputSlots := findInputSlots(result, astFile)
 		require.NotNil(t, inputSlots)
+		assert.NotEmpty(t, inputSlots)
 
 		slot := findInputSlot(inputSlots, nil, "data", SpxInputTypeString, SpxInputKindPredefined)
 		require.NotNil(t, slot)
