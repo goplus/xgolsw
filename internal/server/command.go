@@ -623,9 +623,16 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 		SpxInputTypePlayAction,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
+		obj := typeInfo.ObjectOf(ident)
+		if !isSpxPkgObject(obj) {
+			break
+		}
+		cnst, ok := obj.(*types.Const)
+		if !ok {
+			break
+		}
 		input.Kind = SpxInputKindInPlace
-		constObj := typeInfo.ObjectOf(ident).(*types.Const)
-		input.Value, _ = strconv.ParseInt(constObj.Val().ExactString(), 0, 64)
+		input.Value, _ = strconv.ParseInt(cnst.Val().ExactString(), 0, 64)
 		input.Name = ""
 	}
 
