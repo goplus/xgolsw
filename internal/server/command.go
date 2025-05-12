@@ -382,6 +382,10 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr
 
 	var inputSlots []SpxInputSlot
 	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, param *types.Var, arg gopast.Expr) bool {
+		if !param.Pos().IsValid() {
+			return true
+		}
+
 		declaredType := unwrapPointerType(param.Type())
 		if sliceType, ok := declaredType.(*types.Slice); ok {
 			declaredType = unwrapPointerType(sliceType.Elem())

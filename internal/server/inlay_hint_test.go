@@ -172,6 +172,7 @@ onStart => {
 
 	// Function call with multiple parameters.
 	setEffect ColorEffect, 50
+	getWidget Monitor, "myWidget"
 
 	// Function call with lambda expression.
 	onKey [KeySpace], () => {
@@ -189,7 +190,7 @@ onStart => {
 }
 `),
 			"OtherSprite.spx":                       []byte(``),
-			"assets/index.json":                     []byte(`{}`),
+			"assets/index.json":                     []byte(`{"zorder":[{"name":"myWidget"}]}`),
 			"assets/sprites/MySprite/index.json":    []byte(`{}`),
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
@@ -219,9 +220,22 @@ onStart => {
 		}
 		assert.Equal(t, 2, setEffectHintCount)
 
+		var (
+			getWidgetHintCount  int
+			getWidgetHintLabels []string
+		)
+		for _, hint := range inlayHints {
+			if hint.Position.Line == 12 {
+				getWidgetHintCount++
+				getWidgetHintLabels = append(getWidgetHintLabels, hint.Label)
+			}
+		}
+		assert.Equal(t, 2, getWidgetHintCount)
+		assert.ElementsMatch(t, []string{"T", "name"}, getWidgetHintLabels)
+
 		rgbHintCount := 0
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 19 {
+			if hint.Position.Line == 20 {
 				rgbHintCount++
 			}
 		}

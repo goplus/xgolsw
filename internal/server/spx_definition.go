@@ -813,7 +813,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 	} else if isGopPkg {
 		switch {
 		case strings.HasPrefix(name, util.GoptPrefix):
-			recvTypeName, methodName, ok := util.SplitGoptMethodName(name)
+			recvTypeName, methodName, ok := util.SplitGoptMethodName(name, true)
 			if !ok {
 				break
 			}

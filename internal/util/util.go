@@ -42,7 +42,7 @@ func IsGopPackage(pkg *types.Package) bool {
 
 // SplitGoptMethodName splits a Go+ template method name into receiver type
 // name and method name.
-func SplitGoptMethodName(name string) (recvTypeName string, methodName string, ok bool) {
+func SplitGoptMethodName(name string, trimGopx bool) (recvTypeName string, methodName string, ok bool) {
 	if !strings.HasPrefix(name, GoptPrefix) {
 		return "", "", false
 	}
@@ -50,15 +50,21 @@ func SplitGoptMethodName(name string) (recvTypeName string, methodName string, o
 	if !ok {
 		return "", "", false
 	}
-	methodName = strings.TrimPrefix(methodName, GopxPrefix)
+	if trimGopx {
+		if funcName, ok := SplitGopxFuncName(methodName); ok {
+			methodName = funcName
+		}
+	}
 	return
 }
 
-// IsGoptMethod checks if the given function is a Go+ template method.
-func IsGoptMethod(fun *types.Func) bool {
-	if !IsGopPackage(fun.Pkg()) {
-		return false
+// SplitGopxFuncName splits a Go+ type as parameters function name into the
+// function name.
+func SplitGopxFuncName(name string) (funcName string, ok bool) {
+	if !strings.HasPrefix(name, GopxPrefix) {
+		return "", false
 	}
-	_, _, ok := SplitGoptMethodName(fun.Name())
-	return ok
+	funcName = strings.TrimPrefix(name, GopxPrefix)
+	ok = true
+	return
 }
