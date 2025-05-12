@@ -3,7 +3,7 @@ module github.com/goplus/goxlsw/cmd/pkgdatagen
 go 1.23.4
 
 require (
-	github.com/goplus/goxlsw v0.0.0
+	github.com/goplus/goxlsw v0.3.1
 	github.com/goplus/spx v1.1.1-0.20250214074125-e9e1f6362499
 	golang.org/x/tools v0.32.0
 )
@@ -34,5 +34,3 @@ require (
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )
-
-replace github.com/goplus/goxlsw => ../..
