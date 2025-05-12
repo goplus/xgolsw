@@ -141,6 +141,7 @@ var stdPkgPaths = []string{
 	// See github.com/goplus/gop/cl.newBuiltinDefault for the list of packages required by Go+ builtins.
 	"github.com/qiniu/x/gop",
 	"github.com/qiniu/x/gop/ng",
+	"github.com/qiniu/x/gop/osx",
 	"github.com/qiniu/x/stringslice",
 	"github.com/qiniu/x/stringutil",
 
