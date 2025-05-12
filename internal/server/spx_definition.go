@@ -205,14 +205,14 @@ var (
 		"uint128":  "github.com/qiniu/x/gop/ng#Uint128",
 
 		// Functions.
-		"blines":   "github.com/qiniu/x/gop/iox#BLines",
+		"blines":   "github.com/qiniu/x/gop/osx#BLines",
 		"create":   "os#Create",
 		"echo":     "fmt#Println",
 		"errorf":   "fmt#Errorf",
 		"fprint":   "fmt#Fprint",
 		"fprintf":  "fmt#Fprintf",
 		"fprintln": "fmt#Fprintln",
-		"lines":    "github.com/qiniu/x/gop/iox#Lines",
+		"lines":    "github.com/qiniu/x/gop/osx#Lines",
 		"newRange": "github.com/qiniu/x/gop#NewRange__0",
 		"open":     "os#Open",
 		"print":    "fmt#Print",
