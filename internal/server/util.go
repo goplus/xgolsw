@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"html/template"
 	"regexp"
+	"slices"
 	"strconv"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -464,12 +465,26 @@ func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn fu
 	}
 	sig := fun.Signature()
 	params := sig.Params()
-	if util.IsGoptMethod(fun) {
-		vars := make([]*types.Var, 0, params.Len()-1)
-		for i := 1; i < params.Len(); i++ {
-			vars = append(vars, params.At(i))
+	if util.IsGopPackage(fun.Pkg()) {
+		_, methodName, ok := util.SplitGoptMethodName(fun.Name(), false)
+		if ok {
+			vars := make([]*types.Var, 0, params.Len()-1)
+			if _, ok := util.SplitGopxFuncName(methodName); ok {
+				typeParams := fun.Signature().TypeParams()
+				if typeParams != nil {
+					vars = slices.Grow(vars, typeParams.Len())
+					for i := range typeParams.Len() {
+						typeParam := typeParams.At(i)
+						param := types.NewParam(goptoken.NoPos, typeParam.Obj().Pkg(), typeParam.Obj().Name(), typeParam.Constraint().Underlying())
+						vars = append(vars, param)
+					}
+				}
+			}
+			for i := 1; i < params.Len(); i++ {
+				vars = append(vars, params.At(i))
+			}
+			params = types.NewTuple(vars...)
 		}
-		params = types.NewTuple(vars...)
 	}
 
 	for i, arg := range expr.Args {

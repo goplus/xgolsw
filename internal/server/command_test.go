@@ -667,6 +667,7 @@ onStart => {
 
 	// Other commands
 	MySprite.turn heading
+	getWidget Monitor, "myWidget"
 }
 `),
 		"MySprite.spx": []byte(`
@@ -678,7 +679,7 @@ onStart => {
 }
 `),
 		"OtherSprite.spx":                       []byte(``),
-		"assets/index.json":                     []byte(`{}`),
+		"assets/index.json":                     []byte(`{"zorder":[{"name":"myWidget"}]}`),
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
@@ -752,6 +753,12 @@ onStart => {
 				value:          []int64{255, 0, 0, 255},
 				wantAcceptType: SpxInputTypeColor,
 				wantInputType:  SpxInputTypeColor,
+			},
+			{
+				name:           "WidgetName",
+				value:          SpxResourceURI("spx://resources/widgets/myWidget"),
+				wantAcceptType: SpxInputTypeResourceName,
+				wantInputType:  SpxInputTypeResourceName,
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
