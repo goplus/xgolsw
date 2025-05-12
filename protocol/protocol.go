@@ -2710,7 +2710,7 @@ type InlayHint struct {
 	// InlayHintLabelPart label parts.
 	//
 	// *Note* that neither the string nor the label part can be empty.
-	Label []InlayHintLabelPart `json:"label"`
+	Label string `json:"label"`
 	// The kind of this hint. Can be omitted in which case the client
 	// should fall back to a reasonable default.
 	Kind InlayHintKind `json:"kind,omitempty"`

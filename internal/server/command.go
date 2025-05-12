@@ -221,15 +221,11 @@ func (s *Server) spxGetInputSlots(params []SpxGetInputSlotsParams) ([]SpxInputSl
 		return nil, nil
 	}
 
-	inputSlots, err := findInputSlots(result, astFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find input slots: %w", err)
-	}
-	return inputSlots, nil
+	return findInputSlots(result, astFile), nil
 }
 
 // findInputSlots finds all input slots in the AST file.
-func findInputSlots(result *compileResult, astFile *gopast.File) ([]SpxInputSlot, error) {
+func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot {
 	typeInfo := getTypeInfo(result.proj)
 
 	var inputSlots []SpxInputSlot
@@ -377,7 +373,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) ([]SpxInputSlot
 		}
 		return true
 	})
-	return inputSlots, nil
+	return inputSlots
 }
 
 // findInputSlotsFromCallExpr finds input slots from a call expression.
@@ -627,9 +623,16 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 		SpxInputTypePlayAction,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
+		obj := typeInfo.ObjectOf(ident)
+		if !isSpxPkgObject(obj) {
+			break
+		}
+		cnst, ok := obj.(*types.Const)
+		if !ok {
+			break
+		}
 		input.Kind = SpxInputKindInPlace
-		constObj := typeInfo.ObjectOf(ident).(*types.Const)
-		input.Value, _ = strconv.ParseInt(constObj.Val().ExactString(), 0, 64)
+		input.Value, _ = strconv.ParseInt(cnst.Val().ExactString(), 0, 64)
 		input.Name = ""
 	}
 

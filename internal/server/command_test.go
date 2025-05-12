@@ -688,9 +688,9 @@ onStart => {
 	require.NoError(t, err)
 	require.NotNil(t, astFile)
 
-	inputSlots, err := findInputSlots(result, astFile)
-	require.NoError(t, err)
+	inputSlots := findInputSlots(result, astFile)
 	require.NotNil(t, inputSlots)
+	assert.NotEmpty(t, inputSlots)
 
 	t.Run("ValueSlots", func(t *testing.T) {
 		for _, tt := range []struct {
@@ -819,9 +819,9 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inputSlots, err := findInputSlots(result, astFile)
-		require.NoError(t, err)
+		inputSlots := findInputSlots(result, astFile)
 		require.NotNil(t, inputSlots)
+		assert.NotEmpty(t, inputSlots)
 
 		slot := findInputSlot(inputSlots, nil, "name", SpxInputTypeString, SpxInputKindPredefined)
 		require.NotNil(t, slot)
@@ -841,9 +841,9 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inputSlots, err := findInputSlots(result, astFile)
-		require.NoError(t, err)
+		inputSlots := findInputSlots(result, astFile)
 		require.NotNil(t, inputSlots)
+		assert.NotEmpty(t, inputSlots)
 
 		slot := findInputSlot(inputSlots, nil, "data", SpxInputTypeString, SpxInputKindPredefined)
 		require.NotNil(t, slot)
@@ -1244,6 +1244,10 @@ onStart => {
 	// Special object
 	if MySprite.touching(Mouse) {}
 
+	// Special object (variable)
+	myMouse := Mouse
+	if MySprite.touching(myMouse) {}
+
 	// Effect kind
 	setEffect ColorEffect, 0
 
@@ -1298,29 +1302,36 @@ onStart => {
 			wantInputValue: int64(-5),
 		},
 		{
+			name:          "SpecialObjectVariable",
+			identPosition: Position{Line: 18, Character: 23},
+			wantInputKind: SpxInputKindPredefined,
+			wantInputType: SpxInputTypeSpecialObj,
+			wantInputName: "myMouse",
+		},
+		{
 			name:           "EffectKind",
-			identPosition:  Position{Line: 17, Character: 12},
+			identPosition:  Position{Line: 21, Character: 12},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeEffectKind,
 			wantInputValue: int64(0),
 		},
 		{
 			name:           "PlayAction",
-			identPosition:  Position{Line: 20, Character: 7},
+			identPosition:  Position{Line: 24, Character: 7},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypePlayAction,
 			wantInputValue: int64(4),
 		},
 		{
 			name:           "Key",
-			identPosition:  Position{Line: 23, Character: 16},
+			identPosition:  Position{Line: 27, Character: 16},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeKey,
 			wantInputValue: int64(116),
 		},
 		{
 			name:          "Regular",
-			identPosition: Position{Line: 26, Character: 11},
+			identPosition: Position{Line: 30, Character: 11},
 			wantInputKind: SpxInputKindPredefined,
 			wantInputType: SpxInputTypeInteger,
 			wantInputName: "regularVar",

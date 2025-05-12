@@ -83,6 +83,10 @@ type (
 	DidChangeTextDocumentParams = protocol.DidChangeTextDocumentParams
 	DidCloseTextDocumentParams  = protocol.DidCloseTextDocumentParams
 	DidSaveTextDocumentParams   = protocol.DidSaveTextDocumentParams
+
+	InlayHintParams = protocol.InlayHintParams
+	InlayHint       = protocol.InlayHint
+	InlayHintKind   = protocol.InlayHintKind
 )
 
 const (
@@ -135,6 +139,9 @@ const (
 	ModStatic         = protocol.ModStatic
 	ModDefinition     = protocol.ModDefinition
 	ModDefaultLibrary = protocol.ModDefaultLibrary
+
+	Type      = protocol.Type
+	Parameter = protocol.Parameter
 )
 
 // UnmarshalJSON unmarshals msg into the variable pointed to by params.
