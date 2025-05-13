@@ -666,7 +666,7 @@ onStart => {
 	MySprite.goto "OtherSprite"
 
 	// Other commands
-	MySprite.turn heading
+	MySprite.turn MySprite.heading
 	getWidget Monitor, "myWidget"
 }
 `),
@@ -815,7 +815,6 @@ onStart => {
 				assert.Equal(t, SpxInputTypeUnknown, slot.Input.Type)
 				assert.Equal(t, tt.wantInputName, slot.Input.Name)
 				assert.Contains(t, slot.PredefinedNames, "backdropName")
-				assert.Contains(t, slot.PredefinedNames, "heading")
 				assert.NotEmpty(t, slot.Range)
 			})
 		}
