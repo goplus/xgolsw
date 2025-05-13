@@ -409,6 +409,9 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 // It returns multiple definitions only if the identifier is a Go+ overloadable
 // function.
 func (r *compileResult) spxDefinitionsForIdent(ident *gopast.Ident) []SpxDefinition {
+	if ident.Name == "_" {
+		return nil
+	}
 	typeInfo := getTypeInfo(r.proj)
 	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), r.selectorTypeNameForIdent(ident))
 }
