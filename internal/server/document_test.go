@@ -461,4 +461,18 @@ var (
 			Target: toURI("gop:main?Game.MySound"),
 		})
 	})
+
+	t.Run("BlankIdentifier", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx":          []byte(`type`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.Empty(t, links)
+	})
 }
