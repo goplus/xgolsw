@@ -139,10 +139,10 @@ var stdPkgPaths = []string{
 	"unicode/utf8",
 
 	// See github.com/goplus/gop/cl.newBuiltinDefault for the list of packages required by Go+ builtins.
-	"github.com/goplus/gop/builtin",
-	"github.com/goplus/gop/builtin/iox",
-	"github.com/goplus/gop/builtin/ng",
-	"github.com/goplus/gop/builtin/stringslice",
+	"github.com/qiniu/x/gop",
+	"github.com/qiniu/x/gop/ng",
+	"github.com/qiniu/x/gop/osx",
+	"github.com/qiniu/x/stringslice",
 	"github.com/qiniu/x/stringutil",
 
 	"github.com/goplus/spx",

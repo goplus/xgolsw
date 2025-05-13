@@ -198,22 +198,22 @@ var (
 	// See github.com/goplus/gop/cl.initBuiltin for the list of Go+ builtin aliases.
 	gopBuiltinAliases = map[string]string{
 		// Types.
-		"bigfloat": "github.com/goplus/gop/builtin/ng#Bigfloat",
-		"bigint":   "github.com/goplus/gop/builtin/ng#Bigint",
-		"bigrat":   "github.com/goplus/gop/builtin/ng#Bigrat",
-		"int128":   "github.com/goplus/gop/builtin/ng#Int128",
-		"uint128":  "github.com/goplus/gop/builtin/ng#Uint128",
+		"bigfloat": "github.com/qiniu/x/gop/ng#Bigfloat",
+		"bigint":   "github.com/qiniu/x/gop/ng#Bigint",
+		"bigrat":   "github.com/qiniu/x/gop/ng#Bigrat",
+		"int128":   "github.com/qiniu/x/gop/ng#Int128",
+		"uint128":  "github.com/qiniu/x/gop/ng#Uint128",
 
 		// Functions.
-		"blines":   "github.com/goplus/gop/builtin/iox#BLines",
+		"blines":   "github.com/qiniu/x/gop/osx#BLines",
 		"create":   "os#Create",
 		"echo":     "fmt#Println",
 		"errorf":   "fmt#Errorf",
 		"fprint":   "fmt#Fprint",
 		"fprintf":  "fmt#Fprintf",
 		"fprintln": "fmt#Fprintln",
-		"lines":    "github.com/goplus/gop/builtin/iox#Lines",
-		"newRange": "github.com/goplus/gop/builtin#NewRange__0",
+		"lines":    "github.com/qiniu/x/gop/osx#Lines",
+		"newRange": "github.com/qiniu/x/gop#NewRange__0",
 		"open":     "os#Open",
 		"print":    "fmt#Print",
 		"printf":   "fmt#Printf",

@@ -4,7 +4,7 @@ go 1.23.4
 
 require (
 	github.com/goplus/gogen v1.18.0
-	github.com/goplus/gop v1.4.0
+	github.com/goplus/gop v1.4.5
 	github.com/goplus/mod v0.16.1
 	github.com/qiniu/x v1.14.6
 	github.com/stretchr/testify v1.10.0
