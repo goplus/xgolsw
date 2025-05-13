@@ -402,6 +402,7 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr
 
 // collectPredefinedNames collects all predefined names for the given expression.
 func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredType types.Type) []string {
+	astFile := result.nodeASTFile(expr)
 	innermostScope := result.innermostScopeAt(expr.Pos())
 
 	var names []string
@@ -456,6 +457,7 @@ func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredTyp
 			if obj == nil {
 				continue
 			}
+
 			if scope != innermostScope || obj.Pos() < expr.Pos() {
 				switch obj.(type) {
 				case *types.Var, *types.Const:
@@ -463,31 +465,30 @@ func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredTyp
 				}
 			}
 
-			objType := unwrapPointerType(obj.Type())
-			named, ok := objType.(*types.Named)
-			if !ok || !isNamedStructType(named) {
-				continue
-			}
-			if objType != GetSpxGameType() && !vfs.HasSpriteType(result.proj, objType) {
-				continue
-			}
-
-			walkStruct(named, func(member types.Object, selector *types.Named) bool {
-				switch member := member.(type) {
-				case *types.Var:
-					if !member.Origin().Embedded() {
-						addNameOf(member)
-					}
-				case *types.Func:
-					// Add methods with no parameters and exactly one return value.
-					// For example, the method `Game.BackdropName` can be used in `echo backdropname`.
-					funcSig := member.Type().(*types.Signature)
-					if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
-						addNameOf(member)
-					}
+			if astFile.IsClass && !obj.Pos().IsValid() && name == "this" {
+				objType := unwrapPointerType(obj.Type())
+				named, ok := objType.(*types.Named)
+				if !ok || !isNamedStructType(named) {
+					continue
 				}
-				return true
-			})
+
+				walkStruct(named, func(member types.Object, selector *types.Named) bool {
+					switch member := member.(type) {
+					case *types.Var:
+						if !member.Origin().Embedded() {
+							addNameOf(member)
+						}
+					case *types.Func:
+						// Add methods with no parameters and exactly one return value.
+						// For example, the method `Game.BackdropName` can be used in `echo backdropname`.
+						funcSig := member.Type().(*types.Signature)
+						if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
+							addNameOf(member)
+						}
+					}
+					return true
+				})
+			}
 		}
 	}
 
