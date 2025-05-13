@@ -622,14 +622,13 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 			input.Name = ""
 		}
 	case SpxInputTypeDirection,
-		SpxInputTypeColor,
 		SpxInputTypeEffectKind,
 		SpxInputTypeKey,
 		SpxInputTypePlayAction,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
 		obj := typeInfo.ObjectOf(ident)
-		if !isSpxPkgObject(obj) {
+		if obj != nil && !isSpxPkgObject(obj) {
 			break
 		}
 		cnst, ok := obj.(*types.Const)
@@ -637,7 +636,12 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 			break
 		}
 		input.Kind = SpxInputKindInPlace
-		input.Value, _ = strconv.ParseInt(cnst.Val().ExactString(), 0, 64)
+		switch input.Type {
+		case SpxInputTypeDirection:
+			input.Value, _ = strconv.ParseFloat(cnst.Val().ExactString(), 64)
+		default:
+			input.Value = cnst.Name()
+		}
 		input.Name = ""
 	}
 
@@ -748,36 +752,61 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopa
 		return nil
 	}
 
-	var r, g, b, a int64 = 0, 0, 0, 255
-	if len(callExpr.Args) >= 3 {
-		for i, arg := range callExpr.Args {
-			if lit, ok := arg.(*gopast.BasicLit); ok && lit.Kind == goptoken.INT {
-				val, err := strconv.ParseInt(lit.Value, 0, 64)
-				if err != nil {
-					continue
-				}
+	constructor := SpxInputTypeSpxColorConstructor(fun.Name())
+	maxArgs := 3
+	switch constructor {
+	case SpxInputTypeSpxColorConstructorRGB,
+		SpxInputTypeSpxColorConstructorHSB:
+	case SpxInputTypeSpxColorConstructorRGBA,
+		SpxInputTypeSpxColorConstructorHSBA:
+		maxArgs = 4
+	default:
+		return nil // This should never happen, but just in case.
+	}
 
-				switch i {
-				case 0:
-					r = val
-				case 1:
-					g = val
-				case 2:
-					b = val
-				case 3:
-					a = val
-				}
-			}
+	var args []float64
+	for i, argExpr := range callExpr.Args {
+		if i >= maxArgs {
+			break
 		}
+		lit, ok := argExpr.(*gopast.BasicLit)
+		if !ok {
+			return nil
+		}
+
+		var val float64
+		switch lit.Kind {
+		case goptoken.FLOAT:
+			floatVal, err := strconv.ParseFloat(lit.Value, 64)
+			if err != nil {
+				return nil
+			}
+			val = floatVal
+		case goptoken.INT:
+			intVal, err := strconv.ParseInt(lit.Value, 0, 64)
+			if err != nil {
+				return nil
+			}
+			val = float64(intVal)
+		default:
+			return nil
+		}
+		args = append(args, val)
+	}
+	if len(args) < maxArgs {
+		return nil
 	}
 
 	return &SpxInputSlot{
 		Kind:   SpxInputSlotKindValue,
 		Accept: SpxInputSlotAccept{Type: SpxInputTypeColor},
 		Input: SpxInput{
-			Kind:  SpxInputKindInPlace,
-			Type:  SpxInputTypeColor,
-			Value: []int64{r, g, b, a},
+			Kind: SpxInputKindInPlace,
+			Type: SpxInputTypeColor,
+			Value: SpxColorInputValue{
+				Constructor: constructor,
+				Args:        args,
+			},
 		},
 		PredefinedNames: collectPredefinedNames(result, callExpr, declaredType),
 		Range:           result.rangeForNode(callExpr),
@@ -787,13 +816,9 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopa
 // isSpxColorFunc checks if the fun is an spx color function.
 func isSpxColorFunc(fun *types.Func) bool {
 	switch fun {
-	case GetSpxRGBFunc(), GetSpxRGBAFunc():
+	case GetSpxRGBFunc(), GetSpxRGBAFunc(),
+		GetSpxHSBFunc(), GetSpxHSBAFunc():
 		return true
-	default:
-		switch fun.Name() {
-		case "HSB", "HSBA":
-			return true
-		}
 	}
 	return false
 }
@@ -824,10 +849,8 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		GetSpxSpriteAnimationNameType(),
 		GetSpxWidgetNameType():
 		return SpxInputTypeResourceName
-	case GetSpxSpecialDirType():
+	case GetSpxDirectionType():
 		return SpxInputTypeDirection
-	case GetSpxColorType():
-		return SpxInputTypeColor
 	case GetSpxEffectKindType():
 		return SpxInputTypeEffectKind
 	case GetSpxKeyType():

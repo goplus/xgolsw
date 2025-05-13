@@ -67,6 +67,11 @@ onStart => {
 		}))
 		assert.False(t, spxDefinitionIdentifierSliceContains(mainSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
+			Name:       util.ToPtr("Sprite.play"),
+			OverloadID: util.ToPtr("1"),
+		}))
+		assert.False(t, spxDefinitionIdentifierSliceContains(mainSpxFileScopeDefs, SpxDefinitionIdentifier{
+			Package:    util.ToPtr(GetSpxPkg().Path()),
 			Name:       util.ToPtr("Sprite.turn"),
 			OverloadID: util.ToPtr("1"),
 		}))
@@ -90,7 +95,7 @@ onStart => {
 			Package: util.ToPtr("builtin"),
 			Name:    util.ToPtr("println"),
 		}))
-		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
+		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
 			Name:       util.ToPtr("Game.play"),
 			OverloadID: util.ToPtr("1"),
@@ -98,6 +103,11 @@ onStart => {
 		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package: util.ToPtr(GetSpxPkg().Path()),
 			Name:    util.ToPtr("Game.onStart"),
+		}))
+		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
+			Package:    util.ToPtr(GetSpxPkg().Path()),
+			Name:       util.ToPtr("Sprite.play"),
+			OverloadID: util.ToPtr("1"),
 		}))
 		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
@@ -128,7 +138,7 @@ onStart => {
 			Package: util.ToPtr("builtin"),
 			Name:    util.ToPtr("println"),
 		}))
-		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxOnStartScopeDefs, SpxDefinitionIdentifier{
+		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxOnStartScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
 			Name:       util.ToPtr("Game.play"),
 			OverloadID: util.ToPtr("1"),
@@ -140,6 +150,11 @@ onStart => {
 		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxOnStartScopeDefs, SpxDefinitionIdentifier{
 			Package: util.ToPtr(GetSpxPkg().Path()),
 			Name:    util.ToPtr("Game.onClick"),
+		}))
+		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
+			Package:    util.ToPtr(GetSpxPkg().Path()),
+			Name:       util.ToPtr("Sprite.play"),
+			OverloadID: util.ToPtr("1"),
 		}))
 		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxOnStartScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
@@ -232,7 +247,7 @@ onStart => {
 		mySpriteSpxFileScopeDefs, err := s.spxGetDefinitions(mySpriteSpxFileScopeParams)
 		require.NoError(t, err)
 		require.NotNil(t, mySpriteSpxFileScopeDefs)
-		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
+		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package:    util.ToPtr(GetSpxPkg().Path()),
 			Name:       util.ToPtr("Game.play"),
 			OverloadID: util.ToPtr("1"),
@@ -240,6 +255,11 @@ onStart => {
 		assert.False(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package: util.ToPtr(GetSpxPkg().Path()),
 			Name:    util.ToPtr("Game.onStart"),
+		}))
+		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
+			Package:    util.ToPtr(GetSpxPkg().Path()),
+			Name:       util.ToPtr("Sprite.play"),
+			OverloadID: util.ToPtr("1"),
 		}))
 		assert.True(t, spxDefinitionIdentifierSliceContains(mySpriteSpxFileScopeDefs, SpxDefinitionIdentifier{
 			Package: util.ToPtr(GetSpxPkg().Path()),
@@ -411,8 +431,8 @@ onStart => {
 				},
 				{
 					name:        "Direction",
-					value:       int64(-90),
-					acceptType:  SpxInputTypeInteger,
+					value:       float64(-90),
+					acceptType:  SpxInputTypeDecimal,
 					inputType:   SpxInputTypeDirection,
 					inputKind:   SpxInputKindInPlace,
 					shouldExist: true,
@@ -426,16 +446,22 @@ onStart => {
 					shouldExist: true,
 				},
 				{
-					name:        "RGB",
-					value:       []int64{255, 0, 0, 255},
+					name: "RGB",
+					value: SpxColorInputValue{
+						Constructor: SpxInputTypeSpxColorConstructorRGB,
+						Args:        []float64{255, 0, 0},
+					},
 					acceptType:  SpxInputTypeColor,
 					inputType:   SpxInputTypeColor,
 					inputKind:   SpxInputKindInPlace,
 					shouldExist: true,
 				},
 				{
-					name:        "RGBA",
-					value:       []int64{0, 255, 0, 128},
+					name: "RGBA",
+					value: SpxColorInputValue{
+						Constructor: SpxInputTypeSpxColorConstructorRGBA,
+						Args:        []float64{0, 255, 0, 128},
+					},
 					acceptType:  SpxInputTypeColor,
 					inputType:   SpxInputTypeColor,
 					inputKind:   SpxInputKindInPlace,
@@ -687,6 +713,7 @@ onStart => {
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	inputSlots := findInputSlots(result, astFile)
@@ -720,14 +747,14 @@ onStart => {
 			},
 			{
 				name:           "RotationStyle",
-				value:          int64(2), // LeftRight
+				value:          "LeftRight",
 				wantAcceptType: SpxInputTypeUnknown,
 				wantInputType:  SpxInputTypeRotationStyle,
 			},
 			{
 				name:           "Direction",
-				value:          int64(-90), // Left
-				wantAcceptType: SpxInputTypeInteger,
+				value:          float64(-90),
+				wantAcceptType: SpxInputTypeDecimal,
 				wantInputType:  SpxInputTypeDirection,
 			},
 			{
@@ -749,8 +776,11 @@ onStart => {
 				wantInputType:  SpxInputTypeInteger,
 			},
 			{
-				name:           "ColorRGB",
-				value:          []int64{255, 0, 0, 255},
+				name: "ColorRGB",
+				value: SpxColorInputValue{
+					Constructor: SpxInputTypeSpxColorConstructorRGB,
+					Args:        []float64{255, 0, 0},
+				},
 				wantAcceptType: SpxInputTypeColor,
 				wantInputType:  SpxInputTypeColor,
 			},
@@ -823,6 +853,7 @@ onStart => {
 	t.Run("spx.Sprite.Goto", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
 
 		inputSlots := findInputSlots(result, astFile)
@@ -845,6 +876,7 @@ onStart => {
 	t.Run("spx.Sprite.Clone", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
 
 		inputSlots := findInputSlots(result, astFile)
@@ -885,11 +917,13 @@ onStart => {
 	arrayValue := []int{1, 2, 3}
 }
 `),
+		"assets/index.json": []byte(`{}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
@@ -942,7 +976,7 @@ onStart => {
 			wantAcceptType: SpxInputTypeDirection,
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeDirection,
-			wantInputValue: int64(-90),
+			wantInputValue: float64(-90),
 		},
 		{
 			name:           "BooleanIdentifier",
@@ -962,7 +996,10 @@ onStart => {
 			wantAcceptType: SpxInputTypeColor,
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeColor,
-			wantInputValue: []int64{255, 0, 0, 255},
+			wantInputValue: SpxColorInputValue{
+				Constructor: SpxInputTypeSpxColorConstructorRGB,
+				Args:        []float64{255, 0, 0},
+			},
 		},
 		{
 			name:         "NonValueNode",
@@ -1015,11 +1052,13 @@ onStart => {
 	otherVar := 20
 }
 `),
+		"assets/index.json": []byte(`{}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
@@ -1109,6 +1148,7 @@ onStart => {
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
@@ -1258,7 +1298,7 @@ onStart => {
 	setEffect ColorEffect, 0
 
 	// Play action
-	play PlayStop
+	play "MySound", &PlayOptions{Action: PlayStop}
 
 	// Key
 	if keyPressed(KeySpace) {}
@@ -1270,11 +1310,13 @@ onStart => {
 		"MySprite.spx":                       []byte(``),
 		"assets/index.json":                  []byte(`{}`),
 		"assets/sprites/MySprite/index.json": []byte(`{}`),
+		"assets/sounds/MySound/index.json":   []byte(`{}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
@@ -1298,14 +1340,14 @@ onStart => {
 			identPosition:  Position{Line: 11, Character: 16},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeDirection,
-			wantInputValue: int64(-90),
+			wantInputValue: float64(-90),
 		},
 		{
 			name:           "SpecialObject",
 			identPosition:  Position{Line: 14, Character: 23},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeSpecialObj,
-			wantInputValue: int64(-5),
+			wantInputValue: "Mouse",
 		},
 		{
 			name:          "SpecialObjectVariable",
@@ -1319,21 +1361,21 @@ onStart => {
 			identPosition:  Position{Line: 21, Character: 12},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeEffectKind,
-			wantInputValue: int64(0),
+			wantInputValue: "ColorEffect",
 		},
 		{
 			name:           "PlayAction",
-			identPosition:  Position{Line: 24, Character: 7},
+			identPosition:  Position{Line: 24, Character: 39},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypePlayAction,
-			wantInputValue: int64(4),
+			wantInputValue: "PlayStop",
 		},
 		{
 			name:           "Key",
 			identPosition:  Position{Line: 27, Character: 16},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeKey,
-			wantInputValue: int64(116),
+			wantInputValue: "KeySpace",
 		},
 		{
 			name:          "Regular",
@@ -1390,11 +1432,13 @@ onStart => {
 	notBool := !true
 }
 `),
+		"assets/index.json": []byte(`{}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
@@ -1490,28 +1534,36 @@ onStart => {
 	println 1, 2, 3
 }
 `),
+		"assets/index.json": []byte(`{}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
+	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
 
 	for _, tt := range []struct {
 		name             string
 		callExprPosition Position
 		wantNil          bool
-		wantColor        []int64
+		wantValue        SpxColorInputValue
 	}{
 		{
 			name:             "RGB",
 			callExprPosition: Position{Line: 3, Character: 14},
-			wantColor:        []int64{255, 0, 0, 255},
+			wantValue: SpxColorInputValue{
+				Constructor: SpxInputTypeSpxColorConstructorRGB,
+				Args:        []float64{255, 0, 0},
+			},
 		},
 		{
 			name:             "RGBA",
 			callExprPosition: Position{Line: 4, Character: 14},
-			wantColor:        []int64{255, 0, 0, 128},
+			wantValue: SpxColorInputValue{
+				Constructor: SpxInputTypeSpxColorConstructorRGBA,
+				Args:        []float64{255, 0, 0, 128},
+			},
 		},
 		{
 			name:             "RegularFunction",
@@ -1543,9 +1595,10 @@ onStart => {
 				assert.Equal(t, SpxInputKindInPlace, got.Input.Kind)
 				assert.Equal(t, SpxInputTypeColor, got.Input.Type)
 
-				colorValues, ok := got.Input.Value.([]int64)
-				assert.True(t, ok)
-				assert.Equal(t, tt.wantColor, colorValues)
+				colorValue, ok := got.Input.Value.(SpxColorInputValue)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantValue.Constructor, colorValue.Constructor)
+				assert.ElementsMatch(t, tt.wantValue.Args, colorValue.Args)
 
 				assert.NotEmpty(t, got.Range)
 			}
@@ -1585,8 +1638,8 @@ func TestIsSpxColorFunc(t *testing.T) {
 	}{
 		{"RGB", GetSpxRGBFunc(), true},
 		{"RGBA", GetSpxRGBAFunc(), true},
-		// {"HSB", GetSpxHSBFunc(), true},
-		// {"HSBA", GetSpxHSBAFunc(), true},
+		{"HSB", GetSpxHSBFunc(), true},
+		{"HSBA", GetSpxHSBAFunc(), true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isSpxColorFunc(tt.fun)
@@ -1662,8 +1715,7 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 			{"SpriteCostumeName", GetSpxSpriteCostumeNameType, SpxInputTypeResourceName},
 			{"SpriteAnimationName", GetSpxSpriteAnimationNameType, SpxInputTypeResourceName},
 			{"WidgetName", GetSpxWidgetNameType, SpxInputTypeResourceName},
-			{"SpecialDir", GetSpxSpecialDirType, SpxInputTypeDirection},
-			{"Color", GetSpxColorType, SpxInputTypeColor},
+			{"SpecialDir", GetSpxDirectionType, SpxInputTypeDirection},
 			{"Key", GetSpxKeyType, SpxInputTypeKey},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -1708,13 +1760,14 @@ onStart => {
 }
 `),
 		"assets/index.json":                  []byte(`{}`),
-		"assets/sprites/MySprite/index.json": []byte(`{}`),
+		"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 	}
 	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
 
 	t.Run("MainFile", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
 
 		// MySprite.setXYpos
@@ -1739,6 +1792,7 @@ onStart => {
 	t.Run("SpriteFile", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
 
 		// setCostume
@@ -1763,6 +1817,7 @@ onStart => {
 	t.Run("NonSpriteNode", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
 
 		// onStart

@@ -22,7 +22,7 @@ through its API interfaces.
 
 ## Building from source
 
-1. Generate required package data:
+1. [Optional] Generate required package data:
 
   ```bash
   go generate ./internal/pkgdata
@@ -435,6 +435,13 @@ enum SpxInputType {
 
 ```typescript
 /**
+ * Name for color constructors.
+ */
+type SpxInputTypeSpxColorConstructor = 'RGB' | 'RGBA' | 'HSB' | 'HSBA'
+```
+
+```typescript
+/**
  * Input value with type information.
  */
 type SpxInputTypedValue =
@@ -444,12 +451,24 @@ type SpxInputTypedValue =
   | { type: SpxInputType.Boolean; value: boolean }
   | { type: SpxInputType.SpxResourceName; value: ResourceURI }
   | { type: SpxInputType.SpxDirection; value: number }
-  | { type: SpxInputType.SpxColor; value: [r: number, g: number, b: number, a: number] }
-  | { type: SpxInputType.SpxEffectKind; value: number }
-  | { type: SpxInputType.SpxKey; value: number }
-  | { type: SpxInputType.SpxPlayAction; value: number }
-  | { type: SpxInputType.SpxSpecialObj; value: number }
-  | { type: SpxInputType.SpxRotationStyle; value: number }
+  | {
+      type: SpxInputType.SpxColor
+      value: {
+        /**
+         * Constructor for color.
+         */
+        constructor: SpxInputTypeSpxColorConstructor
+        /**
+         * Arguments passed to the constructor.
+         */
+        args: number[]
+      }
+    }
+  | { type: SpxInputType.SpxEffectKind; value: string }
+  | { type: SpxInputType.SpxKey; value: string }
+  | { type: SpxInputType.SpxPlayAction; value: string }
+  | { type: SpxInputType.SpxSpecialObj; value: string }
+  | { type: SpxInputType.SpxRotationStyle; value: string }
   | { type: SpxInputType.Unknown; value: void }
 ```
 
@@ -475,10 +494,14 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
        */
       kind: SpxInputKind.InPlace
 
-      /** Type of the input. */
+      /**
+       * Type of the input.
+       */
       type: T['type']
 
-      /** In-place value. */
+      /**
+       * In-place value.
+       */
       value: T['value']
     }
   | {

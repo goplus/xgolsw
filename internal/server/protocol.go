@@ -293,6 +293,24 @@ const (
 	SpxInputTypeUnknown       SpxInputType = "unknown"
 )
 
+// SpxInputTypeSpxColorConstructor represents the name for color constructors.
+type SpxInputTypeSpxColorConstructor string
+
+// SpxInputTypeSpxColorConstructor constants.
+const (
+	SpxInputTypeSpxColorConstructorRGB  SpxInputTypeSpxColorConstructor = "RGB"
+	SpxInputTypeSpxColorConstructorRGBA SpxInputTypeSpxColorConstructor = "RGBA"
+	SpxInputTypeSpxColorConstructorHSB  SpxInputTypeSpxColorConstructor = "HSB"
+	SpxInputTypeSpxColorConstructorHSBA SpxInputTypeSpxColorConstructor = "HSBA"
+)
+
+// SpxColorInputValue represents the value structure for an [SpxInput] when its
+// type is [SpxInputTypeColor] and kind is [SpxInputKindInPlace].
+type SpxColorInputValue struct {
+	Constructor SpxInputTypeSpxColorConstructor `json:"constructor"`
+	Args        []float64                       `json:"args"`
+}
+
 // SpxInput represents the current input in a slot.
 type SpxInput struct {
 	Kind  SpxInputKind `json:"kind"`
