@@ -385,4 +385,22 @@ onStart => {
 		}
 		assert.Zero(t, rgbHintCount)
 	})
+
+	t.Run("UnresolvedOverloadFuncCall", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	onKey nonExistent
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.Nil(t, inlayHints)
+	})
 }
