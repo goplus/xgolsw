@@ -95,6 +95,7 @@ type completionContext struct {
 	selectorExpr       *gopast.SelectorExpr
 	expectedTypes      []types.Type
 	expectedStructType *types.Struct
+	compositeLitType   *types.Named
 	assignTargets      []*gopast.Ident
 	declValueSpec      *gopast.ValueSpec
 	switchTag          gopast.Expr
@@ -129,12 +130,20 @@ func (ctx *completionContext) analyze() {
 			if !ok {
 				continue
 			}
-			st, ok := tv.Type.Underlying().(*types.Struct)
+			typ := unwrapPointerType(tv.Type)
+			named, ok := typ.(*types.Named)
 			if !ok {
 				continue
 			}
+			st, ok := named.Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+
 			ctx.kind = completionKindStructLit
 			ctx.expectedStructType = st
+			ctx.compositeLitType = named
+			ctx.enclosingNode = node
 		case *gopast.AssignStmt:
 			if node.Tok != goptoken.ASSIGN && node.Tok != goptoken.DEFINE {
 				continue
@@ -534,19 +543,25 @@ func (ctx *completionContext) collectDot() error {
 		return nil
 	}
 	typ := unwrapPointerType(tv.Type)
-	if named, ok := typ.(*types.Named); ok && isSpxPkgObject(named.Obj()) && named.Obj().Name() == "Sprite" {
+	named, ok := typ.(*types.Named)
+	if ok && isSpxPkgObject(named.Obj()) && named.Obj().Name() == "Sprite" {
 		typ = GetSpxSpriteImplType()
 	}
 
 	if iface, ok := typ.Underlying().(*types.Interface); ok {
-		for i := 0; i < iface.NumMethods(); i++ {
+		for i := range iface.NumMethods() {
 			method := iface.Method(i)
 			if !isExportedOrMainPkgObject(method) {
 				continue
 			}
 
-			recvTypeName := ctx.result.selectorTypeNameForIdent(ctx.result.defIdentFor(method))
-			ctx.itemSet.addSpxDefs(GetSpxDefinitionForFunc(method, recvTypeName, ctx.pkgDoc()))
+			var recvTypeName string
+			if named != nil && isMainPkgObject(named.Obj()) {
+				recvTypeName = named.Obj().Name()
+			}
+
+			spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
+			ctx.itemSet.addSpxDefs(spxDef)
 		}
 	} else if named, ok := typ.(*types.Named); ok && isNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
@@ -783,8 +798,13 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 
 // collectStructLit collects struct literal completions.
 func (ctx *completionContext) collectStructLit() error {
-	if ctx.expectedStructType == nil {
+	if ctx.expectedStructType == nil || ctx.compositeLitType == nil {
 		return nil
+	}
+
+	selectorTypeName := ctx.compositeLitType.Obj().Name()
+	if isSpxPkgObject(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
+		selectorTypeName = "Sprite"
 	}
 
 	seenFields := make(map[string]struct{})
@@ -801,7 +821,7 @@ func (ctx *completionContext) collectStructLit() error {
 	}
 
 	// Add unused fields.
-	for i := 0; i < ctx.expectedStructType.NumFields(); i++ {
+	for i := range ctx.expectedStructType.NumFields() {
 		field := ctx.expectedStructType.Field(i)
 		if !isExportedOrMainPkgObject(field) {
 			continue
@@ -810,9 +830,7 @@ func (ctx *completionContext) collectStructLit() error {
 			continue
 		}
 
-		selectorTypeName := ctx.result.selectorTypeNameForIdent(ctx.result.defIdentFor(field))
-		forceVar := ctx.result.isDefinedInFirstVarBlock(field)
-		spxDef := GetSpxDefinitionForVar(field, selectorTypeName, forceVar, ctx.pkgDoc())
+		spxDef := ctx.result.spxDefinitionForField(field, selectorTypeName)
 		spxDef.CompletionItemInsertText = field.Name() + ": ${1:}"
 		spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
 		ctx.itemSet.addSpxDefs(spxDef)

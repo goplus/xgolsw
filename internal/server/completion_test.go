@@ -592,6 +592,154 @@ onClick => {
 		assert.NotEmpty(t, items2)
 		assert.True(t, containsCompletionItemLabel(items2, "echo"))
 	})
+
+	t.Run("MainPackageInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Runner interface {
+	Run()
+}
+
+type MyRunner struct {}
+func (r *MyRunner) Run() {}
+
+onStart => {}
+	var r Runner = new(MyRunner)
+	r.
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: util.ToPtr("main"),
+			Name:    util.ToPtr("Runner.Run"),
+		}))
+		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: util.ToPtr("main"),
+			Name:    util.ToPtr("MyRunner.Run"),
+		}))
+	})
+
+	t.Run("NonMainPackageInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+import "fmt"
+
+type MyStringer struct {}
+func (s *MyStringer) String() string {}
+
+onStart => {}
+	var s fmt.Stringer = new(MyStringer)
+	s.
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: util.ToPtr("fmt"),
+			Name:    util.ToPtr("Stringer.string"),
+		}))
+		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: util.ToPtr("main"),
+			Name:    util.ToPtr("MyStringer.String"),
+		}))
+	})
+
+	t.Run("MainPackageStructLiteralField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Point struct {
+	X int
+	Y int
+}
+
+onStart => {
+	p := Point{}
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			itemData, ok := item.Data.(*CompletionItemData)
+			if ok && itemData.Definition.String() == "gop:main?Point.X" {
+				assert.Equal(t, "X: ${1:}", item.InsertText)
+				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				return true
+			}
+			return false
+		}))
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			itemData, ok := item.Data.(*CompletionItemData)
+			if ok && itemData.Definition.String() == "gop:main?Point.Y" {
+				assert.Equal(t, "Y: ${1:}", item.InsertText)
+				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				return true
+			}
+			return false
+		}))
+	})
+
+	t.Run("NonMainPackageStructLiteralField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+import "image/color"
+
+onStart => {
+	c := color.RGBA{}
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 17},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			itemData, ok := item.Data.(*CompletionItemData)
+			if ok && itemData.Definition.String() == "gop:image/color?RGBA.R" {
+				assert.Equal(t, "R: ${1:}", item.InsertText)
+				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				return true
+			}
+			return false
+		}))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {
