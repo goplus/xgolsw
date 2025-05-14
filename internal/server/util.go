@@ -457,13 +457,18 @@ func funcFromCallExpr(typeInfo *typesutil.Info, expr *gopast.CallExpr) *types.Fu
 }
 
 // walkCallExprArgs walks the arguments of a call expression and calls the
-// provided walkFn for each argument.
+// provided walkFn for each argument. It does nothing if the function is not
+// found or if the function is Go+ FuncEx type.
 func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn func(fun *types.Func, param *types.Var, arg gopast.Expr) bool) {
 	fun := funcFromCallExpr(typeInfo, expr)
 	if fun == nil {
 		return
 	}
 	sig := fun.Signature()
+	if _, ok := gogen.CheckFuncEx(sig); ok {
+		return
+	}
+
 	params := sig.Params()
 	if util.IsGopPackage(fun.Pkg()) {
 		_, methodName, ok := util.SplitGoptMethodName(fun.Name(), false)
