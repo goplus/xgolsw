@@ -437,7 +437,7 @@ enum SpxInputType {
 /**
  * Name for color constructors.
  */
-type SpxInputTypeSpxColorConstructor = 'RGB' | 'RGBA' | 'HSB' | 'HSBA'
+type SpxInputTypeSpxColorConstructor = 'HSB' | 'HSBA'
 ```
 
 ```typescript
@@ -490,7 +490,7 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
   | {
       /**
        * In-place value
-       * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `RGB(0,0,0)`
+       * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
        */
       kind: SpxInputKind.InPlace
 
@@ -530,7 +530,7 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
 enum SpxInputKind {
   /**
    * In-place value
-   * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `RGB(0,0,0)`
+   * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
    */
   InPlace = 'in-place',
 

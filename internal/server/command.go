@@ -755,10 +755,8 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopa
 	constructor := SpxInputTypeSpxColorConstructor(fun.Name())
 	maxArgs := 3
 	switch constructor {
-	case SpxInputTypeSpxColorConstructorRGB,
-		SpxInputTypeSpxColorConstructorHSB:
-	case SpxInputTypeSpxColorConstructorRGBA,
-		SpxInputTypeSpxColorConstructorHSBA:
+	case SpxInputTypeSpxColorConstructorHSB:
+	case SpxInputTypeSpxColorConstructorHSBA:
 		maxArgs = 4
 	default:
 		return nil // This should never happen, but just in case.
@@ -816,8 +814,7 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopa
 // isSpxColorFunc checks if the fun is an spx color function.
 func isSpxColorFunc(fun *types.Func) bool {
 	switch fun {
-	case GetSpxRGBFunc(), GetSpxRGBAFunc(),
-		GetSpxHSBFunc(), GetSpxHSBAFunc():
+	case GetSpxHSBFunc(), GetSpxHSBAFunc():
 		return true
 	}
 	return false

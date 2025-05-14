@@ -629,7 +629,7 @@ run "assets", {Title: "My Game"}
 import "image/color"
 
 onStart => {
-	touchingColor RGBA(0, 0, 0, 0)
+	touchingColor HSBA(0, 0, 0, 0)
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
