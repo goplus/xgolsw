@@ -847,7 +847,18 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 			continue
 		}
 		param := sig.Params().At(i)
-		params = append(params, param.Name()+" "+getSimplifiedTypeString(param.Type()))
+		paramType := param.Type()
+		paramTypeName := getSimplifiedTypeString(paramType)
+
+		// Check if this is a variadic parameter.
+		if sig.Variadic() && i == sig.Params().Len()-1 {
+			if slice, ok := paramType.(*types.Slice); ok {
+				elemTypeName := getSimplifiedTypeString(slice.Elem())
+				paramTypeName = "..." + elemTypeName
+			}
+		}
+
+		params = append(params, param.Name()+" "+paramTypeName)
 	}
 	sb.WriteString(strings.Join(params, ", "))
 	sb.WriteString(")")
