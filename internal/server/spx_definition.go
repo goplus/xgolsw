@@ -483,18 +483,6 @@ var (
 		return GetSpxDefinitionsForPkg(spxPkg, spxPkgDoc)
 	})
 
-	// GetSpxRGBFunc returns the [spx.RGB] type.
-	GetSpxRGBFunc = sync.OnceValue(func() *types.Func {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("RGB").(*types.Func)
-	})
-
-	// GetSpxRGBAFunc returns the [spx.RGBA] type.
-	GetSpxRGBAFunc = sync.OnceValue(func() *types.Func {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("RGBA").(*types.Func)
-	})
-
 	// GetSpxHSBFunc returns the [spx.HSB] type.
 	GetSpxHSBFunc = sync.OnceValue(func() *types.Func {
 		spxPkg := GetSpxPkg()

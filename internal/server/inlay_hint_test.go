@@ -24,8 +24,8 @@ onStart => {
 	// Call with multiple parameters.
 	setEffect ColorEffect, 50
 
-	// Function with RGB color value.
-	color := RGB(255, 0, 0)
+	// Function with HSB color value.
+	color := HSB(255, 0, 0)
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -62,13 +62,13 @@ onStart => {
 		}
 		assert.Equal(t, 2, setEffectHintCount)
 
-		rgbHintCount := 0
+		hsbHintCount := 0
 		for _, hint := range inlayHints {
 			if hint.Position.Line == 14 && hint.Kind == Parameter {
-				rgbHintCount++
+				hsbHintCount++
 			}
 		}
-		assert.Equal(t, 3, rgbHintCount)
+		assert.Equal(t, 3, hsbHintCount)
 	})
 
 	t.Run("EmptyFile", func(t *testing.T) {
@@ -121,7 +121,7 @@ onStart => {
 	// Line 10
 	setEffect ColorEffect, 50
 	// Line 12
-	color := RGB(255, 0, 0)
+	color := HSB(255, 0, 0)
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -180,7 +180,7 @@ onStart => {
 	}
 
 	// Variables with function calls.
-	color := RGB(255, 0, 0)
+	color := HSB(255, 0, 0)
 }
 `),
 			"MySprite.spx": []byte(`
@@ -233,13 +233,13 @@ onStart => {
 		assert.Equal(t, 2, getWidgetHintCount)
 		assert.ElementsMatch(t, []string{"T", "name"}, getWidgetHintLabels)
 
-		rgbHintCount := 0
+		hsbHintCount := 0
 		for _, hint := range inlayHints {
 			if hint.Position.Line == 20 {
-				rgbHintCount++
+				hsbHintCount++
 			}
 		}
-		assert.Equal(t, 3, rgbHintCount)
+		assert.Equal(t, 3, hsbHintCount)
 
 		spriteResult, _, spriteAstFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
@@ -343,7 +343,7 @@ onStart => {
 	// Line 10
 	setEffect ColorEffect, 50
 	// Line 12
-	color := RGB(255, 0, 0)
+	color := HSB(255, 0, 0)
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -377,13 +377,13 @@ onStart => {
 			return hint.Position.Line == 9 && hint.Kind == Parameter
 		}))
 
-		rgbHintCount := 0
+		hsbHintCount := 0
 		for _, hint := range filteredHints {
 			if hint.Position.Line > 10 {
-				rgbHintCount++
+				hsbHintCount++
 			}
 		}
-		assert.Zero(t, rgbHintCount)
+		assert.Zero(t, hsbHintCount)
 	})
 
 	t.Run("UnresolvedOverloadFuncCall", func(t *testing.T) {

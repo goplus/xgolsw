@@ -298,8 +298,6 @@ type SpxInputTypeSpxColorConstructor string
 
 // SpxInputTypeSpxColorConstructor constants.
 const (
-	SpxInputTypeSpxColorConstructorRGB  SpxInputTypeSpxColorConstructor = "RGB"
-	SpxInputTypeSpxColorConstructorRGBA SpxInputTypeSpxColorConstructor = "RGBA"
 	SpxInputTypeSpxColorConstructorHSB  SpxInputTypeSpxColorConstructor = "HSB"
 	SpxInputTypeSpxColorConstructorHSBA SpxInputTypeSpxColorConstructor = "HSBA"
 )

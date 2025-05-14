@@ -378,8 +378,8 @@ onStart => {
 
 	// Function calls with different types.
 	println 42, 3.14, "text"
-	myColor := RGB(255, 0, 0)
-	otherColor := RGBA(0, 255, 0, 128)
+	myColor := HSB(255, 0, 0)
+	otherColor := HSBA(0, 255, 0, 128)
 
 	// Conditions and calculations.
 	if count > 3 && isVisible {
@@ -446,9 +446,9 @@ onStart => {
 					shouldExist: true,
 				},
 				{
-					name: "RGB",
+					name: "HSB",
 					value: SpxColorInputValue{
-						Constructor: SpxInputTypeSpxColorConstructorRGB,
+						Constructor: SpxInputTypeSpxColorConstructorHSB,
 						Args:        []float64{255, 0, 0},
 					},
 					acceptType:  SpxInputTypeColor,
@@ -457,9 +457,9 @@ onStart => {
 					shouldExist: true,
 				},
 				{
-					name: "RGBA",
+					name: "HSBA",
 					value: SpxColorInputValue{
-						Constructor: SpxInputTypeSpxColorConstructorRGBA,
+						Constructor: SpxInputTypeSpxColorConstructorHSBA,
 						Args:        []float64{0, 255, 0, 128},
 					},
 					acceptType:  SpxInputTypeColor,
@@ -652,7 +652,7 @@ onStart => {
 
 	// AssignStmt
 	count = 10
-	myColor := RGB(255, 0, 0)
+	myColor := HSB(255, 0, 0)
 
 	// IfStmt
 	if count > 3 {
@@ -776,9 +776,9 @@ onStart => {
 				wantInputType:  SpxInputTypeInteger,
 			},
 			{
-				name: "ColorRGB",
+				name: "ColorHSB",
 				value: SpxColorInputValue{
-					Constructor: SpxInputTypeSpxColorConstructorRGB,
+					Constructor: SpxInputTypeSpxColorConstructorHSB,
 					Args:        []float64{255, 0, 0},
 				},
 				wantAcceptType: SpxInputTypeColor,
@@ -911,7 +911,7 @@ onStart => {
 	boolValue := true
 
 	// Color function calls.
-	colorValue := RGB(255, 0, 0)
+	colorValue := HSB(255, 0, 0)
 
 	// Other expressions.
 	arrayValue := []int{1, 2, 3}
@@ -997,7 +997,7 @@ onStart => {
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeColor,
 			wantInputValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorRGB,
+				Constructor: SpxInputTypeSpxColorConstructorHSB,
 				Args:        []float64{255, 0, 0},
 			},
 		},
@@ -1527,8 +1527,8 @@ func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 		"main.spx": []byte(`
 onStart => {
 	// Color functions.
-	myColor1 := RGB(255, 0, 0)
-	myColor2 := RGBA(255, 0, 0, 128)
+	myColor1 := HSB(255, 0, 0)
+	myColor2 := HSBA(255, 0, 0, 128)
 
 	// Non-color function calls.
 	println 1, 2, 3
@@ -1550,18 +1550,18 @@ onStart => {
 		wantValue        SpxColorInputValue
 	}{
 		{
-			name:             "RGB",
+			name:             "HSB",
 			callExprPosition: Position{Line: 3, Character: 14},
 			wantValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorRGB,
+				Constructor: SpxInputTypeSpxColorConstructorHSB,
 				Args:        []float64{255, 0, 0},
 			},
 		},
 		{
-			name:             "RGBA",
+			name:             "HSBA",
 			callExprPosition: Position{Line: 4, Character: 14},
 			wantValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorRGBA,
+				Constructor: SpxInputTypeSpxColorConstructorHSBA,
 				Args:        []float64{255, 0, 0, 128},
 			},
 		},
@@ -1636,8 +1636,6 @@ func TestIsSpxColorFunc(t *testing.T) {
 		fun  *types.Func
 		want bool
 	}{
-		{"RGB", GetSpxRGBFunc(), true},
-		{"RGBA", GetSpxRGBAFunc(), true},
 		{"HSB", GetSpxHSBFunc(), true},
 		{"HSBA", GetSpxHSBAFunc(), true},
 	} {
