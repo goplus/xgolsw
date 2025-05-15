@@ -821,6 +821,9 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 	handleErr := func(err error) {
 		if typeErr, ok := err.(types.Error); ok {
+			if typeErr.Pos == goptoken.NoPos {
+				panic(typeErr.Msg)
+			}
 			position := typeErr.Fset.Position(typeErr.Pos)
 			result.addDiagnosticsForSpxFile(position.Filename, Diagnostic{
 				Severity: SeverityError,
