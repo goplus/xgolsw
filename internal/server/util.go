@@ -459,7 +459,7 @@ func funcFromCallExpr(typeInfo *typesutil.Info, expr *gopast.CallExpr) *types.Fu
 // walkCallExprArgs walks the arguments of a call expression and calls the
 // provided walkFn for each argument. It does nothing if the function is not
 // found or if the function is Go+ FuncEx type.
-func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn func(fun *types.Func, param *types.Var, arg gopast.Expr) bool) {
+func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool) {
 	fun := funcFromCallExpr(typeInfo, expr)
 	if fun == nil {
 		return
@@ -492,17 +492,17 @@ func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn fu
 		}
 	}
 
+	totalParams := params.Len()
 	for i, arg := range expr.Args {
-		var param *types.Var
-		if i < params.Len() {
-			param = params.At(i)
-		} else if sig.Variadic() && params.Len() > 0 {
-			param = params.At(params.Len() - 1)
-		} else {
-			break
+		paramIndex := i
+		if paramIndex >= totalParams {
+			if !sig.Variadic() || totalParams == 0 {
+				break
+			}
+			paramIndex = totalParams - 1
 		}
 
-		if !walkFn(fun, param, arg) {
+		if !walkFn(fun, params, paramIndex, arg, i) {
 			break
 		}
 	}

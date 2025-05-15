@@ -63,7 +63,12 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *gopast.CallE
 	fset := result.proj.Fset
 
 	var inlayHints []InlayHint
-	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, param *types.Var, arg gopast.Expr) bool {
+	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
+		if paramIndex < argIndex {
+			// Stop processing variadic arguments beyond the declared parameters.
+			return false
+		}
+
 		switch arg.(type) {
 		case *gopast.LambdaExpr, *gopast.LambdaExpr2:
 			// Skip lambda expressions.
@@ -72,9 +77,13 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *gopast.CallE
 
 		// Create an inlay hint with the parameter name before the argument.
 		position := fset.Position(arg.Pos())
+		label := params.At(paramIndex).Name()
+		if fun.Signature().Variadic() && argIndex == params.Len()-1 {
+			label += "..."
+		}
 		hint := InlayHint{
 			Position: result.fromPosition(astFile, position),
-			Label:    param.Name(),
+			Label:    label,
 			Kind:     Parameter,
 		}
 		inlayHints = append(inlayHints, hint)

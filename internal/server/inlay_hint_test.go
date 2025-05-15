@@ -403,4 +403,26 @@ onStart => {
 		inlayHints := collectInlayHints(result, astFile, 0, 0)
 		require.Nil(t, inlayHints)
 	})
+
+	t.Run("VariadicFunctionArguments", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	echo 1
+	echo 1, 2, 3
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.NotNil(t, inlayHints)
+		require.Len(t, inlayHints, 2)
+		assert.Equal(t, "a...", inlayHints[0].Label)
+		assert.Equal(t, "a...", inlayHints[1].Label)
+	})
 }

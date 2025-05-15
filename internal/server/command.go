@@ -381,7 +381,8 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr
 	typeInfo := getTypeInfo(result.proj)
 
 	var inputSlots []SpxInputSlot
-	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, param *types.Var, arg gopast.Expr) bool {
+	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
+		param := params.At(paramIndex)
 		if !param.Pos().IsValid() {
 			return true
 		}
