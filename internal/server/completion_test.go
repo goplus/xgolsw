@@ -740,6 +740,51 @@ onStart => {
 			return false
 		}))
 	})
+
+	t.Run("UnresolvedFuncCall", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStar => {
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "onStart"))
+	})
+
+	t.Run("WithinIdentifier", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var abc bool
+	if ab {
+	}
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "abc"))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {

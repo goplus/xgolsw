@@ -123,8 +123,10 @@ func (ctx *completionContext) analyze() {
 				ctx.selectorExpr = node
 			}
 		case *gopast.CallExpr:
-			ctx.kind = completionKindCall
-			ctx.enclosingNode = node
+			if _, ok := typeInfo.Types[node.Fun]; ok {
+				ctx.kind = completionKindCall
+				ctx.enclosingNode = node
+			}
 		case *gopast.CompositeLit:
 			tv, ok := typeInfo.Types[node]
 			if !ok {
@@ -225,7 +227,7 @@ func (ctx *completionContext) analyze() {
 		case ctx.isInImportStringLit():
 			ctx.kind = completionKindImport
 			ctx.inStringLit = true
-		case ctx.isLineStart():
+		case ctx.isLineStart(), ctx.isInIdentifier():
 			ctx.kind = completionKindGeneral
 		}
 	}
@@ -308,6 +310,38 @@ func (ctx *completionContext) isLineStart() bool {
 		}
 	}
 	return true
+}
+
+// isInIdentifier reports whether the position is within an identifier.
+func (ctx *completionContext) isInIdentifier() bool {
+	fileBase := goptoken.Pos(ctx.tokenFile.Base())
+	relPos := ctx.pos - fileBase
+	if relPos < 0 || int(relPos) > len(ctx.astFile.Code) {
+		return false
+	}
+
+	var s gopscanner.Scanner
+	s.Init(ctx.tokenFile, ctx.astFile.Code, nil, 0)
+
+	for {
+		pos, tok, lit := s.Scan()
+		if tok == goptoken.EOF {
+			break
+		}
+
+		// Check if position is inside this token. For identifiers, we should
+		// be either in the middle or at the end to trigger completion (not
+		// at the beginning).
+		if pos < ctx.pos && ctx.pos <= pos+goptoken.Pos(len(lit)) {
+			return tok == goptoken.IDENT
+		}
+
+		// If we've scanned past our position, we're not in an identifier.
+		if pos > ctx.pos {
+			break
+		}
+	}
+	return false
 }
 
 // enclosingFunction gets the function signature containing the current position.
@@ -611,18 +645,7 @@ func (ctx *completionContext) collectCall() error {
 		return nil
 	}
 
-	var fun *types.Func
-	switch expr := callExpr.Fun.(type) {
-	case *gopast.Ident:
-		if obj := typeInfo.ObjectOf(expr); obj != nil {
-			fun, _ = obj.(*types.Func)
-		}
-	case *gopast.SelectorExpr:
-		if obj := typeInfo.ObjectOf(expr.Sel); obj != nil {
-			fun, _ = obj.(*types.Func)
-		}
-	}
-	if fun != nil {
+	if fun := funcFromCallExpr(typeInfo, callExpr); fun != nil {
 		funcOverloads := expandGopOverloadableFunc(fun)
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]types.Type, 0, len(funcOverloads))
