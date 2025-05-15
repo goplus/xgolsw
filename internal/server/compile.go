@@ -821,7 +821,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 	handleErr := func(err error) {
 		if typeErr, ok := err.(types.Error); ok {
-			if typeErr.Pos == goptoken.NoPos {
+			if !typeErr.Pos.IsValid() {
 				panic(fmt.Sprintf("unexpected nopos error: %s", typeErr.Msg))
 			}
 			position := typeErr.Fset.Position(typeErr.Pos)
