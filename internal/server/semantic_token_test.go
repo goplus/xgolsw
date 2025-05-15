@@ -39,7 +39,8 @@ onStart => {
 			0, 9, 6, 1, 0, // Sprite
 			0, 0, 6, 2, 0, // Sprite
 			1, 0, 1, 13, 0, // )
-			1, 0, 8, 5, 0, // MySprite
+			1, 0, 1, 13, 0, // {
+			0, 0, 8, 5, 0, // MySprite
 			0, 8, 1, 13, 0, // .
 			0, 1, 4, 8, 0, // turn
 			0, 5, 4, 5, 6, // Left
@@ -50,6 +51,7 @@ onStart => {
 			0, 5, 1, 13, 0, // :
 			0, 2, 9, 11, 0, // My Game
 			0, 9, 1, 13, 0, // }
+			0, 1, 1, 13, 0, // }
 		}, mainSpxTokens.Data)
 
 		mySpriteTokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
@@ -58,7 +60,8 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, mySpriteTokens)
 		assert.Equal(t, []uint32{
-			1, 0, 7, 8, 0, // onStart
+			1, 0, 1, 13, 0, //{
+			0, 0, 7, 8, 0, // onStart
 			0, 8, 2, 13, 0, // =>
 			0, 3, 1, 13, 0, // {
 			1, 1, 8, 5, 0, // MySprite
@@ -66,6 +69,7 @@ onStart => {
 			0, 1, 4, 8, 0, // turn
 			0, 5, 5, 5, 6, // Right
 			1, 0, 1, 13, 0, // }
+			0, 1, 1, 13, 0, // }
 		}, mySpriteTokens.Data)
 	})
 }

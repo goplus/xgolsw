@@ -149,6 +149,12 @@ func (r *compileResult) innermostScopeAt(pos goptoken.Pos) *types.Scope {
 	return innermostScope
 }
 
+// fileScopeAt returns the file scope at the given position. It returns nil
+func (r *compileResult) fileScopeAt(pos goptoken.Pos) *types.Scope {
+	typeInfo := getTypeInfo(r.proj)
+	return typeInfo.Scopes[r.posASTFile(pos)]
+}
+
 // identsAtASTFileLine returns the identifiers at the given line in the given
 // AST file.
 func (r *compileResult) identsAtASTFileLine(astFile *gopast.File, line int) (idents []*gopast.Ident) {
@@ -278,8 +284,8 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 	}
 	if isSpxPkgObject(obj) {
 		astFileScope := typeInfo.Scopes[astFile]
-		innermostScope := r.innermostScopeAt(ident.Pos())
-		if innermostScope == astFileScope {
+		fileScope := r.fileScopeAt(ident.Pos())
+		if fileScope == astFileScope {
 			spxFile := r.nodeFilename(ident)
 			if spxFile == r.mainSpxFile {
 				return "Game"
