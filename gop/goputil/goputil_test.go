@@ -52,29 +52,3 @@ func TestIsShadow(t *testing.T) {
 		t.Fatal("IsShadow: failed")
 	}
 }
-
-func TestClassFieldsDecl_Basic(t *testing.T) {
-	proj := gop.NewProject(nil, map[string]gop.File{
-		"main.gox": file(`import "a"; type T int; const pi=3.14; var x int`),
-	}, gop.FeatAll)
-	f, err := proj.AST("main.gox")
-	if err != nil {
-		t.Fatal("AST:", err)
-	}
-	if g := ClassFieldsDecl(f); g == nil || g.Tok != token.VAR {
-		t.Fatal("ClassFieldsDecl: failed:", g)
-	}
-}
-
-func TestClassFieldsDecl_NotFound(t *testing.T) {
-	proj := gop.NewProject(nil, map[string]gop.File{
-		"main.gox": file(`import "a"; func f(); type T int; const pi=3.14; var x int`),
-	}, gop.FeatAll)
-	f, err := proj.AST("main.gox")
-	if err != nil {
-		t.Fatal("AST:", err)
-	}
-	if g := ClassFieldsDecl(f); g != nil {
-		t.Fatal("ClassFieldsDecl: failed:", g)
-	}
-}

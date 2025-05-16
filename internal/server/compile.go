@@ -352,7 +352,7 @@ func (r *compileResult) isDefinedInFirstVarBlock(obj types.Object) bool {
 	if astFile == nil {
 		return false
 	}
-	firstVarBlock := goputil.ClassFieldsDecl(astFile)
+	firstVarBlock := astFile.ClassFieldsDecl()
 	if firstVarBlock == nil {
 		return false
 	}
