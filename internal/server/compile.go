@@ -279,7 +279,7 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 	if isSpxPkgObject(obj) {
 		astFileScope := typeInfo.Scopes[astFile]
 		innermostScope := r.innermostScopeAt(ident.Pos())
-		if innermostScope == astFileScope {
+		if innermostScope == astFileScope || (astFile.HasShadowEntry() && r.innermostScopeAt(astFile.ShadowEntry.Pos()) == innermostScope) {
 			spxFile := r.nodeFilename(ident)
 			if spxFile == r.mainSpxFile {
 				return "Game"
@@ -821,6 +821,9 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 	handleErr := func(err error) {
 		if typeErr, ok := err.(types.Error); ok {
+			if !typeErr.Pos.IsValid() {
+				panic(fmt.Sprintf("unexpected nopos error: %s", typeErr.Msg))
+			}
 			position := typeErr.Fset.Position(typeErr.Pos)
 			result.addDiagnosticsForSpxFile(position.Filename, Diagnostic{
 				Severity: SeverityError,
