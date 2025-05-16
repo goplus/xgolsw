@@ -22,22 +22,6 @@ import (
 	"github.com/goplus/goxlsw/gop"
 )
 
-// ClassFieldsDecl returns the class fields declaration.
-func ClassFieldsDecl(f *ast.File) *ast.GenDecl {
-	if f.IsClass {
-		for _, decl := range f.Decls {
-			if g, ok := decl.(*ast.GenDecl); ok {
-				if g.Tok == token.VAR {
-					return g
-				}
-				continue
-			}
-			break
-		}
-	}
-	return nil
-}
-
 // RangeASTSpecs iterates all Go+ AST specs.
 func RangeASTSpecs(proj *gop.Project, tok token.Token, f func(spec ast.Spec)) {
 	proj.RangeASTFiles(func(_ string, file *ast.File) {
