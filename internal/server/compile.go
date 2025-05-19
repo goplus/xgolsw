@@ -371,7 +371,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
-	if pkgPath := obj.Pkg().Path(); pkgPath == "main" {
+	if pkgPath := util.PackagePath(obj.Pkg()); pkgPath == "main" {
 		pkgDoc = getPkgDoc(r.proj)
 	} else {
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
@@ -448,7 +448,8 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 		pkgDoc = getPkgDoc(r.proj)
 	} else {
 		pkg := field.Pkg()
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkg.Path())
+		pkgPath := util.PackagePath(pkg)
+		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 	return GetSpxDefinitionForVar(field, selectorTypeName, forceVar, pkgDoc)
 }
@@ -467,7 +468,8 @@ func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeN
 			selectorTypeName = selectorTypeName[idx+1:]
 		}
 		pkg := method.Pkg()
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkg.Path())
+		pkgPath := util.PackagePath(pkg)
+		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 	return GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
 }

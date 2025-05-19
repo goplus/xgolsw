@@ -230,14 +230,12 @@ func isSpxPkgObject(obj types.Object) bool {
 
 // isBuiltinObject reports whether the given object is a builtin object.
 func isBuiltinObject(obj types.Object) bool {
-	// Builtin objects do not belong to any package. But in the type system,
-	// they may have non-nil package with an empty path, e.g., append.
-	return obj != nil && (obj.Pkg() == nil || obj.Pkg().Path() == "")
+	return obj != nil && util.PackagePath(obj.Pkg()) == "builtin"
 }
 
 // isMainPkgObject reports whether the given object is defined in the main package.
 func isMainPkgObject(obj types.Object) bool {
-	return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "main"
+	return obj != nil && util.PackagePath(obj.Pkg()) == "main"
 }
 
 // isExportedOrMainPkgObject reports whether the given object is exported or

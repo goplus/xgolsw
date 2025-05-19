@@ -68,3 +68,18 @@ func SplitGopxFuncName(name string) (funcName string, ok bool) {
 	ok = true
 	return
 }
+
+// PackagePath returns the package path of the given pkg. It returns "builtin"
+// if the pkg is nil.
+func PackagePath(pkg *types.Package) string {
+	if pkg == nil {
+		return "builtin"
+	}
+	pkgPath := pkg.Path()
+	if pkgPath == "" {
+		// Builtin objects do not belong to any package. But in the type system of Go+,
+		// they may have non-nil package with an empty path, e.g., append.
+		return "builtin"
+	}
+	return pkgPath
+}

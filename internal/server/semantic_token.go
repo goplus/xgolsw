@@ -8,6 +8,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/internal/util"
 )
 
 var (
@@ -160,7 +161,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 				}
 			case *types.Var:
 				if obj.IsField() {
-					if obj.Pkg().Path() == "main" && result.isDefinedInFirstVarBlock(obj) {
+					if isMainPkgObject(obj) && result.isDefinedInFirstVarBlock(obj) {
 						tokenType = VariableType
 					} else {
 						tokenType = PropertyType
@@ -192,7 +193,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 			if result.defIdentFor(obj) == node {
 				modifiers = append(modifiers, ModDeclaration)
 			}
-			if obj.Pkg() != nil && obj.Pkg().Path() != "main" && !strings.Contains(obj.Pkg().Path(), ".") {
+			if obj.Pkg() != nil && !isMainPkgObject(obj) && !strings.Contains(util.PackagePath(obj.Pkg()), ".") {
 				modifiers = append(modifiers, ModDefaultLibrary)
 			}
 			addToken(node.Pos(), node.End(), tokenType, modifiers)
