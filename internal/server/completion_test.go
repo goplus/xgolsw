@@ -785,6 +785,35 @@ onStart => {
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "abc"))
 	})
+
+	t.Run("ErrorInterfaceMethodCall", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type myError struct{}
+
+func (myError) Error() string {
+	return "myError"
+}
+
+onStart => {
+	var err error = myError{}
+	echo err.
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "error"))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {

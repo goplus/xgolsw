@@ -610,7 +610,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
-	if pkgPath := pkg.Path(); pkgPath == "main" {
+	if pkgPath := util.PackagePath(pkg); pkgPath == "main" {
 		pkgDoc = ctx.pkgDoc()
 	} else {
 		var err error
@@ -887,10 +887,10 @@ func (ctx *completionContext) collectSwitchCase() error {
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
-	if pkg.Path() == "main" {
+	if pkgPath := util.PackagePath(pkg); pkgPath == "main" {
 		pkgDoc = ctx.pkgDoc()
 	} else {
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkg.Path())
+		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 
 	scope := pkg.Scope()

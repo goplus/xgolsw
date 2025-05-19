@@ -476,7 +476,8 @@ var (
 	// GetSpxPkgDefinitions returns the spx definitions for the spx package.
 	GetSpxPkgDefinitions = sync.OnceValue(func() []SpxDefinition {
 		spxPkg := GetSpxPkg()
-		spxPkgDoc, err := pkgdata.GetPkgDoc(spxPkg.Path())
+		spxPkgPath := util.PackagePath(spxPkg)
+		spxPkgDoc, err := pkgdata.GetPkgDoc(spxPkgPath)
 		if err != nil {
 			panic(fmt.Errorf("failed to get spx package doc: %w", err))
 		}
@@ -501,7 +502,7 @@ var nonMainPkgSpxDefsCache sync.Map // map[*types.Package][]SpxDefinition
 
 // GetSpxDefinitionsForPkg returns the spx definitions for the given package.
 func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
-	if pkg.Path() != "main" {
+	if util.PackagePath(pkg) != "main" {
 		if defsIface, ok := nonMainPkgSpxDefsCache.Load(pkg); ok {
 			return defsIface.([]SpxDefinition)
 		}
@@ -602,7 +603,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		TypeHint: v.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(v.Pkg().Path()),
+			Package: util.ToPtr(util.PackagePath(v.Pkg())),
 			Name:    &idName,
 		},
 		Overview: overview.String(),
@@ -646,7 +647,7 @@ func GetSpxDefinitionForConst(c *types.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDef
 		TypeHint: c.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(c.Pkg().Path()),
+			Package: util.ToPtr(util.PackagePath(c.Pkg())),
 			Name:    util.ToPtr(c.Name()),
 		},
 		Overview: overview.String(),
@@ -701,7 +702,7 @@ func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (d
 		TypeHint: typeName.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(typeName.Pkg().Path()),
+			Package: util.ToPtr(util.PackagePath(typeName.Pkg())),
 			Name:    util.ToPtr(typeName.Name()),
 		},
 		Overview: overview.String(),
@@ -771,7 +772,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 		TypeHint: fun.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package:    util.ToPtr(fun.Pkg().Path()),
+			Package:    util.ToPtr(util.PackagePath(fun.Pkg())),
 			Name:       &idName,
 			OverloadID: overloadID,
 		},
@@ -790,7 +791,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 // is used in [SpxDefinition].
 func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
 	pkg := fun.Pkg()
-	pkgPath := pkg.Path()
+	pkgPath := util.PackagePath(pkg)
 	isGopPkg := pkg.Scope().Lookup(util.GopPackage) != nil
 	name := fun.Name()
 	sig := fun.Type().(*types.Signature)
@@ -900,7 +901,7 @@ func GetSpxDefinitionForPkg(pkgName *types.PkgName, pkgDoc *pkgdoc.PkgDoc) (def 
 		TypeHint: pkgName.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(pkgName.Pkg().Path()),
+			Package: util.ToPtr(util.PackagePath(pkgName.Pkg())),
 		},
 		Overview: "package " + pkgName.Name(),
 		Detail:   detail,
