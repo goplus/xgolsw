@@ -51,6 +51,7 @@ onStart => {
 				Name:    util.ToPtr("Game.getWidget"),
 			},
 			Overview: "func getWidget(T Type, name WidgetName) *T",
+			Detail:   "GetWidget returns the widget instance (in given type) with given name. It panics if not found.\n",
 
 			CompletionItemLabel:            "getWidget",
 			CompletionItemKind:             FunctionCompletion,

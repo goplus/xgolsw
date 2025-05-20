@@ -656,4 +656,32 @@ onStart => {
 			End:   Position{Line: 2, Character: 5},
 		}, hover.Range)
 	})
+
+	t.Run("GoptMethodCall", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	getWidget Monitor, "myWidget"
+}
+`),
+			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget"}]}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 1},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Contains(t, hover.Contents.Value, `def-id="gop:github.com/goplus/spx?Game.getWidget"`)
+		assert.Contains(t, hover.Contents.Value, `overview="func getWidget(T Type, name WidgetName) *T"`)
+		assert.Contains(t, hover.Contents.Value, `GetWidget returns the widget instance (in given type) with given name. It panics if not found.`)
+		assert.Equal(t, Range{
+			Start: Position{Line: 2, Character: 1},
+			End:   Position{Line: 2, Character: 10},
+		}, hover.Range)
+	})
 }

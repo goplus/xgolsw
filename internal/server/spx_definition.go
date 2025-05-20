@@ -753,10 +753,11 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 
 	var detail string
 	if pkgDoc != nil {
-		if recvTypeName == "" {
-			detail = pkgDoc.Funcs[fun.Name()]
+		funcName := fun.Name()
+		if recvTypeName == "" || util.IsGoptMethodName(funcName) {
+			detail = pkgDoc.Funcs[funcName]
 		} else if typeDoc, ok := pkgDoc.Types[recvTypeName]; ok {
-			detail = typeDoc.Methods[fun.Name()]
+			detail = typeDoc.Methods[funcName]
 		}
 	}
 
