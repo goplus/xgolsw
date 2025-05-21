@@ -768,7 +768,8 @@ run "assets", {Title: "Single Vars"}
 
 	t.Run("WithShadowEntryComments", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`var (
+			"main.spx": []byte(`// An spx game.
+var (
 	count int
 )
 
