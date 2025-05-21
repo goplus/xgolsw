@@ -505,3 +505,9 @@ func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn fu
 		}
 	}
 }
+
+// rangesOverlap checks if two ranges overlap.
+func rangesOverlap(a, b Range) bool {
+	return a.Start.Line <= b.End.Line && (a.Start.Line != b.End.Line || a.Start.Character <= b.End.Character) &&
+		b.Start.Line <= a.End.Line && (b.Start.Line != a.End.Line || b.Start.Character <= a.End.Character)
+}

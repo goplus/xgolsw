@@ -1,7 +1,9 @@
 package server
 
 import (
+	"cmp"
 	"go/types"
+	"slices"
 
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
@@ -53,6 +55,7 @@ func collectInlayHints(result *compileResult, astFile *gopast.File, rangeStart, 
 		}
 		return true
 	})
+	sortInlayHints(inlayHints)
 	return inlayHints
 }
 
@@ -90,4 +93,20 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *gopast.CallE
 		return true
 	})
 	return inlayHints
+}
+
+// sortInlayHints sorts the given inlay hints in a stable manner.
+func sortInlayHints(hints []InlayHint) {
+	slices.SortFunc(hints, func(a, b InlayHint) int {
+		// First sort by line number.
+		if a.Position.Line != b.Position.Line {
+			return cmp.Compare(a.Position.Line, b.Position.Line)
+		}
+		// If same line, sort by character position.
+		if a.Position.Character != b.Position.Character {
+			return cmp.Compare(a.Position.Character, b.Position.Character)
+		}
+		// If same position (unlikely), sort by label for stability.
+		return cmp.Compare(a.Label, b.Label)
+	})
 }

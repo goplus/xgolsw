@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -229,6 +230,17 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 	typeInfo := getTypeInfo(result.proj)
 
 	var inputSlots []SpxInputSlot
+	addInputSlots := func(slots ...SpxInputSlot) {
+		for _, slot := range slots {
+			if slices.ContainsFunc(inputSlots, func(existing SpxInputSlot) bool {
+				return rangesOverlap(existing.Range, slot.Range)
+			}) {
+				continue
+			}
+			inputSlots = append(inputSlots, slot)
+		}
+	}
+
 	gopast.Inspect(astFile, func(node gopast.Node) bool {
 		if node == nil {
 			return true
@@ -238,31 +250,31 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 		case *gopast.BranchStmt:
 			if callExpr := createCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
 				slots := findInputSlotsFromCallExpr(result, callExpr)
-				inputSlots = append(inputSlots, slots...)
+				addInputSlots(slots...)
 			}
 		case *gopast.CallExpr:
 			slots := findInputSlotsFromCallExpr(result, node)
-			inputSlots = append(inputSlots, slots...)
+			addInputSlots(slots...)
 		case *gopast.BinaryExpr:
 			leftSlot := checkValueInputSlot(result, node.X, nil)
 			if leftSlot != nil {
-				inputSlots = append(inputSlots, *leftSlot)
+				addInputSlots(*leftSlot)
 			}
 
 			rightSlot := checkValueInputSlot(result, node.Y, nil)
 			if rightSlot != nil {
-				inputSlots = append(inputSlots, *rightSlot)
+				addInputSlots(*rightSlot)
 			}
 		case *gopast.UnaryExpr:
 			slot := checkValueInputSlot(result, node.X, nil)
 			if slot != nil {
-				inputSlots = append(inputSlots, *slot)
+				addInputSlots(*slot)
 			}
 		case *gopast.AssignStmt:
 			for _, lhs := range node.Lhs {
 				slot := checkAddressInputSlot(result, lhs, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 
@@ -274,7 +286,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 
 				slot := checkValueInputSlot(result, rhs, declaredType)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 		case *gopast.ForStmt:
@@ -282,7 +294,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 				if expr, ok := node.Init.(*gopast.ExprStmt); ok {
 					slot := checkValueInputSlot(result, expr.X, nil)
 					if slot != nil {
-						inputSlots = append(inputSlots, *slot)
+						addInputSlots(*slot)
 					}
 				}
 			}
@@ -290,7 +302,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 			if node.Cond != nil {
 				slot := checkValueInputSlot(result, node.Cond, types.Typ[types.Bool])
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 
@@ -298,7 +310,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 				if expr, ok := node.Post.(*gopast.ExprStmt); ok {
 					slot := checkValueInputSlot(result, expr.X, nil)
 					if slot != nil {
-						inputSlots = append(inputSlots, *slot)
+						addInputSlots(*slot)
 					}
 				}
 			}
@@ -317,62 +329,63 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 
 				slot := checkValueInputSlot(result, value, declaredType)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 		case *gopast.ReturnStmt:
 			for _, res := range node.Results {
 				slot := checkValueInputSlot(result, res, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 		case *gopast.IfStmt:
 			slot := checkValueInputSlot(result, node.Cond, types.Typ[types.Bool])
 			if slot != nil {
-				inputSlots = append(inputSlots, *slot)
+				addInputSlots(*slot)
 			}
 		case *gopast.SwitchStmt:
 			if node.Tag != nil {
 				slot := checkValueInputSlot(result, node.Tag, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 		case *gopast.CaseClause:
 			for _, expr := range node.List {
 				slot := checkValueInputSlot(result, expr, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 		case *gopast.RangeStmt:
 			if node.Key != nil && !isBlank(node.Key) {
 				slot := checkAddressInputSlot(result, node.Key, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 
 			if node.Value != nil && !isBlank(node.Value) {
 				slot := checkAddressInputSlot(result, node.Value, nil)
 				if slot != nil {
-					inputSlots = append(inputSlots, *slot)
+					addInputSlots(*slot)
 				}
 			}
 
 			slot := checkValueInputSlot(result, node.X, nil)
 			if slot != nil {
-				inputSlots = append(inputSlots, *slot)
+				addInputSlots(*slot)
 			}
 		case *gopast.IncDecStmt:
 			slot := checkAddressInputSlot(result, node.X, nil)
 			if slot != nil {
-				inputSlots = append(inputSlots, *slot)
+				addInputSlots(*slot)
 			}
 		}
 		return true
 	})
+	sortSpxInputSlots(inputSlots)
 	return inputSlots
 }
 
@@ -914,4 +927,20 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node gopast.Node
 func isBlank(expr gopast.Expr) bool {
 	ident, ok := expr.(*gopast.Ident)
 	return ok && ident.Name == "_"
+}
+
+// sortSpxInputSlots sorts the given spx input slots in a stable manner.
+func sortSpxInputSlots(slots []SpxInputSlot) {
+	slices.SortFunc(slots, func(a, b SpxInputSlot) int {
+		// First sort by line number.
+		if a.Range.Start.Line != b.Range.Start.Line {
+			return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
+		}
+		// If same line, sort by character position.
+		if a.Range.Start.Character != b.Range.Start.Character {
+			return cmp.Compare(a.Range.Start.Character, b.Range.Start.Character)
+		}
+		// If same position (unlikely), sort by input kind for stability.
+		return cmp.Compare(a.Kind, b.Kind)
+	})
 }

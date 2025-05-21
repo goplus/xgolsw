@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"fmt"
 	"go/types"
 	"path"
@@ -947,7 +948,7 @@ func (ctx *completionContext) sortedItems() []CompletionItem {
 		if p1, p2 := completionItemKindPriority[a.Kind], completionItemKindPriority[b.Kind]; p1 != p2 {
 			return p1 - p2
 		}
-		return strings.Compare(a.Label, b.Label)
+		return cmp.Compare(a.Label, b.Label)
 	})
 	return ctx.itemSet.items
 }
