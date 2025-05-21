@@ -312,7 +312,6 @@ onKey [KeyLeft, KeyRight], (key) => {
 				End:   Position{Line: 8, Character: 0},
 			},
 			NewText: `// An spx game.
-
 onKey [KeyLeft, KeyRight], () => {
 	println "key"
 }
@@ -356,7 +355,6 @@ onTouchStart 123, (s) => { // type mismatch
 				End:   Position{Line: 13, Character: 0},
 			},
 			NewText: `// An spx game.
-
 onKey [KeyLeft, KeyRight], () => {
 	println "key"
 }
@@ -766,5 +764,29 @@ var (
 run "assets", {Title: "Single Vars"}
 `,
 		})
+	})
+
+	t.Run("WithShadowEntryComments", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`// An spx game.
+var (
+	count int
+)
+
+// onStart comment
+onStart => {
+	count++
+	echo count
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 0)
 	})
 }

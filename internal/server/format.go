@@ -160,6 +160,9 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		astFile.ShadowEntry.Pos() != errorPos &&
 		len(astFile.ShadowEntry.Body.List) > 0 {
 		shadowEntryPos = astFile.ShadowEntry.Pos()
+		if astFile.ShadowEntry.Doc != nil {
+			shadowEntryPos = astFile.ShadowEntry.Doc.Pos()
+		}
 	}
 
 	// Collect all declarations.
