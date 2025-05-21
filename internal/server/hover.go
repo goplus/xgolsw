@@ -3,6 +3,8 @@ package server
 import (
 	"go/doc"
 	"strings"
+
+	goptoken "github.com/goplus/gop/token"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_hover
@@ -12,6 +14,9 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		return nil, err
 	}
 	if astFile == nil {
+		return nil, nil
+	}
+	if astFile.Pos() == goptoken.NoPos {
 		return nil, nil
 	}
 	position := result.toPosition(astFile, params.Position)
