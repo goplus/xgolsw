@@ -469,3 +469,117 @@ var (
 		require.Empty(t, links)
 	})
 }
+
+func TestSortDocumentLinks(t *testing.T) {
+	t.Run("NilTargetSorting", func(t *testing.T) {
+		links := []DocumentLink{
+			{Range: Range{Start: Position{Line: 10, Character: 5}}, Target: nil},
+			{Range: Range{Start: Position{Line: 5, Character: 10}}, Target: toURI("spx://resources/target1")},
+			{Range: Range{Start: Position{Line: 20, Character: 15}}, Target: nil},
+			{Range: Range{Start: Position{Line: 15, Character: 20}}, Target: toURI("spx://resources/target2")},
+		}
+
+		sortDocumentLinks(links)
+
+		// Links with nil targets should come first.
+		require.Equal(t, 4, len(links))
+		assert.Nil(t, links[0].Target)
+		assert.Nil(t, links[1].Target)
+		assert.NotNil(t, links[2].Target)
+		assert.NotNil(t, links[3].Target)
+
+		// Nil targets should be sorted by line number.
+		assert.Equal(t, uint32(10), links[0].Range.Start.Line)
+		assert.Equal(t, uint32(20), links[1].Range.Start.Line)
+	})
+
+	t.Run("TargetURISorting", func(t *testing.T) {
+		targetA := toURI("spx://resources/A")
+		targetB := toURI("spx://resources/B")
+		targetC := toURI("spx://resources/C")
+		links := []DocumentLink{
+			{Range: Range{Start: Position{Line: 10, Character: 5}}, Target: targetC},
+			{Range: Range{Start: Position{Line: 5, Character: 10}}, Target: targetA},
+			{Range: Range{Start: Position{Line: 15, Character: 15}}, Target: targetB},
+		}
+
+		sortDocumentLinks(links)
+
+		// Links with targets should be sorted by target URI string.
+		require.Equal(t, 3, len(links))
+		assert.Equal(t, targetA, links[0].Target)
+		assert.Equal(t, targetB, links[1].Target)
+		assert.Equal(t, targetC, links[2].Target)
+	})
+
+	t.Run("LineNumberSorting", func(t *testing.T) {
+		target := toURI("spx://resources/same-target")
+		links := []DocumentLink{
+			{Range: Range{Start: Position{Line: 30, Character: 5}}, Target: target},
+			{Range: Range{Start: Position{Line: 10, Character: 10}}, Target: target},
+			{Range: Range{Start: Position{Line: 20, Character: 15}}, Target: target},
+		}
+
+		sortDocumentLinks(links)
+
+		// Same target URI should be sorted by line number.
+		require.Equal(t, 3, len(links))
+		assert.Equal(t, uint32(10), links[0].Range.Start.Line)
+		assert.Equal(t, uint32(20), links[1].Range.Start.Line)
+		assert.Equal(t, uint32(30), links[2].Range.Start.Line)
+	})
+
+	t.Run("CharacterPositionSorting", func(t *testing.T) {
+		target := toURI("spx://resources/same-target")
+		links := []DocumentLink{
+			{Range: Range{Start: Position{Line: 10, Character: 25}}, Target: target},
+			{Range: Range{Start: Position{Line: 10, Character: 5}}, Target: target},
+			{Range: Range{Start: Position{Line: 10, Character: 15}}, Target: target},
+		}
+
+		sortDocumentLinks(links)
+
+		// Same target URI and line should be sorted by character position.
+		require.Equal(t, 3, len(links))
+		assert.Equal(t, uint32(5), links[0].Range.Start.Character)
+		assert.Equal(t, uint32(15), links[1].Range.Start.Character)
+		assert.Equal(t, uint32(25), links[2].Range.Start.Character)
+	})
+
+	t.Run("ComplexSorting", func(t *testing.T) {
+		targetA := toURI("spx://resources/A")
+		targetB := toURI("spx://resources/B")
+		links := []DocumentLink{
+			{Range: Range{Start: Position{Line: 5, Character: 10}}, Target: nil},
+			{Range: Range{Start: Position{Line: 5, Character: 20}}, Target: targetB},
+			{Range: Range{Start: Position{Line: 10, Character: 5}}, Target: targetA},
+			{Range: Range{Start: Position{Line: 5, Character: 5}}, Target: targetA},
+			{Range: Range{Start: Position{Line: 5, Character: 15}}, Target: targetA},
+			{Range: Range{Start: Position{Line: 1, Character: 10}}, Target: nil},
+		}
+
+		sortDocumentLinks(links)
+
+		// Nil targets should come first, sorted by line number.
+		require.Equal(t, 6, len(links))
+		assert.Nil(t, links[0].Target)
+		assert.Nil(t, links[1].Target)
+		assert.Equal(t, uint32(1), links[0].Range.Start.Line)
+		assert.Equal(t, uint32(5), links[1].Range.Start.Line)
+
+		// Then links sorted by target URI.
+		assert.Equal(t, targetA, links[2].Target)
+		assert.Equal(t, targetA, links[3].Target)
+		assert.Equal(t, targetA, links[4].Target)
+		assert.Equal(t, targetB, links[5].Target)
+
+		// Same target URIs should be sorted by line number.
+		assert.Equal(t, uint32(5), links[2].Range.Start.Line)
+		assert.Equal(t, uint32(5), links[3].Range.Start.Line)
+		assert.Equal(t, uint32(10), links[4].Range.Start.Line)
+
+		// Same target URI and line should be sorted by character position.
+		assert.Equal(t, uint32(5), links[2].Range.Start.Character)
+		assert.Equal(t, uint32(15), links[3].Range.Start.Character)
+	})
+}

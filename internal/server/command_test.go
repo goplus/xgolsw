@@ -1854,6 +1854,158 @@ func TestIsBlank(t *testing.T) {
 	}
 }
 
+func TestSortSpxInputSlots(t *testing.T) {
+	t.Run("SortingOrder", func(t *testing.T) {
+		slots := []SpxInputSlot{
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 42, Character: 0},
+					End:   Position{Line: 42, Character: 10},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 0},
+					End:   Position{Line: 5, Character: 10},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 100, Character: 0},
+					End:   Position{Line: 100, Character: 10},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 1, Character: 0},
+					End:   Position{Line: 1, Character: 10},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 20, Character: 0},
+					End:   Position{Line: 20, Character: 10},
+				},
+			},
+		}
+
+		sortSpxInputSlots(slots)
+
+		assert.Equal(t, uint32(1), slots[0].Range.Start.Line)
+		assert.Equal(t, uint32(100), slots[len(slots)-1].Range.Start.Line)
+		for i := range len(slots) - 1 {
+			assert.LessOrEqual(t, slots[i].Range.Start.Line, slots[i+1].Range.Start.Line)
+		}
+	})
+
+	t.Run("CharacterPositionSorting", func(t *testing.T) {
+		slots := []SpxInputSlot{
+			// Line 5 with different character positions.
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 20},
+					End:   Position{Line: 5, Character: 25},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 5},
+					End:   Position{Line: 5, Character: 10},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 15},
+					End:   Position{Line: 5, Character: 20},
+				},
+			},
+
+			// Line 7 with different character positions.
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 7, Character: 30},
+					End:   Position{Line: 7, Character: 35},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 7, Character: 10},
+					End:   Position{Line: 7, Character: 15},
+				},
+			},
+		}
+
+		sortSpxInputSlots(slots)
+
+		l5Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
+			return s.Range.Start.Line != 5
+		})
+		require.Equal(t, 3, len(l5Slots))
+		assert.Equal(t, uint32(5), l5Slots[0].Range.Start.Character)
+		assert.Equal(t, uint32(15), l5Slots[1].Range.Start.Character)
+		assert.Equal(t, uint32(20), l5Slots[2].Range.Start.Character)
+
+		l7Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
+			return s.Range.Start.Line != 7
+		})
+		require.Equal(t, 2, len(l7Slots))
+		assert.Equal(t, uint32(10), l7Slots[0].Range.Start.Character)
+		assert.Equal(t, uint32(30), l7Slots[1].Range.Start.Character)
+	})
+
+	t.Run("KindSorting", func(t *testing.T) {
+		slots := []SpxInputSlot{
+			// Same position (5, 10) with different kinds.
+			{
+				Kind: SpxInputSlotKindAddress,
+				Range: Range{
+					Start: Position{Line: 5, Character: 10},
+					End:   Position{Line: 5, Character: 15},
+				},
+			},
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 10},
+					End:   Position{Line: 5, Character: 15},
+				},
+			},
+
+			// Different position.
+			{
+				Kind: SpxInputSlotKindValue,
+				Range: Range{
+					Start: Position{Line: 5, Character: 5},
+					End:   Position{Line: 5, Character: 10},
+				},
+			},
+		}
+
+		sortSpxInputSlots(slots)
+
+		// First, slots are sorted by position.
+		assert.Equal(t, uint32(5), slots[0].Range.Start.Character)
+
+		// Then, slots with the same position are sorted by kind.
+		l5c10Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
+			return s.Range.Start.Line != 5 || s.Range.Start.Character != 10
+		})
+		require.Equal(t, 2, len(l5c10Slots))
+		assert.Equal(t, SpxInputSlotKindAddress, l5c10Slots[0].Kind)
+		assert.Equal(t, SpxInputSlotKindValue, l5c10Slots[1].Kind)
+	})
+}
+
 func findInputSlot(inputSlots []SpxInputSlot, value any, name string, inputType SpxInputType, kind SpxInputKind) *SpxInputSlot {
 	for _, slot := range inputSlots {
 		if slot.Input.Kind == kind {

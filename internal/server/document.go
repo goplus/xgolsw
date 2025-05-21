@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"slices"
 
 	gopast "github.com/goplus/gop/ast"
@@ -65,5 +66,38 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []D
 	for ident := range typeInfo.Uses {
 		addLinksForIdent(ident)
 	}
+	sortDocumentLinks(links)
 	return
+}
+
+// sortDocumentLinks sorts the given document links in a stable manner.
+func sortDocumentLinks(links []DocumentLink) {
+	slices.SortFunc(links, func(a, b DocumentLink) int {
+		// First compare by whether target is nil.
+		if a.Target == nil && b.Target != nil {
+			return -1
+		}
+		if a.Target != nil && b.Target == nil {
+			return 1
+		}
+
+		// If both targets are nil, sort by line number.
+		if a.Target == nil && b.Target == nil {
+			return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
+		}
+
+		// If both targets have values, sort by their string representation.
+		aStr, bStr := string(*a.Target), string(*b.Target)
+		if aStr != bStr {
+			return cmp.Compare(aStr, bStr)
+		}
+
+		// If targets are the same, sort by line number for stability.
+		if a.Range.Start.Line != b.Range.Start.Line {
+			return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
+		}
+
+		// If same line, sort by character position.
+		return cmp.Compare(a.Range.Start.Character, b.Range.Start.Character)
+	})
 }
