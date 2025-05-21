@@ -58,6 +58,12 @@ func SplitGoptMethodName(name string, trimGopx bool) (recvTypeName string, metho
 	return
 }
 
+// IsGoptMethodName checks if the given name is a Go+ template method name.
+func IsGoptMethodName(name string) bool {
+	_, _, ok := SplitGoptMethodName(name, false)
+	return ok
+}
+
 // SplitGopxFuncName splits a Go+ type as parameters function name into the
 // function name.
 func SplitGopxFuncName(name string) (funcName string, ok bool) {
