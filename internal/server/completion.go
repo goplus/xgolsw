@@ -29,7 +29,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	if astFile == nil {
 		return nil, nil
 	}
-	if astFile.Pos() == goptoken.NoPos {
+	if !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 
