@@ -18,6 +18,9 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 	if astFile == nil {
 		return nil, nil
 	}
+	if !astFile.Pos().IsValid() {
+		return nil, nil
+	}
 
 	rangeStart := result.posAt(astFile, params.Range.Start)
 	rangeEnd := result.posAt(astFile, params.Range.End)

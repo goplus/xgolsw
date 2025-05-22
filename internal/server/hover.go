@@ -14,6 +14,9 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if astFile == nil {
 		return nil, nil
 	}
+	if !astFile.Pos().IsValid() {
+		return nil, nil
+	}
 	position := result.toPosition(astFile, params.Position)
 
 	if spxResourceRef := result.spxResourceRefAtASTFilePosition(astFile, position); spxResourceRef != nil {

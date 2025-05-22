@@ -29,6 +29,9 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	if astFile == nil {
 		return nil, nil
 	}
+	if !astFile.Pos().IsValid() {
+		return nil, nil
+	}
 
 	pos := result.posAt(astFile, params.Position)
 	if !pos.IsValid() {

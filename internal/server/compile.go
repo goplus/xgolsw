@@ -770,7 +770,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 				errorList gopscanner.ErrorList
 				codeError *gogen.CodeError
 			)
-			if errors.As(err, &errorList) {
+			if errors.As(err, &errorList) && astFile.Pos().IsValid() {
 				// Handle parse errors.
 				for _, e := range errorList {
 					result.addDiagnostics(documentURI, Diagnostic{
@@ -797,7 +797,7 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		if astFile == nil {
 			continue
 		}
-		if astFile.Name.Name != "main" {
+		if astFile.Name.Name != "main" && astFile.Pos().IsValid() {
 			result.addDiagnostics(documentURI, Diagnostic{
 				Severity: SeverityError,
 				Range:    result.rangeForASTFileNode(astFile, astFile.Name),
