@@ -815,6 +815,27 @@ onStart => {
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "error"))
 	})
+
+	t.Run("StartWithInvalidChar", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+“”var (
+	maps []int
+)
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.Nil(t, items)
+		assert.Empty(t, items)
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {

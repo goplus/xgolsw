@@ -684,4 +684,25 @@ onStart => {
 			End:   Position{Line: 2, Character: 10},
 		}, hover.Range)
 	})
+
+	t.Run("StartWithInvalidChar", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+“”var (
+	maps []int
+)
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 1},
+			},
+		})
+		require.NoError(t, err)
+		require.Nil(t, hover)
+		assert.Empty(t, hover)
+	})
 }

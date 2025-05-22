@@ -501,4 +501,28 @@ func TestSortInlayHints(t *testing.T) {
 		assert.Equal(t, "M", l5c10Hints[1].Label)
 		assert.Equal(t, "Z", l5c10Hints[2].Label)
 	})
+
+	t.Run("StartWithInvalidChar", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+“”var (
+	maps []int
+)
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		params := &InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 4, Character: 0},
+			},
+		}
+
+		inlayHints, err := s.textDocumentInlayHint(params)
+		require.NoError(t, err)
+		require.Nil(t, inlayHints)
+		assert.Empty(t, inlayHints)
+	})
 }
