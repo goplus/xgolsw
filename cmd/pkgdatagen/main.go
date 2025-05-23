@@ -34,8 +34,10 @@ import (
 	"slices"
 
 	"github.com/goplus/goxlsw/pkgdoc"
-	_ "github.com/goplus/spx"
 	"golang.org/x/tools/go/gcexportdata"
+
+	_ "github.com/goplus/spx"
+	_ "github.com/qiniu/x"
 )
 
 // stdPkgPaths is the list of standard package paths to generate the exported symbols for.
