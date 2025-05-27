@@ -368,6 +368,28 @@ func getSpxDefinitionForGopBuiltinAlias(alias string) (SpxDefinition, error) {
 }
 
 var (
+	// GetMathPkg returns the math package.
+	GetMathPkg = sync.OnceValue(func() *types.Package {
+		mathPkg, err := internal.Importer.Import("math")
+		if err != nil {
+			panic(fmt.Errorf("failed to import math package: %w", err))
+		}
+		return mathPkg
+	})
+
+	// GetMathPkgSpxDefinitions returns the spx definitions for the math package.
+	GetMathPkgSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
+		mathPkg := GetMathPkg()
+		mathPkgPath := util.PackagePath(mathPkg)
+		mathPkgDoc, err := pkgdata.GetPkgDoc(mathPkgPath)
+		if err != nil {
+			panic(fmt.Errorf("failed to get math package doc: %w", err))
+		}
+		return GetSpxDefinitionsForPkg(mathPkg, mathPkgDoc)
+	})
+)
+
+var (
 	// GetSpxPkg returns the spx package.
 	GetSpxPkg = sync.OnceValue(func() *types.Package {
 		spxPkg, err := internal.Importer.Import("github.com/goplus/spx")

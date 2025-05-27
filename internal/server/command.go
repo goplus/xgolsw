@@ -196,6 +196,7 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 
 	// Add other definitions.
 	addDefs(GetSpxPkgDefinitions()...)
+	addDefs(GetMathPkgSpxDefinitions()...)
 	addDefs(GetBuiltinSpxDefinitions()...)
 	addDefs(GeneralSpxDefinitions...)
 	if innermostScope == astFileScope {
@@ -508,6 +509,7 @@ func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredTyp
 
 	for _, scope := range []*types.Scope{
 		GetSpxPkg().Scope(),
+		GetMathPkg().Scope(),
 		types.Universe,
 	} {
 		growNames(len(scope.Names()))

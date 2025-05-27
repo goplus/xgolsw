@@ -349,6 +349,34 @@ onTouchStart "" => {
 			OverloadID: util.ToPtr("0"),
 		}))
 	})
+
+	t.Run("MathPackage", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		params := []SpxGetDefinitionsParams{
+			{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 2, Character: 1},
+				},
+			},
+		}
+		defs, err := s.spxGetDefinitions(params)
+		require.NoError(t, err)
+		require.NotNil(t, defs)
+		assert.True(t, spxDefinitionIdentifierSliceContains(defs, SpxDefinitionIdentifier{
+			Package: util.ToPtr(GetMathPkg().Path()),
+			Name:    util.ToPtr("abs"),
+		}))
+	})
 }
 
 // spxDefinitionIdentifierSliceContains reports whether a slice of [SpxDefinitionIdentifier]
