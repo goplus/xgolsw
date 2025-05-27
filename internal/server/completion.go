@@ -525,6 +525,7 @@ func (ctx *completionContext) collectGeneral() error {
 
 	// Add other definitions.
 	ctx.itemSet.addSpxDefs(GetSpxPkgDefinitions()...)
+	ctx.itemSet.addSpxDefs(GetMathPkgSpxDefinitions()...)
 	ctx.itemSet.addSpxDefs(GetBuiltinSpxDefinitions()...)
 	ctx.itemSet.addSpxDefs(GeneralSpxDefinitions...)
 	if ctx.innermostScope == ctx.astFileScope {
