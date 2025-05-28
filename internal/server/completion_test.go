@@ -858,6 +858,87 @@ onStart => {
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "abs"))
 	})
+
+	t.Run("StructLit", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyStruct struct {
+	Foobar int
+}
+
+onStart => {
+	ms := My
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 6, Character: 9},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "MyStruct"))
+	})
+
+	t.Run("StructLitFieldName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyStruct struct {
+	Foobar int
+}
+
+onStart => {
+	ms := MyStruct{
+		Fo
+	}
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 4},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "Foobar"))
+	})
+
+	t.Run("TypeAssertion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyStruct struct {
+	Foobar int
+}
+
+onStart => {
+	var i any = MyStruct{}
+	_, ok := i.(My)
+}
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 15},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "MyStruct"))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {

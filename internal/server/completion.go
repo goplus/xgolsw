@@ -127,14 +127,25 @@ func (ctx *completionContext) analyze() {
 				ctx.selectorExpr = node
 			}
 		case *gopast.CallExpr:
-			if _, ok := typeInfo.Types[node.Fun]; ok {
+			if _, ok := typeInfo.Types[node.Fun]; !ok {
+				continue
+			}
+
+			// Only set call context if no more specific context has been set.
+			if ctx.kind == completionKindUnknown {
 				ctx.kind = completionKindCall
 				ctx.enclosingNode = node
 			}
 		case *gopast.CompositeLit:
 			tv, ok := typeInfo.Types[node]
 			if !ok {
-				continue
+				// Try to get type from the CompositeLit.Type field.
+				if node.Type != nil {
+					tv, ok = typeInfo.Types[node.Type]
+				}
+				if !ok {
+					continue
+				}
 			}
 			typ := unwrapPointerType(tv.Type)
 			named, ok := typ.(*types.Named)
@@ -146,6 +157,7 @@ func (ctx *completionContext) analyze() {
 				continue
 			}
 
+			// CompositeLit is more specific than other contexts, so override.
 			ctx.kind = completionKindStructLit
 			ctx.expectedStructType = st
 			ctx.compositeLitType = named
@@ -442,8 +454,10 @@ func (ctx *completionContext) collectGeneral() error {
 		ctx.itemSet.setSupportedKinds(
 			VariableCompletion,
 			ConstantCompletion,
-			// TODO: Add return type compatibility check for FunctionCompletion.
-			FunctionCompletion,
+			FunctionCompletion, // TODO: Add return type compatibility check for FunctionCompletion.
+			ClassCompletion,
+			InterfaceCompletion,
+			StructCompletion,
 		)
 	}
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
@@ -466,25 +480,22 @@ func (ctx *completionContext) collectGeneral() error {
 			isThis := name == "this"
 			isSpxFileMatch := ctx.spxFile == name+".spx" || (ctx.spxFile == ctx.result.mainSpxFile && name == "Game")
 			isMainScopeObj := isInMainScope && isSpxFileMatch
-			if !isThis && !isMainScopeObj {
-				continue
-			}
-			named, ok := unwrapPointerType(obj.Type()).(*types.Named)
-			if !ok || !isNamedStructType(named) {
-				continue
-			}
-
-			for _, def := range ctx.result.spxDefinitionsForNamedStruct(named) {
-				if ctx.inSpxEventHandler && def.ID.Name != nil {
-					name := *def.ID.Name
-					if idx := strings.LastIndex(name, "."); idx >= 0 {
-						name = name[idx+1:]
-					}
-					if isSpxEventHandlerFuncName(name) {
-						continue
+			if isThis || isMainScopeObj {
+				named, ok := unwrapPointerType(obj.Type()).(*types.Named)
+				if ok && isNamedStructType(named) {
+					for _, def := range ctx.result.spxDefinitionsForNamedStruct(named) {
+						if ctx.inSpxEventHandler && def.ID.Name != nil {
+							name := *def.ID.Name
+							if idx := strings.LastIndex(name, "."); idx >= 0 {
+								name = name[idx+1:]
+							}
+							if isSpxEventHandlerFuncName(name) {
+								continue
+							}
+						}
+						ctx.itemSet.addSpxDefs(def)
 					}
 				}
-				ctx.itemSet.addSpxDefs(def)
 			}
 		}
 	}
