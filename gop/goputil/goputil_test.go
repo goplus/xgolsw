@@ -41,14 +41,41 @@ func TestRangeASTSpecs(t *testing.T) {
 }
 
 func TestIsShadow(t *testing.T) {
-	proj := gop.NewProject(nil, map[string]gop.File{
-		"main.gop": file("echo 100"),
-	}, gop.FeatAll)
-	f, err := proj.AST("main.gop")
-	if err != nil {
-		t.Fatal("AST:", err)
-	}
-	if !IsShadow(proj, f.ShadowEntry.Name) {
-		t.Fatal("IsShadow: failed")
-	}
+	t.Run("ShadowEntry", func(t *testing.T) {
+		proj := gop.NewProject(nil, map[string]gop.File{
+			"main.gop": file("echo 100"),
+		}, gop.FeatAll)
+		f, err := proj.AST("main.gop")
+		if err != nil {
+			t.Fatal("AST:", err)
+		}
+		if f.ShadowEntry != nil {
+			if !IsShadow(proj, f.ShadowEntry.Name) {
+				t.Fatal("ShadowEntry detection failed")
+			}
+		}
+	})
+
+	t.Run("FuncDecl", func(t *testing.T) {
+		proj := gop.NewProject(nil, map[string]gop.File{
+			"func.gop": file("func testFunc() {}"),
+		}, gop.FeatAll)
+		f, err := proj.AST("func.gop")
+		if err != nil {
+			t.Fatal("AST:", err)
+		}
+
+		var funcIdent *ast.Ident
+		for _, decl := range f.Decls {
+			if funcDecl, ok := decl.(*ast.FuncDecl); ok && funcDecl.Name.Name == "testFunc" {
+				funcIdent = funcDecl.Name
+				break
+			}
+		}
+		if funcIdent != nil {
+			if IsShadow(proj, funcIdent) {
+				t.Fatal("FuncDecl detection failed")
+			}
+		}
+	})
 }

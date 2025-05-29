@@ -176,7 +176,7 @@ func (r *compileResult) identsAtASTFileLine(astFile *gopast.File, line int) (ide
 		collectIdentAtLine(ident)
 	}
 	for ident, obj := range typeInfo.Uses {
-		if goputil.IsShadow(r.proj, r.defIdentFor(obj)) {
+		if defIdent := r.defIdentFor(obj); defIdent != nil && goputil.IsShadow(r.proj, defIdent) {
 			continue
 		}
 		collectIdentAtLine(ident)
@@ -385,7 +385,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 	case *types.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
 	case *types.Func:
-		if goputil.IsShadow(r.proj, r.defIdentFor(obj)) {
+		if defIdent := r.defIdentFor(obj); defIdent != nil && goputil.IsShadow(r.proj, defIdent) {
 			return nil
 		}
 		if isUnexpandableGopOverloadableFunc(obj) {
