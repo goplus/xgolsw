@@ -81,8 +81,9 @@ func (p *Project) AST(path string) (file *ast.File, err error) {
 
 // ASTFiles returns the AST of all Go+ source files.
 func (p *Project) ASTFiles() (name string, ret []*ast.File, err error) {
-	name, err = p.RangeASTFiles(func(_ string, f *ast.File) {
+	name, err = p.RangeASTFiles(func(_ string, f *ast.File) bool {
 		ret = append(ret, f)
+		return true
 	})
 	return
 }
@@ -144,7 +145,7 @@ func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, ast
 // -----------------------------------------------------------------------------
 
 // RangeASTFiles iterates all Go+ AST files.
-func (p *Project) RangeASTFiles(fn func(path string, f *ast.File)) (name string, err error) {
+func (p *Project) RangeASTFiles(fn func(path string, f *ast.File) bool) (name string, err error) {
 	var errs scanner.ErrorList
 	p.RangeFiles(func(path string) bool {
 		switch filepath.Ext(path) { // TODO(xsw): use gopmod
@@ -154,7 +155,9 @@ func (p *Project) RangeASTFiles(fn func(path string, f *ast.File)) (name string,
 				if name == "" {
 					name = f.Name.Name
 				}
-				fn(path, f)
+				if !fn(path, f) {
+					return false
+				}
 			}
 			if e != nil {
 				if el, ok := e.(scanner.ErrorList); ok {
@@ -175,8 +178,9 @@ func (p *Project) ASTPackage() (pkg *ast.Package, err error) {
 	pkg = &ast.Package{
 		Files: make(map[string]*ast.File),
 	}
-	pkg.Name, err = p.RangeASTFiles(func(path string, f *ast.File) {
+	pkg.Name, err = p.RangeASTFiles(func(path string, f *ast.File) bool {
 		pkg.Files[path] = f
+		return true
 	})
 	return
 }

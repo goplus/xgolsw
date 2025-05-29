@@ -24,7 +24,7 @@ import (
 
 // RangeASTSpecs iterates all Go+ AST specs.
 func RangeASTSpecs(proj *gop.Project, tok token.Token, f func(spec ast.Spec)) {
-	proj.RangeASTFiles(func(_ string, file *ast.File) {
+	proj.RangeASTFiles(func(_ string, file *ast.File) bool {
 		for _, decl := range file.Decls {
 			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
 				for _, spec := range decl.Specs {
@@ -32,17 +32,24 @@ func RangeASTSpecs(proj *gop.Project, tok token.Token, f func(spec ast.Spec)) {
 				}
 			}
 		}
+		return true
 	})
 }
 
 // IsShadow checks if the ident is shadowed.
 func IsShadow(proj *gop.Project, ident *ast.Ident) (shadow bool) {
-	proj.RangeASTFiles(func(_ string, file *ast.File) {
-		if e := file.ShadowEntry; e != nil {
-			if e.Name == ident {
-				shadow = true
+	proj.RangeASTFiles(func(_ string, file *ast.File) bool {
+		if e := file.ShadowEntry; e != nil && e.Name == ident {
+			shadow = true
+			return false
+		}
+		for _, decl := range file.Decls {
+			if funcDecl, ok := decl.(*ast.FuncDecl); ok && funcDecl.Name == ident {
+				shadow = funcDecl.Shadow
+				return false
 			}
 		}
+		return true
 	})
 	return
 }
