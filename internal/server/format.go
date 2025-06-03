@@ -544,15 +544,13 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 				continue
 			}
 
-			newParamTypes := make([]*types.Var, lambdaSig.Params().Len()-1)
-			for i := range lambdaSig.Params().Len() - 1 {
-				newParamTypes[i] = lambdaSig.Params().At(i)
-			}
+			newParams := slices.Collect(lambdaSig.Params().Variables())
+			newParams = newParams[:len(newParams)-1] // Remove the last parameter.
 			newLambdaSig := types.NewSignatureType(
 				lambdaSig.Recv(),
-				getTypeParamSlice(lambdaSig.RecvTypeParams()),
-				getTypeParamSlice(lambdaSig.TypeParams()),
-				types.NewTuple(newParamTypes...),
+				slices.Collect(lambdaSig.RecvTypeParams().TypeParams()),
+				slices.Collect(lambdaSig.TypeParams().TypeParams()),
+				types.NewTuple(newParams...),
 				lambdaSig.Results(),
 				lambdaSig.Variadic(),
 			)
@@ -643,15 +641,4 @@ func isIdentUsed(compileResult *compileResult, ident *gopast.Ident) bool {
 		}
 	}
 	return false
-}
-
-func getTypeParamSlice(list *types.TypeParamList) []*types.TypeParam {
-	if list == nil {
-		return nil
-	}
-	slice := make([]*types.TypeParam, list.Len())
-	for i := range list.Len() {
-		slice[i] = list.At(i)
-	}
-	return slice
 }

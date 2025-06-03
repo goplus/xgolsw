@@ -1,6 +1,6 @@
 module github.com/goplus/goxlsw/cmd/pkgdatagen
 
-go 1.23.4
+go 1.24.0
 
 require (
 	github.com/goplus/goxlsw v0.4.2-0.20250523010819-0fe505ddcb55

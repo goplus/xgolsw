@@ -476,8 +476,7 @@ func walkCallExprArgs(typeInfo *typesutil.Info, expr *gopast.CallExpr, walkFn fu
 				typeParams := fun.Signature().TypeParams()
 				if typeParams != nil {
 					vars = slices.Grow(vars, typeParams.Len())
-					for i := range typeParams.Len() {
-						typeParam := typeParams.At(i)
+					for typeParam := range typeParams.TypeParams() {
 						param := types.NewParam(goptoken.NoPos, typeParam.Obj().Pkg(), typeParam.Obj().Name(), typeParam.Constraint().Underlying())
 						vars = append(vars, param)
 					}
