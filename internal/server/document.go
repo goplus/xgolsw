@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 
 	gopast "github.com/goplus/gop/ast"
@@ -9,48 +10,46 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_documentLink
 func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []DocumentLink, err error) {
-	result, spxFile, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProj()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
 
-	if linksIface, ok := result.computedCache.documentLinks.Load(params.TextDocument.URI); ok {
-		return linksIface.([]DocumentLink), nil
-	}
-	defer func() {
-		if err == nil {
-			result.computedCache.documentLinks.Store(params.TextDocument.URI, slices.Clip(links))
-		}
-	}()
+	typeInfo := getTypeInfo(proj)
 
 	// Add links for spx resource references.
-	links = slices.Grow(links, len(result.spxResourceRefs))
-	for _, spxResourceRef := range result.spxResourceRefs {
-		if result.nodeFilename(spxResourceRef.Node) != spxFile {
-			continue
-		}
-		target := URI(spxResourceRef.ID.URI())
-		links = append(links, DocumentLink{
-			Range:  result.rangeForNode(spxResourceRef.Node),
-			Target: &target,
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: spxResourceRef.Kind,
-			},
-		})
-	}
+	// links = slices.Grow(links, len(result.spxResourceRefs))
+	// for _, spxResourceRef := range result.spxResourceRefs {
+	// 	if s.nodeFilename(proj, spxResourceRef.Node) != spxFile {
+	// 		continue
+	// 	}
+	// 	target := URI(spxResourceRef.ID.URI())
+	// 	links = append(links, DocumentLink{
+	// 		Range:  s.rangeForNode(proj, spxResourceRef.Node),
+	// 		Target: &target,
+	// 		Data: SpxResourceRefDocumentLinkData{
+	// 			Kind: spxResourceRef.Kind,
+	// 		},
+	// 	})
+	// }
 
 	// Add links for spx definitions.
-	typeInfo := getTypeInfo(result.proj)
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *gopast.Ident) {
-		if result.nodeFilename(ident) != spxFile {
+		if s.nodeFilename(proj, ident) != spxFile {
 			return
 		}
-		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {
-			identRange := result.rangeForNode(ident)
+		if spxDefs := s.spxDefinitionsForIdent(proj, typeInfo, ident); spxDefs != nil {
+			identRange := s.rangeForNode(proj, ident)
 			for _, spxDef := range spxDefs {
 				target := URI(spxDef.ID.String())
 				links = append(links, DocumentLink{

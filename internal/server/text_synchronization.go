@@ -211,7 +211,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			for _, e := range errorList {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Range:    s.rangeForASTFilePosition(astFile, e.Pos),
+					Range:    s.rangeForASTFilePosition(proj, astFile, e.Pos),
 					Message:  e.Msg,
 				})
 			}
@@ -219,7 +219,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			// Handle code generation errors.
 			diagnostics = append(diagnostics, Diagnostic{
 				Severity: SeverityError,
-				Range:    s.rangeForPos(codeError.Pos),
+				Range:    s.rangeForPos(proj, codeError.Pos),
 				Message:  codeError.Error(),
 			})
 		} else {
@@ -243,7 +243,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			if position.Filename == astFilePos.Filename {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Range:    s.rangeForPos(typeErr.Pos),
+					Range:    s.rangeForPos(proj, typeErr.Pos),
 					Message:  typeErr.Msg,
 				})
 			}

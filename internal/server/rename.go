@@ -12,30 +12,36 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProj()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := result.toPosition(astFile, params.Position)
+	position := s.toPosition(proj, astFile, params.Position)
 
-	ident := result.identAtASTFilePosition(astFile, position)
+	ident := s.identAtASTFilePosition(proj, astFile, position)
 	if ident == nil {
 		return nil, nil
 	}
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo := getTypeInfo(proj)
 	obj := typeInfo.ObjectOf(ident)
 	if !isRenameableObject(obj) {
 		return nil, nil
 	}
-	defIdent := result.defIdentFor(obj)
-	if defIdent == nil || !result.isInFset(defIdent.Pos()) {
+	defIdent := s.defIdentFor(typeInfo, obj)
+	if defIdent == nil || !s.isInFset(proj, defIdent.Pos()) {
 		return nil, nil
 	}
 
-	return util.ToPtr(result.rangeForNode(ident)), nil
+	return util.ToPtr(s.rangeForNode(proj, ident)), nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_rename

@@ -1,6 +1,9 @@
 package server
 
-import "go/types"
+import (
+	"fmt"
+	"go/types"
+)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_declaration
 func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error) {
@@ -13,45 +16,51 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProj()
+	if proj == nil {
+		return nil, nil
 	}
+
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := result.toPosition(astFile, params.Position)
-
-	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
+	position := s.toPosition(proj, astFile, params.Position)
+	obj := getTypeInfo(proj).ObjectOf(s.identAtASTFilePosition(proj, astFile, position))
 	if !isMainPkgObject(obj) {
 		return nil, nil
 	}
 
-	defIdent := result.defIdentFor(obj)
-	if defIdent == nil {
-		objPos := obj.Pos()
-		if !result.isInFset(objPos) {
-			return nil, nil
-		}
-		return result.locationForPos(objPos), nil
-	} else if !result.isInFset(defIdent.Pos()) {
-		return nil, nil
+	location := Location{
+		URI:   s.toDocumentURI(s.posFilename(proj, obj.Pos())),
+		Range: s.rangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
 	}
-	return result.locationForNode(defIdent), nil
+	return location, nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProj()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := result.toPosition(astFile, params.Position)
+	position := s.toPosition(proj, astFile, params.Position)
 
-	obj := getTypeInfo(result.proj).ObjectOf(result.identAtASTFilePosition(astFile, position))
+	obj := getTypeInfo(proj).ObjectOf(s.identAtASTFilePosition(proj, astFile, position))
 	if !isMainPkgObject(obj) {
 		return nil, nil
 	}
@@ -63,8 +72,8 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	}
 
 	objPos := named.Obj().Pos()
-	if !result.isInFset(objPos) {
+	if !s.isInFset(proj, objPos) {
 		return nil, nil
 	}
-	return result.locationForPos(objPos), nil
+	return s.locationForPos(proj, objPos), nil
 }

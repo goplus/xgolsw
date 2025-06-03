@@ -1,8 +1,10 @@
 package util
 
 import (
+	"fmt"
 	"go/types"
 	"strings"
+	"syscall/js"
 )
 
 // ToPtr returns a pointer to the value.
@@ -88,4 +90,9 @@ func PackagePath(pkg *types.Package) string {
 		return "builtin"
 	}
 	return pkgPath
+}
+
+func Logf(format string, args ...interface{}) {
+	formatted := fmt.Sprintf(format, args...)
+	js.Global().Get("console").Call("log", formatted)
 }

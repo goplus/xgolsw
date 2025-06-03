@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/goplus/gogen"
+	"github.com/goplus/gop/ast"
 	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
@@ -162,25 +163,16 @@ func (r *compileResult) identsAtASTFileLine(astFile *gopast.File, line int) (ide
 
 	fset := r.proj.Fset
 	astFilePos := fset.Position(astFile.Pos())
-	collectIdentAtLine := func(ident *gopast.Ident) {
-		identPos := fset.Position(ident.Pos())
-		if identPos.Filename == astFilePos.Filename && identPos.Line == line {
-			idents = append(idents, ident)
+	ast.Inspect(astFile, func(node gopast.Node) bool {
+		if ident, ok := node.(*gopast.Ident); ok {
+			// Check if the identifier is at the given line.
+			identPos := fset.Position(ident.Pos())
+			if identPos.Filename == astFilePos.Filename && identPos.Line == line {
+				idents = append(idents, ident)
+			}
 		}
-	}
-	typeInfo := getTypeInfo(r.proj)
-	for ident := range typeInfo.Defs {
-		if goputil.IsShadow(r.proj, ident) {
-			continue
-		}
-		collectIdentAtLine(ident)
-	}
-	for ident, obj := range typeInfo.Uses {
-		if defIdent := r.defIdentFor(obj); defIdent != nil && goputil.IsShadow(r.proj, defIdent) {
-			continue
-		}
-		collectIdentAtLine(ident)
-	}
+		return true
+	})
 	return
 }
 
@@ -872,7 +864,7 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to compile: %w", err)
 	}
-	astFile = getASTPkg(result.proj).Files[spxFile]
+	astFile, err = result.proj.AST(spxFile)
 	return
 }
 
