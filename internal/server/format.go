@@ -11,12 +11,15 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopfmt "github.com/goplus/gop/format"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/vfs"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_formatting
 func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]TextEdit, error) {
+	proj := s.getProj()
 	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document uri %q: %w", params.TextDocument.URI, err)
@@ -25,13 +28,14 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 		return nil, nil // Not an spx source file.
 	}
 
-	snapshot := s.workspaceRootFS.Snapshot()
+	typeInfo := getTypeInfo(proj)
+	snapshot := proj.Snapshot()
 	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
 
-	formatted, err := s.formatSpx(snapshot, spxFile)
+	formatted, err := s.formatSpx(proj, typeInfo, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to format spx source file: %w", err)
 	}
@@ -63,7 +67,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 
 // spxFormatter defines a function that formats an spx source file in the given
 // root file system snapshot.
-type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, err error)
+type spxFormatter func(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) (formatted []byte, err error)
 
 // formatSpx applies a series of formatters to an spx source file in order.
 //
@@ -71,19 +75,19 @@ type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, e
 //  1. Go+ formatter
 //  2. Lambda parameter elimination
 //  3. Declaration reordering
-func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
+func (s *Server) formatSpx(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
 	var formatted []byte
 	for _, formatter := range []spxFormatter{
 		s.formatSpxGop,
 		s.formatSpxLambda,
 		s.formatSpxDecls,
 	} {
-		subFormatted, err := formatter(snapshot, spxFile)
+		subFormatted, err := formatter(proj, typeInfo, spxFile)
 		if err != nil {
 			return nil, err
 		}
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
+			vfs.WithOverlay(proj, map[string]vfs.MapFile{
 				spxFile: {
 					Content: subFormatted,
 					ModTime: time.Now(),
@@ -96,8 +100,8 @@ func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) 
 }
 
 // formatSpxGop formats an spx source file with Go+ formatter.
-func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	original, err := vfs.ReadFile(snapshot, spxFile)
+func (s *Server) formatSpxGop(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
+	original, err := vfs.ReadFile(proj, spxFile)
 	if err != nil {
 		return nil, err
 	}
@@ -105,22 +109,18 @@ func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 }
 
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
-func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	compileResult, err := s.compileAt(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	astFile, ok := getASTPkg(snapshot).Files[spxFile]
+func (s *Server) formatSpxLambda(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
+	astFile, ok := getASTPkg(proj).Files[spxFile]
 	if !ok {
 		return nil, nil
 	}
 
 	// Eliminate unused lambda parameters.
-	eliminateUnusedLambdaParams(compileResult, astFile)
+	eliminateUnusedLambdaParams(proj, typeInfo, astFile)
 
 	// Format the modified AST.
 	var formattedBuf bytes.Buffer
-	if err := gopfmt.Node(&formattedBuf, snapshot.Fset, astFile); err != nil {
+	if err := gopfmt.Node(&formattedBuf, proj.Fset, astFile); err != nil {
 		return nil, err
 	}
 
@@ -132,8 +132,8 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 }
 
 // formatSpxDecls formats an spx source file by reordering declarations.
-func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	astFile, ok := getASTPkg(snapshot).Files[spxFile]
+func (s *Server) formatSpxDecls(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
+	astFile, ok := getASTPkg(proj).Files[spxFile]
 	if !ok {
 		return nil, nil
 	}
@@ -176,7 +176,7 @@ func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, er
 		otherDecls        []gopast.Decl
 		processedComments = make(map[*gopast.CommentGroup]struct{})
 	)
-	fset := snapshot.Fset
+	fset := proj.Fset
 	for _, decl := range astFile.Decls {
 		// Skip the declaration if it appears after the error position.
 		if errorPos.IsValid() && decl.Pos() >= errorPos {
@@ -509,7 +509,7 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 //  2. Only the last parameter of the lambda is checked.
 //
 // We may complete it in the future, if needed.
-func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.File) {
+func eliminateUnusedLambdaParams(proj *gop.Project, typeInfo *typesutil.Info, astFile *gopast.File) {
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
 		callExpr, ok := n.(*gopast.CallExpr)
 		if !ok {
@@ -519,7 +519,7 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 		if !ok {
 			return true
 		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(compileResult, funIdent)
+		funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
 		if funType == nil || funTypeOverloads == nil {
 			return true
 		}
@@ -542,7 +542,7 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 			// To simplify the implementation, we only check & process the last parameter,
 			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if used := isIdentUsed(compileResult, lambdaExpr.Lhs[lastParamIdx]); used {
+			if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
 				continue
 			}
 
@@ -587,8 +587,8 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 }
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
-func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := getTypeInfo(compileResult.proj).ObjectOf(funIdent)
+func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
+	funTypeObj := typeInfo.ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
@@ -600,7 +600,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	if pkg == nil {
 		return
 	}
-	recvTypeName := compileResult.selectorTypeNameForIdent(funIdent)
+	recvTypeName := SelectorTypeNameForIdent(proj, typeInfo, funIdent)
 	if recvTypeName == "" {
 		return
 	}
@@ -634,8 +634,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	return funType, goputil.ExpandGopOverloadableFunc(underlineFunType)
 }
 
-func isIdentUsed(compileResult *compileResult, ident *gopast.Ident) bool {
-	typeInfo := getTypeInfo(compileResult.proj)
+func isIdentUsed(typeInfo *typesutil.Info, ident *gopast.Ident) bool {
 	obj := typeInfo.ObjectOf(ident)
 	for _, usedObj := range typeInfo.Uses {
 		if usedObj == obj {

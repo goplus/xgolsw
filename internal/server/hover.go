@@ -48,7 +48,9 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		return nil, nil
 	}
 
-	spxDefs := result.spxDefinitionsForIdent(ident)
+	typeInfo := getTypeInfo(result.proj)
+
+	spxDefs := result.spxDefinitionsForIdent(result.proj, typeInfo, ident)
 	if spxDefs == nil {
 		return nil, nil
 	}

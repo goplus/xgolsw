@@ -50,7 +50,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []D
 		if goputil.NodeFilename(result.proj, ident) != spxFile {
 			return
 		}
-		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {
+		if spxDefs := result.spxDefinitionsForIdent(s.getProj(), typeInfo, ident); spxDefs != nil {
 			identRange := RangeForNode(result.proj, ident)
 			for _, spxDef := range spxDefs {
 				target := URI(spxDef.ID.String())
