@@ -607,7 +607,7 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to compile: %w", err)
 	}
-	astFile, err = result.proj.AST(spxFile)
+	astFile = getASTPkg(result.proj).Files[spxFile]
 	return
 }
 
