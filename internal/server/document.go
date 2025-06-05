@@ -14,7 +14,6 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []D
 	if err != nil {
 		return nil, err
 	}
-
 	if astFile == nil {
 		return nil, nil
 	}
