@@ -99,6 +99,34 @@ onClick => {
 		require.NoError(t, err)
 		require.Nil(t, range2)
 	})
+
+	t.Run("InvalidTextDocument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onClick => {
+	_ = this
+}
+run "assets", {Title: "My Game"}
+`),
+			"MySprite.spx": []byte(`
+onClick => {
+	_ = this
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.spx"},
+				Position:     Position{Line: 2, Character: 5},
+			},
+		})
+		require.Contains(t, err.Error(), "failed to get file path from document URI")
+		require.Nil(t, range1)
+	})
 }
 
 func TestServerTextDocumentRename(t *testing.T) {

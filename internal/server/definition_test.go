@@ -178,6 +178,24 @@ fmt2.println "Hello, spx!"
 			},
 		}, def.(Location))
 	})
+
+	t.Run("InvalidTextDocument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var x int
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		def, err := s.textDocumentDefinition(&DefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.spx"},
+				Position:     Position{Line: 99, Character: 99},
+			},
+		})
+		require.Contains(t, err.Error(), "failed to get file path from document URI")
+		require.Nil(t, def)
+	})
 }
 
 func TestServerTextDocumentTypeDefinition(t *testing.T) {
