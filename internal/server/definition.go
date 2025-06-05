@@ -39,6 +39,10 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 		return nil, nil
 	}
 
+	if !obj.Pos().IsValid() {
+		return nil, nil
+	}
+
 	location := Location{
 		URI:   s.toDocumentURI(goputil.PosFilename(proj, obj.Pos())),
 		Range: RangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
