@@ -11,9 +11,12 @@ import (
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
+	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
+	"github.com/goplus/mod/gopmod"
+	"github.com/goplus/mod/modload"
 )
 
 // MessageReplier is an interface for sending messages back to the client.
@@ -40,6 +43,21 @@ type Server struct {
 
 func (s *Server) getProj() *gop.Project {
 	return s.workspaceRootFS
+}
+
+func (s *Server) getSnapshot() *gop.Project {
+	snapshot := s.workspaceRootFS
+	snapshot.UpdateFiles(s.fileMapGetter())
+
+	mod := gopmod.New(modload.Default)
+	if err := mod.ImportClasses(); err != nil {
+		return nil
+	}
+
+	snapshot.Path = "main"
+	snapshot.Mod = mod
+	snapshot.Importer = internal.Importer
+	return snapshot
 }
 
 // New creates a new Server instance.
