@@ -12,18 +12,25 @@ import (
 )
 
 func TestCreateCallExprFromBranchStmt(t *testing.T) {
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		stmt := &ast.BranchStmt{Tok: token.GOTO}
+		assert.Nil(t, CreateCallExprFromBranchStmt(nil, stmt))
+	})
+
 	t.Run("NilStatement", func(t *testing.T) {
-		assert.Nil(t, CreateCallExprFromBranchStmt(nil, nil))
+		typeInfo := &typesutil.Info{}
+		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, nil))
 	})
 
 	t.Run("NonGotoStatement", func(t *testing.T) {
 		stmt := &ast.BranchStmt{
 			Tok: token.BREAK,
 		}
-		assert.Nil(t, CreateCallExprFromBranchStmt(nil, stmt))
+		typeInfo := &typesutil.Info{}
+		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
-	t.Run("GotoStatementWithoutMatchingIdent", func(t *testing.T) {
+	t.Run("GotoStatementWithLabelObjectNil", func(t *testing.T) {
 		stmt := &ast.BranchStmt{
 			Tok:    token.GOTO,
 			TokPos: token.Pos(10),
@@ -33,30 +40,81 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 			},
 		}
 		typeInfo := &typesutil.Info{
+			Defs: make(map[*ast.Ident]types.Object),
+			Uses: make(map[*ast.Ident]types.Object),
+		}
+		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
+	})
+
+	t.Run("GotoStatementWithRealLabel", func(t *testing.T) {
+		stmt := &ast.BranchStmt{
+			Tok:    token.GOTO,
+			TokPos: token.Pos(10),
+			Label: &ast.Ident{
+				NamePos: token.Pos(15),
+				Name:    "label",
+			},
+		}
+
+		pkg := types.NewPackage("test", "test")
+		label := types.NewLabel(token.NoPos, pkg, "label")
+		typeInfo := &typesutil.Info{
+			Defs: map[*ast.Ident]types.Object{
+				stmt.Label: label,
+			},
+			Uses: make(map[*ast.Ident]types.Object),
+		}
+		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
+	})
+
+	t.Run("GotoStatementWithoutMatchingIdent", func(t *testing.T) {
+		labelIdent := &ast.Ident{
+			NamePos: token.Pos(15),
+			Name:    "label",
+		}
+		stmt := &ast.BranchStmt{
+			Tok:    token.GOTO,
+			TokPos: token.Pos(10),
+			Label:  labelIdent,
+		}
+
+		pkg := types.NewPackage("test", "test")
+		variable := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
+		typeInfo := &typesutil.Info{
+			Defs: map[*ast.Ident]types.Object{
+				labelIdent: variable, // Not a label, so it won't be skipped.
+			},
 			Uses: make(map[*ast.Ident]types.Object),
 		}
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
 	t.Run("GotoStatementWithMatchingIdentButNotFunc", func(t *testing.T) {
+		labelIdent := &ast.Ident{
+			NamePos: token.Pos(15),
+			Name:    "label",
+		}
 		stmt := &ast.BranchStmt{
 			Tok:    token.GOTO,
 			TokPos: token.Pos(10),
-			Label: &ast.Ident{
-				NamePos: token.Pos(15),
-				Name:    "label",
-			},
+			Label:  labelIdent,
 		}
 
+		// Create ident that matches position (TokPos=10, "goto" has length 4, so End=14).
 		ident := &ast.Ident{
 			NamePos: token.Pos(10),
 			Name:    "goto",
 		}
+
 		pkg := types.NewPackage("test", "test")
-		variable := types.NewVar(token.NoPos, pkg, "goto", types.Typ[types.Int])
+		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
+		gotoVar := types.NewVar(token.NoPos, pkg, "goto", types.Typ[types.Int])
 		typeInfo := &typesutil.Info{
+			Defs: map[*ast.Ident]types.Object{
+				labelIdent: labelVar, // Not a label.
+			},
 			Uses: map[*ast.Ident]types.Object{
-				ident: variable,
+				ident: gotoVar, // Not a function.
 			},
 		}
 
@@ -64,25 +122,32 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 	})
 
 	t.Run("GotoStatementWithMatchingFuncIdent", func(t *testing.T) {
+		labelIdent := &ast.Ident{
+			NamePos: token.Pos(15),
+			Name:    "label",
+		}
 		stmt := &ast.BranchStmt{
 			Tok:    token.GOTO,
 			TokPos: token.Pos(10),
-			Label: &ast.Ident{
-				NamePos: token.Pos(15),
-				Name:    "label",
-			},
+			Label:  labelIdent,
 		}
 
+		// Create ident that matches position (TokPos=10, "goto" has length 4, so End=14).
 		ident := &ast.Ident{
 			NamePos: token.Pos(10),
 			Name:    "goto",
 		}
+
 		pkg := types.NewPackage("test", "test")
+		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
 		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "goto", sig)
 		typeInfo := &typesutil.Info{
+			Defs: map[*ast.Ident]types.Object{
+				labelIdent: labelVar, // Not a label.
+			},
 			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
+				ident: fun, // Is a function.
 			},
 		}
 
