@@ -35,7 +35,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
 
-	formatted, err := s.formatSpx(proj, typeInfo, spxFile)
+	formatted, err := s.formatSpx(snapshot, typeInfo, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to format spx source file: %w", err)
 	}
@@ -75,19 +75,20 @@ type spxFormatter func(proj *gop.Project, typeInfo *typesutil.Info, spxFile stri
 //  1. Go+ formatter
 //  2. Lambda parameter elimination
 //  3. Declaration reordering
-func (s *Server) formatSpx(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
+func (s *Server) formatSpx(snapshot *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
 	var formatted []byte
 	for _, formatter := range []spxFormatter{
 		s.formatSpxGop,
 		s.formatSpxLambda,
 		s.formatSpxDecls,
 	} {
-		subFormatted, err := formatter(proj, typeInfo, spxFile)
+		subFormatted, err := formatter(snapshot, typeInfo, spxFile)
 		if err != nil {
 			return nil, err
 		}
+		println(string(subFormatted))
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			vfs.WithOverlay(proj, map[string]vfs.MapFile{
+			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
 				spxFile: {
 					Content: subFormatted,
 					ModTime: time.Now(),
@@ -110,6 +111,7 @@ func (s *Server) formatSpxGop(proj *gop.Project, typeInfo *typesutil.Info, spxFi
 
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
 func (s *Server) formatSpxLambda(proj *gop.Project, typeInfo *typesutil.Info, spxFile string) ([]byte, error) {
+	proj.UpdateFiles(s.fileMapGetter())
 	astFile, ok := getASTPkg(proj).Files[spxFile]
 	if !ok {
 		return nil, nil
@@ -588,7 +590,7 @@ func eliminateUnusedLambdaParams(proj *gop.Project, typeInfo *typesutil.Info, as
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
 func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := typeInfo.ObjectOf(funIdent)
+	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
