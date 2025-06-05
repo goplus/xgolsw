@@ -34,14 +34,14 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 
 	position := ToPosition(proj, astFile, params.Position)
-	obj := getTypeInfo(proj).ObjectOf(IdentAtPosition(proj, astFile, position))
+	obj := getTypeInfo(proj).ObjectOf(goputil.IdentAtPosition(proj, astFile, position))
 	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
 	location := Location{
-		URI:   s.toDocumentURI(s.posFilename(proj, obj.Pos())),
-		Range: s.rangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
+		URI:   s.toDocumentURI(goputil.PosFilename(proj, obj.Pos())),
+		Range: RangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
 	}
 	return location, nil
 }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 
 	gopast "github.com/goplus/gop/ast"
@@ -11,21 +10,23 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_documentLink
 func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []DocumentLink, err error) {
-	proj := s.getProj()
-	if proj == nil {
-		return nil, nil
-	}
-	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	result, spxFile, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+		return nil, err
 	}
 
-	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
 
-	typeInfo := getTypeInfo(proj)
+	if linksIface, ok := result.computedCache.documentLinks.Load(params.TextDocument.URI); ok {
+		return linksIface.([]DocumentLink), nil
+	}
+	defer func() {
+		if err == nil {
+			result.computedCache.documentLinks.Store(params.TextDocument.URI, slices.Clip(links))
+		}
+	}()
 
 	// Add links for spx resource references.
 	links = slices.Grow(links, len(result.spxResourceRefs))
@@ -44,6 +45,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []D
 	}
 
 	// Add links for spx definitions.
+	typeInfo := getTypeInfo(result.proj)
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *gopast.Ident) {
 		if goputil.NodeFilename(result.proj, ident) != spxFile {
