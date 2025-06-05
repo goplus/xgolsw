@@ -559,79 +559,78 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 	typeInfo := getTypeInfo(proj)
-	println(typeInfo)
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
-		// callExpr, ok := n.(*gopast.CallExpr)
-		// if !ok {
-		// 	return true
-		// }
-		// funIdent, ok := callExpr.Fun.(*gopast.Ident)
-		// if !ok {
-		// 	return true
-		// }
-		// funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
-		// if funType == nil || funTypeOverloads == nil {
-		// 	return true
-		// }
-		// paramsType := funType.Signature().Params()
-		// for argIdx, argExpr := range callExpr.Args {
-		// lambdaExpr, ok := argExpr.(*gopast.LambdaExpr2)
-		// if !ok {
-		// 	continue
-		// }
-		// if argIdx >= paramsType.Len() {
-		// 	break
-		// }
-		// lambdaSig, ok := paramsType.At(argIdx).Type().(*types.Signature)
-		// if !ok {
-		// 	continue
-		// }
-		// if len(lambdaExpr.Lhs) == 0 {
-		// 	continue
-		// }
-		// To simplify the implementation, we only check & process the last parameter,
-		// which is enough to cover known cases.
-		// lastParamIdx := len(lambdaExpr.Lhs) - 1
-		// if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
-		// 	continue
-		// }
+		callExpr, ok := n.(*gopast.CallExpr)
+		if !ok {
+			return true
+		}
+		funIdent, ok := callExpr.Fun.(*gopast.Ident)
+		if !ok {
+			return true
+		}
+		funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
+		if funType == nil || funTypeOverloads == nil {
+			return true
+		}
+		paramsType := funType.Signature().Params()
+		for argIdx, argExpr := range callExpr.Args {
+		lambdaExpr, ok := argExpr.(*gopast.LambdaExpr2)
+		if !ok {
+			continue
+		}
+		if argIdx >= paramsType.Len() {
+			break
+		}
+		lambdaSig, ok := paramsType.At(argIdx).Type().(*types.Signature)
+		if !ok {
+			continue
+		}
+		if len(lambdaExpr.Lhs) == 0 {
+			continue
+		}
+		To simplify the implementation, we only check & process the last parameter,
+		which is enough to cover known cases.
+		lastParamIdx := len(lambdaExpr.Lhs) - 1
+		if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
+			continue
+		}
 
-		// newParams := slices.Collect(lambdaSig.Params().Variables())
-		// newParams = newParams[:len(newParams)-1] // Remove the last parameter.
-		// newLambdaSig := types.NewSignatureType(
-		// 	lambdaSig.Recv(),
-		// 	slices.Collect(lambdaSig.RecvTypeParams().TypeParams()),
-		// 	slices.Collect(lambdaSig.TypeParams().TypeParams()),
-		// 	types.NewTuple(newParams...),
-		// 	lambdaSig.Results(),
-		// 	lambdaSig.Variadic(),
-		// )
-		// hasMatchedOverload := false
-		// for _, overloadType := range funTypeOverloads {
-		// 	if overloadType == funType {
-		// 		continue
-		// 	}
-		// 	overloadParamsType := overloadType.Signature().Params()
-		// 	if overloadParamsType.Len() != paramsType.Len() {
-		// 		continue
-		// 	}
-		// 	overloadLambdaSig, ok := overloadParamsType.At(argIdx).Type().(*types.Signature)
-		// 	if !ok {
-		// 		continue
-		// 	}
-		// 	if types.AssignableTo(newLambdaSig, overloadLambdaSig) {
-		// 		hasMatchedOverload = true
-		// 		break
-		// 	}
-		// }
-		// if hasMatchedOverload {
-		// 	lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]
-		// 	if len(lambdaExpr.Lhs) == 0 {
-		// 		// Avoid `index out of range [0] with length 0` when printing lambda expression.
-		// 		lambdaExpr.Lhs = nil
-		// 	}
-		// }
-		// }
+		newParams := slices.Collect(lambdaSig.Params().Variables())
+		newParams = newParams[:len(newParams)-1] // Remove the last parameter.
+		newLambdaSig := types.NewSignatureType(
+			lambdaSig.Recv(),
+			slices.Collect(lambdaSig.RecvTypeParams().TypeParams()),
+			slices.Collect(lambdaSig.TypeParams().TypeParams()),
+			types.NewTuple(newParams...),
+			lambdaSig.Results(),
+			lambdaSig.Variadic(),
+		)
+		hasMatchedOverload := false
+		for _, overloadType := range funTypeOverloads {
+			if overloadType == funType {
+				continue
+			}
+			overloadParamsType := overloadType.Signature().Params()
+			if overloadParamsType.Len() != paramsType.Len() {
+				continue
+			}
+			overloadLambdaSig, ok := overloadParamsType.At(argIdx).Type().(*types.Signature)
+			if !ok {
+				continue
+			}
+			if types.AssignableTo(newLambdaSig, overloadLambdaSig) {
+				hasMatchedOverload = true
+				break
+			}
+		}
+		if hasMatchedOverload {
+			lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]
+			if len(lambdaExpr.Lhs) == 0 {
+				// Avoid `index out of range [0] with length 0` when printing lambda expression.
+				lambdaExpr.Lhs = nil
+			}
+		}
+		}
 		return true
 	})
 }
