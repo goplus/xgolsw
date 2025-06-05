@@ -27,7 +27,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 		return nil, nil // Not an spx source file.
 	}
 
-	snapshot := s.workspaceRootFS.Snapshot()
+	snapshot := s.getProj().Snapshot()
 	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
@@ -65,7 +65,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 
 // spxFormatter defines a function that formats an spx source file in the given
 // root file system snapshot.
-type spxFormatter func(proj *gop.Project, spxFile string) (formatted []byte, err error)
+type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, err error)
 
 // formatSpx applies a series of formatters to an spx source file in order.
 //
@@ -510,6 +510,7 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 //
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
+	typeInfo := getTypeInfo(proj)
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
 		callExpr, ok := n.(*gopast.CallExpr)
 		if !ok {
@@ -519,7 +520,7 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 		if !ok {
 			return true
 		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(proj, funIdent)
+		funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
 		if funType == nil || funTypeOverloads == nil {
 			return true
 		}
@@ -542,7 +543,7 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 			// To simplify the implementation, we only check & process the last parameter,
 			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if used := isIdentUsed(getTypeInfo(proj), lambdaExpr.Lhs[lastParamIdx]); used {
+			if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
 				continue
 			}
 
@@ -587,7 +588,7 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 }
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
-func getFuncAndOverloadsType(proj *gop.Project, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
+func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
 	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
@@ -600,7 +601,7 @@ func getFuncAndOverloadsType(proj *gop.Project, funIdent *gopast.Ident) (fun *ty
 	if pkg == nil {
 		return
 	}
-	recvTypeName := SelectorTypeNameForIdent(proj, getTypeInfo(proj), funIdent)
+	recvTypeName := SelectorTypeNameForIdent(proj, typeInfo, funIdent)
 	if recvTypeName == "" {
 		return
 	}

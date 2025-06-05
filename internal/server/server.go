@@ -11,9 +11,12 @@ import (
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
+	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
+	"github.com/goplus/mod/gopmod"
+	"github.com/goplus/mod/modload"
 )
 
 // MessageReplier is an interface for sending messages back to the client.
@@ -44,6 +47,13 @@ func (s *Server) getProj() *gop.Project {
 
 // New creates a new Server instance.
 func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) *Server {
+	mod := gopmod.New(modload.Default)
+	if err := mod.ImportClasses(); err != nil {
+		panic(err)
+	}
+	mapFS.Path = "main"
+	mapFS.Mod = mod
+	mapFS.Importer = internal.Importer
 	return &Server{
 		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
