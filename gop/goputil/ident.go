@@ -102,19 +102,24 @@ func RefIdentsFor(proj *gop.Project, obj types.Object) []*ast.Ident {
 }
 
 // IsShadowIdent reports whether the ident is shadowed.
-func IsShadowIdent(proj *gop.Project, ident *ast.Ident) (shadow bool) {
-	proj.RangeASTFiles(func(_ string, file *ast.File) bool {
-		if e := file.ShadowEntry; e != nil && e.Name == ident {
-			shadow = true
-			return false
-		}
-		for _, decl := range file.Decls {
-			if funcDecl, ok := decl.(*ast.FuncDecl); ok && funcDecl.Name == ident {
-				shadow = funcDecl.Shadow
-				return false
-			}
-		}
+func IsShadowIdent(proj *gop.Project, ident *ast.Ident) bool {
+	if ident == nil {
+		return false
+	}
+
+	astFile := NodeASTFile(proj, ident)
+	if astFile == nil {
+		return false
+	}
+	if astFile.HasShadowEntry() && astFile.ShadowEntry.Name == ident {
 		return true
-	})
-	return
+	}
+
+	for _, decl := range astFile.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if ok && funcDecl.Name == ident {
+			return funcDecl.Shadow
+		}
+	}
+	return false
 }

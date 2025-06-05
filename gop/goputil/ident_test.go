@@ -313,4 +313,11 @@ func TestIsShadowIdent(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("NilIdent", func(t *testing.T) {
+		proj := gop.NewProject(nil, map[string]gop.File{
+			"empty.gop": file(""),
+		}, gop.FeatAll)
+		assert.False(t, IsShadowIdent(proj, nil))
+	})
 }
