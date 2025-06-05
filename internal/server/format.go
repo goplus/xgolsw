@@ -97,55 +97,6 @@ func (s *Server) formatSpx(snapshot *gop.Project, spxFile string, original []byt
 	return formatted, nil
 }
 
-func diff(original, formatted []byte) {
-	origLines := bytes.Split(original, []byte("\n"))
-	formLines := bytes.Split(formatted, []byte("\n"))
-
-	// 确保最后一行也计入比较
-	if len(original) > 0 && !bytes.HasSuffix(original, []byte("\n")) {
-		origLines = append(origLines, []byte{})
-	}
-	if len(formatted) > 0 && !bytes.HasSuffix(formatted, []byte("\n")) {
-		formLines = append(formLines, []byte{})
-	}
-
-	println("--- Original")
-	println("+++ Formatted")
-
-	i, j := 0, 0
-	for i < len(origLines) && j < len(formLines) {
-		if bytes.Equal(origLines[i], formLines[j]) {
-			// 相同行只打印一次
-			println(fmt.Sprintf(" %s", origLines[i]))
-			i++
-			j++
-		} else {
-			if i == 0 && j == 0 {
-				for _, b := range origLines[0] {
-					println(b)
-				}
-				for _, b := range formLines[0] {
-					println(b)
-				}
-			}
-			// 不同行分别打印
-			println(fmt.Sprintf("-%s", origLines[i]))
-			println(fmt.Sprintf("+%s", formLines[j]))
-			i++
-			j++
-		}
-	}
-
-	// 处理剩余行
-	for ; i < len(origLines); i++ {
-		println(fmt.Sprintf("-%s", origLines[i]))
-	}
-
-	for ; j < len(formLines); j++ {
-		println(fmt.Sprintf("+%s", formLines[j]))
-	}
-}
-
 // formatSpxGop formats an spx source file with Go+ formatter.
 func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
 	original, err := vfs.ReadFile(snapshot, spxFile)
@@ -637,11 +588,6 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
 func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	// start := time.Now()
-	// defer func() {
-	// 	println("getFuncAndOverloadsType", funIdent.Name, time.Since(start).String())
-	// }()
-	return nil, nil
 	funTypeObj := typeInfo.ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
