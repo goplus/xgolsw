@@ -16,9 +16,7 @@
 
 package goputil
 
-import (
-	"go/types"
-)
+import "go/types"
 
 // DerefType returns the underlying type of t. For pointer types, it returns
 // the element type that the pointer points to. For non-pointer types, it
