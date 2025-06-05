@@ -10,13 +10,10 @@ import (
 	"time"
 
 	"github.com/goplus/goxlsw/gop"
-	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/server"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/jsonrpc2"
-	"github.com/goplus/mod/gopmod"
-	"github.com/goplus/mod/modload"
 )
 
 // Spxls implements a lightweight Go+ language server for spx that runs in the
@@ -46,17 +43,7 @@ func NewSpxls(this js.Value, args []js.Value) any {
 		files := filesProvider.Invoke()
 		return ConvertJSFilesToMap(files)
 	}
-	vfs := gop.NewProject(nil, filesMapGetter, gop.FeatAll)
-
-	mod := gopmod.New(modload.Default)
-	if err := mod.ImportClasses(); err != nil {
-		return err
-	}
-
-	vfs.Path = "main"
-	vfs.Mod = mod
-	vfs.Importer = internal.Importer
-	s.server = server.New(vfs, s, filesMapGetter)
+	s.server = server.New(gop.NewProject(nil, filesMapGetter, gop.FeatAll), s, filesMapGetter)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})
