@@ -12,7 +12,7 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
-	proj := s.getSnapshot()
+	proj := s.getProjWithFile()
 	if proj == nil {
 		return nil, nil
 	}

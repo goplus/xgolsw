@@ -18,7 +18,7 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
-	proj := s.getSnapshot()
+	proj := s.getProjWithFile()
 	if proj == nil {
 		return nil, nil
 	}
@@ -52,7 +52,7 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
-	proj := s.getSnapshot()
+	proj := s.getProjWithFile()
 	if proj == nil {
 		return nil, nil
 	}
