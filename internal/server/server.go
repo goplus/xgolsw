@@ -48,18 +48,18 @@ func (s *Server) getProj() *gop.Project {
 func (s *Server) getProjWithFile() *gop.Project {
 	proj := s.workspaceRootFS
 	proj.UpdateFiles(s.fileMapGetter())
-	mod := gopmod.New(modload.Default)
-	if err := mod.ImportClasses(); err != nil {
-		return nil
-	}
-	proj.Path = "main"
-	proj.Mod = mod
-	proj.Importer = internal.Importer
 	return proj
 }
 
 // New creates a new Server instance.
 func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) *Server {
+	mod := gopmod.New(modload.Default)
+	if err := mod.ImportClasses(); err != nil {
+		panic(err)
+	}
+	mapFS.Path = "main"
+	mapFS.Mod = mod
+	mapFS.Importer = internal.Importer
 	return &Server{
 		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
