@@ -204,7 +204,7 @@ type SpxDefinitionIdentifier struct {
 	// If `main`, it's the current user package.
 	// Examples:
 	// - `fmt`
-	// - `github.com/goplus/spx`
+	// - `github.com/goplus/spx/v2`
 	// - `main`
 	Package *string `json:"package,omitempty"`
 

@@ -390,10 +390,14 @@ var (
 	})
 )
 
+// SpxPkgPath is the path to the spx package.
+const SpxPkgPath = "github.com/goplus/spx/v2"
+
 var (
+
 	// GetSpxPkg returns the spx package.
 	GetSpxPkg = sync.OnceValue(func() *types.Package {
-		spxPkg, err := internal.Importer.Import("github.com/goplus/spx")
+		spxPkg, err := internal.Importer.Import(SpxPkgPath)
 		if err != nil {
 			panic(fmt.Errorf("failed to import spx package: %w", err))
 		}

@@ -16,7 +16,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/goplus/goxlsw/cmd/pkgdatagen v0.0.0 // indirect
-	github.com/goplus/spx v1.0.1-0.20250523004631-5ff0ae666aef // indirect
+	github.com/goplus/spx/v2 v2.0.0-beta2.0.20250606025628-6ca49773741e // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/realdream-ai/mathf v0.0.0-20250513071532-e55e1277a8c5 // indirect

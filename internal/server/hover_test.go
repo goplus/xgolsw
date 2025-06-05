@@ -328,7 +328,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"gop:github.com/goplus/spx?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<definition-item def-id=\"gop:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 38, Character: 5},
@@ -347,7 +347,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"gop:github.com/goplus/spx?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<definition-item def-id=\"gop:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 39, Character: 0},
@@ -363,7 +363,7 @@ onTouchStart "MySprite", => {}
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxOnHover)
-		assert.Contains(t, mainSpxOnHover.Contents.Value, `def-id="gop:github.com/goplus/spx?Game.on#2"`)
+		assert.Contains(t, mainSpxOnHover.Contents.Value, `def-id="gop:github.com/goplus/spx/v2?Game.on#2"`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 40, Character: 0},
 			End:   Position{Line: 40, Character: 2},
@@ -380,7 +380,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"gop:github.com/goplus/spx?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<definition-item def-id=\"gop:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 1, Character: 9},
@@ -399,7 +399,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"gop:github.com/goplus/spx?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<definition-item def-id=\"gop:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 0},
@@ -418,7 +418,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"gop:github.com/goplus/spx?Sprite.clone#0\" overview=\"func clone()\">\n</definition-item>\n",
+				Value: "<definition-item def-id=\"gop:github.com/goplus/spx/v2?Sprite.clone#0\" overview=\"func clone()\">\n</definition-item>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 5, Character: 1},
@@ -676,7 +676,7 @@ onStart => {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, `def-id="gop:github.com/goplus/spx?Game.getWidget"`)
+		assert.Contains(t, hover.Contents.Value, `def-id="gop:github.com/goplus/spx/v2?Game.getWidget"`)
 		assert.Contains(t, hover.Contents.Value, `overview="func getWidget(T Type, name WidgetName) *T"`)
 		assert.Contains(t, hover.Contents.Value, `GetWidget returns the widget instance (in given type) with given name. It panics if not found.`)
 		assert.Equal(t, Range{

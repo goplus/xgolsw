@@ -9,8 +9,8 @@ github.com/goplus/gop v0.0.0-20250522140802-6674a0cbc9f5 h1:1l3nsId7oBIETSvsbBEU
 github.com/goplus/gop v0.0.0-20250522140802-6674a0cbc9f5/go.mod h1:Qb6Y3SlPyiJcEX26jBqx++ugxlJQD8aulGQ4+iD5x8A=
 github.com/goplus/mod v0.16.1 h1:2O+rKubJTn+Fighz3kckwpW87STSZ6s3m/YECfXuNhE=
 github.com/goplus/mod v0.16.1/go.mod h1:8d1P+pBavZfNQtJo4A742DgsLTtSf26BQn51owhmNqI=
-github.com/goplus/spx v1.0.1-0.20250523004631-5ff0ae666aef h1:SpzPXfQNdGkM+jlXJ8qvynJLRUJeuzVxjmZVmWI2OI0=
-github.com/goplus/spx v1.0.1-0.20250523004631-5ff0ae666aef/go.mod h1:C3/+3To4AvzeEv9XGTuD+Oa2xrUVXPQvKqbZlWojtQk=
+github.com/goplus/spx/v2 v2.0.0-beta2.0.20250606025628-6ca49773741e h1:UF2k6Xz8IGJU0RbRm9U6aKL6//VQk86Y26V2/kWKJJY=
+github.com/goplus/spx/v2 v2.0.0-beta2.0.20250606025628-6ca49773741e/go.mod h1:LXAQh9KSuOXVdU6EnD/9z+fJk7FRw1cZAKi8hF5GxcY=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

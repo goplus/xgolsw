@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const spxPkgPath = "github.com/goplus/spx/v2"
+
 func TestIsNamedStructType(t *testing.T) {
 	t.Run("NilNamedType", func(t *testing.T) {
 		var named *types.Named
@@ -111,7 +113,7 @@ func TestIsGopClassStructType(t *testing.T) {
 	})
 
 	t.Run("SpxGameType", func(t *testing.T) {
-		pkg := types.NewPackage("github.com/goplus/spx", "spx")
+		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as Go+ package.
 		scope := pkg.Scope()
@@ -124,7 +126,7 @@ func TestIsGopClassStructType(t *testing.T) {
 	})
 
 	t.Run("SpxSpriteImplType", func(t *testing.T) {
-		pkg := types.NewPackage("github.com/goplus/spx", "spx")
+		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as Go+ package.
 		scope := pkg.Scope()
@@ -137,7 +139,7 @@ func TestIsGopClassStructType(t *testing.T) {
 	})
 
 	t.Run("SpxGameTypeInNonGopPackage", func(t *testing.T) {
-		pkg := types.NewPackage("github.com/goplus/spx", "spx")
+		pkg := types.NewPackage(spxPkgPath, "spx")
 		structType := types.NewStruct([]*types.Var{}, []string{})
 		typeName := types.NewTypeName(token.NoPos, pkg, "Game", structType)
 		named := types.NewNamed(typeName, structType, nil)
@@ -145,7 +147,7 @@ func TestIsGopClassStructType(t *testing.T) {
 	})
 
 	t.Run("GopPackageWithDifferentSpxType", func(t *testing.T) {
-		pkg := types.NewPackage("github.com/goplus/spx", "spx")
+		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as Go+ package.
 		scope := pkg.Scope()
@@ -386,7 +388,7 @@ func TestWalkStruct(t *testing.T) {
 	})
 
 	t.Run("GopClassStructSelector", func(t *testing.T) {
-		pkg := types.NewPackage("github.com/goplus/spx", "spx")
+		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as Go+ package.
 		scope := pkg.Scope()
