@@ -3,13 +3,14 @@ package server
 import (
 	"fmt"
 	"go/types"
+	"html/template"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/pkgdata"
-	"github.com/goplus/goxlsw/internal/util"
 	"github.com/goplus/goxlsw/pkgdoc"
 )
 
@@ -31,7 +32,7 @@ type SpxDefinition struct {
 
 // HTML returns the HTML representation of the definition.
 func (def SpxDefinition) HTML() string {
-	return fmt.Sprintf("<definition-item def-id=%s overview=%s>\n%s</definition-item>\n", attr(def.ID.String()), attr(def.Overview), def.Detail)
+	return fmt.Sprintf("<definition-item def-id=%q overview=%q>\n%s</definition-item>\n", template.HTMLEscapeString(def.ID.String()), template.HTMLEscapeString(def.Overview), def.Detail)
 }
 
 // CompletionItem constructs a [CompletionItem] from the definition.
@@ -52,7 +53,7 @@ var (
 	// GeneralSpxDefinitions are general spx definitions.
 	GeneralSpxDefinitions = []SpxDefinition{
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("for_iterate")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_iterate")},
 			Overview: "for i, v <- set { ... }",
 			Detail:   "Iterate within given set",
 
@@ -62,7 +63,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("for_loop_with_condition")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_condition")},
 			Overview: "for condition { ... }",
 			Detail:   "Loop with condition",
 
@@ -72,7 +73,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("for_loop_with_range")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_range")},
 			Overview: "for i <- start:end { ... }",
 			Detail:   "Loop with range",
 
@@ -82,7 +83,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("if_statement")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_statement")},
 			Overview: "if condition { ... }",
 			Detail:   "If statement",
 
@@ -92,7 +93,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("if_else_statement")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_else_statement")},
 			Overview: "if condition { ... } else { ... }",
 			Detail:   "If else statement",
 
@@ -102,7 +103,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("var_declaration")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("var_declaration")},
 			Overview: "var name type",
 			Detail:   "Variable declaration, e.g., `var count int`",
 
@@ -117,7 +118,7 @@ var (
 	// in file scope.
 	FileScopeSpxDefinitions = []SpxDefinition{
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("import_declaration")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("import_declaration")},
 			Overview: "import \"package\"",
 			Detail:   "Import package declaration, e.g., `import \"fmt\"`",
 
@@ -127,7 +128,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       SpxDefinitionIdentifier{Name: util.ToPtr("func_declaration")},
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("func_declaration")},
 			Overview: "func name(params) { ... }",
 			Detail:   "Function declaration, e.g., `func add(a int, b int) int {}`",
 
@@ -281,7 +282,7 @@ func GetSpxDefinitionForBuiltinObj(obj types.Object) SpxDefinition {
 		TypeHint: obj.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(pkgPath),
+			Package: ToPtr(pkgPath),
 			Name:    &idName,
 		},
 		Overview: overview,
@@ -354,7 +355,7 @@ func getSpxDefinitionForGopBuiltinAlias(alias string) (SpxDefinition, error) {
 	return SpxDefinition{
 		TypeHint: obj.Type(),
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr("builtin"),
+			Package: ToPtr("builtin"),
 			Name:    &alias,
 		},
 		Overview: def.Overview,
@@ -380,7 +381,7 @@ var (
 	// GetMathPkgSpxDefinitions returns the spx definitions for the math package.
 	GetMathPkgSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
 		mathPkg := GetMathPkg()
-		mathPkgPath := util.PackagePath(mathPkg)
+		mathPkgPath := goputil.PkgPath(mathPkg)
 		mathPkgDoc, err := pkgdata.GetPkgDoc(mathPkgPath)
 		if err != nil {
 			panic(fmt.Errorf("failed to get math package doc: %w", err))
@@ -498,7 +499,7 @@ var (
 	// GetSpxPkgDefinitions returns the spx definitions for the spx package.
 	GetSpxPkgDefinitions = sync.OnceValue(func() []SpxDefinition {
 		spxPkg := GetSpxPkg()
-		spxPkgPath := util.PackagePath(spxPkg)
+		spxPkgPath := goputil.PkgPath(spxPkg)
 		spxPkgDoc, err := pkgdata.GetPkgDoc(spxPkgPath)
 		if err != nil {
 			panic(fmt.Errorf("failed to get spx package doc: %w", err))
@@ -524,7 +525,7 @@ var nonMainPkgSpxDefsCache sync.Map // map[*types.Package][]SpxDefinition
 
 // GetSpxDefinitionsForPkg returns the spx definitions for the given package.
 func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
-	if util.PackagePath(pkg) != "main" {
+	if !goputil.IsMainPkg(pkg) {
 		if defsIface, ok := nonMainPkgSpxDefsCache.Load(pkg); ok {
 			return defsIface.([]SpxDefinition)
 		}
@@ -545,7 +546,7 @@ func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []
 			case *types.TypeName:
 				defs = append(defs, GetSpxDefinitionForType(obj, pkgDoc))
 			case *types.Func:
-				if funcOverloads := expandGopOverloadableFunc(obj); funcOverloads != nil {
+				if funcOverloads := goputil.ExpandGopOverloadableFunc(obj); funcOverloads != nil {
 					for _, funcOverload := range funcOverloads {
 						defs = append(defs, GetSpxDefinitionForFunc(funcOverload, "", pkgDoc))
 					}
@@ -573,7 +574,7 @@ type nonMainPkgSpxDefCacheForVarsKey struct {
 
 // GetSpxDefinitionForVar returns the spx definition for the provided variable.
 func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !isMainPkgObject(v) {
+	if !goputil.IsInMainPkg(v) {
 		cacheKey := nonMainPkgSpxDefCacheForVarsKey{
 			v:                v,
 			selectorTypeName: selectorTypeName,
@@ -586,7 +587,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		}()
 	}
 
-	if isSpxPkgObject(v) && selectorTypeName == "Sprite" {
+	if IsInSpxPkg(v) && selectorTypeName == "Sprite" {
 		selectorTypeName = "SpriteImpl"
 	}
 
@@ -598,7 +599,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 	}
 	overview.WriteString(v.Name())
 	overview.WriteString(" ")
-	overview.WriteString(getSimplifiedTypeString(v.Type()))
+	overview.WriteString(GetSimplifiedTypeString(v.Type()))
 
 	var detail string
 	if pkgDoc != nil {
@@ -612,7 +613,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 	idName := v.Name()
 	if selectorTypeName != "" {
 		selectorTypeDisplayName := selectorTypeName
-		if isSpxPkgObject(v) && selectorTypeDisplayName == "SpriteImpl" {
+		if IsInSpxPkg(v) && selectorTypeDisplayName == "SpriteImpl" {
 			selectorTypeDisplayName = "Sprite"
 		}
 		idName = selectorTypeDisplayName + "." + idName
@@ -625,7 +626,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		TypeHint: v.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(util.PackagePath(v.Pkg())),
+			Package: ToPtr(goputil.PkgPath(v.Pkg())),
 			Name:    &idName,
 		},
 		Overview: overview.String(),
@@ -645,7 +646,7 @@ var nonMainPkgSpxDefCacheForConsts sync.Map // map[*types.Const]SpxDefinition
 
 // GetSpxDefinitionForConst returns the spx definition for the provided constant.
 func GetSpxDefinitionForConst(c *types.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !isMainPkgObject(c) {
+	if !goputil.IsInMainPkg(c) {
 		if defIface, ok := nonMainPkgSpxDefCacheForConsts.Load(c); ok {
 			return defIface.(SpxDefinition)
 		}
@@ -669,8 +670,8 @@ func GetSpxDefinitionForConst(c *types.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDef
 		TypeHint: c.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(util.PackagePath(c.Pkg())),
-			Name:    util.ToPtr(c.Name()),
+			Package: ToPtr(goputil.PkgPath(c.Pkg())),
+			Name:    ToPtr(c.Name()),
 		},
 		Overview: overview.String(),
 		Detail:   detail,
@@ -689,7 +690,7 @@ var nonMainPkgSpxDefCacheForTypes sync.Map // map[*types.TypeName]SpxDefinition
 
 // GetSpxDefinitionForType returns the spx definition for the provided type.
 func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !isMainPkgObject(typeName) {
+	if !goputil.IsInMainPkg(typeName) {
 		if defIface, ok := nonMainPkgSpxDefCacheForTypes.Load(typeName); ok {
 			return defIface.(SpxDefinition)
 		}
@@ -724,8 +725,8 @@ func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (d
 		TypeHint: typeName.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(util.PackagePath(typeName.Pkg())),
-			Name:    util.ToPtr(typeName.Name()),
+			Package: ToPtr(goputil.PkgPath(typeName.Pkg())),
+			Name:    ToPtr(typeName.Name()),
 		},
 		Overview: overview.String(),
 		Detail:   detail,
@@ -751,7 +752,7 @@ type nonMainPkgSpxDefCacheForFuncsKey struct {
 
 // GetSpxDefinitionForFunc returns the spx definition for the provided function.
 func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !isMainPkgObject(fun) {
+	if !goputil.IsInMainPkg(fun) {
 		cacheKey := nonMainPkgSpxDefCacheForFuncsKey{
 			fun:          fun,
 			recvTypeName: recvTypeName,
@@ -764,7 +765,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 		}()
 	}
 
-	if isSpxPkgObject(fun) && recvTypeName == "Sprite" {
+	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
 		recvTypeName = "SpriteImpl"
 	}
 
@@ -776,7 +777,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 	var detail string
 	if pkgDoc != nil {
 		funcName := fun.Name()
-		if recvTypeName == "" || util.IsGoptMethodName(funcName) {
+		if recvTypeName == "" || goputil.IsGoptMethodName(funcName) {
 			detail = pkgDoc.Funcs[funcName]
 		} else if typeDoc, ok := pkgDoc.Types[recvTypeName]; ok {
 			detail = typeDoc.Methods[funcName]
@@ -786,7 +787,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 	idName := parsedName
 	if recvTypeName != "" {
 		recvTypeDisplayName := recvTypeName
-		if isSpxPkgObject(fun) && recvTypeDisplayName == "SpriteImpl" {
+		if IsInSpxPkg(fun) && recvTypeDisplayName == "SpriteImpl" {
 			recvTypeDisplayName = "Sprite"
 		}
 		idName = recvTypeDisplayName + "." + idName
@@ -795,7 +796,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 		TypeHint: fun.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package:    util.ToPtr(util.PackagePath(fun.Pkg())),
+			Package:    ToPtr(goputil.PkgPath(fun.Pkg())),
 			Name:       &idName,
 			OverloadID: overloadID,
 		},
@@ -813,9 +814,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 // makeSpxDefinitionOverviewForFunc makes an overview string for a function that
 // is used in [SpxDefinition].
 func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
-	pkg := fun.Pkg()
-	pkgPath := util.PackagePath(pkg)
-	isGopPkg := pkg.Scope().Lookup(util.GopPackage) != nil
+	isGopPkg := goputil.IsMarkedAsGopPackage(fun.Pkg())
 	name := fun.Name()
 	sig := fun.Type().(*types.Signature)
 
@@ -824,14 +823,14 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 
 	var isGoptMethod bool
 	if recv := sig.Recv(); recv != nil {
-		recvType := unwrapPointerType(recv.Type())
+		recvType := goputil.DerefType(recv.Type())
 		if named, ok := recvType.(*types.Named); ok {
 			parsedRecvTypeName = named.Obj().Name()
 		}
 	} else if isGopPkg {
 		switch {
-		case strings.HasPrefix(name, util.GoptPrefix):
-			recvTypeName, methodName, ok := util.SplitGoptMethodName(name, true)
+		case strings.HasPrefix(name, goputil.GoptPrefix):
+			recvTypeName, methodName, ok := goputil.SplitGoptMethodName(name, true)
 			if !ok {
 				break
 			}
@@ -843,16 +842,15 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 
 	parsedName = name
 	if isGopPkg {
-		parsedName, overloadID = parseGopFuncName(parsedName)
-	} else if pkgPath != "main" {
-		parsedName = toLowerCamelCase(parsedName)
+		parsedName, overloadID = goputil.ParseGopFuncName(parsedName)
+	} else if !goputil.IsInMainPkg(fun) {
+		parsedName = goputil.ToLowerCamelCase(parsedName)
 	}
 	sb.WriteString(parsedName)
 	sb.WriteString("(")
 	params := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
-	for i := range sig.TypeParams().Len() {
-		tp := sig.TypeParams().At(i)
-		params = append(params, tp.Obj().Name()+" Type")
+	for typeParam := range sig.TypeParams().TypeParams() {
+		params = append(params, typeParam.Obj().Name()+" Type")
 	}
 	for i := range sig.Params().Len() {
 		if isGoptMethod && i == 0 {
@@ -860,12 +858,12 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 		}
 		param := sig.Params().At(i)
 		paramType := param.Type()
-		paramTypeName := getSimplifiedTypeString(paramType)
+		paramTypeName := GetSimplifiedTypeString(paramType)
 
 		// Check if this is a variadic parameter.
 		if sig.Variadic() && i == sig.Params().Len()-1 {
 			if slice, ok := paramType.(*types.Slice); ok {
-				elemTypeName := getSimplifiedTypeString(slice.Elem())
+				elemTypeName := GetSimplifiedTypeString(slice.Elem())
 				paramTypeName = "..." + elemTypeName
 			}
 		}
@@ -878,7 +876,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 	if results := sig.Results(); results.Len() > 0 {
 		if results.Len() == 1 {
 			sb.WriteString(" ")
-			sb.WriteString(getSimplifiedTypeString(results.At(0).Type()))
+			sb.WriteString(GetSimplifiedTypeString(results.At(0).Type()))
 		} else {
 			sb.WriteString(" (")
 			for i := range results.Len() {
@@ -890,7 +888,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 					sb.WriteString(name)
 					sb.WriteString(" ")
 				}
-				sb.WriteString(getSimplifiedTypeString(result.Type()))
+				sb.WriteString(GetSimplifiedTypeString(result.Type()))
 			}
 			sb.WriteString(")")
 		}
@@ -906,7 +904,7 @@ var nonMainPkgSpxDefCacheForPkgs sync.Map // map[*types.PkgName]SpxDefinition
 
 // GetSpxDefinitionForPkg returns the spx definition for the provided package.
 func GetSpxDefinitionForPkg(pkgName *types.PkgName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !isMainPkgObject(pkgName) {
+	if !goputil.IsInMainPkg(pkgName) {
 		if defIface, ok := nonMainPkgSpxDefCacheForPkgs.Load(pkgName); ok {
 			return defIface.(SpxDefinition)
 		}
@@ -924,7 +922,7 @@ func GetSpxDefinitionForPkg(pkgName *types.PkgName, pkgDoc *pkgdoc.PkgDoc) (def 
 		TypeHint: pkgName.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: util.ToPtr(util.PackagePath(pkgName.Pkg())),
+			Package: ToPtr(goputil.PkgPath(pkgName.Pkg())),
 		},
 		Overview: "package " + pkgName.Name(),
 		Detail:   detail,

@@ -17,11 +17,16 @@
 package goputil
 
 import (
+	"go/constant"
+	"go/types"
+	"slices"
 	"testing"
 
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func file(text string) gop.File {
@@ -40,42 +45,323 @@ func TestRangeASTSpecs(t *testing.T) {
 	})
 }
 
-func TestIsShadow(t *testing.T) {
-	t.Run("ShadowEntry", func(t *testing.T) {
-		proj := gop.NewProject(nil, map[string]gop.File{
-			"main.gop": file("echo 100"),
-		}, gop.FeatAll)
-		f, err := proj.AST("main.gop")
-		if err != nil {
-			t.Fatal("AST:", err)
+func TestIsDefinedInClassFieldsDecl(t *testing.T) {
+	proj := gop.NewProject(nil, map[string]gop.File{
+		"main.gox": file(`
+var (
+	x int
+	y string
+)
+
+func test() {
+	z := 1
+	println(z)
+}
+`),
+	}, gop.FeatAll)
+
+	_, typeInfo, _, _ := proj.TypeInfo()
+	require.NotNil(t, typeInfo)
+
+	// Get objects from definitions
+	var xObj, zObj types.Object
+	for ident, obj := range typeInfo.Defs {
+		switch ident.Name {
+		case "x":
+			xObj = obj
+		case "z":
+			zObj = obj
 		}
-		if f.ShadowEntry != nil {
-			if !IsShadow(proj, f.ShadowEntry.Name) {
-				t.Fatal("ShadowEntry detection failed")
+	}
+	require.NotNil(t, xObj)
+	require.NotNil(t, zObj)
+
+	t.Run("DefinedInClassFields", func(t *testing.T) {
+		assert.True(t, IsDefinedInClassFieldsDecl(proj, xObj))
+	})
+
+	t.Run("NotDefinedInClassFields", func(t *testing.T) {
+		assert.False(t, IsDefinedInClassFieldsDecl(proj, zObj))
+	})
+
+	t.Run("NilObject", func(t *testing.T) {
+		assert.False(t, IsDefinedInClassFieldsDecl(proj, nil))
+	})
+}
+
+func TestWalkNodesFromInterval(t *testing.T) {
+	proj := gop.NewProject(nil, map[string]gop.File{
+		"main.gop": file(`
+var x = 1
+func test() {
+	y := x + 2
+	println(y)
+}
+`),
+	}, gop.FeatAll)
+
+	astFile, err := proj.AST("main.gop")
+	require.NoError(t, err)
+
+	t.Run("WalkFunction", func(t *testing.T) {
+		var funcDecl *ast.FuncDecl
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
+				funcDecl = fn
+				return false
 			}
+			return true
+		})
+		require.NotNil(t, funcDecl)
+
+		var nodes []ast.Node
+		WalkNodesFromInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), func(node ast.Node) bool {
+			nodes = append(nodes, node)
+			return true
+		})
+		require.NotEmpty(t, nodes)
+		assert.IsType(t, &ast.BlockStmt{}, nodes[0])
+		assert.IsType(t, &ast.File{}, nodes[len(nodes)-1])
+	})
+
+	t.Run("WalkSinglePosition", func(t *testing.T) {
+		var identPos token.Pos
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "x" {
+				identPos = ident.Pos()
+				return false
+			}
+			return true
+		})
+		require.NotEqual(t, token.NoPos, identPos)
+
+		var nodes []ast.Node
+		WalkNodesFromInterval(astFile, identPos, identPos+1, func(node ast.Node) bool {
+			nodes = append(nodes, node)
+			return true
+		})
+		require.NotEmpty(t, nodes)
+		assert.True(t, slices.ContainsFunc(nodes, func(node ast.Node) bool {
+			if ident, ok := node.(*ast.Ident); ok && ident.Name == "x" {
+				return true
+			}
+			return false
+		}))
+	})
+
+	t.Run("StopWalk", func(t *testing.T) {
+		var funcDecl *ast.FuncDecl
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
+				funcDecl = fn
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, funcDecl)
+
+		var nodes []ast.Node
+		WalkNodesFromInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), func(node ast.Node) bool {
+			nodes = append(nodes, node)
+			return false // Stop after first node.
+		})
+		assert.Len(t, nodes, 1)
+	})
+
+	t.Run("EmptyInterval", func(t *testing.T) {
+		var nodes []ast.Node
+		WalkNodesFromInterval(astFile, token.NoPos, token.NoPos, func(node ast.Node) bool {
+			nodes = append(nodes, node)
+			return true
+		})
+		assert.Len(t, nodes, 1) // Should still return at least the file node.
+	})
+}
+
+func TestToLowerCamelCase(t *testing.T) {
+	t.Run("EmptyString", func(t *testing.T) {
+		assert.Equal(t, "", ToLowerCamelCase(""))
+	})
+
+	t.Run("SingleCharacterUpper", func(t *testing.T) {
+		assert.Equal(t, "a", ToLowerCamelCase("A"))
+	})
+
+	t.Run("SingleCharacterLower", func(t *testing.T) {
+		assert.Equal(t, "a", ToLowerCamelCase("a"))
+	})
+
+	t.Run("PascalCase", func(t *testing.T) {
+		assert.Equal(t, "pascalCase", ToLowerCamelCase("PascalCase"))
+	})
+
+	t.Run("AlreadyCamelCase", func(t *testing.T) {
+		assert.Equal(t, "camelCase", ToLowerCamelCase("camelCase"))
+	})
+
+	t.Run("AllUpperCase", func(t *testing.T) {
+		assert.Equal(t, "aLLUPPERCASE", ToLowerCamelCase("ALLUPPERCASE"))
+	})
+
+	t.Run("MixedCaseWithNumbers", func(t *testing.T) {
+		assert.Equal(t, "test123Variable", ToLowerCamelCase("Test123Variable"))
+	})
+
+	t.Run("WithSpecialCharacters", func(t *testing.T) {
+		assert.Equal(t, "test_Variable", ToLowerCamelCase("Test_Variable"))
+	})
+}
+
+func TestStringLitOrConstValue(t *testing.T) {
+	proj := gop.NewProject(nil, map[string]gop.File{
+		"main.gop": file(`
+const strConst = "constant value"
+const intConst = 42
+var strVar = "variable value"
+
+func test() {
+	local := "local string"
+	println("literal", strConst, strVar, local)
+}
+`),
+	}, gop.FeatAll)
+
+	_, typeInfo, _, _ := proj.TypeInfo()
+	require.NotNil(t, typeInfo)
+
+	astFile, err := proj.AST("main.gop")
+	require.NoError(t, err)
+
+	t.Run("StringLiteral", func(t *testing.T) {
+		var strLit *ast.BasicLit
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == `"literal"` {
+				strLit = lit
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, strLit)
+
+		tv := typeInfo.Types[strLit]
+		value, ok := StringLitOrConstValue(strLit, tv)
+		assert.True(t, ok)
+		assert.Equal(t, "literal", value)
+	})
+
+	t.Run("StringConstant", func(t *testing.T) {
+		var constIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "strConst" {
+				if obj := typeInfo.Uses[ident]; obj != nil {
+					constIdent = ident
+					return false
+				}
+			}
+			return true
+		})
+		require.NotNil(t, constIdent)
+
+		tv := typeInfo.Types[constIdent]
+		value, ok := StringLitOrConstValue(constIdent, tv)
+		assert.True(t, ok)
+		assert.Equal(t, "constant value", value)
+	})
+
+	t.Run("StringVariable", func(t *testing.T) {
+		var varIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "strVar" {
+				if obj := typeInfo.Uses[ident]; obj != nil {
+					varIdent = ident
+					return false
+				}
+			}
+			return true
+		})
+		require.NotNil(t, varIdent)
+
+		tv := typeInfo.Types[varIdent]
+		value, ok := StringLitOrConstValue(varIdent, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("NonStringLiteral", func(t *testing.T) {
+		var intLit *ast.BasicLit
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.INT && lit.Value == "42" {
+				intLit = lit
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, intLit)
+
+		tv := typeInfo.Types[intLit]
+		value, ok := StringLitOrConstValue(intLit, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("NonStringConstant", func(t *testing.T) {
+		var intIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "intConst" {
+				if obj := typeInfo.Uses[ident]; obj != nil {
+					intIdent = ident
+					return false
+				}
+			}
+			return true
+		})
+
+		if intIdent != nil {
+			tv := typeInfo.Types[intIdent]
+			value, ok := StringLitOrConstValue(intIdent, tv)
+			assert.False(t, ok)
+			assert.Equal(t, "", value)
 		}
 	})
 
-	t.Run("FuncDecl", func(t *testing.T) {
-		proj := gop.NewProject(nil, map[string]gop.File{
-			"func.gop": file("func testFunc() {}"),
-		}, gop.FeatAll)
-		f, err := proj.AST("func.gop")
-		if err != nil {
-			t.Fatal("AST:", err)
+	t.Run("InvalidStringLiteral", func(t *testing.T) {
+		invalidLit := &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: `"invalid\x"`, // Invalid escape sequence.
 		}
 
-		var funcIdent *ast.Ident
-		for _, decl := range f.Decls {
-			if funcDecl, ok := decl.(*ast.FuncDecl); ok && funcDecl.Name.Name == "testFunc" {
-				funcIdent = funcDecl.Name
-				break
-			}
+		tv := types.TypeAndValue{}
+		value, ok := StringLitOrConstValue(invalidLit, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("UnsupportedExpression", func(t *testing.T) {
+		binExpr := &ast.BinaryExpr{
+			X:  &ast.BasicLit{Kind: token.STRING, Value: `"hello"`},
+			Op: token.ADD,
+			Y:  &ast.BasicLit{Kind: token.STRING, Value: `"world"`},
 		}
-		if funcIdent != nil {
-			if IsShadow(proj, funcIdent) {
-				t.Fatal("FuncDecl detection failed")
-			}
-		}
+
+		tv := types.TypeAndValue{}
+		value, ok := StringLitOrConstValue(binExpr, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("IdentWithNilValue", func(t *testing.T) {
+		ident := &ast.Ident{Name: "test"}
+		tv := types.TypeAndValue{Value: nil}
+		value, ok := StringLitOrConstValue(ident, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
+	})
+
+	t.Run("IdentWithNonStringConstant", func(t *testing.T) {
+		ident := &ast.Ident{Name: "test"}
+		tv := types.TypeAndValue{Value: constant.MakeInt64(42)}
+		value, ok := StringLitOrConstValue(ident, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
 	})
 }

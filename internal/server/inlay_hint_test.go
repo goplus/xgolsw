@@ -355,8 +355,8 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		rangeStart := result.posAt(astFile, Position{Line: 7, Character: 0})
-		rangeEnd := result.posAt(astFile, Position{Line: 10, Character: 0})
+		rangeStart := PosAt(result.proj, astFile, Position{Line: 7, Character: 0})
+		rangeEnd := PosAt(result.proj, astFile, Position{Line: 10, Character: 0})
 		filteredHints := collectInlayHints(result, astFile, rangeStart, rangeEnd)
 		require.NotNil(t, filteredHints)
 		assert.NotEmpty(t, filteredHints)

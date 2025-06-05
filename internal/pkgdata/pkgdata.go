@@ -16,7 +16,7 @@ import (
 	"github.com/goplus/goxlsw/pkgdoc"
 )
 
-//go:generate go run github.com/goplus/goxlsw/cmd/pkgdatagen@latest
+//go:generate go tool github.com/goplus/goxlsw/cmd/pkgdatagen
 
 var (
 	//go:embed pkgdata.zip

@@ -7,6 +7,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_inlayHint
@@ -22,8 +23,8 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 		return nil, nil
 	}
 
-	rangeStart := result.posAt(astFile, params.Range.Start)
-	rangeEnd := result.posAt(astFile, params.Range.End)
+	rangeStart := PosAt(result.proj, astFile, params.Range.Start)
+	rangeEnd := PosAt(result.proj, astFile, params.Range.End)
 	return collectInlayHints(result, astFile, rangeStart, rangeEnd), nil
 }
 
@@ -48,7 +49,7 @@ func collectInlayHints(result *compileResult, astFile *gopast.File, rangeStart, 
 
 		switch node := node.(type) {
 		case *gopast.BranchStmt:
-			if callExpr := createCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
+			if callExpr := goputil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
 				hints := collectInlayHintsFromCallExpr(result, callExpr)
 				inlayHints = append(inlayHints, hints...)
 			}
@@ -64,12 +65,12 @@ func collectInlayHints(result *compileResult, astFile *gopast.File, rangeStart, 
 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
 func collectInlayHintsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr) []InlayHint {
-	astFile := result.nodeASTFile(callExpr)
+	astFile := goputil.NodeASTFile(result.proj, callExpr)
 	typeInfo := getTypeInfo(result.proj)
 	fset := result.proj.Fset
 
 	var inlayHints []InlayHint
-	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
+	goputil.WalkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
 		if paramIndex < argIndex {
 			// Stop processing variadic arguments beyond the declared parameters.
 			return false
@@ -88,7 +89,7 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *gopast.CallE
 			label += "..."
 		}
 		hint := InlayHint{
-			Position: result.fromPosition(astFile, position),
+			Position: FromPosition(result.proj, astFile, position),
 			Label:    label,
 			Kind:     Parameter,
 		}

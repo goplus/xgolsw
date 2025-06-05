@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"go/types"
+
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_declaration
@@ -30,9 +32,10 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	if astFile == nil {
 		return nil, nil
 	}
-	position := s.toPosition(proj, astFile, params.Position)
-	obj := getTypeInfo(proj).ObjectOf(s.identAtASTFilePosition(proj, astFile, position))
-	if !isMainPkgObject(obj) {
+
+	position := ToPosition(proj, astFile, params.Position)
+	obj := getTypeInfo(proj).ObjectOf(IdentAtPosition(proj, astFile, position))
+	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
@@ -58,21 +61,22 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	if astFile == nil {
 		return nil, nil
 	}
-	position := s.toPosition(proj, astFile, params.Position)
+	position := ToPosition(proj, astFile, params.Position)
 
-	obj := getTypeInfo(proj).ObjectOf(s.identAtASTFilePosition(proj, astFile, position))
-	if !isMainPkgObject(obj) {
+	ident := goputil.IdentAtPosition(proj, astFile, position)
+	obj := getTypeInfo(proj).ObjectOf(ident)
+	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
-	objType := unwrapPointerType(obj.Type())
+	objType := goputil.DerefType(obj.Type())
 	named, ok := objType.(*types.Named)
 	if !ok {
 		return nil, nil
 	}
 
 	objPos := named.Obj().Pos()
-	if !s.isInFset(proj, objPos) {
+	if goputil.PosTokenFile(proj, objPos) == nil {
 		return nil, nil
 	}
 	return s.locationForPos(proj, objPos), nil

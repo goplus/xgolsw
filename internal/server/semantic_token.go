@@ -8,7 +8,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
-	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 var (
@@ -161,13 +161,13 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 				}
 			case *types.Var:
 				if obj.IsField() {
-					if isMainPkgObject(obj) && result.isDefinedInFirstVarBlock(obj) {
+					if goputil.IsInMainPkg(obj) && goputil.IsDefinedInClassFieldsDecl(result.proj, obj) {
 						tokenType = VariableType
 					} else {
 						tokenType = PropertyType
 					}
 				} else if obj.Parent() != nil && obj.Parent().Parent() == nil {
-					defIdent := result.defIdentFor(obj)
+					defIdent := goputil.DefIdentFor(result.proj, obj)
 					if defIdent == node {
 						tokenType = ParameterType
 					} else {
@@ -190,10 +190,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 			case *types.Label:
 				tokenType = LabelType
 			}
-			if result.defIdentFor(obj) == node {
+			if goputil.DefIdentFor(result.proj, obj) == node {
 				modifiers = append(modifiers, ModDeclaration)
 			}
-			if obj.Pkg() != nil && !isMainPkgObject(obj) && !strings.Contains(util.PackagePath(obj.Pkg()), ".") {
+			if obj.Pkg() != nil && !goputil.IsInMainPkg(obj) && !strings.Contains(goputil.PkgPath(obj.Pkg()), ".") {
 				modifiers = append(modifiers, ModDefaultLibrary)
 			}
 			addToken(node.Pos(), node.End(), tokenType, modifiers)

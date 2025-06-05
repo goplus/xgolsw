@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	gopast "github.com/goplus/gop/ast"
+	"github.com/goplus/goxlsw/gop/goputil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_documentLink
@@ -27,29 +28,29 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) (links []D
 	typeInfo := getTypeInfo(proj)
 
 	// Add links for spx resource references.
-	// links = slices.Grow(links, len(result.spxResourceRefs))
-	// for _, spxResourceRef := range result.spxResourceRefs {
-	// 	if s.nodeFilename(proj, spxResourceRef.Node) != spxFile {
-	// 		continue
-	// 	}
-	// 	target := URI(spxResourceRef.ID.URI())
-	// 	links = append(links, DocumentLink{
-	// 		Range:  s.rangeForNode(proj, spxResourceRef.Node),
-	// 		Target: &target,
-	// 		Data: SpxResourceRefDocumentLinkData{
-	// 			Kind: spxResourceRef.Kind,
-	// 		},
-	// 	})
-	// }
+	links = slices.Grow(links, len(result.spxResourceRefs))
+	for _, spxResourceRef := range result.spxResourceRefs {
+		if goputil.NodeFilename(result.proj, spxResourceRef.Node) != spxFile {
+			continue
+		}
+		target := URI(spxResourceRef.ID.URI())
+		links = append(links, DocumentLink{
+			Range:  RangeForNode(result.proj, spxResourceRef.Node),
+			Target: &target,
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: spxResourceRef.Kind,
+			},
+		})
+	}
 
 	// Add links for spx definitions.
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *gopast.Ident) {
-		if s.nodeFilename(proj, ident) != spxFile {
+		if goputil.NodeFilename(result.proj, ident) != spxFile {
 			return
 		}
-		if spxDefs := s.spxDefinitionsForIdent(proj, typeInfo, ident); spxDefs != nil {
-			identRange := s.rangeForNode(proj, ident)
+		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {
+			identRange := RangeForNode(result.proj, ident)
 			for _, spxDef := range spxDefs {
 				target := URI(spxDef.ID.String())
 				links = append(links, DocumentLink{

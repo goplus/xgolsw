@@ -4,7 +4,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/goplus/goxlsw/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,14 +40,14 @@ onStart => {
 		assert.NotEmpty(t, emptyLineItems)
 		assert.True(t, containsCompletionItemLabel(emptyLineItems, "println"))
 		assert.True(t, containsCompletionSpxDefinitionID(emptyLineItems, SpxDefinitionIdentifier{
-			Package: util.ToPtr("main"),
-			Name:    util.ToPtr("MySprite"),
+			Package: ToPtr("main"),
+			Name:    ToPtr("MySprite"),
 		}))
 
 		assert.Contains(t, emptyLineItems, SpxDefinition{
 			ID: SpxDefinitionIdentifier{
-				Package: util.ToPtr("github.com/goplus/spx"),
-				Name:    util.ToPtr("Game.getWidget"),
+				Package: ToPtr("github.com/goplus/spx"),
+				Name:    ToPtr("Game.getWidget"),
 			},
 			Overview: "func getWidget(T Type, name WidgetName) *T",
 			Detail:   "GetWidget returns the widget instance (in given type) with given name. It panics if not found.\n",
@@ -70,29 +69,29 @@ onStart => {
 		assert.NotEmpty(t, mySpriteDotItems)
 		assert.False(t, containsCompletionItemLabel(mySpriteDotItems, "println"))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    util.ToPtr("github.com/goplus/spx"),
-			Name:       util.ToPtr("Sprite.turn"),
-			OverloadID: util.ToPtr("0"),
+			Package:    ToPtr("github.com/goplus/spx"),
+			Name:       ToPtr("Sprite.turn"),
+			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    util.ToPtr("github.com/goplus/spx"),
-			Name:       util.ToPtr("Sprite.turn"),
-			OverloadID: util.ToPtr("0"),
+			Package:    ToPtr("github.com/goplus/spx"),
+			Name:       ToPtr("Sprite.turn"),
+			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    util.ToPtr("github.com/goplus/spx"),
-			Name:       util.ToPtr("Sprite.turn"),
-			OverloadID: util.ToPtr("1"),
+			Package:    ToPtr("github.com/goplus/spx"),
+			Name:       ToPtr("Sprite.turn"),
+			OverloadID: ToPtr("1"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    util.ToPtr("github.com/goplus/spx"),
-			Name:       util.ToPtr("Sprite.clone"),
-			OverloadID: util.ToPtr("0"),
+			Package:    ToPtr("github.com/goplus/spx"),
+			Name:       ToPtr("Sprite.clone"),
+			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    util.ToPtr("github.com/goplus/spx"),
-			Name:       util.ToPtr("Sprite.clone"),
-			OverloadID: util.ToPtr("1"),
+			Package:    ToPtr("github.com/goplus/spx"),
+			Name:       ToPtr("Sprite.clone"),
+			OverloadID: ToPtr("1"),
 		}))
 	})
 
@@ -117,12 +116,12 @@ run "assets", {Title: "My Game"}
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("github.com/goplus/spx"),
-			Name:    util.ToPtr("Sprite.onStart"),
+			Package: ToPtr("github.com/goplus/spx"),
+			Name:    ToPtr("Sprite.onStart"),
 		}))
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("github.com/goplus/spx"),
-			Name:    util.ToPtr("Sprite.onClick"),
+			Package: ToPtr("github.com/goplus/spx"),
+			Name:    ToPtr("Sprite.onClick"),
 		}))
 	})
 
@@ -622,12 +621,12 @@ onStart => {}
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("main"),
-			Name:    util.ToPtr("Runner.Run"),
+			Package: ToPtr("main"),
+			Name:    ToPtr("Runner.Run"),
 		}))
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("main"),
-			Name:    util.ToPtr("MyRunner.Run"),
+			Package: ToPtr("main"),
+			Name:    ToPtr("MyRunner.Run"),
 		}))
 	})
 
@@ -657,12 +656,12 @@ onStart => {}
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("fmt"),
-			Name:    util.ToPtr("Stringer.string"),
+			Package: ToPtr("fmt"),
+			Name:    ToPtr("Stringer.string"),
 		}))
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: util.ToPtr("main"),
-			Name:    util.ToPtr("MyStringer.String"),
+			Package: ToPtr("main"),
+			Name:    ToPtr("MyStringer.String"),
 		}))
 	})
 
@@ -694,7 +693,7 @@ onStart => {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "gop:main?Point.X" {
 				assert.Equal(t, "X: ${1:}", item.InsertText)
-				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false
@@ -703,7 +702,7 @@ onStart => {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "gop:main?Point.Y" {
 				assert.Equal(t, "Y: ${1:}", item.InsertText)
-				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false
@@ -735,7 +734,7 @@ onStart => {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "gop:image/color?RGBA.R" {
 				assert.Equal(t, "R: ${1:}", item.InsertText)
-				assert.Equal(t, util.ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false

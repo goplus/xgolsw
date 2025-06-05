@@ -190,9 +190,9 @@ func TestUpdateFiles(t *testing.T) {
 	}, FeatAll)
 
 	// Create new files map with:
-	// 1. Modified file with new ModTime
-	// 2. Modified file with same ModTime (should not update)
-	// 3. New file
+	//  1. Modified file with new ModTime
+	//  2. Modified file with same ModTime (should not update)
+	//  3. New file
 	newFiles := map[string]File{
 		"main.spx": &FileImpl{
 			Content: []byte("echo 300"),

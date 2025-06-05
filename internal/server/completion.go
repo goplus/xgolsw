@@ -14,8 +14,8 @@ import (
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/pkgdata"
-	"github.com/goplus/goxlsw/internal/util"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/pkgdoc"
 )
@@ -33,24 +33,24 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 		return nil, nil
 	}
 
-	pos := result.posAt(astFile, params.Position)
+	pos := PosAt(result.proj, astFile, params.Position)
 	if !pos.IsValid() {
 		return nil, nil
 	}
-	innermostScope := result.innermostScopeAt(pos)
+	innermostScope := goputil.InnermostScopeAt(result.proj, pos)
 	if innermostScope == nil {
 		return nil, nil
 	}
 
 	proj := result.proj
 	ctx := &completionContext{
-		proj:           s.getProj(),
+		proj:           result.proj,
 		itemSet:        newCompletionItemSet(),
 		result:         result,
 		spxFile:        spxFile,
 		astFile:        astFile,
 		astFileScope:   getTypeInfo(proj).Scopes[astFile],
-		tokenFile:      proj.Fset.File(astFile.Pos()),
+		tokenFile:      goputil.NodeTokenFile(proj, astFile),
 		pos:            pos,
 		innermostScope: innermostScope,
 	}
@@ -116,7 +116,7 @@ func (ctx *completionContext) pkgDoc() *pkgdoc.PkgDoc {
 // analyze analyzes the completion context to determine the kind of completion needed.
 func (ctx *completionContext) analyze() {
 	typeInfo := getTypeInfo(ctx.proj)
-	path, _ := util.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
+	path, _ := goputil.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
 	for i, node := range slices.Backward(path) {
 		switch node := node.(type) {
 		case *gopast.ImportSpec:
@@ -147,7 +147,7 @@ func (ctx *completionContext) analyze() {
 					continue
 				}
 			}
-			typ := unwrapPointerType(tv.Type)
+			typ := goputil.DerefType(tv.Type)
 			named, ok := typ.(*types.Named)
 			if !ok {
 				continue
@@ -176,7 +176,7 @@ func (ctx *completionContext) analyze() {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
 					if ident, ok := node.Lhs[j].(*gopast.Ident); ok {
-						defIdent := ctx.result.defIdentFor(typeInfo.ObjectOf(ident))
+						defIdent := goputil.DefIdentFor(ctx.proj, typeInfo.ObjectOf(ident))
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
 						}
@@ -468,10 +468,10 @@ func (ctx *completionContext) collectGeneral() error {
 		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
-			if !isExportedOrMainPkgObject(obj) {
+			if !goputil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if defIdent := ctx.result.defIdentFor(obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+			if defIdent := goputil.DefIdentFor(ctx.proj, obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
 				continue
 			}
 
@@ -481,15 +481,15 @@ func (ctx *completionContext) collectGeneral() error {
 			isSpxFileMatch := ctx.spxFile == name+".spx" || (ctx.spxFile == ctx.result.mainSpxFile && name == "Game")
 			isMainScopeObj := isInMainScope && isSpxFileMatch
 			if isThis || isMainScopeObj {
-				named, ok := unwrapPointerType(obj.Type()).(*types.Named)
-				if ok && isNamedStructType(named) {
+				named, ok := goputil.DerefType(obj.Type()).(*types.Named)
+				if ok && goputil.IsNamedStructType(named) {
 					for _, def := range ctx.result.spxDefinitionsForNamedStruct(named) {
 						if ctx.inSpxEventHandler && def.ID.Name != nil {
 							name := *def.ID.Name
 							if idx := strings.LastIndex(name, "."); idx >= 0 {
 								name = name[idx+1:]
 							}
-							if isSpxEventHandlerFuncName(name) {
+							if IsSpxEventHandlerFuncName(name) {
 								continue
 							}
 						}
@@ -592,28 +592,28 @@ func (ctx *completionContext) collectDot() error {
 	if !ok {
 		return nil
 	}
-	typ := unwrapPointerType(tv.Type)
+	typ := goputil.DerefType(tv.Type)
 	named, ok := typ.(*types.Named)
-	if ok && isSpxPkgObject(named.Obj()) && named.Obj().Name() == "Sprite" {
+	if ok && IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
 		typ = GetSpxSpriteImplType()
 	}
 
 	if iface, ok := typ.Underlying().(*types.Interface); ok {
 		for i := range iface.NumMethods() {
 			method := iface.Method(i)
-			if !isExportedOrMainPkgObject(method) {
+			if !goputil.IsExportedOrInMainPkg(method) {
 				continue
 			}
 
 			var recvTypeName string
-			if named != nil && isMainPkgObject(named.Obj()) {
+			if named != nil && goputil.IsInMainPkg(named.Obj()) {
 				recvTypeName = named.Obj().Name()
 			}
 
 			spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
 			ctx.itemSet.addSpxDefs(spxDef)
 		}
-	} else if named, ok := typ.(*types.Named); ok && isNamedStructType(named) {
+	} else if named, ok := typ.(*types.Named); ok && goputil.IsNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
 	}
 	return nil
@@ -626,9 +626,10 @@ func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
-	if pkgPath := util.PackagePath(pkg); pkgPath == "main" {
+	if goputil.IsMainPkg(pkg) {
 		pkgDoc = ctx.pkgDoc()
 	} else {
+		pkgPath := goputil.PkgPath(pkg)
 		var err error
 		pkgDoc, err = pkgdata.GetPkgDoc(pkgPath)
 		if err != nil {
@@ -661,8 +662,8 @@ func (ctx *completionContext) collectCall() error {
 		return nil
 	}
 
-	if fun := funcFromCallExpr(typeInfo, callExpr); fun != nil {
-		funcOverloads := expandGopOverloadableFunc(fun)
+	if fun := goputil.FuncFromCallExpr(typeInfo, callExpr); fun != nil {
+		funcOverloads := goputil.ExpandGopOverloadableFunc(fun)
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]types.Type, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
@@ -788,7 +789,7 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 			Kind:             TextCompletion,
 			Documentation:    &Or_CompletionItem_documentation{Value: MarkupContent{Kind: Markdown, Value: spxResourceId.URI().HTML()}},
 			InsertText:       name,
-			InsertTextFormat: util.ToPtr(PlainTextTextFormat),
+			InsertTextFormat: ToPtr(PlainTextTextFormat),
 		})
 	}
 	return nil
@@ -842,7 +843,7 @@ func (ctx *completionContext) collectStructLit() error {
 	}
 
 	selectorTypeName := ctx.compositeLitType.Obj().Name()
-	if isSpxPkgObject(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
+	if IsInSpxPkg(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
 		selectorTypeName = "Sprite"
 	}
 
@@ -862,7 +863,7 @@ func (ctx *completionContext) collectStructLit() error {
 	// Add unused fields.
 	for i := range ctx.expectedStructType.NumFields() {
 		field := ctx.expectedStructType.Field(i)
-		if !isExportedOrMainPkgObject(field) {
+		if !goputil.IsExportedOrInMainPkg(field) {
 			continue
 		}
 		if _, ok := seenFields[field.Name()]; ok {
@@ -903,9 +904,10 @@ func (ctx *completionContext) collectSwitchCase() error {
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
-	if pkgPath := util.PackagePath(pkg); pkgPath == "main" {
+	if goputil.IsMainPkg(pkg) {
 		pkgDoc = ctx.pkgDoc()
 	} else {
+		pkgPath := goputil.PkgPath(pkg)
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 
@@ -931,13 +933,13 @@ func (ctx *completionContext) collectSelect() error {
 			Label:            "case",
 			Kind:             KeywordCompletion,
 			InsertText:       "case ${1:ch} <- ${2:value}:$0",
-			InsertTextFormat: util.ToPtr(SnippetTextFormat),
+			InsertTextFormat: ToPtr(SnippetTextFormat),
 		},
 		CompletionItem{
 			Label:            "default",
 			Kind:             KeywordCompletion,
 			InsertText:       "default:$0",
-			InsertTextFormat: util.ToPtr(SnippetTextFormat),
+			InsertTextFormat: ToPtr(SnippetTextFormat),
 		},
 	)
 	return nil
@@ -1004,7 +1006,7 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []types.Type) {
 
 	s.isCompatibleWithExpectedTypes = func(typ types.Type) bool {
 		for _, expectedType := range expectedTypes {
-			if expectedType != types.Typ[types.Invalid] && isTypeCompatible(typ, expectedType) {
+			if expectedType != types.Typ[types.Invalid] && goputil.IsTypesCompatible(typ, expectedType) {
 				return true
 			}
 		}
