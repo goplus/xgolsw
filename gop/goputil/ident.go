@@ -26,27 +26,20 @@ import (
 
 // IdentsAtLine returns the identifiers at the given line in the given AST file.
 func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast.Ident) {
-	fset := proj.Fset
-	astFilePos := fset.Position(astFile.Pos())
-	collectIdentAtLine := func(ident *ast.Ident) {
-		identPos := fset.Position(ident.Pos())
-		if identPos.Filename == astFilePos.Filename && identPos.Line == line {
-			idents = append(idents, ident)
+	astFilePos := proj.Fset.Position(astFile.Pos())
+	ast.Inspect(astFile, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok {
+			if ident.Implicit() {
+				return true // skip implicit identifiers
+			}
+			// Check if the identifier is at the given line.
+			identPos := proj.Fset.Position(ident.Pos())
+			if identPos.Filename == astFilePos.Filename && identPos.Line == line {
+				idents = append(idents, ident)
+			}
 		}
-	}
-	_, typeInfo, _, _ := proj.TypeInfo()
-	for ident := range typeInfo.Defs {
-		if IsShadowIdent(proj, ident) {
-			continue
-		}
-		collectIdentAtLine(ident)
-	}
-	for ident, obj := range typeInfo.Uses {
-		if IsShadowIdent(proj, DefIdentFor(proj, obj)) {
-			continue
-		}
-		collectIdentAtLine(ident)
-	}
+		return true
+	})
 	return
 }
 
