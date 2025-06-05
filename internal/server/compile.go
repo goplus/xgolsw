@@ -129,32 +129,36 @@ func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
 		return ""
 	}
 
-	if path, _ := goputil.PathEnclosingInterval(astFile, ident.Pos(), ident.End()); len(path) > 0 {
-		for _, node := range slices.Backward(path) {
-			sel, ok := node.(*gopast.SelectorExpr)
-			if !ok {
-				continue
-			}
-			tv, ok := getTypeInfo(r.proj).Types[sel.X]
-			if !ok {
-				continue
-			}
-
-			switch typ := goputil.DerefType(tv.Type).(type) {
-			case *types.Named:
-				obj := typ.Obj()
-				typeName := obj.Name()
-				if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
-					typeName = "Sprite"
-				}
-				return typeName
-			case *types.Interface:
-				if typ.String() == "interface{}" {
-					return ""
-				}
-				return typ.String()
-			}
+	var typeName string
+	goputil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), true, func(node gopast.Node) bool {
+		sel, ok := node.(*gopast.SelectorExpr)
+		if !ok {
+			return true
 		}
+		tv, ok := getTypeInfo(r.proj).Types[sel.X]
+		if !ok {
+			return true
+		}
+
+		switch typ := goputil.DerefType(tv.Type).(type) {
+		case *types.Named:
+			obj := typ.Obj()
+			typeName = obj.Name()
+			if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
+				typeName = "Sprite"
+			}
+			return false
+		case *types.Interface:
+			typeName = typ.String()
+			if typeName == "interface{}" {
+				typeName = ""
+			}
+			return false
+		}
+		return true
+	})
+	if typeName != "" {
+		return typeName
 	}
 
 	typeInfo := getTypeInfo(r.proj)
@@ -352,26 +356,25 @@ func (r *compileResult) isInSpxEventHandler(pos goptoken.Pos) bool {
 	}
 
 	typeInfo := getTypeInfo(r.proj)
-	path, _ := goputil.PathEnclosingInterval(astFile, pos-1, pos)
-	for _, node := range path {
+
+	var isIn bool
+	goputil.WalkPathEnclosingInterval(astFile, pos-1, pos, false, func(node gopast.Node) bool {
 		callExpr, ok := node.(*gopast.CallExpr)
 		if !ok || len(callExpr.Args) == 0 {
-			continue
+			return true
 		}
 		funcIdent, ok := callExpr.Fun.(*gopast.Ident)
 		if !ok {
-			continue
+			return true
 		}
 		funcObj := typeInfo.ObjectOf(funcIdent)
 		if !IsInSpxPkg(funcObj) {
-			continue
-		}
-
-		if IsSpxEventHandlerFuncName(funcIdent.Name) {
 			return true
 		}
-	}
-	return false
+		isIn = IsSpxEventHandlerFuncName(funcIdent.Name)
+		return !isIn // Stop walking if we found a match.
+	})
+	return isIn
 }
 
 // spxResourceRefAtASTFilePosition returns the spx resource reference at the
@@ -875,22 +878,21 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 				return
 			}
 
-			path, _ := goputil.PathEnclosingInterval(astFile, ident.Pos(), ident.End())
-			for _, node := range path {
+			goputil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), false, func(node gopast.Node) bool {
 				assignStmt, ok := node.(*gopast.AssignStmt)
 				if !ok {
-					continue
+					return true
 				}
 
 				idx := slices.IndexFunc(assignStmt.Lhs, func(lhs gopast.Expr) bool {
 					return lhs == ident
 				})
 				if idx < 0 || idx >= len(assignStmt.Rhs) {
-					continue
+					return true
 				}
 				expr = assignStmt.Rhs[idx]
-				break
-			}
+				return false
+			})
 		}
 	}
 
