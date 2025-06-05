@@ -32,8 +32,8 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
-
-	formatted, err := s.formatSpx(snapshot, spxFile)
+	original = bytes.ReplaceAll(original, []byte("\r\n"), []byte("\n"))
+	formatted, err := s.formatSpx(snapshot, spxFile, original)
 	if err != nil {
 		return nil, fmt.Errorf("failed to format spx source file: %w", err)
 	}
@@ -73,8 +73,8 @@ type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, e
 //  1. Go+ formatter
 //  2. Lambda parameter elimination
 //  3. Declaration reordering
-func (s *Server) formatSpx(snapshot *gop.Project, spxFile string) ([]byte, error) {
-	var formatted []byte
+func (s *Server) formatSpx(snapshot *gop.Project, spxFile string, original []byte) ([]byte, error) {
+	var formatted []byte = original
 	for _, formatter := range []spxFormatter{
 		s.formatSpxGop,
 		s.formatSpxLambda,
@@ -84,7 +84,6 @@ func (s *Server) formatSpx(snapshot *gop.Project, spxFile string) ([]byte, error
 		if err != nil {
 			return nil, err
 		}
-		println(string(subFormatted))
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
 			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
 				spxFile: {
@@ -96,6 +95,55 @@ func (s *Server) formatSpx(snapshot *gop.Project, spxFile string) ([]byte, error
 		}
 	}
 	return formatted, nil
+}
+
+func diff(original, formatted []byte) {
+	origLines := bytes.Split(original, []byte("\n"))
+	formLines := bytes.Split(formatted, []byte("\n"))
+
+	// 确保最后一行也计入比较
+	if len(original) > 0 && !bytes.HasSuffix(original, []byte("\n")) {
+		origLines = append(origLines, []byte{})
+	}
+	if len(formatted) > 0 && !bytes.HasSuffix(formatted, []byte("\n")) {
+		formLines = append(formLines, []byte{})
+	}
+
+	println("--- Original")
+	println("+++ Formatted")
+
+	i, j := 0, 0
+	for i < len(origLines) && j < len(formLines) {
+		if bytes.Equal(origLines[i], formLines[j]) {
+			// 相同行只打印一次
+			println(fmt.Sprintf(" %s", origLines[i]))
+			i++
+			j++
+		} else {
+			if i == 0 && j == 0 {
+				for _, b := range origLines[0] {
+					println(b)
+				}
+				for _, b := range formLines[0] {
+					println(b)
+				}
+			}
+			// 不同行分别打印
+			println(fmt.Sprintf("-%s", origLines[i]))
+			println(fmt.Sprintf("+%s", formLines[j]))
+			i++
+			j++
+		}
+	}
+
+	// 处理剩余行
+	for ; i < len(origLines); i++ {
+		println(fmt.Sprintf("-%s", origLines[i]))
+	}
+
+	for ; j < len(formLines); j++ {
+		println(fmt.Sprintf("+%s", formLines[j]))
+	}
 }
 
 // formatSpxGop formats an spx source file with Go+ formatter.
@@ -511,85 +559,91 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 	typeInfo := getTypeInfo(proj)
+	println(typeInfo)
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
-		callExpr, ok := n.(*gopast.CallExpr)
-		if !ok {
-			return true
-		}
-		funIdent, ok := callExpr.Fun.(*gopast.Ident)
-		if !ok {
-			return true
-		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
-		if funType == nil || funTypeOverloads == nil {
-			return true
-		}
-		paramsType := funType.Signature().Params()
-		for argIdx, argExpr := range callExpr.Args {
-			lambdaExpr, ok := argExpr.(*gopast.LambdaExpr2)
-			if !ok {
-				continue
-			}
-			if argIdx >= paramsType.Len() {
-				break
-			}
-			lambdaSig, ok := paramsType.At(argIdx).Type().(*types.Signature)
-			if !ok {
-				continue
-			}
-			if len(lambdaExpr.Lhs) == 0 {
-				continue
-			}
-			// To simplify the implementation, we only check & process the last parameter,
-			// which is enough to cover known cases.
-			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
-				continue
-			}
+		// callExpr, ok := n.(*gopast.CallExpr)
+		// if !ok {
+		// 	return true
+		// }
+		// funIdent, ok := callExpr.Fun.(*gopast.Ident)
+		// if !ok {
+		// 	return true
+		// }
+		// funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
+		// if funType == nil || funTypeOverloads == nil {
+		// 	return true
+		// }
+		// paramsType := funType.Signature().Params()
+		// for argIdx, argExpr := range callExpr.Args {
+		// lambdaExpr, ok := argExpr.(*gopast.LambdaExpr2)
+		// if !ok {
+		// 	continue
+		// }
+		// if argIdx >= paramsType.Len() {
+		// 	break
+		// }
+		// lambdaSig, ok := paramsType.At(argIdx).Type().(*types.Signature)
+		// if !ok {
+		// 	continue
+		// }
+		// if len(lambdaExpr.Lhs) == 0 {
+		// 	continue
+		// }
+		// To simplify the implementation, we only check & process the last parameter,
+		// which is enough to cover known cases.
+		// lastParamIdx := len(lambdaExpr.Lhs) - 1
+		// if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
+		// 	continue
+		// }
 
-			newParams := slices.Collect(lambdaSig.Params().Variables())
-			newParams = newParams[:len(newParams)-1] // Remove the last parameter.
-			newLambdaSig := types.NewSignatureType(
-				lambdaSig.Recv(),
-				slices.Collect(lambdaSig.RecvTypeParams().TypeParams()),
-				slices.Collect(lambdaSig.TypeParams().TypeParams()),
-				types.NewTuple(newParams...),
-				lambdaSig.Results(),
-				lambdaSig.Variadic(),
-			)
-			hasMatchedOverload := false
-			for _, overloadType := range funTypeOverloads {
-				if overloadType == funType {
-					continue
-				}
-				overloadParamsType := overloadType.Signature().Params()
-				if overloadParamsType.Len() != paramsType.Len() {
-					continue
-				}
-				overloadLambdaSig, ok := overloadParamsType.At(argIdx).Type().(*types.Signature)
-				if !ok {
-					continue
-				}
-				if types.AssignableTo(newLambdaSig, overloadLambdaSig) {
-					hasMatchedOverload = true
-					break
-				}
-			}
-			if hasMatchedOverload {
-				lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]
-				if len(lambdaExpr.Lhs) == 0 {
-					// Avoid `index out of range [0] with length 0` when printing lambda expression.
-					lambdaExpr.Lhs = nil
-				}
-			}
-		}
+		// newParams := slices.Collect(lambdaSig.Params().Variables())
+		// newParams = newParams[:len(newParams)-1] // Remove the last parameter.
+		// newLambdaSig := types.NewSignatureType(
+		// 	lambdaSig.Recv(),
+		// 	slices.Collect(lambdaSig.RecvTypeParams().TypeParams()),
+		// 	slices.Collect(lambdaSig.TypeParams().TypeParams()),
+		// 	types.NewTuple(newParams...),
+		// 	lambdaSig.Results(),
+		// 	lambdaSig.Variadic(),
+		// )
+		// hasMatchedOverload := false
+		// for _, overloadType := range funTypeOverloads {
+		// 	if overloadType == funType {
+		// 		continue
+		// 	}
+		// 	overloadParamsType := overloadType.Signature().Params()
+		// 	if overloadParamsType.Len() != paramsType.Len() {
+		// 		continue
+		// 	}
+		// 	overloadLambdaSig, ok := overloadParamsType.At(argIdx).Type().(*types.Signature)
+		// 	if !ok {
+		// 		continue
+		// 	}
+		// 	if types.AssignableTo(newLambdaSig, overloadLambdaSig) {
+		// 		hasMatchedOverload = true
+		// 		break
+		// 	}
+		// }
+		// if hasMatchedOverload {
+		// 	lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]
+		// 	if len(lambdaExpr.Lhs) == 0 {
+		// 		// Avoid `index out of range [0] with length 0` when printing lambda expression.
+		// 		lambdaExpr.Lhs = nil
+		// 	}
+		// }
+		// }
 		return true
 	})
 }
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
 func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
+	// start := time.Now()
+	// defer func() {
+	// 	println("getFuncAndOverloadsType", funIdent.Name, time.Since(start).String())
+	// }()
+	return nil, nil
+	funTypeObj := typeInfo.ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
