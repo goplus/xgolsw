@@ -89,10 +89,10 @@ func TestRangesOverlap(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := rangesOverlap(tt.a, tt.b); got != tt.want {
+			if got := IsRangesOverlap(tt.a, tt.b); got != tt.want {
 				t.Errorf("got %t, want %t", got, tt.want)
 			}
-			if got := rangesOverlap(tt.b, tt.a); got != tt.want {
+			if got := IsRangesOverlap(tt.b, tt.a); got != tt.want {
 				t.Errorf("got %t, want %t", got, tt.want)
 			}
 		})

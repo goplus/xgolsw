@@ -88,9 +88,9 @@ func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
 // didModifyFile is a shared implementation for handling document modifications.
 // It updates the project with file changes and asynchronously publishes diagnostics.
 // The function:
-// 1. Updates the project's files with the provided changes
-// 2. Starts a goroutine to generate and publish diagnostics for each changed file
-// 3. Returns immediately after updating files for better responsiveness
+//  1. Updates the project's files with the provided changes
+//  2. Starts a goroutine to generate and publish diagnostics for each changed file
+//  3. Returns immediately after updating files for better responsiveness
 func (s *Server) didModifyFile(changes []FileChange) error {
 	// 1. Update files synchronously
 	s.ModifyFiles(changes)
@@ -122,8 +122,8 @@ func (s *Server) didModifyFile(changes []FileChange) error {
 
 // changedText processes document content changes from the client.
 // It supports two modes of operation:
-// 1. Full replacement: Replace the entire document content (when only one change with no range is provided)
-// 2. Incremental updates: Apply specific changes to portions of the document
+//  1. Full replacement: Replace the entire document content (when only one change with no range is provided)
+//  2. Incremental updates: Apply specific changes to portions of the document
 //
 // Returns the updated document content or an error if the changes couldn't be applied.
 func (s *Server) changedText(uri string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
@@ -144,9 +144,9 @@ func (s *Server) changedText(uri string, changes []protocol.TextDocumentContentC
 
 // applyIncrementalChanges applies a sequence of changes to the document content.
 // For each change, it:
-// 1. Computes the byte offsets for the specified range
-// 2. Verifies the range is valid
-// 3. Replaces the specified range with the new text
+//  1. Computes the byte offsets for the specified range
+//  2. Verifies the range is valid
+//  3. Replaces the specified range with the new text
 //
 // Returns the updated document content or an error if the changes couldn't be applied.
 func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
@@ -166,8 +166,8 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 		}
 
 		// Convert LSP positions to byte offsets
-		start := positionOffset(content, change.Range.Start)
-		end := positionOffset(content, change.Range.End)
+		start := PositionOffset(content, change.Range.Start)
+		end := PositionOffset(content, change.Range.End)
 
 		// Validate range
 		if end < start {
@@ -187,8 +187,8 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 
 // getDiagnostics generates diagnostic information for a specific file.
 // It performs two checks:
-// 1. AST parsing - reports syntax errors
-// 2. Type checking - reports type errors
+//  1. AST parsing - reports syntax errors
+//  2. Type checking - reports type errors
 //
 // If AST parsing fails, only syntax errors are returned as diagnostics.
 // If AST parsing succeeds but type checking fails, type errors are returned.
@@ -211,7 +211,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			for _, e := range errorList {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Range:    s.rangeForASTFilePosition(astFile, e.Pos),
+					Range:    RangeForASTFilePosition(proj, astFile, e.Pos),
 					Message:  e.Msg,
 				})
 			}
@@ -219,7 +219,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			// Handle code generation errors.
 			diagnostics = append(diagnostics, Diagnostic{
 				Severity: SeverityError,
-				Range:    s.rangeForPos(codeError.Pos),
+				Range:    RangeForPos(proj, codeError.Pos),
 				Message:  codeError.Error(),
 			})
 		} else {
@@ -243,7 +243,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			if position.Filename == astFilePos.Filename {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Range:    s.rangeForPos(typeErr.Pos),
+					Range:    RangeForPos(proj, typeErr.Pos),
 					Message:  typeErr.Msg,
 				})
 			}

@@ -21,8 +21,6 @@ import (
 	"go/doc"
 	"go/token"
 	"strings"
-
-	"github.com/goplus/goxlsw/internal/util"
 )
 
 // PkgDoc is the documentation for a package.
@@ -81,7 +79,7 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		for _, name := range c.Names {
 			if token.IsExported(name) {
 				pkgDoc.Consts[name] = c.Doc
-				if name == util.GopPackage {
+				if name == GopPackage {
 					isGopPackage = true
 				}
 			}
@@ -149,8 +147,8 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(f.Name, util.GoptPrefix):
-			recvTypeName, methodName, ok := util.SplitGoptMethodName(f.Name, true)
+		case strings.HasPrefix(f.Name, GoptPrefix):
+			recvTypeName, methodName, ok := SplitGoptMethodName(f.Name, true)
 			if !ok {
 				continue
 			}
@@ -159,4 +157,40 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 	}
 
 	return pkgDoc
+}
+
+const (
+	GoptPrefix = "Gopt_"      // Go+ template method
+	GopoPrefix = "Gopo_"      // Go+ overload function/method
+	GopxPrefix = "Gopx_"      // Go+ type as parameters function/method
+	GopPackage = "GopPackage" // Indicates a Go+ package
+)
+
+// SplitGoptMethodName splits a Go+ template method name into receiver type
+// name and method name.
+func SplitGoptMethodName(name string, trimGopx bool) (recvTypeName string, methodName string, ok bool) {
+	if !strings.HasPrefix(name, GoptPrefix) {
+		return "", "", false
+	}
+	recvTypeName, methodName, ok = strings.Cut(name[len(GoptPrefix):], "_")
+	if !ok {
+		return "", "", false
+	}
+	if trimGopx {
+		if funcName, ok := SplitGopxFuncName(methodName); ok {
+			methodName = funcName
+		}
+	}
+	return
+}
+
+// SplitGopxFuncName splits a Go+ type as parameters function name into the
+// function name.
+func SplitGopxFuncName(name string) (funcName string, ok bool) {
+	if !strings.HasPrefix(name, GopxPrefix) {
+		return "", false
+	}
+	funcName = strings.TrimPrefix(name, GopxPrefix)
+	ok = true
+	return
 }

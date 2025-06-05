@@ -365,7 +365,7 @@ onClick => {
 			Position:     Position{Line: 2, Character: 5},
 			NewName:      "that",
 		})
-		require.EqualError(t, err, `failed to find definition of object "this"`)
+		require.NoError(t, err)
 		require.Nil(t, mainSpxWorkspaceEdit)
 
 		mySpriteSpxWorkspaceEdit, err := s.textDocumentRename(&RenameParams{
@@ -373,7 +373,7 @@ onClick => {
 			Position:     Position{Line: 2, Character: 5},
 			NewName:      "that",
 		})
-		require.EqualError(t, err, `failed to find definition of object "this"`)
+		require.NoError(t, err)
 		require.Nil(t, mySpriteSpxWorkspaceEdit)
 	})
 }

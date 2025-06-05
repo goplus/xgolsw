@@ -12,7 +12,7 @@ import (
 
 	gopast "github.com/goplus/gop/ast"
 	goptoken "github.com/goplus/gop/token"
-	"github.com/goplus/goxlsw/internal/util"
+	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/vfs"
 )
 
@@ -129,11 +129,11 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 	astFileScope := getTypeInfo(result.proj).Scopes[astFile]
 
 	// Find the innermost scope contains the position.
-	pos := result.posAt(astFile, param.Position)
+	pos := PosAt(result.proj, astFile, param.Position)
 	if !pos.IsValid() {
 		return nil, nil
 	}
-	innermostScope := result.innermostScopeAt(pos)
+	innermostScope := goputil.InnermostScopeAt(result.proj, pos)
 	if innermostScope == nil {
 		return nil, nil
 	}
@@ -164,8 +164,8 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 				continue
 			}
 			addDefID(SpxDefinitionIdentifier{
-				Package: util.ToPtr(obj.Pkg().Name()),
-				Name:    util.ToPtr(obj.Name()),
+				Package: ToPtr(obj.Pkg().Name()),
+				Name:    ToPtr(obj.Name()),
 			})
 
 			isThis := name == "this"
@@ -174,8 +174,8 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 			if !isThis && !isMainScopeObj {
 				continue
 			}
-			named, ok := unwrapPointerType(obj.Type()).(*types.Named)
-			if !ok || !isNamedStructType(named) {
+			named, ok := goputil.DerefType(obj.Type()).(*types.Named)
+			if !ok || !goputil.IsNamedStructType(named) {
 				continue
 			}
 
@@ -185,7 +185,7 @@ func (s *Server) spxGetDefinitions(params []SpxGetDefinitionsParams) ([]SpxDefin
 					if idx := strings.LastIndex(name, "."); idx >= 0 {
 						name = name[idx+1:]
 					}
-					if isSpxEventHandlerFuncName(name) {
+					if IsSpxEventHandlerFuncName(name) {
 						continue
 					}
 				}
@@ -234,7 +234,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 	addInputSlots := func(slots ...SpxInputSlot) {
 		for _, slot := range slots {
 			if slices.ContainsFunc(inputSlots, func(existing SpxInputSlot) bool {
-				return rangesOverlap(existing.Range, slot.Range)
+				return IsRangesOverlap(existing.Range, slot.Range)
 			}) {
 				continue
 			}
@@ -249,7 +249,7 @@ func findInputSlots(result *compileResult, astFile *gopast.File) []SpxInputSlot 
 
 		switch node := node.(type) {
 		case *gopast.BranchStmt:
-			if callExpr := createCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
+			if callExpr := goputil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
 				slots := findInputSlotsFromCallExpr(result, callExpr)
 				addInputSlots(slots...)
 			}
@@ -395,15 +395,15 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr
 	typeInfo := getTypeInfo(result.proj)
 
 	var inputSlots []SpxInputSlot
-	walkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
+	goputil.WalkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg gopast.Expr, argIndex int) bool {
 		param := params.At(paramIndex)
 		if !param.Pos().IsValid() {
 			return true
 		}
 
-		declaredType := unwrapPointerType(param.Type())
+		declaredType := goputil.DerefType(param.Type())
 		if sliceType, ok := declaredType.(*types.Slice); ok {
-			declaredType = unwrapPointerType(sliceType.Elem())
+			declaredType = goputil.DerefType(sliceType.Elem())
 		}
 
 		slot := checkValueInputSlot(result, arg, declaredType)
@@ -417,8 +417,8 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *gopast.CallExpr
 
 // collectPredefinedNames collects all predefined names for the given expression.
 func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredType types.Type) []string {
-	astFile := result.nodeASTFile(expr)
-	innermostScope := result.innermostScopeAt(expr.Pos())
+	astFile := goputil.NodeASTFile(result.proj, expr)
+	innermostScope := goputil.InnermostScopeAt(result.proj, expr.Pos())
 
 	var names []string
 	growNames := func(n int) {
@@ -454,7 +454,7 @@ func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredTyp
 				}
 			}
 
-			name = toLowerCamelCase(name)
+			name = goputil.ToLowerCamelCase(name)
 		default:
 			return
 		}
@@ -481,13 +481,13 @@ func collectPredefinedNames(result *compileResult, expr gopast.Expr, declaredTyp
 			}
 
 			if astFile.IsClass && !obj.Pos().IsValid() && name == "this" {
-				objType := unwrapPointerType(obj.Type())
+				objType := goputil.DerefType(obj.Type())
 				named, ok := objType.(*types.Named)
-				if !ok || !isNamedStructType(named) {
+				if !ok || !goputil.IsNamedStructType(named) {
 					continue
 				}
 
-				walkStruct(named, func(member types.Object, selector *types.Named) bool {
+				goputil.WalkStruct(named, func(member types.Object, selector *types.Named) bool {
 					switch member := member.(type) {
 					case *types.Var:
 						if !member.Origin().Embedded() {
@@ -554,7 +554,7 @@ func checkAddressInputSlot(result *compileResult, expr gopast.Expr, declaredType
 				Name: ident.Name,
 			},
 			PredefinedNames: collectPredefinedNames(result, expr, declaredType),
-			Range:           result.rangeForNode(ident),
+			Range:           RangeForNode(result.proj, ident),
 		}
 	}
 	return nil
@@ -598,7 +598,7 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *gopast.BasicLi
 			if spxResourceRef.Node == lit {
 				input.Type = SpxInputTypeResourceName
 				input.Value = spxResourceRef.ID.URI()
-				accept.ResourceContext = util.ToPtr(spxResourceRef.ID.ContextURI())
+				accept.ResourceContext = ToPtr(spxResourceRef.ID.ContextURI())
 				break
 			}
 		}
@@ -612,7 +612,7 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *gopast.BasicLi
 		Accept:          accept,
 		Input:           input,
 		PredefinedNames: collectPredefinedNames(result, lit, declaredType),
-		Range:           result.rangeForNode(lit),
+		Range:           RangeForNode(result.proj, lit),
 	}
 }
 
@@ -623,7 +623,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 	if typ == nil {
 		return nil
 	}
-	typ = unwrapPointerType(typ)
+	typ = goputil.DerefType(typ)
 
 	input := SpxInput{
 		Kind: SpxInputKindPredefined,
@@ -644,7 +644,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
 		obj := typeInfo.ObjectOf(ident)
-		if obj != nil && !isSpxPkgObject(obj) {
+		if obj != nil && !IsInSpxPkg(obj) {
 			break
 		}
 		cnst, ok := obj.(*types.Const)
@@ -668,25 +668,25 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 	if accept.Type == SpxInputTypeResourceName {
 		switch declaredType {
 		case GetSpxBackdropNameType():
-			accept.ResourceContext = util.ToPtr(SpxBackdropResourceContextURI)
+			accept.ResourceContext = ToPtr(SpxBackdropResourceContextURI)
 		case GetSpxSoundNameType():
-			accept.ResourceContext = util.ToPtr(SpxSoundResourceContextURI)
+			accept.ResourceContext = ToPtr(SpxSoundResourceContextURI)
 		case GetSpxSpriteNameType():
-			accept.ResourceContext = util.ToPtr(SpxSpriteResourceContextURI)
+			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
 		case GetSpxSpriteCostumeNameType():
 			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
-			accept.ResourceContext = util.ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
+			accept.ResourceContext = ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
 		case GetSpxSpriteAnimationNameType():
 			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
-			accept.ResourceContext = util.ToPtr(FormatSpxSpriteAnimationResourceContextURI(spxSpriteResource.Name))
+			accept.ResourceContext = ToPtr(FormatSpxSpriteAnimationResourceContextURI(spxSpriteResource.Name))
 		case GetSpxWidgetNameType():
-			accept.ResourceContext = util.ToPtr(SpxWidgetResourceContextURI)
+			accept.ResourceContext = ToPtr(SpxWidgetResourceContextURI)
 		default:
 			return nil
 		}
@@ -697,7 +697,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *gopast.Ident, d
 		Accept:          accept,
 		Input:           input,
 		PredefinedNames: collectPredefinedNames(result, ident, declaredType),
-		Range:           result.rangeForNode(ident),
+		Range:           RangeForNode(result.proj, ident),
 	}
 }
 
@@ -754,7 +754,7 @@ func createValueInputSlotFromUnaryExpr(result *compileResult, expr *gopast.Unary
 	default:
 		return nil
 	}
-	inputSlot.Range = result.rangeForNode(expr) // Update the range to include the entire unary expression.
+	inputSlot.Range = RangeForNode(result.proj, expr) // Update the range to include the entire unary expression.
 	return inputSlot
 }
 
@@ -763,8 +763,8 @@ func createValueInputSlotFromUnaryExpr(result *compileResult, expr *gopast.Unary
 func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopast.CallExpr, declaredType types.Type) *SpxInputSlot {
 	typeInfo := getTypeInfo(result.proj)
 
-	fun := funcFromCallExpr(typeInfo, callExpr)
-	if fun == nil || !isSpxPkgObject(fun) || !isSpxColorFunc(fun) {
+	fun := goputil.FuncFromCallExpr(typeInfo, callExpr)
+	if fun == nil || !IsInSpxPkg(fun) || !isSpxColorFunc(fun) {
 		return nil
 	}
 
@@ -823,7 +823,7 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *gopa
 			},
 		},
 		PredefinedNames: collectPredefinedNames(result, callExpr, declaredType),
-		Range:           result.rangeForNode(callExpr),
+		Range:           RangeForNode(result.proj, callExpr),
 	}
 }
 
@@ -882,11 +882,11 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 // for the given node. It returns nil if no [SpxSpriteResource] can be inferred.
 func inferSpxSpriteResourceEnclosingNode(result *compileResult, node gopast.Node) *SpxSpriteResource {
 	typeInfo := getTypeInfo(result.proj)
-	spxFile := result.nodeFilename(node)
-	astFile := result.nodeASTFile(node)
+	spxFile := goputil.NodeFilename(result.proj, node)
+	astFile := goputil.NodeASTFile(result.proj, node)
 
 	var spxSpriteResource *SpxSpriteResource
-	WalkNodesFromInterval(astFile, node.Pos(), node.End(), func(node gopast.Node) bool {
+	goputil.WalkNodesFromInterval(astFile, node.Pos(), node.End(), func(node gopast.Node) bool {
 		if node == nil {
 			return true
 		}
