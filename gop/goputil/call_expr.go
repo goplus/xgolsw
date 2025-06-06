@@ -30,7 +30,7 @@ import (
 // branch statement. This handles cases in spx where the `Sprite.Goto` method
 // is intended to precede the goto statement.
 func CreateCallExprFromBranchStmt(typeInfo *typesutil.Info, stmt *ast.BranchStmt) *ast.CallExpr {
-	if stmt == nil || typeInfo == nil {
+	if typeInfo == nil || stmt == nil {
 		return nil
 	}
 	if stmt.Tok != token.GOTO {
@@ -38,6 +38,16 @@ func CreateCallExprFromBranchStmt(typeInfo *typesutil.Info, stmt *ast.BranchStmt
 		return nil
 	}
 
+	// Skip if this is a real branch statement with an actual label object.
+	if obj := typeInfo.ObjectOf(stmt.Label); obj == nil {
+		return nil
+	} else if _, ok := obj.(*types.Label); ok {
+		return nil
+	}
+
+	// Performance note: This requires traversing the typeInfo.Uses map to locate
+	// the function object, which is unavoidable since the AST still treats this
+	// node as a branch statement rather than a call expression.
 	stmtTokEnd := stmt.TokPos + token.Pos(len(stmt.Tok.String()))
 	for ident, obj := range typeInfo.Uses {
 		if ident.Pos() == stmt.TokPos && ident.End() == stmtTokEnd {
