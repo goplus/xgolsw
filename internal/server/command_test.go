@@ -1041,7 +1041,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr gopast.Expr
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if node, ok := node.(gopast.Expr); ok && tt.exprFilter(node) {
 					expr = node
 					return false
@@ -1120,7 +1120,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr gopast.Expr
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if node, ok := node.(gopast.Expr); ok && tt.exprFilter(node) {
 					expr = node
 					return false
@@ -1243,7 +1243,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var lit *gopast.BasicLit
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if node, ok := node.(*gopast.BasicLit); ok {
 					lit = node
 					return false
@@ -1418,7 +1418,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var ident *gopast.Ident
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if node, ok := node.(*gopast.Ident); ok {
 					ident = node
 					return false
@@ -1529,7 +1529,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var unaryExpr *gopast.UnaryExpr
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if expr, ok := node.(*gopast.UnaryExpr); ok {
 					unaryExpr = expr
 					return false
@@ -1604,7 +1604,7 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var callExpr *gopast.CallExpr
-			goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+			goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 				if node, ok := node.(*gopast.CallExpr); ok {
 					callExpr = node
 					return false
@@ -1801,7 +1801,7 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *gopast.CallExpr
-		goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+		goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 			if node, ok := node.(*gopast.CallExpr); ok {
 				callExpr = node
 				return false
@@ -1826,7 +1826,7 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *gopast.CallExpr
-		goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+		goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 			if node, ok := node.(*gopast.CallExpr); ok {
 				callExpr = node
 				return false
@@ -1851,7 +1851,7 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *gopast.CallExpr
-		goputil.WalkNodesFromInterval(astFile, pos, pos, func(node gopast.Node) bool {
+		goputil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node gopast.Node) bool {
 			if node, ok := node.(*gopast.CallExpr); ok {
 				callExpr = node
 				return false

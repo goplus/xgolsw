@@ -79,8 +79,8 @@ func FuncFromCallExpr(typeInfo *typesutil.Info, expr *ast.CallExpr) *types.Func 
 
 // WalkCallExprArgs walks the arguments of a call expression and calls the
 // provided walkFn for each argument. It does nothing if the function is not
-// found or if the function is Go+ FuncEx type. If walkFn returns false, the
-// walk stops.
+// found or if the function is Go+ FuncEx type. The walk stops if walkFn
+// returns false.
 func WalkCallExprArgs(typeInfo *typesutil.Info, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
 	fun := FuncFromCallExpr(typeInfo, expr)
 	if fun == nil {

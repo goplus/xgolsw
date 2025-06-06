@@ -19,6 +19,7 @@ package goputil
 import (
 	"go/types"
 
+	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/token"
 	"github.com/goplus/goxlsw/gop"
 )
@@ -36,16 +37,17 @@ func InnermostScopeAt(proj *gop.Project, pos token.Pos) *types.Scope {
 		return nil
 	}
 
-	fileScope := typeInfo.Scopes[astFile]
-	if fileScope == nil {
-		return nil
-	}
-
-	innermostScope := fileScope
-	for _, scope := range typeInfo.Scopes {
-		if scope.Contains(pos) && fileScope.Contains(scope.Pos()) && innermostScope.Contains(scope.Pos()) {
-			innermostScope = scope
+	var scope *types.Scope
+	WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		scope = typeInfo.Scopes[node]
+		if scope == nil {
+			// NOTE: If we have a FuncDecl but no direct scope, try to get the
+			// scope from its FuncType (function parameter/local variable scope).
+			if funcDecl, ok := node.(*ast.FuncDecl); ok {
+				scope = typeInfo.Scopes[funcDecl.Type]
+			}
 		}
-	}
-	return innermostScope
+		return scope == nil // Stop at the first non-nil scope.
+	})
+	return scope
 }

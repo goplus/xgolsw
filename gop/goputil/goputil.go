@@ -19,6 +19,8 @@ package goputil
 import (
 	"go/constant"
 	"go/types"
+	"iter"
+	"slices"
 	"strconv"
 
 	"github.com/goplus/gop/ast"
@@ -58,12 +60,18 @@ func IsDefinedInClassFieldsDecl(proj *gop.Project, obj types.Object) bool {
 	return defIdent.Pos() >= decl.Pos() && defIdent.End() <= decl.End()
 }
 
-// WalkNodesFromInterval walks the AST path starting from a position interval,
-// calling walkFn for each node. The function walks from the smallest enclosing
-// node outward through parent nodes. If walkFn returns false, the walk stops.
-func WalkNodesFromInterval(root *ast.File, start, end token.Pos, walkFn func(node ast.Node) bool) {
+// WalkPathEnclosingInterval calls walkFn for each node in the AST path
+// enclosing the given [start, end) interval, starting from the innermost node
+// and walking outward. The walk stops if walkFn returns false.
+func WalkPathEnclosingInterval(root *ast.File, start, end token.Pos, backward bool, walkFn func(node ast.Node) bool) {
 	path, _ := PathEnclosingInterval(root, start, end)
-	for _, node := range path {
+	var seq iter.Seq2[int, ast.Node]
+	if backward {
+		seq = slices.Backward(path)
+	} else {
+		seq = slices.All(path)
+	}
+	for _, node := range seq {
 		if !walkFn(node) {
 			break
 		}
