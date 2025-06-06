@@ -12,30 +12,36 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProjWithFile()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
+	position := ToPosition(proj, astFile, params.Position)
 
-	ident := goputil.IdentAtPosition(result.proj, astFile, position)
+	ident := goputil.IdentAtPosition(proj, astFile, position)
 	if ident == nil {
 		return nil, nil
 	}
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo := getTypeInfo(proj)
 	obj := typeInfo.ObjectOf(ident)
 	if !goputil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := goputil.DefIdentFor(result.proj, obj)
-	if defIdent == nil || goputil.NodeTokenFile(result.proj, defIdent) == nil {
+	defIdent := goputil.DefIdentFor(proj, obj)
+	if defIdent == nil || goputil.NodeTokenFile(proj, defIdent) == nil {
 		return nil, nil
 	}
 
-	return ToPtr(RangeForNode(result.proj, ident)), nil
+	return ToPtr(RangeForNode(proj, ident)), nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_rename

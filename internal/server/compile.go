@@ -16,15 +16,12 @@ import (
 	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
-	"github.com/goplus/goxlsw/internal"
 	"github.com/goplus/goxlsw/internal/analysis/ast/inspector"
 	"github.com/goplus/goxlsw/internal/analysis/passes/inspect"
 	"github.com/goplus/goxlsw/internal/analysis/protocol"
 	"github.com/goplus/goxlsw/internal/pkgdata"
 	"github.com/goplus/goxlsw/internal/vfs"
 	"github.com/goplus/goxlsw/pkgdoc"
-	"github.com/goplus/mod/gopmod"
-	"github.com/goplus/mod/modload"
 	"github.com/qiniu/x/errors"
 )
 
@@ -554,10 +551,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		return result, nil
 	}
 
-	mod := gopmod.New(modload.Default)
-	if err := mod.ImportClasses(); err != nil {
-		return nil, fmt.Errorf("failed to import classes: %w", err)
-	}
 	handleErr := func(err error) {
 		if typeErr, ok := err.(types.Error); ok {
 			if !typeErr.Pos.IsValid() {
@@ -573,9 +566,6 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 		}
 	}
 
-	snapshot.Path = "main"
-	snapshot.Mod = mod
-	snapshot.Importer = internal.Importer
 	_, _, err, _ = snapshot.TypeInfo()
 	if err != nil {
 		switch err := err.(type) {
