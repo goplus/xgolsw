@@ -599,8 +599,7 @@ func (ctx *completionContext) collectDot() error {
 	}
 
 	if iface, ok := typ.Underlying().(*types.Interface); ok {
-		for i := range iface.NumMethods() {
-			method := iface.Method(i)
+		for method := range iface.Methods() {
 			if !goputil.IsExportedOrInMainPkg(method) {
 				continue
 			}
@@ -862,8 +861,7 @@ func (ctx *completionContext) collectStructLit() error {
 	}
 
 	// Add unused fields.
-	for i := range ctx.expectedStructType.NumFields() {
-		field := ctx.expectedStructType.Field(i)
+	for field := range ctx.expectedStructType.Fields() {
 		if !goputil.IsExportedOrInMainPkg(field) {
 			continue
 		}

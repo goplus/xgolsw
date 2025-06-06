@@ -106,8 +106,8 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 				return
 			}
 
-			for i := range embedIface.NumEmbeddeds() {
-				if types.Identical(embedIface.EmbeddedType(i), current) {
+			for typ := range embedIface.EmbeddedTypes() {
+				if types.Identical(typ, current) {
 					method, index, _ := types.LookupFieldOrMethod(embedIface, false, typeName.Pkg(), methodName)
 					if method != nil && index != nil {
 						locations = append(locations, s.findReferenceLocations(result, method)...)
@@ -219,8 +219,7 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 
 	var locations []Location
 	hasEmbed := false
-	for i := range st.NumFields() {
-		field := st.Field(i)
+	for field := range st.Fields() {
 		if !field.Embedded() {
 			continue
 		}

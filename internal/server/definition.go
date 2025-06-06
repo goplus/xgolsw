@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"go/types"
 
 	"github.com/goplus/goxlsw/gop/goputil"
@@ -17,47 +18,57 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProjWithFile()
+	if proj == nil {
+		return nil, nil
 	}
+
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
 
-	ident := goputil.IdentAtPosition(result.proj, astFile, position)
-	obj := getTypeInfo(result.proj).ObjectOf(ident)
+	position := ToPosition(proj, astFile, params.Position)
+	obj := getTypeInfo(proj).ObjectOf(goputil.IdentAtPosition(proj, astFile, position))
 	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
-	defIdent := goputil.DefIdentFor(result.proj, obj)
-	if defIdent == nil {
-		objPos := obj.Pos()
-		if goputil.PosTokenFile(result.proj, objPos) == nil {
-			return nil, nil
-		}
-		return s.locationForPos(result.proj, objPos), nil
-	} else if goputil.NodeTokenFile(result.proj, defIdent) == nil {
+	if !obj.Pos().IsValid() {
 		return nil, nil
 	}
-	return s.locationForNode(result.proj, defIdent), nil
+
+	location := Location{
+		URI:   s.toDocumentURI(goputil.PosFilename(proj, obj.Pos())),
+		Range: RangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
+	}
+	return location, nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProjWithFile()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.AST(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
+	position := ToPosition(proj, astFile, params.Position)
 
-	ident := goputil.IdentAtPosition(result.proj, astFile, position)
-	obj := getTypeInfo(result.proj).ObjectOf(ident)
+	ident := goputil.IdentAtPosition(proj, astFile, position)
+	obj := getTypeInfo(proj).ObjectOf(ident)
 	if !goputil.IsInMainPkg(obj) {
 		return nil, nil
 	}
@@ -69,8 +80,8 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	}
 
 	objPos := named.Obj().Pos()
-	if goputil.PosTokenFile(result.proj, objPos) == nil {
+	if goputil.PosTokenFile(proj, objPos) == nil {
 		return nil, nil
 	}
-	return s.locationForPos(result.proj, objPos), nil
+	return s.locationForPos(proj, objPos), nil
 }

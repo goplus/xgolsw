@@ -39,26 +39,32 @@ func DedupeLocations(locations []Location) []Location {
 	return result
 }
 
-// UTF16OffsetToUTF8 converts a UTF-16 offset to a UTF-8 offset in the given string.
-func UTF16OffsetToUTF8(s string, utf16Offset int) int {
-	if utf16Offset <= 0 {
+// UTF16Len calculates the UTF-16 length of the given string.
+func UTF16Len(s string) int {
+	var length int
+	for _, r := range s {
+		length += utf16.RuneLen(r)
+	}
+	return length
+}
+
+// UTF16PosToUTF8Offset converts a UTF-16 code unit position to a UTF-8 byte
+// offset in the given string.
+func UTF16PosToUTF8Offset(s string, utf16Pos int) int {
+	if utf16Pos <= 0 {
 		return 0
 	}
 
 	var utf16Units, utf8Bytes int
 	for _, r := range s {
-		if utf16Units >= utf16Offset {
+		nextUTF16Units := utf16Units + utf16.RuneLen(r)
+		if nextUTF16Units > utf16Pos {
 			break
 		}
-		utf16Units += utf16.RuneLen(r)
+		utf16Units = nextUTF16Units
 		utf8Bytes += utf8.RuneLen(r)
 	}
 	return utf8Bytes
-}
-
-// UTF16Offset calculates the UTF-16 offset of the given string.
-func UTF16Offset(s string) int {
-	return len(utf16.Encode([]rune(s)))
 }
 
 // PositionOffset converts an LSP position (line, character) to a byte offset in the document.
@@ -109,7 +115,7 @@ func PositionOffset(content []byte, position Position) int {
 	lineContent := content[lineOffset:min(lineEndOffset, len(content))]
 
 	// Convert UTF-16 character offset to UTF-8 byte offset
-	utf8Offset := UTF16OffsetToUTF8(string(lineContent), int(position.Character))
+	utf8Offset := UTF16PosToUTF8Offset(string(lineContent), int(position.Character))
 
 	// Ensure the final offset doesn't exceed the content length
 	return lineOffset + utf8Offset
@@ -126,7 +132,7 @@ func FromPosition(proj *gop.Project, astFile *gopast.File, position goptoken.Pos
 
 	return Position{
 		Line:      uint32(position.Line - 1),
-		Character: uint32(UTF16Offset(string(lineContent))),
+		Character: uint32(UTF16Len(string(lineContent))),
 	}
 }
 
@@ -141,7 +147,7 @@ func ToPosition(proj *gop.Project, astFile *gopast.File, position Position) gopt
 	if i := bytes.IndexByte(lineContent, '\n'); i >= 0 {
 		lineContent = lineContent[:i]
 	}
-	utf8Offset := UTF16OffsetToUTF8(string(lineContent), int(position.Character))
+	utf8Offset := UTF16PosToUTF8Offset(string(lineContent), int(position.Character))
 	column := utf8Offset + 1
 
 	return goptoken.Position{

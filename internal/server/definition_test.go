@@ -40,7 +40,7 @@ onStart => {
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
+				End:   Position{Line: 2, Character: 1},
 			},
 		}, mainSpxMySpriteDef.(Location))
 
@@ -66,7 +66,7 @@ onStart => {
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
+				End:   Position{Line: 2, Character: 1},
 			},
 		}, mainSpxMySpriteDef.(Location))
 	})
@@ -174,9 +174,27 @@ fmt2.println "Hello, spx!"
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
-				End:   Position{Line: 1, Character: 11},
+				End:   Position{Line: 1, Character: 7},
 			},
 		}, def.(Location))
+	})
+
+	t.Run("InvalidTextDocument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var x int
+`),
+		}
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+
+		def, err := s.textDocumentDefinition(&DefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.spx"},
+				Position:     Position{Line: 99, Character: 99},
+			},
+		})
+		require.Contains(t, err.Error(), "failed to get file path from document URI")
+		require.Nil(t, def)
 	})
 }
 

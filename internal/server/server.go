@@ -45,11 +45,17 @@ func (s *Server) getProj() *gop.Project {
 	return s.workspaceRootFS
 }
 
+func (s *Server) getProjWithFile() *gop.Project {
+	proj := s.workspaceRootFS
+	proj.UpdateFiles(s.fileMapGetter())
+	return proj
+}
+
 // New creates a new Server instance.
 func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) *Server {
 	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to import classes: %w", err))
 	}
 	mapFS.Path = "main"
 	mapFS.Mod = mod
