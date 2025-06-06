@@ -53,7 +53,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 				Start: Position{Line: 0, Character: 0},
 				End: Position{
 					Line:      uint32(lines),
-					Character: uint32(UTF16Offset(string(lastLineContent))),
+					Character: uint32(UTF16Len(string(lastLineContent))),
 				},
 			},
 			NewText: string(formatted),
