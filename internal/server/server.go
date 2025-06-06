@@ -55,7 +55,7 @@ func (s *Server) getProjWithFile() *gop.Project {
 func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) *Server {
 	mod := gopmod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to import classes: %w", err))
 	}
 	mapFS.Path = "main"
 	mapFS.Mod = mod
