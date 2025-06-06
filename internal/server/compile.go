@@ -258,7 +258,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 	case *types.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
 	case *types.Func:
-		if defIdent := goputil.DefIdentFor(r.proj, obj); defIdent != nil && goputil.IsShadowIdent(r.proj, defIdent) {
+		if defIdent := goputil.DefIdentFor(r.proj, obj); defIdent != nil && defIdent.Implicit() {
 			return nil
 		}
 		if goputil.IsUnexpandableGopOverloadableFunc(obj) {
