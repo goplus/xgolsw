@@ -89,7 +89,7 @@ func test() {
 	})
 }
 
-func TestWalkNodesFromInterval(t *testing.T) {
+func TestWalkPathEnclosingInterval(t *testing.T) {
 	proj := gop.NewProject(nil, map[string]gop.File{
 		"main.gop": file(`
 var x = 1
@@ -115,7 +115,7 @@ func test() {
 		require.NotNil(t, funcDecl)
 
 		var nodes []ast.Node
-		WalkNodesFromInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), func(node ast.Node) bool {
+		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
 			nodes = append(nodes, node)
 			return true
 		})
@@ -136,7 +136,7 @@ func test() {
 		require.NotEqual(t, token.NoPos, identPos)
 
 		var nodes []ast.Node
-		WalkNodesFromInterval(astFile, identPos, identPos+1, func(node ast.Node) bool {
+		WalkPathEnclosingInterval(astFile, identPos, identPos+1, false, func(node ast.Node) bool {
 			nodes = append(nodes, node)
 			return true
 		})
@@ -161,7 +161,7 @@ func test() {
 		require.NotNil(t, funcDecl)
 
 		var nodes []ast.Node
-		WalkNodesFromInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), func(node ast.Node) bool {
+		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
 			nodes = append(nodes, node)
 			return false // Stop after first node.
 		})
@@ -170,11 +170,44 @@ func test() {
 
 	t.Run("EmptyInterval", func(t *testing.T) {
 		var nodes []ast.Node
-		WalkNodesFromInterval(astFile, token.NoPos, token.NoPos, func(node ast.Node) bool {
+		WalkPathEnclosingInterval(astFile, token.NoPos, token.NoPos, false, func(node ast.Node) bool {
 			nodes = append(nodes, node)
 			return true
 		})
 		assert.Len(t, nodes, 1) // Should still return at least the file node.
+	})
+
+	t.Run("WalkBackward", func(t *testing.T) {
+		var funcDecl *ast.FuncDecl
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
+				funcDecl = fn
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, funcDecl)
+
+		var forwardNodes []ast.Node
+		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
+			forwardNodes = append(forwardNodes, node)
+			return true
+		})
+
+		var backwardNodes []ast.Node
+		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), true, func(node ast.Node) bool {
+			backwardNodes = append(backwardNodes, node)
+			return true
+		})
+
+		require.NotEmpty(t, forwardNodes)
+		require.NotEmpty(t, backwardNodes)
+		require.Equal(t, len(forwardNodes), len(backwardNodes))
+
+		// Backward walk should return nodes in reverse order.
+		for i := range forwardNodes {
+			assert.Equal(t, forwardNodes[i], backwardNodes[len(backwardNodes)-1-i])
+		}
 	})
 }
 

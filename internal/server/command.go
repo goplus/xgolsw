@@ -886,7 +886,7 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node gopast.Node
 	astFile := goputil.NodeASTFile(result.proj, node)
 
 	var spxSpriteResource *SpxSpriteResource
-	goputil.WalkNodesFromInterval(astFile, node.Pos(), node.End(), func(node gopast.Node) bool {
+	goputil.WalkPathEnclosingInterval(astFile, node.Pos(), node.End(), false, func(node gopast.Node) bool {
 		if node == nil {
 			return true
 		}

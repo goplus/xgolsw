@@ -41,8 +41,8 @@ func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast
 		}
 		collectIdentAtLine(ident)
 	}
-	for ident := range typeInfo.Uses {
-		if ident.Implicit() {
+	for ident, obj := range typeInfo.Uses {
+		if defIdent := DefIdentFor(proj, obj); defIdent != nil && defIdent.Implicit() {
 			continue
 		}
 		collectIdentAtLine(ident)
@@ -99,22 +99,4 @@ func RefIdentsFor(proj *gop.Project, obj types.Object) []*ast.Ident {
 		}
 	}
 	return idents
-}
-
-// IsShadowIdent reports whether the ident is shadowed.
-func IsShadowIdent(proj *gop.Project, ident *ast.Ident) (shadow bool) {
-	proj.RangeASTFiles(func(_ string, file *ast.File) bool {
-		if e := file.ShadowEntry; e != nil && e.Name == ident {
-			shadow = true
-			return false
-		}
-		for _, decl := range file.Decls {
-			if funcDecl, ok := decl.(*ast.FuncDecl); ok && funcDecl.Name == ident {
-				shadow = funcDecl.Shadow
-				return false
-			}
-		}
-		return true
-	})
-	return
 }
