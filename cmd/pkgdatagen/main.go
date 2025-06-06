@@ -34,9 +34,10 @@ import (
 	"slices"
 
 	"github.com/goplus/goxlsw/pkgdoc"
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/gcexportdata"
 
-	_ "github.com/goplus/spx"
+	_ "github.com/goplus/spx/v2"
 	_ "github.com/qiniu/x"
 )
 
@@ -147,8 +148,8 @@ var stdPkgPaths = []string{
 	"github.com/qiniu/x/stringslice",
 	"github.com/qiniu/x/stringutil",
 
-	"github.com/goplus/spx",
-	"github.com/goplus/spx/pkg/gdspx/pkg/engine",
+	"github.com/goplus/spx/v2",
+	"github.com/goplus/spx/v2/pkg/gdspx/pkg/engine",
 }
 
 // generate generates the package data file containing the exported symbols of
@@ -162,6 +163,13 @@ func generate(pkgPaths []string, outputFile string) error {
 			continue
 		}
 
+		var pkgName string
+		if prefix, _, ok := module.SplitPathVersion(pkgPath); ok {
+			pkgName = path.Base(prefix)
+		} else {
+			pkgName = path.Base(buildPkg.ImportPath)
+		}
+
 		var pkgDoc *pkgdoc.PkgDoc
 		if pkgPath == "builtin" {
 			astFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(buildPkg.Dir, "builtin.go"), nil, parser.ParseComments)
@@ -171,7 +179,7 @@ func generate(pkgPaths []string, outputFile string) error {
 
 			pkgDoc = &pkgdoc.PkgDoc{
 				Path:   pkgPath,
-				Name:   pkgPath,
+				Name:   pkgName,
 				Vars:   make(map[string]string),
 				Consts: make(map[string]string),
 				Types:  make(map[string]*pkgdoc.TypeDoc),
@@ -272,7 +280,7 @@ func generate(pkgPaths []string, outputFile string) error {
 			if err != nil {
 				return fmt.Errorf("failed to parse package: %w", err)
 			}
-			astPkg, ok := astPkgs[path.Base(buildPkg.ImportPath)]
+			astPkg, ok := astPkgs[pkgName]
 			if !ok {
 				continue
 			}

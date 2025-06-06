@@ -53,7 +53,7 @@ onStart => {
 				Start: Position{Line: 1, Character: 16},
 				End:   Position{Line: 1, Character: 28},
 			},
-			Target: toURI("gop:github.com/goplus/spx?BackdropName"),
+			Target: toURI("gop:github.com/goplus/spx/v2?BackdropName"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
@@ -111,7 +111,7 @@ onStart => {
 				Start: Position{Line: 4, Character: 10},
 				End:   Position{Line: 4, Character: 15},
 			},
-			Target: toURI("gop:github.com/goplus/spx?Sound"),
+			Target: toURI("gop:github.com/goplus/spx/v2?Sound"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
@@ -135,21 +135,21 @@ onStart => {
 				Start: Position{Line: 5, Character: 10},
 				End:   Position{Line: 5, Character: 16},
 			},
-			Target: toURI("gop:github.com/goplus/spx?Sprite"),
+			Target: toURI("gop:github.com/goplus/spx/v2?Sprite"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
 				Start: Position{Line: 7, Character: 0},
 				End:   Position{Line: 7, Character: 3},
 			},
-			Target: toURI("gop:github.com/goplus/spx?Game.run"),
+			Target: toURI("gop:github.com/goplus/spx/v2?Game.run"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
 				Start: Position{Line: 7, Character: 15},
 				End:   Position{Line: 7, Character: 20},
 			},
-			Target: toURI("gop:github.com/goplus/spx?Game.Title"),
+			Target: toURI("gop:github.com/goplus/spx/v2?Game.Title"),
 		})
 
 		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
@@ -311,7 +311,7 @@ var (
 				Start: Position{Line: 3, Character: 9},
 				End:   Position{Line: 3, Character: 14},
 			},
-			Target: toURI("gop:github.com/goplus/spx?Sound"),
+			Target: toURI("gop:github.com/goplus/spx/v2?Sound"),
 		})
 	})
 

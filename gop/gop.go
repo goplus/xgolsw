@@ -24,6 +24,7 @@ import (
 )
 
 func init() {
+	gopmod.SpxProject.PkgPaths = []string{"github.com/goplus/spx/v2", "math"}
 	gopmod.SpxProject.Works = []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl"}}
 }
 

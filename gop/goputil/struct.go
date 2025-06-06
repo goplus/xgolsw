@@ -28,8 +28,8 @@ func IsGopClassStructType(named *types.Named) bool {
 	// FIXME: This is a workaround for the fact that Go+ does not have the ability to
 	// recognize Go+ class struct types.
 	switch PkgPath(pkg) + "." + obj.Name() {
-	case "github.com/goplus/spx.Game",
-		"github.com/goplus/spx.SpriteImpl":
+	case "github.com/goplus/spx/v2.Game",
+		"github.com/goplus/spx/v2.SpriteImpl":
 		return true
 	}
 

@@ -46,7 +46,7 @@ onStart => {
 
 		assert.Contains(t, emptyLineItems, SpxDefinition{
 			ID: SpxDefinitionIdentifier{
-				Package: ToPtr("github.com/goplus/spx"),
+				Package: ToPtr(SpxPkgPath),
 				Name:    ToPtr("Game.getWidget"),
 			},
 			Overview: "func getWidget(T Type, name WidgetName) *T",
@@ -69,27 +69,27 @@ onStart => {
 		assert.NotEmpty(t, mySpriteDotItems)
 		assert.False(t, containsCompletionItemLabel(mySpriteDotItems, "println"))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr("github.com/goplus/spx"),
+			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr("github.com/goplus/spx"),
+			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr("github.com/goplus/spx"),
+			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("1"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr("github.com/goplus/spx"),
+			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.clone"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr("github.com/goplus/spx"),
+			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.clone"),
 			OverloadID: ToPtr("1"),
 		}))
@@ -116,11 +116,11 @@ run "assets", {Title: "My Game"}
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx"),
+			Package: ToPtr(SpxPkgPath),
 			Name:    ToPtr("Sprite.onStart"),
 		}))
 		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx"),
+			Package: ToPtr(SpxPkgPath),
 			Name:    ToPtr("Sprite.onClick"),
 		}))
 	})
