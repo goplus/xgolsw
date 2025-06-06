@@ -173,7 +173,7 @@ func (r *compileResult) spxDefinitionsForIdent(ident *gopast.Ident) []SpxDefinit
 		return nil
 	}
 	typeInfo := getTypeInfo(r.proj)
-	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(r.proj, typeInfo, ident))
+	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(r.proj, ident))
 }
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
@@ -202,7 +202,7 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 	)
 	if defIdent := goputil.DefIdentFor(r.proj, field); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = SelectorTypeNameForIdent(r.proj, getTypeInfo(r.proj), defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
 		forceVar = goputil.IsDefinedInClassFieldsDecl(r.proj, field)
 		pkgDoc = getPkgDoc(r.proj)
@@ -220,7 +220,7 @@ func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeN
 	var pkgDoc *pkgdoc.PkgDoc
 	if defIdent := goputil.DefIdentFor(r.proj, method); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = SelectorTypeNameForIdent(r.proj, getTypeInfo(r.proj), defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
 		pkgDoc = getPkgDoc(r.proj)
 	} else {

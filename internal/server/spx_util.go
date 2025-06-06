@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	gopast "github.com/goplus/gop/ast"
-	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
 )
@@ -40,11 +39,13 @@ func GetSimplifiedTypeString(typ types.Type) string {
 
 // SelectorTypeNameForIdent returns the selector type name for the given
 // identifier. It returns empty string if no selector can be inferred.
-func SelectorTypeNameForIdent(proj *gop.Project, typeInfo *typesutil.Info, ident *gopast.Ident) string {
+func SelectorTypeNameForIdent(proj *gop.Project, ident *gopast.Ident) string {
 	astFile := goputil.NodeASTFile(proj, ident)
 	if astFile == nil {
 		return ""
 	}
+
+	typeInfo := getTypeInfo(proj)
 
 	if path, _ := goputil.PathEnclosingInterval(astFile, ident.Pos(), ident.End()); len(path) > 0 {
 		for _, node := range slices.Backward(path) {

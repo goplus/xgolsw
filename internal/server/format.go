@@ -520,7 +520,7 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 		if !ok {
 			return true
 		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(proj, typeInfo, funIdent)
+		funType, funTypeOverloads := getFuncAndOverloadsType(proj, funIdent)
 		if funType == nil || funTypeOverloads == nil {
 			return true
 		}
@@ -588,8 +588,8 @@ func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
 }
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
-func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := typeInfo.ObjectOf(funIdent)
+func getFuncAndOverloadsType(proj *gop.Project, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
+	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
@@ -601,7 +601,7 @@ func getFuncAndOverloadsType(proj *gop.Project, typeInfo *typesutil.Info, funIde
 	if pkg == nil {
 		return
 	}
-	recvTypeName := SelectorTypeNameForIdent(proj, typeInfo, funIdent)
+	recvTypeName := SelectorTypeNameForIdent(proj, funIdent)
 	if recvTypeName == "" {
 		return
 	}
