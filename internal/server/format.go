@@ -105,6 +105,9 @@ func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 		return nil, err
 	}
 	formatted, err := gopfmt.Source(original, true, spxFile)
+	if err != nil {
+		return nil, err
+	}
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
