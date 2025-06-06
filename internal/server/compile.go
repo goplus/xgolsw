@@ -168,11 +168,12 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 // spxDefinitionsForIdent returns all spx definitions for the given identifier.
 // It returns multiple definitions only if the identifier is a Go+ overloadable
 // function.
-func (r *compileResult) spxDefinitionsForIdent(proj *gop.Project, typeInfo *typesutil.Info, ident *gopast.Ident) []SpxDefinition {
+func (r *compileResult) spxDefinitionsForIdent(ident *gopast.Ident) []SpxDefinition {
 	if ident.Name == "_" {
 		return nil
 	}
-	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(proj, typeInfo, ident))
+	typeInfo := getTypeInfo(r.proj)
+	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(r.proj, typeInfo, ident))
 }
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
@@ -194,14 +195,14 @@ func (r *compileResult) spxDefinitionsForNamedStruct(named *types.Named) (defs [
 
 // spxDefinitionForField returns the spx definition for the given field and
 // optional selector type name.
-func (r *compileResult) spxDefinitionForField(proj *gop.Project, typeInfo *typesutil.Info, field *types.Var, selectorTypeName string) SpxDefinition {
+func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName string) SpxDefinition {
 	var (
 		forceVar bool
 		pkgDoc   *pkgdoc.PkgDoc
 	)
 	if defIdent := goputil.DefIdentFor(r.proj, field); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = SelectorTypeNameForIdent(proj, typeInfo, defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, getTypeInfo(r.proj), defIdent)
 		}
 		forceVar = goputil.IsDefinedInClassFieldsDecl(r.proj, field)
 		pkgDoc = getPkgDoc(r.proj)
@@ -215,11 +216,11 @@ func (r *compileResult) spxDefinitionForField(proj *gop.Project, typeInfo *types
 
 // spxDefinitionForMethod returns the spx definition for the given method and
 // optional selector type name.
-func (r *compileResult) spxDefinitionForMethod(proj *gop.Project, typeInfo *typesutil.Info, method *types.Func, selectorTypeName string) SpxDefinition {
+func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeName string) SpxDefinition {
 	var pkgDoc *pkgdoc.PkgDoc
 	if defIdent := goputil.DefIdentFor(r.proj, method); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = SelectorTypeNameForIdent(proj, typeInfo, defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, getTypeInfo(r.proj), defIdent)
 		}
 		pkgDoc = getPkgDoc(r.proj)
 	} else {

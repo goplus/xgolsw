@@ -32,6 +32,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
+	// FIXME(wyvern): Remove this workaround when the server supports CRLF line endings.
 	original = bytes.ReplaceAll(original, []byte("\r\n"), []byte("\n"))
 	formatted, err := s.formatSpx(snapshot, spxFile, original)
 	if err != nil {

@@ -609,7 +609,7 @@ func (ctx *completionContext) collectDot() error {
 				recvTypeName = named.Obj().Name()
 			}
 
-			spxDef := ctx.result.spxDefinitionForMethod(ctx.proj, typeInfo, method, recvTypeName)
+			spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
 			ctx.itemSet.addSpxDefs(spxDef)
 		}
 	} else if named, ok := typ.(*types.Named); ok && goputil.IsNamedStructType(named) {
@@ -841,7 +841,6 @@ func (ctx *completionContext) collectStructLit() error {
 		return nil
 	}
 
-	typeInfo := getTypeInfo(ctx.proj)
 	selectorTypeName := ctx.compositeLitType.Obj().Name()
 	if IsInSpxPkg(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
 		selectorTypeName = "Sprite"
@@ -869,7 +868,7 @@ func (ctx *completionContext) collectStructLit() error {
 			continue
 		}
 
-		spxDef := ctx.result.spxDefinitionForField(ctx.proj, typeInfo, field, selectorTypeName)
+		spxDef := ctx.result.spxDefinitionForField(field, selectorTypeName)
 		spxDef.CompletionItemInsertText = field.Name() + ": ${1:}"
 		spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
 		ctx.itemSet.addSpxDefs(spxDef)
