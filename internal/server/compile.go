@@ -118,116 +118,6 @@ func newCompileResult(proj *gop.Project) *compileResult {
 	}
 }
 
-// selectorTypeNameForIdent returns the selector type name for the given
-// identifier. It returns empty string if no selector can be inferred.
-func (r *compileResult) selectorTypeNameForIdent(ident *gopast.Ident) string {
-	astFile := goputil.NodeASTFile(r.proj, ident)
-	if astFile == nil {
-		return ""
-	}
-
-	var typeName string
-	goputil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), true, func(node gopast.Node) bool {
-		sel, ok := node.(*gopast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		tv, ok := getTypeInfo(r.proj).Types[sel.X]
-		if !ok {
-			return true
-		}
-
-		switch typ := goputil.DerefType(tv.Type).(type) {
-		case *types.Named:
-			obj := typ.Obj()
-			typeName = obj.Name()
-			if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
-				typeName = "Sprite"
-			}
-			return false
-		case *types.Interface:
-			typeName = typ.String()
-			if typeName == "interface{}" {
-				typeName = ""
-			}
-			return false
-		}
-		return true
-	})
-	if typeName != "" {
-		return typeName
-	}
-
-	typeInfo := getTypeInfo(r.proj)
-	obj := typeInfo.ObjectOf(ident)
-	if obj == nil || obj.Pkg() == nil {
-		return ""
-	}
-	if IsInSpxPkg(obj) {
-		astFileScope := typeInfo.Scopes[astFile]
-		innermostScope := goputil.InnermostScopeAt(r.proj, ident.Pos())
-		if innermostScope == astFileScope || (astFile.HasShadowEntry() && goputil.InnermostScopeAt(r.proj, astFile.ShadowEntry.Pos()) == innermostScope) {
-			spxFile := goputil.NodeFilename(r.proj, ident)
-			if spxFile == r.mainSpxFile {
-				return "Game"
-			}
-			return "Sprite"
-		}
-	}
-	switch obj := obj.(type) {
-	case *types.Var:
-		if !obj.IsField() {
-			return ""
-		}
-
-		for _, def := range typeInfo.Defs {
-			if def == nil {
-				continue
-			}
-			named, ok := goputil.DerefType(def.Type()).(*types.Named)
-			if !ok || named.Obj().Pkg() != obj.Pkg() || !goputil.IsNamedStructType(named) {
-				continue
-			}
-
-			var typeName string
-			goputil.WalkStruct(named, func(member types.Object, selector *types.Named) bool {
-				if field, ok := member.(*types.Var); ok && field == obj {
-					typeName = selector.Obj().Name()
-					return false
-				}
-				return true
-			})
-			if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
-				typeName = "Sprite"
-			}
-			if typeName != "" {
-				return typeName
-			}
-		}
-	case *types.Func:
-		recv := obj.Type().(*types.Signature).Recv()
-		if recv == nil {
-			return ""
-		}
-
-		switch typ := goputil.DerefType(recv.Type()).(type) {
-		case *types.Named:
-			obj := typ.Obj()
-			typeName := obj.Name()
-			if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
-				typeName = "Sprite"
-			}
-			return typeName
-		case *types.Interface:
-			if typ.String() == "interface{}" {
-				return ""
-			}
-			return typ.String()
-		}
-	}
-	return ""
-}
-
 // spxDefinitionsFor returns all spx definitions for the given object. It
 // returns multiple definitions only if the object is a Go+ overloadable
 // function.
@@ -283,7 +173,7 @@ func (r *compileResult) spxDefinitionsForIdent(ident *gopast.Ident) []SpxDefinit
 		return nil
 	}
 	typeInfo := getTypeInfo(r.proj)
-	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), r.selectorTypeNameForIdent(ident))
+	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(r.proj, ident))
 }
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
@@ -312,7 +202,7 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 	)
 	if defIdent := goputil.DefIdentFor(r.proj, field); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = r.selectorTypeNameForIdent(defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
 		forceVar = goputil.IsDefinedInClassFieldsDecl(r.proj, field)
 		pkgDoc = getPkgDoc(r.proj)
@@ -330,7 +220,7 @@ func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeN
 	var pkgDoc *pkgdoc.PkgDoc
 	if defIdent := goputil.DefIdentFor(r.proj, method); defIdent != nil {
 		if selectorTypeName == "" {
-			selectorTypeName = r.selectorTypeNameForIdent(defIdent)
+			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
 		pkgDoc = getPkgDoc(r.proj)
 	} else {

@@ -11,6 +11,8 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopfmt "github.com/goplus/gop/format"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/gop/x/typesutil"
+	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/vfs"
 )
@@ -25,13 +27,14 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 		return nil, nil // Not an spx source file.
 	}
 
-	snapshot := s.workspaceRootFS.Snapshot()
+	snapshot := s.getProj().Snapshot()
 	original, err := vfs.ReadFile(snapshot, spxFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spx source file: %w", err)
 	}
-
-	formatted, err := s.formatSpx(snapshot, spxFile)
+	// FIXME(wyvern): Remove this workaround when the server supports CRLF line endings.
+	original = bytes.ReplaceAll(original, []byte("\r\n"), []byte("\n"))
+	formatted, err := s.formatSpx(snapshot, spxFile, original)
 	if err != nil {
 		return nil, fmt.Errorf("failed to format spx source file: %w", err)
 	}
@@ -71,8 +74,8 @@ type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, e
 //  1. Go+ formatter
 //  2. Lambda parameter elimination
 //  3. Declaration reordering
-func (s *Server) formatSpx(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	var formatted []byte
+func (s *Server) formatSpx(snapshot *gop.Project, spxFile string, original []byte) ([]byte, error) {
+	var formatted []byte = original
 	for _, formatter := range []spxFormatter{
 		s.formatSpxGop,
 		s.formatSpxLambda,
@@ -106,17 +109,14 @@ func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
 func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	compileResult, err := s.compileAt(snapshot)
-	if err != nil {
-		return nil, err
-	}
+	snapshot.UpdateFiles(s.fileMapGetter())
 	astFile, ok := getASTPkg(snapshot).Files[spxFile]
 	if !ok {
 		return nil, nil
 	}
 
 	// Eliminate unused lambda parameters.
-	eliminateUnusedLambdaParams(compileResult, astFile)
+	eliminateUnusedLambdaParams(snapshot, astFile)
 
 	// Format the modified AST.
 	var formattedBuf bytes.Buffer
@@ -509,7 +509,8 @@ func getDeclDoc(decl gopast.Decl) *gopast.CommentGroup {
 //  2. Only the last parameter of the lambda is checked.
 //
 // We may complete it in the future, if needed.
-func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.File) {
+func eliminateUnusedLambdaParams(proj *gop.Project, astFile *gopast.File) {
+	typeInfo := getTypeInfo(proj)
 	gopast.Inspect(astFile, func(n gopast.Node) bool {
 		callExpr, ok := n.(*gopast.CallExpr)
 		if !ok {
@@ -519,7 +520,7 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 		if !ok {
 			return true
 		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(compileResult, funIdent)
+		funType, funTypeOverloads := getFuncAndOverloadsType(proj, funIdent)
 		if funType == nil || funTypeOverloads == nil {
 			return true
 		}
@@ -542,7 +543,7 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 			// To simplify the implementation, we only check & process the last parameter,
 			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if used := isIdentUsed(compileResult, lambdaExpr.Lhs[lastParamIdx]); used {
+			if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
 				continue
 			}
 
@@ -587,8 +588,8 @@ func eliminateUnusedLambdaParams(compileResult *compileResult, astFile *gopast.F
 }
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
-func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := getTypeInfo(compileResult.proj).ObjectOf(funIdent)
+func getFuncAndOverloadsType(proj *gop.Project, funIdent *gopast.Ident) (fun *types.Func, overloads []*types.Func) {
+	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
@@ -600,7 +601,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	if pkg == nil {
 		return
 	}
-	recvTypeName := compileResult.selectorTypeNameForIdent(funIdent)
+	recvTypeName := SelectorTypeNameForIdent(proj, funIdent)
 	if recvTypeName == "" {
 		return
 	}
@@ -634,8 +635,7 @@ func getFuncAndOverloadsType(compileResult *compileResult, funIdent *gopast.Iden
 	return funType, goputil.ExpandGopOverloadableFunc(underlineFunType)
 }
 
-func isIdentUsed(compileResult *compileResult, ident *gopast.Ident) bool {
-	typeInfo := getTypeInfo(compileResult.proj)
+func isIdentUsed(typeInfo *typesutil.Info, ident *gopast.Ident) bool {
 	obj := typeInfo.ObjectOf(ident)
 	for _, usedObj := range typeInfo.Uses {
 		if usedObj == obj {
