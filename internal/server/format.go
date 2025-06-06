@@ -104,7 +104,11 @@ func (s *Server) formatSpxGop(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	return gopfmt.Source(original, true, spxFile)
+	formatted, err := gopfmt.Source(original, true, spxFile)
+	if len(formatted) == 0 || string(formatted) == "\n" {
+		return []byte{}, nil
+	}
+	return formatted, err
 }
 
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
