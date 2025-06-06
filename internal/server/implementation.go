@@ -50,13 +50,10 @@ func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface 
 			continue
 		}
 
-		for i := range named.NumMethods() {
-			method := named.Method(i)
-			if method.Name() != methodName {
-				continue
+		for method := range named.Methods() {
+			if method.Name() == methodName {
+				implementations = append(implementations, s.locationForPos(result.proj, method.Pos()))
 			}
-
-			implementations = append(implementations, s.locationForPos(result.proj, method.Pos()))
 		}
 	}
 	return implementations
