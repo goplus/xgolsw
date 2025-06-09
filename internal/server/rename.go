@@ -36,7 +36,7 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	if !goputil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := goputil.DefIdentFor(proj, obj)
+	defIdent := goputil.DefIdentFor(typeInfo, obj)
 	if defIdent == nil || goputil.NodeTokenFile(proj, defIdent) == nil {
 		return nil, nil
 	}
@@ -65,11 +65,12 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	}
 
 	ident := goputil.IdentAtPosition(result.proj, astFile, position)
-	obj := getTypeInfo(result.proj).ObjectOf(ident)
+	typeInfo := getTypeInfo(result.proj)
+	obj := typeInfo.ObjectOf(ident)
 	if !goputil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := goputil.DefIdentFor(result.proj, obj)
+	defIdent := goputil.DefIdentFor(typeInfo, obj)
 	if defIdent == nil || goputil.NodeTokenFile(result.proj, defIdent) == nil {
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
 	}
@@ -114,7 +115,7 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			if ident, ok := expr.(*gopast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
-				defIdent := goputil.DefIdentFor(result.proj, typeInfo.ObjectOf(ident))
+				defIdent := goputil.DefIdentFor(typeInfo, typeInfo.ObjectOf(ident))
 				if defIdent != nil && goputil.NodeTokenFile(result.proj, defIdent) != nil {
 					parent, ok := defIdent.Obj.Decl.(*gopast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {

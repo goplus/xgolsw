@@ -167,7 +167,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 						tokenType = PropertyType
 					}
 				} else if obj.Parent() != nil && obj.Parent().Parent() == nil {
-					defIdent := goputil.DefIdentFor(result.proj, obj)
+					defIdent := goputil.DefIdentFor(typeInfo, obj)
 					if defIdent == node {
 						tokenType = ParameterType
 					} else {
@@ -190,7 +190,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (t
 			case *types.Label:
 				tokenType = LabelType
 			}
-			if goputil.DefIdentFor(result.proj, obj) == node {
+			if goputil.DefIdentFor(typeInfo, obj) == node {
 				modifiers = append(modifiers, ModDeclaration)
 			}
 			if obj.Pkg() != nil && !goputil.IsInMainPkg(obj) && !strings.Contains(goputil.PkgPath(obj.Pkg()), ".") {

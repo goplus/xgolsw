@@ -13,6 +13,7 @@ import (
 	gopast "github.com/goplus/gop/ast"
 	gopscanner "github.com/goplus/gop/scanner"
 	goptoken "github.com/goplus/gop/token"
+	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
 	"github.com/goplus/goxlsw/gop/goputil"
 	"github.com/goplus/goxlsw/internal/pkgdata"
@@ -43,13 +44,15 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	}
 
 	proj := result.proj
+	typeInfo := getTypeInfo(proj)
 	ctx := &completionContext{
-		proj:           result.proj,
 		itemSet:        newCompletionItemSet(),
+		proj:           result.proj,
+		typeInfo:       typeInfo,
 		result:         result,
 		spxFile:        spxFile,
 		astFile:        astFile,
-		astFileScope:   getTypeInfo(proj).Scopes[astFile],
+		astFileScope:   typeInfo.Scopes[astFile],
 		tokenFile:      goputil.NodeTokenFile(proj, astFile),
 		pos:            pos,
 		innermostScope: innermostScope,
@@ -85,6 +88,7 @@ type completionContext struct {
 	itemSet *completionItemSet
 
 	proj           *gop.Project
+	typeInfo       *typesutil.Info
 	result         *compileResult
 	spxFile        string
 	astFile        *gopast.File
@@ -115,7 +119,6 @@ func (ctx *completionContext) pkgDoc() *pkgdoc.PkgDoc {
 
 // analyze analyzes the completion context to determine the kind of completion needed.
 func (ctx *completionContext) analyze() {
-	typeInfo := getTypeInfo(ctx.proj)
 	path, _ := goputil.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
 	for i, node := range slices.Backward(path) {
 		switch node := node.(type) {
@@ -127,7 +130,7 @@ func (ctx *completionContext) analyze() {
 				ctx.selectorExpr = node
 			}
 		case *gopast.CallExpr:
-			if _, ok := typeInfo.Types[node.Fun]; !ok {
+			if _, ok := ctx.typeInfo.Types[node.Fun]; !ok {
 				continue
 			}
 
@@ -137,11 +140,11 @@ func (ctx *completionContext) analyze() {
 				ctx.enclosingNode = node
 			}
 		case *gopast.CompositeLit:
-			tv, ok := typeInfo.Types[node]
+			tv, ok := ctx.typeInfo.Types[node]
 			if !ok {
 				// Try to get type from the CompositeLit.Type field.
 				if node.Type != nil {
-					tv, ok = typeInfo.Types[node.Type]
+					tv, ok = ctx.typeInfo.Types[node.Type]
 				}
 				if !ok {
 					continue
@@ -172,11 +175,11 @@ func (ctx *completionContext) analyze() {
 				}
 				if j < len(node.Lhs) {
 					ctx.kind = completionKindAssignOrDefine
-					if tv, ok := typeInfo.Types[node.Lhs[j]]; ok {
+					if tv, ok := ctx.typeInfo.Types[node.Lhs[j]]; ok {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
 					if ident, ok := node.Lhs[j].(*gopast.Ident); ok {
-						defIdent := goputil.DefIdentFor(ctx.proj, typeInfo.ObjectOf(ident))
+						defIdent := goputil.DefIdentFor(ctx.typeInfo, ctx.typeInfo.ObjectOf(ident))
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
 						}
@@ -217,7 +220,7 @@ func (ctx *completionContext) analyze() {
 						continue
 					}
 					ctx.kind = completionKindDecl
-					if typ := typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
+					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
 						ctx.expectedTypes = []types.Type{typ}
 					}
 					ctx.assignTargets = valueSpec.Names
@@ -362,13 +365,12 @@ func (ctx *completionContext) isInIdentifier() bool {
 
 // enclosingFunction gets the function signature containing the current position.
 func (ctx *completionContext) enclosingFunction(path []gopast.Node) *types.Signature {
-	typeInfo := getTypeInfo(ctx.proj)
 	for _, node := range path {
 		funcDecl, ok := node.(*gopast.FuncDecl)
 		if !ok {
 			continue
 		}
-		obj := typeInfo.ObjectOf(funcDecl.Name)
+		obj := ctx.typeInfo.ObjectOf(funcDecl.Name)
 		if obj == nil {
 			continue
 		}
@@ -471,7 +473,7 @@ func (ctx *completionContext) collectGeneral() error {
 			if !goputil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if defIdent := goputil.DefIdentFor(ctx.proj, obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+			if defIdent := goputil.DefIdentFor(ctx.typeInfo, obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
 				continue
 			}
 
@@ -575,20 +577,19 @@ func (ctx *completionContext) collectImport() error {
 
 // collectDot collects dot completions for member access.
 func (ctx *completionContext) collectDot() error {
-	typeInfo := getTypeInfo(ctx.proj)
 	if ctx.selectorExpr == nil {
 		return nil
 	}
 
 	if ident, ok := ctx.selectorExpr.X.(*gopast.Ident); ok {
-		if obj := typeInfo.ObjectOf(ident); obj != nil {
+		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
 			if pkgName, ok := obj.(*types.PkgName); ok {
 				return ctx.collectPackageMembers(pkgName.Imported())
 			}
 		}
 	}
 
-	tv, ok := typeInfo.Types[ctx.selectorExpr.X]
+	tv, ok := ctx.typeInfo.Types[ctx.selectorExpr.X]
 	if !ok {
 		return nil
 	}
@@ -646,8 +647,7 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
-	typeInfo := getTypeInfo(ctx.proj)
-	tv, ok := typeInfo.Types[callExpr.Fun]
+	tv, ok := ctx.typeInfo.Types[callExpr.Fun]
 	if !ok {
 		return nil
 	}
@@ -661,7 +661,7 @@ func (ctx *completionContext) collectCall() error {
 		return nil
 	}
 
-	if fun := goputil.FuncFromCallExpr(typeInfo, callExpr); fun != nil {
+	if fun := goputil.FuncFromCallExpr(ctx.typeInfo, callExpr); fun != nil {
 		funcOverloads := goputil.ExpandGopOverloadableFunc(fun)
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]types.Type, 0, len(funcOverloads))
@@ -817,7 +817,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	if !ok {
 		return nil
 	}
-	obj := getTypeInfo(ctx.proj).ObjectOf(ident)
+	obj := ctx.typeInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil
 	}
@@ -888,7 +888,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 		return nil
 	}
 
-	tv, ok := getTypeInfo(ctx.proj).Types[ctx.switchTag]
+	tv, ok := ctx.typeInfo.Types[ctx.switchTag]
 	if !ok {
 		return nil
 	}

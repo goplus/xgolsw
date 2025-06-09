@@ -145,7 +145,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 	case *types.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
 	case *types.Func:
-		if defIdent := goputil.DefIdentFor(r.proj, obj); defIdent != nil && defIdent.Implicit() {
+		if defIdent := goputil.DefIdentFor(getTypeInfo(r.proj), obj); defIdent != nil && defIdent.Implicit() {
 			return nil
 		}
 		if goputil.IsUnexpandableGopOverloadableFunc(obj) {
@@ -200,7 +200,7 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 		forceVar bool
 		pkgDoc   *pkgdoc.PkgDoc
 	)
-	if defIdent := goputil.DefIdentFor(r.proj, field); defIdent != nil {
+	if defIdent := goputil.DefIdentFor(getTypeInfo(r.proj), field); defIdent != nil {
 		if selectorTypeName == "" {
 			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
@@ -218,7 +218,7 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 // optional selector type name.
 func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeName string) SpxDefinition {
 	var pkgDoc *pkgdoc.PkgDoc
-	if defIdent := goputil.DefIdentFor(r.proj, method); defIdent != nil {
+	if defIdent := goputil.DefIdentFor(getTypeInfo(r.proj), method); defIdent != nil {
 		if selectorTypeName == "" {
 			selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 		}
@@ -904,7 +904,7 @@ func (s *Server) inspectSpxSpriteResourceRefAtExpr(result *compileResult, expr g
 				return nil
 			}
 			spxSpriteName = obj.Name()
-			defIdent := goputil.DefIdentFor(result.proj, obj)
+			defIdent := goputil.DefIdentFor(typeInfo, obj)
 			if defIdent == ident {
 				spxResourceRefKind = SpxResourceRefKindAutoBinding
 			} else {
@@ -1082,7 +1082,7 @@ func (s *Server) inspectSpxSoundResourceRefAtExpr(result *compileResult, expr go
 			return nil
 		}
 		spxSoundName = obj.Name()
-		defIdent := goputil.DefIdentFor(result.proj, obj)
+		defIdent := goputil.DefIdentFor(typeInfo, obj)
 		if defIdent == ident {
 			spxResourceRefKind = SpxResourceRefKindAutoBinding
 		} else {
