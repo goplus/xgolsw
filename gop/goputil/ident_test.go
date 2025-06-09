@@ -212,22 +212,26 @@ func test() {
 	require.NotNil(t, yObj)
 
 	t.Run("FindDefinition", func(t *testing.T) {
-		ident := DefIdentFor(proj, xObj)
+		ident := DefIdentFor(typeInfo, xObj)
 		require.NotNil(t, ident)
 		assert.Equal(t, "x", ident.Name)
 
-		ident = DefIdentFor(proj, yObj)
+		ident = DefIdentFor(typeInfo, yObj)
 		require.NotNil(t, ident)
 		assert.Equal(t, "y", ident.Name)
 	})
 
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		assert.Nil(t, DefIdentFor(nil, xObj))
+	})
+
 	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, DefIdentFor(proj, nil))
+		assert.Nil(t, DefIdentFor(typeInfo, nil))
 	})
 
 	t.Run("UnknownObject", func(t *testing.T) {
 		unknownObj := types.NewVar(token.NoPos, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, DefIdentFor(proj, unknownObj))
+		assert.Nil(t, DefIdentFor(typeInfo, unknownObj))
 	})
 }
 
@@ -258,19 +262,23 @@ func test() {
 	require.NotNil(t, xObj)
 
 	t.Run("FindReferences", func(t *testing.T) {
-		refs := RefIdentsFor(proj, xObj)
+		refs := RefIdentsFor(typeInfo, xObj)
 		require.Len(t, refs, 3) // y = x + 2, z := x + y, println(z, x)
 		for _, ref := range refs {
 			assert.Equal(t, "x", ref.Name)
 		}
 	})
 
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		assert.Nil(t, RefIdentsFor(nil, xObj))
+	})
+
 	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, RefIdentsFor(proj, nil))
+		assert.Nil(t, RefIdentsFor(typeInfo, nil))
 	})
 
 	t.Run("UnknownObject", func(t *testing.T) {
 		unknownObj := types.NewVar(token.NoPos, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, RefIdentsFor(proj, unknownObj))
+		assert.Nil(t, RefIdentsFor(typeInfo, unknownObj))
 	})
 }

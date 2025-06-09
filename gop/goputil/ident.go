@@ -21,6 +21,7 @@ import (
 
 	"github.com/goplus/gop/ast"
 	"github.com/goplus/gop/token"
+	"github.com/goplus/gop/x/typesutil"
 	"github.com/goplus/goxlsw/gop"
 )
 
@@ -42,7 +43,7 @@ func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast
 		collectIdentAtLine(ident)
 	}
 	for ident, obj := range typeInfo.Uses {
-		if defIdent := DefIdentFor(proj, obj); defIdent != nil && defIdent.Implicit() {
+		if defIdent := DefIdentFor(typeInfo, obj); defIdent != nil && defIdent.Implicit() {
 			continue
 		}
 		collectIdentAtLine(ident)
@@ -73,11 +74,10 @@ func IdentAtPosition(proj *gop.Project, astFile *ast.File, position token.Positi
 }
 
 // DefIdentFor returns the identifier where the given object is defined.
-func DefIdentFor(proj *gop.Project, obj types.Object) *ast.Ident {
-	if obj == nil {
+func DefIdentFor(typeInfo *typesutil.Info, obj types.Object) *ast.Ident {
+	if typeInfo == nil || obj == nil {
 		return nil
 	}
-	_, typeInfo, _, _ := proj.TypeInfo()
 	for ident, o := range typeInfo.Defs {
 		if o == obj {
 			return ident
@@ -87,11 +87,10 @@ func DefIdentFor(proj *gop.Project, obj types.Object) *ast.Ident {
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced.
-func RefIdentsFor(proj *gop.Project, obj types.Object) []*ast.Ident {
-	if obj == nil {
+func RefIdentsFor(typeInfo *typesutil.Info, obj types.Object) []*ast.Ident {
+	if typeInfo == nil || obj == nil {
 		return nil
 	}
-	_, typeInfo, _, _ := proj.TypeInfo()
 	var idents []*ast.Ident
 	for ident, o := range typeInfo.Uses {
 		if o == obj {

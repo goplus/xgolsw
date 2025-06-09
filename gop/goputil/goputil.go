@@ -45,7 +45,8 @@ func RangeASTSpecs(proj *gop.Project, tok token.Token, f func(spec ast.Spec)) {
 // IsDefinedInClassFieldsDecl reports whether the given object is defined in
 // the class fields declaration of an AST file.
 func IsDefinedInClassFieldsDecl(proj *gop.Project, obj types.Object) bool {
-	defIdent := DefIdentFor(proj, obj)
+	_, typeInfo, _, _ := proj.TypeInfo()
+	defIdent := DefIdentFor(typeInfo, obj)
 	if defIdent == nil {
 		return false
 	}
