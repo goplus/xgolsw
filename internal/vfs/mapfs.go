@@ -1,7 +1,6 @@
 package vfs
 
 import (
-	"go/types"
 	"io/fs"
 	"path"
 	"sort"
@@ -18,25 +17,17 @@ type MapFS = xgo.Project
 // RangeSpriteNames iterates sprite names.
 func RangeSpriteNames(rootFS *MapFS, f func(name string) bool) {
 	rootFS.RangeFiles(func(filename string) bool {
+		if filename == "main.spx" {
+			// Skip the main.spx file, as it is not a sprite file.
+			return true
+		}
+
 		name := path.Base(filename)
 		if strings.HasSuffix(name, ".spx") {
 			return f(name[:len(name)-4])
 		}
 		return true
 	})
-}
-
-// HasSpriteType checks if there is specified sprite type.
-func HasSpriteType(rootFS *MapFS, typ types.Type) (has bool) {
-	pkg, _, _, _ := rootFS.TypeInfo()
-	RangeSpriteNames(rootFS, func(name string) bool {
-		if obj := pkg.Scope().Lookup(name); obj != nil && obj.Type() == typ {
-			has = true
-			return false
-		}
-		return true
-	})
-	return
 }
 
 // ListSpxFiles returns a list of .spx files in the rootFS.
