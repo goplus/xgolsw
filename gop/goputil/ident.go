@@ -29,9 +29,12 @@ import (
 func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast.Ident) {
 	fset := proj.Fset
 	astFilePos := fset.Position(astFile.Pos())
-	collectIdentAtLine := func(ident *ast.Ident) {
+	collectIdentAtLine := func(ident *ast.Ident, skip func(*ast.Ident) bool) {
 		identPos := fset.Position(ident.Pos())
 		if identPos.Filename == astFilePos.Filename && identPos.Line == line {
+			if skip != nil && skip(ident) {
+				return
+			}
 			idents = append(idents, ident)
 		}
 	}
@@ -40,13 +43,13 @@ func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast
 		if ident.Implicit() {
 			continue
 		}
-		collectIdentAtLine(ident)
+		collectIdentAtLine(ident, nil)
 	}
 	for ident, obj := range typeInfo.Uses {
-		if defIdent := DefIdentFor(typeInfo, obj); defIdent != nil && defIdent.Implicit() {
-			continue
-		}
-		collectIdentAtLine(ident)
+		collectIdentAtLine(ident, func(i *ast.Ident) bool {
+			defIdent := DefIdentFor(typeInfo, obj)
+			return defIdent != nil && defIdent.Implicit()
+		})
 	}
 	return
 }
