@@ -18,7 +18,6 @@ package goputil
 
 import (
 	"go/types"
-	"slices"
 	"testing"
 
 	"github.com/goplus/gop/ast"
@@ -27,50 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestIdentsAtLine(t *testing.T) {
-	proj := gop.NewProject(nil, map[string]gop.File{
-		"main.gop": file(`
-var x = 1
-var y = 2
-
-func test() {
-	z := x + y
-	println(z)
-}
-`),
-	}, gop.FeatAll)
-
-	astFile, err := proj.AST("main.gop")
-	require.NoError(t, err)
-
-	t.Run("VariableDeclarations", func(t *testing.T) {
-		// Line 2: var x = 1
-		idents := IdentsAtLine(proj, astFile, 2)
-		require.Len(t, idents, 1)
-		assert.Equal(t, "x", idents[0].Name)
-
-		// Line 3: var y = 2
-		idents = IdentsAtLine(proj, astFile, 3)
-		require.Len(t, idents, 1)
-		assert.Equal(t, "y", idents[0].Name)
-	})
-
-	t.Run("FunctionBody", func(t *testing.T) {
-		// Line 6: z := x + y
-		idents := IdentsAtLine(proj, astFile, 6)
-		slices.SortFunc(idents, func(a, b *ast.Ident) int { return int(a.Pos()) - int(b.Pos()) })
-		require.Len(t, idents, 3)
-		assert.Equal(t, "z", idents[0].Name)
-		assert.Equal(t, "x", idents[1].Name)
-		assert.Equal(t, "y", idents[2].Name)
-	})
-
-	t.Run("EmptyLine", func(t *testing.T) {
-		idents := IdentsAtLine(proj, astFile, 1) // Empty line
-		assert.Empty(t, idents)
-	})
-}
 
 func TestIdentAtPosition(t *testing.T) {
 	proj := gop.NewProject(nil, map[string]gop.File{
@@ -178,6 +133,59 @@ func test() {
 		assert.Equal(t, "longVarName", ident.Name)
 
 		ident = IdentAtPosition(proj, astFile, pos(2, 17)) // just after 'longVarName'
+		assert.Nil(t, ident)
+	})
+
+	t.Run("OverlappingIdentifiers", func(t *testing.T) {
+		projOverlap := gop.NewProject(nil, map[string]gop.File{
+			"main.gop": file(`
+var i = 1
+var ii = 2
+
+func test() {
+	result := i + ii
+}
+`),
+		}, gop.FeatAll)
+
+		astFileOverlap, err := projOverlap.AST("main.gop")
+		require.NoError(t, err)
+
+		fsetOverlap := projOverlap.Fset
+		posOverlap := func(line, column int) token.Position {
+			return token.Position{Filename: fsetOverlap.Position(astFileOverlap.Pos()).Filename, Line: line, Column: column}
+		}
+
+		// Should find 'i' not 'ii' when at the start of 'i'.
+		ident := IdentAtPosition(projOverlap, astFileOverlap, posOverlap(2, 5)) // 'i' position
+		require.NotNil(t, ident)
+		assert.Equal(t, "i", ident.Name)
+
+		// Should find 'ii' when at the second character.
+		ident = IdentAtPosition(projOverlap, astFileOverlap, posOverlap(3, 5)) // 'ii' position
+		require.NotNil(t, ident)
+		assert.Equal(t, "ii", ident.Name)
+	})
+
+	t.Run("EdgeCases", func(t *testing.T) {
+		// Invalid line numbers.
+		ident := IdentAtPosition(proj, astFile, pos(0, 1)) // line 0
+		assert.Nil(t, ident)
+
+		ident = IdentAtPosition(proj, astFile, pos(100, 1)) // line beyond file
+		assert.Nil(t, ident)
+
+		// Wrong filename.
+		wrongFilenamePos := token.Position{
+			Filename: "wrong.gop",
+			Line:     2,
+			Column:   5,
+		}
+		ident = IdentAtPosition(proj, astFile, wrongFilenamePos)
+		assert.Nil(t, ident)
+
+		// Very high column number.
+		ident = IdentAtPosition(proj, astFile, pos(2, 1000))
 		assert.Nil(t, ident)
 	})
 }

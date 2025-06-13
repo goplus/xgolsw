@@ -25,52 +25,70 @@ import (
 	"github.com/goplus/goxlsw/gop"
 )
 
-// IdentsAtLine returns the identifiers at the given line in the given AST file.
-func IdentsAtLine(proj *gop.Project, astFile *ast.File, line int) (idents []*ast.Ident) {
-	fset := proj.Fset
-	astFilePos := fset.Position(astFile.Pos())
-	collectIdentAtLine := func(ident *ast.Ident, skip func(*ast.Ident) bool) {
-		identPos := fset.Position(ident.Pos())
-		if identPos.Filename == astFilePos.Filename && identPos.Line == line {
-			if skip != nil && skip(ident) {
-				return
-			}
-			idents = append(idents, ident)
-		}
-	}
-	_, typeInfo, _, _ := proj.TypeInfo()
-	for ident := range typeInfo.Defs {
-		if ident.Implicit() {
-			continue
-		}
-		collectIdentAtLine(ident, nil)
-	}
-	for ident, obj := range typeInfo.Uses {
-		collectIdentAtLine(ident, func(i *ast.Ident) bool {
-			defIdent := DefIdentFor(typeInfo, obj)
-			return defIdent != nil && defIdent.Implicit()
-		})
-	}
-	return
-}
-
 // IdentAtPosition returns the identifier at the given position in the given AST file.
 func IdentAtPosition(proj *gop.Project, astFile *ast.File, position token.Position) *ast.Ident {
+	fset := proj.Fset
+	astFilePosition := fset.Position(astFile.Pos())
+	if astFilePosition.Filename != position.Filename {
+		return nil
+	}
+
+	tokenFile := PosTokenFile(proj, astFile.Pos())
+	if tokenFile == nil {
+		return nil
+	}
+	if position.Line < 1 || position.Line > tokenFile.LineCount() {
+		return nil
+	}
+
+	var (
+		linePos = tokenFile.LineStart(position.Line)
+		lineEnd token.Pos
+	)
+	if position.Line < tokenFile.LineCount() {
+		lineEnd = tokenFile.LineStart(position.Line + 1)
+	} else {
+		lineEnd = token.Pos(tokenFile.Base() + tokenFile.Size())
+	}
+
 	var (
 		bestIdent    *ast.Ident
 		bestNodeSpan int
 	)
-	for _, ident := range IdentsAtLine(proj, astFile, position.Line) {
-		identPos := proj.Fset.Position(ident.Pos())
-		identEnd := proj.Fset.Position(ident.End())
-		if position.Column < identPos.Column || position.Column > identEnd.Column {
-			continue
+	checkIdent := func(ident *ast.Ident) (isBestPossibleMatch bool) {
+		if ident.Implicit() {
+			return
 		}
 
-		nodeSpan := identEnd.Column - identPos.Column
+		identPos := ident.Pos()
+		if identPos < linePos || identPos >= lineEnd {
+			return
+		}
+		identPosPosition := fset.Position(identPos)
+		identEndPosition := fset.Position(ident.End())
+		if identPosPosition.Column > position.Column || identEndPosition.Column < position.Column {
+			return
+		}
+
+		// Select the identifier with the smallest span when multiple identifiers overlap.
+		nodeSpan := identEndPosition.Column - identPosPosition.Column
 		if bestIdent == nil || nodeSpan < bestNodeSpan {
 			bestIdent = ident
 			bestNodeSpan = nodeSpan
+			isBestPossibleMatch = bestNodeSpan == 1 && identPosPosition.Column == position.Column
+		}
+		return
+	}
+
+	_, typeInfo, _, _ := proj.TypeInfo()
+	for ident := range typeInfo.Defs {
+		if checkIdent(ident) {
+			return ident
+		}
+	}
+	for ident := range typeInfo.Uses {
+		if checkIdent(ident) {
+			return ident
 		}
 	}
 	return bestIdent
