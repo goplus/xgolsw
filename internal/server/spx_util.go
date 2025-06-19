@@ -120,6 +120,11 @@ func spxResourceRefAtASTFilePosition(proj *xgo.Project, astFile *xgoast.File, po
 		return true
 	})
 
+	resourceSet := inspectForSpxResourceSet(proj)
+	if resourceSet == nil {
+		return nil
+	}
+
 	// Check all identifier definitions.
 	for ident, obj := range typeInfo.Defs {
 		if !filter(ident) {
@@ -142,6 +147,32 @@ func spxResourceRefAtASTFilePosition(proj *xgo.Project, astFile *xgoast.File, po
 			expr := valueSpec.Values[idx]
 
 			return inspectSpxResourceRefForTypeAtExpr(proj, expr, xgoutil.DerefType(obj.Type()), nil)
+		}
+
+		v, ok := obj.(*types.Var)
+		if !ok {
+			continue
+		}
+		varType, ok := v.Type().(*types.Named)
+		if !ok {
+			continue
+		}
+
+		var (
+			isSpxSoundResourceAutoBinding  bool
+			isSpxSpriteResourceAutoBinding bool
+		)
+		switch varType {
+		case GetSpxSoundType():
+			isSpxSoundResourceAutoBinding = resourceSet.Sound(v.Name()) != nil
+		case GetSpxSpriteType():
+			isSpxSpriteResourceAutoBinding = resourceSet.Sprite(v.Name()) != nil
+		default:
+			_, hasSpxSpriteType := spxSpriteTypes[varType]
+			isSpxSpriteResourceAutoBinding = v.Name() == varType.Obj().Name() && hasSpxSpriteType
+		}
+		if !isSpxSoundResourceAutoBinding && !isSpxSpriteResourceAutoBinding {
+			continue
 		}
 
 		return inspectSpxResourceRefForTypeAtExpr(proj, ident, xgoutil.DerefType(obj.Type()), nil)
@@ -178,7 +209,7 @@ func spxResourceRefAtASTFilePosition(proj *xgo.Project, astFile *xgoast.File, po
 				recvType := xgoutil.DerefType(recv.Type())
 				switch recvType {
 				case GetSpxSpriteType(), GetSpxSpriteImplType():
-					spxSpriteResource = inspectSpxSpriteResourceAtExpr(proj, expr, recvType)
+					spxSpriteResource = inspectSpxSpriteResourceAtExpr(proj, resourceSet, expr, recvType)
 				}
 			}
 
@@ -540,7 +571,7 @@ func inspectForSpxResourceSet(proj *xgo.Project) *SpxResourceSet {
 // inspectSpxSpriteResourceRefAtExpr inspects an spx sprite resource reference
 // at an expression. It returns the spx sprite resource if it was successfully
 // retrieved.
-func inspectSpxSpriteResourceAtExpr(proj *xgo.Project, expr xgoast.Expr, declaredType types.Type) *SpxSpriteResource {
+func inspectSpxSpriteResourceAtExpr(proj *xgo.Project, resourceSet *SpxResourceSet, expr xgoast.Expr, declaredType types.Type) *SpxSpriteResource {
 	typeInfo := getTypeInfo(proj)
 	exprTV := typeInfo.Types[expr]
 
@@ -559,7 +590,7 @@ func inspectSpxSpriteResourceAtExpr(proj *xgo.Project, expr xgoast.Expr, declare
 			if !ok {
 				return nil
 			}
-			return inspectSpxSpriteResourceAtExpr(proj, ident, declaredType)
+			return inspectSpxSpriteResourceAtExpr(proj, resourceSet, ident, declaredType)
 		default:
 			return nil
 		}
@@ -584,10 +615,6 @@ func inspectSpxSpriteResourceAtExpr(proj *xgo.Project, expr xgoast.Expr, declare
 		}
 	}
 
-	resourceSet := inspectForSpxResourceSet(proj)
-	if resourceSet == nil {
-		return nil
-	}
 	spxSpriteResource := resourceSet.Sprite(spxSpriteName)
 	if spxSpriteResource == nil {
 		return nil
