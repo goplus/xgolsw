@@ -59,7 +59,6 @@ func FilterExprAtPosition(proj *xgo.Project, astFile *ast.File, position token.P
 			return
 		}
 
-		// Select the identifier with the smallest span when multiple identifiers overlap.
 		return true
 	}
 
