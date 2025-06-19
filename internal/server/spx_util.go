@@ -256,30 +256,6 @@ func spxResourceRefAtASTFilePosition(proj *xgo.Project, astFile *xgoast.File, po
 	return nil
 }
 
-// SpxResourceRefForIdent returns the spx resource reference at the
-// given position in the given AST file.
-func SpxResourceRefForExpr(proj *xgo.Project, expr xgoast.Expr) *SpxResourceRef {
-	pkg, info, _, _ := proj.TypeInfo()
-	typ := info.TypeOf(expr)
-	spxSpriteTypes := make(map[types.Type]struct{})
-	vfs.RangeSpriteNames(proj, func(name string) bool {
-		obj := pkg.Scope().Lookup(name)
-		if obj != nil {
-			named, ok := obj.Type().(*types.Named)
-			if ok {
-				spxSpriteTypes[named] = struct{}{}
-			}
-		}
-		return true
-	})
-
-	if _, ok := spxSpriteTypes[typ]; ok || isInspectableSpxResourceType(typ) {
-		return inspectSpxResourceRefForTypeAtExpr(proj, expr, xgoutil.DerefType(typ), nil)
-	}
-
-	return nil
-}
-
 // inspectSpxResourceRefForTypeAtExpr inspects an spx resource reference for a
 // given type at an expression.
 func inspectSpxResourceRefForTypeAtExpr(proj *xgo.Project, expr xgoast.Expr, typ types.Type, spxSpriteResource *SpxSpriteResource) *SpxResourceRef {
@@ -399,9 +375,6 @@ func inspectSpxSoundResourceRefAtExpr(proj *xgo.Project, expr xgoast.Expr, decla
 		if obj == nil {
 			return nil
 		}
-		// if _, ok := result.spxSoundResourceAutoBindings[obj]; !ok {
-		// 	return nil
-		// }
 		spxSoundName = obj.Name()
 		defIdent := xgoutil.DefIdentFor(typeInfo, obj)
 		if defIdent == ident {
@@ -670,9 +643,6 @@ func inspectSpxSpriteResourceRefAtExpr(proj *xgo.Project, expr xgoast.Expr, decl
 			if obj == nil {
 				return nil
 			}
-			// if _, ok := result.spxSpriteResourceAutoBindings[obj]; !ok {
-			// 	return nil
-			// }
 			spxSpriteName = obj.Name()
 			defIdent := xgoutil.DefIdentFor(typeInfo, obj)
 			if defIdent == ident {
