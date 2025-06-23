@@ -334,8 +334,6 @@ func (s *Server) run(id jsonrpc2.ID, fn func() error) {
 	}()
 }
 
-var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
-
 // runWithResponse runs the given function in a goroutine and handles the response.
 func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
 	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
@@ -358,6 +356,8 @@ func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
 	})
 }
 
+var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#cancelRequest
 func (s *Server) cancelRequest(params *CancelParams) error {
 	if params == nil {
@@ -371,8 +371,6 @@ func (s *Server) cancelRequest(params *CancelParams) error {
 		if cancelWithCause, ok := cancelCauseFunc.(context.CancelCauseFunc); ok {
 			cancelWithCause(requestCancelled)
 			return nil
-		} else {
-			return fmt.Errorf("cancelRequest: expected context.CancelCauseFunc, got %T", cancelCauseFunc)
 		}
 	}
 	return nil
