@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -47,10 +48,8 @@ type Server struct {
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
 	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
-	// Set of queued request IDs.
-	// Queued requests are those that have been received by the server but not yet started processing.
-	queuedRequests sync.Map
-	scheduler      Scheduler
+	cancelCauseFuncs sync.Map      // Map of request IDs to cancel functions (with cause).
+	scheduler        Scheduler
 }
 
 func (s *Server) getProj() *xgo.Project {
@@ -61,18 +60,6 @@ func (s *Server) getProjWithFile() *xgo.Project {
 	proj := s.workspaceRootFS
 	proj.UpdateFiles(s.fileMapGetter())
 	return proj
-}
-
-// enqueueRequest adds the request with the given ID to the queue.
-func (s *Server) enqueueRequest(id jsonrpc2.ID) {
-	s.queuedRequests.Store(id, struct{}{})
-}
-
-// dequeueRequest removes the request with the given ID from the queue.
-// It returns true if the request was found and removed, false otherwise.
-func (s *Server) dequeueRequest(id jsonrpc2.ID) bool {
-	_, ok := s.queuedRequests.LoadAndDelete(id)
-	return ok
 }
 
 // New creates a new Server instance.
@@ -347,14 +334,21 @@ func (s *Server) run(id jsonrpc2.ID, fn func() error) {
 	}()
 }
 
+var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+
 // runWithResponse runs the given function in a goroutine and handles the response.
 func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
-	s.enqueueRequest(id)
+	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
+	s.cancelCauseFuncs.Store(id, cancelCauseFunc)
+
 	s.run(id, func() error {
+		defer s.cancelCauseFuncs.Delete(id)
+
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
-		if !s.dequeueRequest(id) {
-			return s.replyError(id, jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled"))
+		if ctx.Err() != nil {
+			return s.replyError(id, context.Cause(ctx))
 		}
+
 		result, err := fn()
 		resp, err := jsonrpc2.NewResponse(id, result, err)
 		if err != nil {
@@ -373,7 +367,14 @@ func (s *Server) cancelRequest(params *CancelParams) error {
 	if err != nil {
 		return fmt.Errorf("cancelRequest: %w", err)
 	}
-	s.dequeueRequest(id)
+	if cancelCauseFunc, ok := s.cancelCauseFuncs.Load(id); ok {
+		if cancelWithCause, ok := cancelCauseFunc.(context.CancelCauseFunc); ok {
+			cancelWithCause(requestCancelled)
+			return nil
+		} else {
+			return fmt.Errorf("cancelRequest: expected context.CancelCauseFunc, got %T", cancelCauseFunc)
+		}
+	}
 	return nil
 }
 
