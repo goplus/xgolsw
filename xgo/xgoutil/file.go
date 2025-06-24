@@ -38,7 +38,7 @@ func PosTokenFile(proj *xgo.Project, pos token.Pos) *token.File {
 	return proj.Fset.File(pos)
 }
 
-// NodeTokenPos returns the token position for the given node.
+// NodeTokenFile returns the token file for the given node.
 func NodeTokenFile(proj *xgo.Project, node ast.Node) *token.File {
 	return PosTokenFile(proj, node.Pos())
 }

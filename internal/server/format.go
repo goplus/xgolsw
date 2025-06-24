@@ -75,7 +75,7 @@ type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, e
 //  2. Lambda parameter elimination
 //  3. Declaration reordering
 func (s *Server) formatSpx(snapshot *xgo.Project, spxFile string, original []byte) ([]byte, error) {
-	var formatted []byte = original
+	formatted := original
 	for _, formatter := range []spxFormatter{
 		s.formatSpxXGo,
 		s.formatSpxLambda,
@@ -630,7 +630,7 @@ func getFuncAndOverloadsType(proj *xgo.Project, funIdent *xgoast.Ident) (fun *ty
 		if !ok {
 			return true
 		}
-		if pn, overloadId := xgoutil.ParseXGoFuncName(method.Name()); pn == funIdent.Name && overloadId == nil {
+		if pn, overloadID := xgoutil.ParseXGoFuncName(method.Name()); pn == funIdent.Name && overloadID == nil {
 			underlineFunType = method
 			return false
 		}

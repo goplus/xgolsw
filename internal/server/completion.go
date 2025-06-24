@@ -722,12 +722,12 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		return nil
 	}
 
-	var spxResourceIds []SpxResourceID
+	var spxResourceIDs []SpxResourceID
 	switch typ {
 	case GetSpxBackdropNameType():
-		spxResourceIds = slices.Grow(spxResourceIds, len(ctx.result.spxResourceSet.backdrops))
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.backdrops))
 		for spxBackdropName := range ctx.result.spxResourceSet.backdrops {
-			spxResourceIds = append(spxResourceIds, SpxBackdropResourceID{spxBackdropName})
+			spxResourceIDs = append(spxResourceIDs, SpxBackdropResourceID{spxBackdropName})
 		}
 	case GetSpxSpriteType(), GetSpxSpriteImplType():
 		for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
@@ -736,17 +736,17 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 			}
 		}
 	case GetSpxSpriteNameType():
-		spxResourceIds = slices.Grow(spxResourceIds, len(ctx.result.spxResourceSet.sprites))
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sprites))
 		for spxSpriteName := range ctx.result.spxResourceSet.sprites {
-			spxResourceIds = append(spxResourceIds, SpxSpriteResourceID{spxSpriteName})
+			spxResourceIDs = append(spxResourceIDs, SpxSpriteResourceID{spxSpriteName})
 		}
 	case GetSpxSpriteCostumeNameType():
 		expectedSpxSprite := ctx.getSpxSpriteResource()
 		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
 			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
-				spxResourceIds = slices.Grow(spxResourceIds, len(spxSprite.NormalCostumes))
+				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.NormalCostumes))
 				for _, spxSpriteCostume := range spxSprite.NormalCostumes {
-					spxResourceIds = append(spxResourceIds, SpxSpriteCostumeResourceID{spxSprite.Name, spxSpriteCostume.Name})
+					spxResourceIDs = append(spxResourceIDs, SpxSpriteCostumeResourceID{spxSprite.Name, spxSpriteCostume.Name})
 				}
 			}
 		}
@@ -754,9 +754,9 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		expectedSpxSprite := ctx.getSpxSpriteResource()
 		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
 			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
-				spxResourceIds = slices.Grow(spxResourceIds, len(spxSprite.Animations))
+				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.Animations))
 				for _, spxSpriteAnimation := range spxSprite.Animations {
-					spxResourceIds = append(spxResourceIds, SpxSpriteAnimationResourceID{spxSprite.Name, spxSpriteAnimation.Name})
+					spxResourceIDs = append(spxResourceIDs, SpxSpriteAnimationResourceID{spxSprite.Name, spxSpriteAnimation.Name})
 				}
 			}
 		}
@@ -767,25 +767,25 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 			}
 		}
 	case GetSpxSoundNameType():
-		spxResourceIds = slices.Grow(spxResourceIds, len(ctx.result.spxResourceSet.sounds))
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sounds))
 		for spxSoundName := range ctx.result.spxResourceSet.sounds {
-			spxResourceIds = append(spxResourceIds, SpxSoundResourceID{spxSoundName})
+			spxResourceIDs = append(spxResourceIDs, SpxSoundResourceID{spxSoundName})
 		}
 	case GetSpxWidgetNameType():
-		spxResourceIds = slices.Grow(spxResourceIds, len(ctx.result.spxResourceSet.widgets))
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.widgets))
 		for spxWidgetName := range ctx.result.spxResourceSet.widgets {
-			spxResourceIds = append(spxResourceIds, SpxWidgetResourceID{spxWidgetName})
+			spxResourceIDs = append(spxResourceIDs, SpxWidgetResourceID{spxWidgetName})
 		}
 	}
-	for _, spxResourceId := range spxResourceIds {
-		name := spxResourceId.Name()
+	for _, spxResourceID := range spxResourceIDs {
+		name := spxResourceID.Name()
 		if !ctx.inStringLit {
 			name = strconv.Quote(name)
 		}
 		ctx.itemSet.add(CompletionItem{
 			Label:            name,
 			Kind:             TextCompletion,
-			Documentation:    &Or_CompletionItem_documentation{Value: MarkupContent{Kind: Markdown, Value: spxResourceId.URI().HTML()}},
+			Documentation:    &Or_CompletionItem_documentation{Value: MarkupContent{Kind: Markdown, Value: spxResourceID.URI().HTML()}},
 			InsertText:       name,
 			InsertTextFormat: ToPtr(PlainTextTextFormat),
 		})
