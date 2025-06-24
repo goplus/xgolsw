@@ -48,7 +48,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json":    []byte(`{}`),
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
 		inputSlots, err := s.spxGetInputSlots(params)
@@ -219,7 +219,7 @@ var (
 	message   string
 `),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
 		inputSlots, err := s.spxGetInputSlots(params)
@@ -231,7 +231,7 @@ var (
 		m := map[string][]byte{
 			"main.spx": []byte(``),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
 		inputSlots, err := s.spxGetInputSlots(params)
@@ -241,7 +241,7 @@ var (
 
 	t.Run("NonExistentFile", func(t *testing.T) {
 		m := map[string][]byte{}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///nonexistent.spx"}}}
 		inputSlots, err := s.spxGetInputSlots(params)
@@ -253,7 +253,7 @@ var (
 		m := map[string][]byte{
 			"main.spx": []byte(`var a = 1`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{
 			{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}},
@@ -269,7 +269,7 @@ var (
 		m := map[string][]byte{
 			"main.spx": []byte(`var a = 1`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		params := []SpxGetInputSlotsParams{}
 		inputSlots, err := s.spxGetInputSlots(params)
@@ -361,7 +361,7 @@ onStart => {
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -571,7 +571,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -706,7 +706,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -796,7 +796,7 @@ onStart => {
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -964,7 +964,7 @@ onStart => {
 		"assets/sprites/MySprite/index.json": []byte(`{}`),
 		"assets/sounds/MySound/index.json":   []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -1086,7 +1086,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -1188,7 +1188,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -1412,7 +1412,7 @@ onStart => {
 		"assets/index.json":                  []byte(`{}`),
 		"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 	}
-	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m))
+	s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 	t.Run("MainFile", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
