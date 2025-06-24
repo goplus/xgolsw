@@ -30,7 +30,7 @@ type MessageReplier interface {
 }
 
 // FileMapGetter is a function that returns a map of file names to [vfs.MapFile]s.
-type FileMapGetter func() map[string]vfs.MapFile
+type FileMapGetter func() map[string]*vfs.MapFile
 
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
@@ -57,7 +57,7 @@ func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter) 
 	if err := mod.ImportClasses(); err != nil {
 		panic(fmt.Errorf("failed to import classes: %w", err))
 	}
-	mapFS.Path = "main"
+	mapFS.PkgPath = "main"
 	mapFS.Mod = mod
 	mapFS.Importer = internal.Importer
 	return &Server{

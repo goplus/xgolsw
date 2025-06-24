@@ -11,38 +11,37 @@ import (
 )
 
 type MapFile = xgo.File
-type MapFileImpl = xgo.FileImpl
 type MapFS = xgo.Project
 
 // RangeSpriteNames iterates sprite names.
 func RangeSpriteNames(rootFS *MapFS, f func(name string) bool) {
-	rootFS.RangeFiles(func(filename string) bool {
+	for filename := range rootFS.Files() {
 		if filename == "main.spx" {
 			// Skip the main.spx file, as it is not a sprite file.
-			return true
+			continue
 		}
 
 		name := path.Base(filename)
 		if strings.HasSuffix(name, ".spx") {
-			return f(name[:len(name)-4])
+			if !f(name[:len(name)-4]) {
+				break
+			}
 		}
-		return true
-	})
+	}
 }
 
 // ListSpxFiles returns a list of .spx files in the rootFS.
 func ListSpxFiles(rootFS *MapFS) (files []string, err error) {
-	rootFS.RangeFiles(func(path string) bool {
+	for path := range rootFS.Files() {
 		if strings.HasSuffix(path, ".spx") {
 			files = append(files, path)
 		}
-		return true
-	})
+	}
 	return
 }
 
 // WithOverlay returns a new MapFS with overlay files.
-func WithOverlay(rootFS *MapFS, overlay map[string]MapFile) *MapFS {
+func WithOverlay(rootFS *MapFS, overlay map[string]*MapFile) *MapFS {
 	ret := rootFS.Snapshot()
 	for k, v := range overlay {
 		ret.PutFile(k, v)
@@ -71,7 +70,7 @@ func (fs SubFS) ReadFile(name string) ([]byte, error) {
 func (fs SubFS) Readdir(name string) (ret []fs.FileInfo, err error) {
 	prefix := fs.base + "/" + name + "/"
 	entries := map[string]int{}
-	fs.root.RangeFileContents(func(path string, file xgo.File) bool {
+	for path, file := range fs.root.Files() {
 		if strings.HasPrefix(path, prefix) {
 			name := path[len(prefix):]
 			if i := strings.Index(name, "/"); i >= 0 {
@@ -80,8 +79,7 @@ func (fs SubFS) Readdir(name string) (ret []fs.FileInfo, err error) {
 				entries[name] = len(file.Content)
 			}
 		}
-		return true
-	})
+	}
 	for name, size := range entries {
 		if size < 0 {
 			ret = append(ret, xfs.NewDirInfo(name))

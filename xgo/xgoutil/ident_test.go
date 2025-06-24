@@ -28,7 +28,7 @@ import (
 )
 
 func TestIdentAtPosition(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 var longVarName = 1
 var short = 2
@@ -137,7 +137,7 @@ func test() {
 	})
 
 	t.Run("OverlappingIdentifiers", func(t *testing.T) {
-		projOverlap := xgo.NewProject(nil, map[string]xgo.File{
+		projOverlap := xgo.NewProject(nil, map[string]*xgo.File{
 			"main.xgo": file(`
 var i = 1
 var ii = 2
@@ -191,7 +191,7 @@ func test() {
 }
 
 func TestDefIdentFor(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 var x = 1
 var y = x + 2
@@ -244,7 +244,7 @@ func test() {
 }
 
 func TestRefIdentsFor(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 var x = 1
 var y = x + 2
