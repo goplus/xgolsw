@@ -26,7 +26,7 @@ import (
 )
 
 func TestPosFilename(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 
@@ -40,7 +40,7 @@ func TestPosFilename(t *testing.T) {
 }
 
 func TestNodeFilename(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 
@@ -54,7 +54,7 @@ func TestNodeFilename(t *testing.T) {
 }
 
 func TestPosTokenFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 
@@ -67,7 +67,7 @@ func TestPosTokenFile(t *testing.T) {
 }
 
 func TestNodeTokenFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 
@@ -80,7 +80,7 @@ func TestNodeTokenFile(t *testing.T) {
 }
 
 func TestPosASTFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 
@@ -93,7 +93,7 @@ func TestPosASTFile(t *testing.T) {
 }
 
 func TestNodeASTFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file("var x = 1"),
 	}, xgo.FeatAll)
 

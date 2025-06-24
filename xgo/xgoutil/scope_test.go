@@ -27,7 +27,7 @@ import (
 )
 
 func TestInnermostScopeAt(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 var x = 1
 

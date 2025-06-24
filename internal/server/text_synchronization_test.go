@@ -7,6 +7,7 @@ import (
 	"time"
 
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
@@ -25,8 +26,8 @@ func (m *MockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	return nil
 }
 
-func file(text string) xgo.File {
-	return &xgo.FileImpl{Content: []byte(text)}
+func file(text string) *xgo.File {
+	return &vfs.MapFile{Content: []byte(text)}
 }
 
 // strPtr returns a pointer to the given string
@@ -37,13 +38,13 @@ func strPtr(s string) *string {
 func TestModifyFiles(t *testing.T) {
 	tests := []struct {
 		name    string
-		initial map[string]xgo.File
+		initial map[string]*xgo.File
 		changes []FileChange
 		want    map[string]string // path -> expected content
 	}{
 		{
 			name:    "add new files",
-			initial: map[string]xgo.File{},
+			initial: map[string]*xgo.File{},
 			changes: []FileChange{
 				{
 					Path:    "new.go",
@@ -57,8 +58,8 @@ func TestModifyFiles(t *testing.T) {
 		},
 		{
 			name: "update existing file with newer version",
-			initial: map[string]xgo.File{
-				"main.go": &xgo.FileImpl{
+			initial: map[string]*xgo.File{
+				"main.go": &vfs.MapFile{
 					Content: []byte("old content"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -76,8 +77,8 @@ func TestModifyFiles(t *testing.T) {
 		},
 		{
 			name: "ignore older version update",
-			initial: map[string]xgo.File{
-				"main.go": &xgo.FileImpl{
+			initial: map[string]*xgo.File{
+				"main.go": &vfs.MapFile{
 					Content: []byte("current content"),
 					Version: 200,
 				},
@@ -95,12 +96,12 @@ func TestModifyFiles(t *testing.T) {
 		},
 		{
 			name: "multiple file changes",
-			initial: map[string]xgo.File{
-				"file1.go": &xgo.FileImpl{
+			initial: map[string]*xgo.File{
+				"file1.go": &vfs.MapFile{
 					Content: []byte("content1"),
 					ModTime: time.UnixMilli(100),
 				},
-				"file2.go": &xgo.FileImpl{
+				"file2.go": &vfs.MapFile{
 					Content: []byte("content2"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -152,13 +153,12 @@ func TestModifyFiles(t *testing.T) {
 
 			// Verify no extra files exist
 			count := 0
-			proj.RangeFiles(func(path string) bool {
+			for path := range proj.Files() {
 				count++
 				if _, ok := tt.want[path]; !ok {
 					t.Errorf("unexpected file: %s", path)
 				}
-				return true
-			})
+			}
 			if count != len(tt.want) {
 				t.Errorf("got %d files, want %d", count, len(tt.want))
 			}
@@ -242,7 +242,7 @@ func TestDidOpen(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment with real Project instead of MockProject
-			proj := xgo.NewProject(token.NewFileSet(), make(map[string]xgo.File), 0)
+			proj := xgo.NewProject(token.NewFileSet(), make(map[string]*xgo.File), 0)
 			proj.PutFile(tt.expectedPath, file("mock content"))
 			mockReplier := &MockReplier{}
 
@@ -403,10 +403,10 @@ func TestDidChange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment with initial file content
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 			path := "test.xgo"
 
-			files[path] = &xgo.FileImpl{
+			files[path] = &vfs.MapFile{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Time{},
 			}
@@ -505,15 +505,15 @@ func TestDidSave(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := xgotoken.NewFileSet()
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 			path := "test.xgo"
 
-			files[path] = &xgo.FileImpl{
+			files[path] = &vfs.MapFile{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Time{},
 			}
 
-			proj := xgo.NewProject(fset, files, xgo.FeatAST)
+			proj := xgo.NewProject(fset, files, xgo.FeatASTCache)
 			mockReplier := &MockReplier{}
 
 			// Create a TestServer
@@ -570,15 +570,15 @@ func TestDidClose(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := xgotoken.NewFileSet()
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
-			files[path] = &xgo.FileImpl{
+			files[path] = &vfs.MapFile{
 				Content: []byte("package main"),
 				ModTime: time.Time{},
 			}
 
-			proj := xgo.NewProject(fset, files, xgo.FeatAST)
+			proj := xgo.NewProject(fset, files, xgo.FeatASTCache)
 			mockReplier := &MockReplier{}
 
 			// Create a TestServer
@@ -700,16 +700,16 @@ func TestChangedText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := xgotoken.NewFileSet()
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
 			// Create initial file
-			files[path] = &xgo.FileImpl{
+			files[path] = &vfs.MapFile{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Now(),
 			}
 
-			proj := xgo.NewProject(fset, files, xgo.FeatAST)
+			proj := xgo.NewProject(fset, files, xgo.FeatASTCache)
 
 			// For AST parsing to work, we need a real file with content
 			// parsed into the AST before we can apply changes
@@ -842,17 +842,17 @@ func TestApplyIncrementalChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := xgotoken.NewFileSet()
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
 			if tt.initialContent != "" {
-				files[path] = &xgo.FileImpl{
+				files[path] = &vfs.MapFile{
 					Content: []byte(tt.initialContent),
 					ModTime: time.Now(),
 				}
 			}
 
-			proj := xgo.NewProject(fset, files, xgo.FeatAST)
+			proj := xgo.NewProject(fset, files, xgo.FeatASTCache)
 
 			// For tests with content, ensure we have AST
 			if tt.initialContent != "" {
@@ -940,10 +940,10 @@ func TestGetDiagnostics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := xgotoken.NewFileSet()
-			files := make(map[string]xgo.File)
+			files := make(map[string]*xgo.File)
 
 			// Create the test file
-			files[tt.path] = &xgo.FileImpl{
+			files[tt.path] = &vfs.MapFile{
 				Content: []byte(tt.content),
 				ModTime: time.Now(),
 			}

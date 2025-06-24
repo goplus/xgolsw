@@ -86,7 +86,7 @@ func (s *Server) formatSpx(snapshot *xgo.Project, spxFile string, original []byt
 			return nil, err
 		}
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			snapshot = vfs.WithOverlay(snapshot, map[string]vfs.MapFile{
+			snapshot = vfs.WithOverlay(snapshot, map[string]*vfs.MapFile{
 				spxFile: {
 					Content: subFormatted,
 					ModTime: time.Now(),

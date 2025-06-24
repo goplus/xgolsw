@@ -39,11 +39,11 @@ func NewSpxls(this js.Value, args []js.Value) any {
 		messageReplier: args[1],
 	}
 
-	filesMapGetter := func() map[string]vfs.MapFile {
+	filesMapGetter := func() map[string]*vfs.MapFile {
 		files := filesProvider.Invoke()
 		return ConvertJSFilesToMap(files)
 	}
-	s.server = server.New(xgo.NewProject(nil, filesMapGetter, xgo.FeatAll), s, filesMapGetter)
+	s.server = server.New(xgo.NewProject(nil, filesMapGetter(), xgo.FeatAll), s, filesMapGetter)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})
@@ -155,17 +155,17 @@ func JSUint8ArrayToBytes(uint8Array js.Value) []byte {
 }
 
 // ConvertJSFilesToMap converts a JavaScript object of files to a map.
-func ConvertJSFilesToMap(files js.Value) map[string]vfs.MapFile {
+func ConvertJSFilesToMap(files js.Value) map[string]*vfs.MapFile {
 	if files.Type() != js.TypeObject {
 		return nil
 	}
 	keys := js.Global().Get("Object").Call("keys", files)
-	result := make(map[string]vfs.MapFile, keys.Length())
+	result := make(map[string]*vfs.MapFile, keys.Length())
 	for i := range keys.Length() {
 		key := keys.Index(i).String()
 		value := files.Get(key)
 		if value.InstanceOf(js.Global().Get("Object")) {
-			result[key] = &vfs.MapFileImpl{
+			result[key] = &vfs.MapFile{
 				Content: JSUint8ArrayToBytes(value.Get("content")),
 				ModTime: time.UnixMilli(int64(value.Get("modTime").Int())),
 			}

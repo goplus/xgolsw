@@ -31,24 +31,33 @@ import (
 	"github.com/qiniu/x/errors"
 )
 
+// internalCacheKey represents internal cache keys to avoid conflicts with external packages.
+type internalCacheKey int
+
+const (
+	astKey internalCacheKey = iota
+	typeInfoKey
+	pkgDocKey
+)
+
 type supportedFeat struct {
 	feat     uint
-	kind     string
+	kind     any
 	builder  any
 	fileFeat bool
 }
 
 var supportedFeats = []supportedFeat{
-	{FeatAST, "ast", buildAST, true},
-	{FeatTypeInfo, "typeinfo", buildTypeInfo, false},
-	{FeatPkgDoc, "pkgdoc", buildPkgDoc, false},
+	{FeatASTCache, astKey, buildAST, true},
+	{FeatTypeInfoCache, typeInfoKey, buildTypeInfo, false},
+	{FeatPkgDocCache, pkgDocKey, buildPkgDoc, false},
 }
 
 // -----------------------------------------------------------------------------
 
 const parserMode = parser.ParseComments | parser.AllErrors
 
-func buildAST(proj *Project, path string, file File) (ret any, err error) {
+func buildAST(proj *Project, path string, file *File) (ret any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("parser panic: %v", r)
@@ -71,7 +80,7 @@ type astRet struct {
 
 // AST returns the AST of an XGo source file.
 func (p *Project) AST(path string) (file *ast.File, err error) {
-	c, err := p.FileCache("ast", path)
+	c, err := p.FileCache(astKey, path)
 	if err != nil {
 		return
 	}
@@ -90,8 +99,11 @@ func (p *Project) ASTFiles() (name string, ret []*ast.File, err error) {
 
 // -----------------------------------------------------------------------------
 
-func defaultNewTypeInfo() *typesutil.Info {
-	return &typesutil.Info{
+func buildTypeInfo(proj *Project) (any, error) {
+	var errs errors.List
+	name, files, astErr := proj.ASTFiles()
+	pkg := types.NewPackage(proj.PkgPath, name)
+	info := &typesutil.Info{
 		Types:      make(map[ast.Expr]types.TypeAndValue),
 		Defs:       make(map[*ast.Ident]types.Object),
 		Uses:       make(map[*ast.Ident]types.Object),
@@ -99,13 +111,6 @@ func defaultNewTypeInfo() *typesutil.Info {
 		Implicits:  make(map[ast.Node]types.Object),
 		Scopes:     make(map[ast.Node]*types.Scope),
 	}
-}
-
-func buildTypeInfo(proj *Project) (any, error) {
-	var errs errors.List
-	name, files, astErr := proj.ASTFiles()
-	pkg := types.NewPackage(proj.Path, name)
-	info := proj.NewTypeInfo()
 	chk := typesutil.NewChecker(
 		&types.Config{
 			Error:    func(err error) { errs.Add(err) },
@@ -134,7 +139,7 @@ type typeInfoRet struct {
 
 // TypeInfo returns the type information of an XGo project.
 func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, astErr error) {
-	c, err := p.Cache("typeinfo")
+	c, err := p.Cache(typeInfoKey)
 	if err != nil {
 		return
 	}
@@ -147,7 +152,7 @@ func (p *Project) TypeInfo() (pkg *types.Package, info *typesutil.Info, err, ast
 // RangeASTFiles iterates all XGo AST files.
 func (p *Project) RangeASTFiles(fn func(path string, f *ast.File) bool) (name string, err error) {
 	var errs scanner.ErrorList
-	p.RangeFiles(func(path string) bool {
+	for path := range p.Files() {
 		switch filepath.Ext(path) { // TODO(xsw): use xgomod
 		case ".spx", ".xgo", ".gop", ".gox":
 			f, e := p.AST(path)
@@ -156,7 +161,8 @@ func (p *Project) RangeASTFiles(fn func(path string, f *ast.File) bool) (name st
 					name = f.Name.Name
 				}
 				if !fn(path, f) {
-					return false
+					err = errs.Err()
+					return
 				}
 			}
 			if e != nil {
@@ -167,8 +173,7 @@ func (p *Project) RangeASTFiles(fn func(path string, f *ast.File) bool) (name st
 				}
 			}
 		}
-		return true
-	})
+	}
 	err = errs.Err()
 	return
 }
@@ -192,12 +197,12 @@ func buildPkgDoc(proj *Project) (ret any, err error) {
 	if err != nil {
 		return
 	}
-	return pkgdoc.NewXGo(proj.Path, pkg), nil
+	return pkgdoc.NewXGo(proj.PkgPath, pkg), nil
 }
 
 // PkgDoc returns the package documentation of an XGo project.
 func (p *Project) PkgDoc() (pkg *pkgdoc.PkgDoc, err error) {
-	c, err := p.Cache("pkgdoc")
+	c, err := p.Cache(pkgDocKey)
 	if err != nil {
 		return
 	}

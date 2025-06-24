@@ -18,299 +18,364 @@ package xgo
 
 import (
 	"errors"
+	"fmt"
 	"go/token"
 	"go/types"
 	"io/fs"
+	"iter"
+	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/goplus/mod/xgomod"
-	"github.com/goplus/xgo/x/typesutil"
-)
-
-var (
-	// ErrUnknownKind represents an error of unknown kind.
-	ErrUnknownKind = errors.New("unknown kind")
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	// FeatAST represents to build AST cache.
-	FeatAST = 1 << iota
+	// FeatASTCache enables AST cache building.
+	FeatASTCache = 1 << iota
 
-	// FeatTypeInfo represents to build TypeInfo cache.
-	FeatTypeInfo
+	// FeatTypeInfoCache enables TypeInfo cache building.
+	FeatTypeInfoCache
 
-	// FeatPkgDoc represents to build PkgDoc cache.
-	FeatPkgDoc
+	// FeatPkgDocCache enables PkgDoc cache building.
+	FeatPkgDocCache
 
-	FeatAll = FeatAST | FeatTypeInfo | FeatPkgDoc
+	// FeatAll enables all features.
+	FeatAll = FeatASTCache | FeatTypeInfoCache | FeatPkgDocCache
 )
 
-// -----------------------------------------------------------------------------
-
-// Builder represents a project level cache builder.
-type Builder = func(proj *Project) (any, error)
-
-// FileBuilder represents a file level cache builder.
-type FileBuilder = func(proj *Project, path string, file File) (any, error)
+// ErrUnknownCacheKind represents an error of unknown cache kind.
+var ErrUnknownCacheKind = errors.New("unknown cache kind")
 
 // -----------------------------------------------------------------------------
 
-type fileKey struct {
-	kind string
+// CacheBuilder represents a project level cache builder.
+type CacheBuilder = func(proj *Project) (any, error)
+
+// FileCacheBuilder represents a file level cache builder.
+type FileCacheBuilder = func(proj *Project, path string, file *File) (any, error)
+
+// CacheKind represents a kind of cache.
+type CacheKind = any
+
+// fileCacheKey represents a key for file-level cache entries.
+// It combines a cache kind with a file path to uniquely identify cached data.
+type fileCacheKey struct {
+	kind CacheKind
 	path string
 }
 
-// File represents a file.
-type File = *FileImpl
-type FileImpl struct {
+// -----------------------------------------------------------------------------
+
+// File represents a file in an XGo project.
+type File struct {
 	Content []byte
 	// Deprecated: ModTime is no longer supported due to lsp text sync specification. Use Version instead.
 	ModTime time.Time
 	Version int
 }
 
-// Project represents a project.
+// Project represents an XGo project.
 type Project struct {
-	files sync.Map // path => File
-
-	caches     sync.Map // kind => dataOrErr
-	fileCaches sync.Map // (kind, path) => dataOrErr
-
-	// kind => builder
-	builders     map[string]Builder
-	fileBuilders map[string]FileBuilder
-
-	// initialized by NewProject
-	Fset *token.FileSet
-
-	// The caller is responsible for initialization (required).
-	Mod *xgomod.Module
-
-	// The caller is responsible for initialization (optional).
-	Path string
-
-	// The caller is responsible for initialization (required).
+	PkgPath  string
+	Mod      *xgomod.Module
 	Importer types.Importer
+	Fset     *token.FileSet
 
-	// The caller is responsible for initialization (optional).
-	NewTypeInfo func() *typesutil.Info
+	mu            sync.RWMutex
+	files         map[string]*File
+	filesSnapshot atomic.Pointer[map[string]*File] // Immutable snapshot for lock-free file reads.
+
+	cacheBuilders map[CacheKind]CacheBuilder
+	caches        map[CacheKind]dataOrErr
+	cacheSFG      singleflight.Group
+
+	fileCacheBuilders map[CacheKind]FileCacheBuilder
+	fileCaches        map[fileCacheKey]dataOrErr
+	fileCacheSFG      singleflight.Group
 }
 
-// NewProject creates a new project.
-// files can be a map[string]File or a func() map[string]File.
-func NewProject(fset *token.FileSet, files any, feats uint) *Project {
+// NewProject creates a new project with optional static files and features.
+func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Project {
 	if fset == nil {
 		fset = token.NewFileSet()
 	}
-	ret := &Project{
-		Fset:         fset,
-		builders:     make(map[string]Builder),
-		fileBuilders: make(map[string]FileBuilder),
-		NewTypeInfo:  defaultNewTypeInfo,
+	proj := &Project{
+		Fset:              fset,
+		files:             make(map[string]*File),
+		cacheBuilders:     make(map[CacheKind]CacheBuilder),
+		caches:            make(map[CacheKind]dataOrErr),
+		fileCacheBuilders: make(map[CacheKind]FileCacheBuilder),
+		fileCaches:        make(map[fileCacheKey]dataOrErr),
 	}
 	if files != nil {
-		var iniFiles map[string]File
-		if v, ok := files.(map[string]File); ok {
-			iniFiles = v
-		} else if getf, ok := files.(func() map[string]File); ok {
-			iniFiles = getf()
-		} else {
-			panic("NewProject: invalid files")
-		}
-		for path, file := range iniFiles {
-			ret.files.Store(path, file)
-		}
+		maps.Copy(proj.files, files)
 	}
+	proj.updateFilesSnapshot()
 	for _, f := range supportedFeats {
 		if f.feat&feats != 0 {
 			if f.fileFeat {
-				ret.InitFileCache(f.kind, f.builder.(FileBuilder))
+				proj.RegisterFileCacheBuilder(f.kind, f.builder.(FileCacheBuilder))
 			} else {
-				ret.InitCache(f.kind, f.builder.(Builder))
+				proj.RegisterCacheBuilder(f.kind, f.builder.(CacheBuilder))
 			}
 		}
 	}
-	return ret
+	return proj
 }
 
 // -----------------------------------------------------------------------------
 
 // Snapshot creates a snapshot of the project.
 func (p *Project) Snapshot() *Project {
-	ret := &Project{
-		builders:     p.builders,
-		fileBuilders: p.fileBuilders,
-		Fset:         p.Fset,
-		Mod:          p.Mod,
-		Path:         p.Path,
-		Importer:     p.Importer,
-		NewTypeInfo:  p.NewTypeInfo,
-	}
-	copyMap(&ret.files, &p.files)
-	copyMap(&ret.caches, &p.caches)
-	copyMap(&ret.fileCaches, &p.fileCaches)
-	return ret
-}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-func copyMap(dst, src *sync.Map) {
-	src.Range(func(k, v any) bool {
-		dst.Store(k, v)
-		return true
-	})
+	proj := &Project{
+		PkgPath:           p.PkgPath,
+		Mod:               p.Mod,
+		Importer:          p.Importer,
+		Fset:              p.Fset,
+		files:             maps.Clone(p.files),
+		cacheBuilders:     maps.Clone(p.cacheBuilders),
+		caches:            maps.Clone(p.caches),
+		fileCacheBuilders: maps.Clone(p.fileCacheBuilders),
+		fileCaches:        maps.Clone(p.fileCaches),
+	}
+	proj.updateFilesSnapshot()
+	return proj
 }
 
 // -----------------------------------------------------------------------------
 
-func (p *Project) deleteCache(path string) {
-	p.caches.Clear()
-	for kind := range p.fileBuilders {
-		p.fileCaches.Delete(fileKey{kind, path})
-	}
+// Files returns an iterator over all file path-content pairs in the project.
+func (p *Project) Files() iter.Seq2[string, *File] {
+	snapshot := p.filesSnapshot.Load()
+	return maps.All(*snapshot)
 }
 
-// Rename renames a file in the project.
-func (p *Project) Rename(oldPath, newPath string) error {
-	if v, ok := p.files.Load(oldPath); ok {
-		if _, ok := p.files.LoadOrStore(newPath, v); ok {
-			return fs.ErrExist
-		}
-		p.files.Delete(oldPath)
-		p.deleteCache(oldPath)
-		return nil
-	}
-	return fs.ErrNotExist
+// File gets a file from the project.
+func (p *Project) File(path string) (file *File, ok bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	file, ok = p.files[path]
+	return
+}
+
+// PutFile puts a file into the project.
+func (p *Project) PutFile(path string, file *File) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.files[path] = file
+	p.updateFilesSnapshot()
+	p.deleteFileCache(path)
 }
 
 // DeleteFile deletes a file from the project.
 func (p *Project) DeleteFile(path string) error {
-	if _, ok := p.files.LoadAndDelete(path); ok {
-		p.deleteCache(path)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.files[path]; ok {
+		delete(p.files, path)
+		p.updateFilesSnapshot()
+		p.deleteFileCache(path)
 		return nil
 	}
 	return fs.ErrNotExist
 }
 
-// PutFile puts a file into the project.
-func (p *Project) PutFile(path string, file File) {
-	p.files.Store(path, file)
-	p.deleteCache(path)
+// RenameFile renames a file in the project.
+func (p *Project) RenameFile(oldPath, newPath string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	file, ok := p.files[oldPath]
+	if !ok {
+		return fs.ErrNotExist
+	}
+	if _, ok := p.files[newPath]; ok {
+		return fs.ErrExist
+	}
+
+	p.files[newPath] = file
+	delete(p.files, oldPath)
+	p.updateFilesSnapshot()
+	p.deleteFileCache(oldPath)
+	return nil
 }
 
 // UpdateFiles updates all files in the project with the provided map of files.
-// This will remove existing files not present in the new map and add/update files from the new map.
-func (p *Project) UpdateFiles(newFiles map[string]File) {
-	// Store existing paths to track deletions
-	var existingPaths []string
-	p.RangeFiles(func(path string) bool {
-		existingPaths = append(existingPaths, path)
-		return true
+// It removes existing files not present in the new map and updates files from
+// the new map.
+func (p *Project) UpdateFiles(newFiles map[string]*File) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Delete files that are not in the new map.
+	maps.DeleteFunc(p.files, func(path string, _ *File) bool {
+		_, ok := newFiles[path]
+		if !ok {
+			p.deleteFileCache(path)
+		}
+		return !ok
 	})
 
-	// Delete files that are not in the new map
-	for _, path := range existingPaths {
-		if _, exists := newFiles[path]; !exists {
-			p.files.Delete(path)
-			p.deleteCache(path)
-		}
-	}
-
-	// Add or update files from the new map
+	// Add or update files from the new map.
 	for path, newFile := range newFiles {
-		if oldFile, ok := p.File(path); ok {
-			// Only update if ModTime changed
+		if oldFile, ok := p.files[path]; ok {
+			// Only update if ModTime changed.
 			if !oldFile.ModTime.Equal(newFile.ModTime) {
-				p.PutFile(path, newFile)
+				p.files[path] = newFile
+				p.deleteFileCache(path)
 			}
 		} else {
-			// New file, always add
-			p.PutFile(path, newFile)
+			// New file, always add.
+			p.files[path] = newFile
+			p.deleteFileCache(path)
 		}
 	}
+
+	p.updateFilesSnapshot()
 }
 
-// File gets a file from the project.
-func (p *Project) File(path string) (ret File, ok bool) {
-	v, ok := p.files.Load(path)
-	if ok {
-		ret = v.(File)
-	}
-	return
-}
-
-// RangeFiles iterates all files in the project.
-func (p *Project) RangeFiles(f func(path string) bool) {
-	p.files.Range(func(k, _ any) bool {
-		return f(k.(string))
-	})
-}
-
-// RangeFileContents iterates all file contents in the project.
-func (p *Project) RangeFileContents(f func(path string, file File) bool) {
-	p.files.Range(func(k, v any) bool {
-		return f(k.(string), v.(File))
-	})
+// updateFilesSnapshot updates the atomic snapshot of files.
+func (p *Project) updateFilesSnapshot() {
+	snapshot := maps.Clone(p.files)
+	p.filesSnapshot.Store(&snapshot)
 }
 
 // -----------------------------------------------------------------------------
 
-// InitFileCache initializes a file level cache.
-func (p *Project) InitFileCache(kind string, builder func(proj *Project, path string, file File) (any, error)) {
-	p.fileBuilders[kind] = builder
+// RegisterCacheBuilder registers a project level cache builder.
+//
+// The kind should be a comparable type to avoid conflicts between packages. It
+// is recommended to use a private type defined in your package:
+//
+//	type cacheKey int
+//	const myProjectDataKey cacheKey = 1
+//
+//	proj.RegisterCacheBuilder(myProjectDataKey, myBuilder)
+func (p *Project) RegisterCacheBuilder(kind CacheKind, builder func(root *Project) (any, error)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cacheBuilders[kind] = builder
 }
 
-// InitCache initializes a project level cache.
-func (p *Project) InitCache(kind string, builder func(root *Project) (any, error)) {
-	p.builders[kind] = builder
+// RegisterFileCacheBuilder registers a file level cache builder.
+//
+// The kind should be a comparable type to avoid conflicts between packages. It
+// is recommended to use a private type defined in your package:
+//
+//	type cacheKey int
+//	const myFileDataKey cacheKey = 1
+//
+//	proj.RegisterFileCacheBuilder(myFileDataKey, myBuilder)
+func (p *Project) RegisterFileCacheBuilder(kind CacheKind, builder func(proj *Project, path string, file *File) (any, error)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.fileCacheBuilders[kind] = builder
 }
 
-// FileCache gets a file level cache.
-func (p *Project) FileCache(kind, path string) (any, error) {
-	key := fileKey{kind, path}
-	if v, ok := p.fileCaches.Load(key); ok {
+// -----------------------------------------------------------------------------
+
+// Cache gets a project level cache. It builds the cache if it doesn't exist.
+//
+// The kind must be the same comparable value that was used with [Project.RegisterCacheBuilder].
+func (p *Project) Cache(kind CacheKind) (any, error) {
+	p.mu.RLock()
+	v, ok := p.caches[kind]
+	p.mu.RUnlock()
+	if ok {
 		return decodeDataOrErr(v)
 	}
-	builder, ok := p.fileBuilders[kind]
-	if !ok {
-		return nil, ErrUnknownKind
-	}
-	file, ok := p.File(path)
-	if !ok {
-		return nil, fs.ErrNotExist
-	}
 
-	data, err := builder(p, path, file)
-	p.fileCaches.Store(key, encodeDataOrErr(data, err))
+	data, err, _ := p.cacheSFG.Do(fmt.Sprintf("%T-%v", kind, kind), func() (any, error) {
+		p.mu.RLock()
+		builder, ok := p.cacheBuilders[kind]
+		p.mu.RUnlock()
+		if !ok {
+			return nil, ErrUnknownCacheKind
+		}
+
+		data, err := builder(p)
+
+		p.mu.Lock()
+		p.caches[kind] = encodeDataOrErr(data, err)
+		p.mu.Unlock()
+
+		return data, err
+	})
 	return data, err
 }
 
-// Cache gets a project level cache.
-func (p *Project) Cache(kind string) (any, error) {
-	if v, ok := p.caches.Load(kind); ok {
+// FileCache gets a file level cache. It builds the cache if it doesn't exist.
+//
+// The kind must be the same comparable value that was used with [Project.RegisterFileCacheBuilder].
+func (p *Project) FileCache(kind CacheKind, path string) (any, error) {
+	key := fileCacheKey{kind, path}
+
+	p.mu.RLock()
+	v, ok := p.fileCaches[key]
+	p.mu.RUnlock()
+	if ok {
 		return decodeDataOrErr(v)
 	}
-	builder, ok := p.builders[kind]
-	if !ok {
-		return nil, ErrUnknownKind
-	}
 
-	data, err := builder(p)
-	p.caches.Store(kind, encodeDataOrErr(data, err))
+	data, err, _ := p.fileCacheSFG.Do(fmt.Sprintf("%T-%v-%s", kind, kind, path), func() (any, error) {
+		p.mu.RLock()
+		builder, ok := p.fileCacheBuilders[kind]
+		file, fileExists := p.files[path]
+		p.mu.RUnlock()
+		if !ok {
+			return nil, ErrUnknownCacheKind
+		}
+		if !fileExists {
+			return nil, fs.ErrNotExist
+		}
+
+		data, err := builder(p, path, file)
+
+		p.mu.Lock()
+		p.fileCaches[key] = encodeDataOrErr(data, err)
+		p.mu.Unlock()
+
+		return data, err
+	})
 	return data, err
 }
 
-func decodeDataOrErr(v any) (any, error) {
-	if err, ok := v.(error); ok {
-		return nil, err
+// deleteFileCache deletes file-specific caches for the given path. It also
+// clears project-level caches implicitly if necessary.
+func (p *Project) deleteFileCache(path string) {
+	clear(p.caches)
+	for kind := range p.fileCacheBuilders {
+		delete(p.fileCaches, fileCacheKey{kind, path})
 	}
-	return v, nil
 }
 
-func encodeDataOrErr(data any, err error) any {
+// -----------------------------------------------------------------------------
+
+// dataOrErr represents a data or an error.
+type dataOrErr = any
+
+// encodeDataOrErr selects either data or error to store as a single cache
+// value. If err is not nil, stores the error; otherwise stores the data.
+func encodeDataOrErr(data any, err error) dataOrErr {
 	if err != nil {
 		return err
 	}
 	return data
+}
+
+// decodeDataOrErr extracts data and error from a cached value. The cache
+// stores either the actual data (if no error occurred) or the error itself.
+func decodeDataOrErr(v dataOrErr) (any, error) {
+	if err, ok := v.(error); ok {
+		return nil, err
+	}
+	return v, nil
 }
 
 // -----------------------------------------------------------------------------

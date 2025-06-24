@@ -29,24 +29,213 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func file(text string) xgo.File {
-	return &xgo.FileImpl{Content: []byte(text)}
+func file(content string) *xgo.File {
+	return &xgo.File{Content: []byte(content)}
 }
 
 func TestRangeASTSpecs(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
-		"main.xgo": file("type A = int"),
-	}, xgo.FeatAll)
-	RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
-		ts := spec.(*ast.TypeSpec)
-		if ts.Name.Name != "A" || ts.Assign == 0 {
-			t.Fatal("RangeASTSpecs:", *ts)
+	t.Run("SingleTypeSpec", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("type A = int"),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 1)
+		ts := specs[0].(*ast.TypeSpec)
+		assert.Equal(t, "A", ts.Name.Name)
+		assert.NotEqual(t, token.NoPos, ts.Assign)
+	})
+
+	t.Run("MultipleTypeSpecs", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+type (
+	A = int
+	B = string
+	C struct {
+		Field int
+	}
+)
+`),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 3)
+		names := make([]string, len(specs))
+		for i, spec := range specs {
+			ts := spec.(*ast.TypeSpec)
+			names[i] = ts.Name.Name
 		}
+		assert.Contains(t, names, "A")
+		assert.Contains(t, names, "B")
+		assert.Contains(t, names, "C")
+	})
+
+	t.Run("VariableSpecs", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+var (
+	x = 1
+	y = "hello"
+)
+`),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.VAR, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 2)
+		names := make([]string, len(specs))
+		for i, spec := range specs {
+			vs := spec.(*ast.ValueSpec)
+			names[i] = vs.Names[0].Name
+		}
+		assert.Contains(t, names, "x")
+		assert.Contains(t, names, "y")
+	})
+
+	t.Run("ConstantSpecs", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+const (
+	Pi = 3.14
+	E  = 2.71
+)
+`),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.CONST, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 2)
+		names := make([]string, len(specs))
+		for i, spec := range specs {
+			vs := spec.(*ast.ValueSpec)
+			names[i] = vs.Names[0].Name
+		}
+		assert.Contains(t, names, "Pi")
+		assert.Contains(t, names, "E")
+	})
+
+	t.Run("MultipleFiles", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo":  file("type MainType = int"),
+			"other.xgo": file("type OtherType = string"),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 2)
+		names := make([]string, len(specs))
+		for i, spec := range specs {
+			ts := spec.(*ast.TypeSpec)
+			names[i] = ts.Name.Name
+		}
+		assert.Contains(t, names, "MainType")
+		assert.Contains(t, names, "OtherType")
+	})
+
+	t.Run("NoMatchingSpecs", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		assert.Len(t, specs, 0)
+	})
+
+	t.Run("EmptyProject", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		assert.Len(t, specs, 0)
+	})
+
+	t.Run("MixedDeclarations", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+type MyType = int
+var myVar = 1
+const myConst = 42
+func myFunc() {}
+`),
+		}, xgo.FeatAll)
+
+		var typeSpecs []ast.Spec
+		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+			typeSpecs = append(typeSpecs, spec)
+		})
+
+		var varSpecs []ast.Spec
+		RangeASTSpecs(proj, token.VAR, func(spec ast.Spec) {
+			varSpecs = append(varSpecs, spec)
+		})
+
+		var constSpecs []ast.Spec
+		RangeASTSpecs(proj, token.CONST, func(spec ast.Spec) {
+			constSpecs = append(constSpecs, spec)
+		})
+
+		assert.Len(t, typeSpecs, 1)
+		assert.Len(t, varSpecs, 1)
+		assert.Len(t, constSpecs, 1)
+
+		assert.Equal(t, "MyType", typeSpecs[0].(*ast.TypeSpec).Name.Name)
+		assert.Equal(t, "myVar", varSpecs[0].(*ast.ValueSpec).Names[0].Name)
+		assert.Equal(t, "myConst", constSpecs[0].(*ast.ValueSpec).Names[0].Name)
+	})
+
+	t.Run("ImportSpecs", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+import (
+	"fmt"
+	"strconv"
+)
+`),
+		}, xgo.FeatAll)
+
+		var specs []ast.Spec
+		RangeASTSpecs(proj, token.IMPORT, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		require.Len(t, specs, 2)
+		paths := make([]string, len(specs))
+		for i, spec := range specs {
+			is := spec.(*ast.ImportSpec)
+			paths[i] = is.Path.Value
+		}
+		assert.Contains(t, paths, `"fmt"`)
+		assert.Contains(t, paths, `"strconv"`)
 	})
 }
 
 func TestIsDefinedInClassFieldsDecl(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.gox": file(`
 var (
 	x int
@@ -90,7 +279,7 @@ func test() {
 }
 
 func TestWalkPathEnclosingInterval(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 var x = 1
 func test() {
@@ -246,7 +435,7 @@ func TestToLowerCamelCase(t *testing.T) {
 }
 
 func TestStringLitOrConstValue(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]xgo.File{
+	proj := xgo.NewProject(nil, map[string]*xgo.File{
 		"main.xgo": file(`
 const strConst = "constant value"
 const intConst = 42
