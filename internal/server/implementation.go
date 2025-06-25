@@ -16,9 +16,14 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 		return nil, nil
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
-
 	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
-	obj := getTypeInfo(result.proj).ObjectOf(ident)
+
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
+	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}
@@ -36,8 +41,12 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 // findImplementingMethodDefinitions finds the definition locations of all
 // methods that implement the given interface method.
 func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface *types.Interface, methodName string) []Location {
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
+
 	var implementations []Location
-	typeInfo := getTypeInfo(result.proj)
 	for _, obj := range typeInfo.Defs {
 		if obj == nil {
 			continue

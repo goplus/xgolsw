@@ -18,9 +18,13 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		return nil, nil
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
-
 	targetIdent := xgoutil.IdentAtPosition(result.proj, astFile, position)
-	typeInfo := getTypeInfo(result.proj)
+
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
 	targetObj := typeInfo.ObjectOf(targetIdent)
 	if targetObj == nil {
 		return nil, nil

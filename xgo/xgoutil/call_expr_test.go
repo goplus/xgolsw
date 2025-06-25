@@ -23,7 +23,6 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,7 +33,7 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 	})
 
 	t.Run("NilStatement", func(t *testing.T) {
-		typeInfo := &typesutil.Info{}
+		typeInfo := newTestTypeInfo(nil, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, nil))
 	})
 
@@ -42,7 +41,7 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 		stmt := &ast.BranchStmt{
 			Tok: token.BREAK,
 		}
-		typeInfo := &typesutil.Info{}
+		typeInfo := newTestTypeInfo(nil, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
@@ -55,10 +54,7 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 				Name:    "label",
 			},
 		}
-		typeInfo := &typesutil.Info{
-			Defs: make(map[*ast.Ident]types.Object),
-			Uses: make(map[*ast.Ident]types.Object),
-		}
+		typeInfo := newTestTypeInfo(nil, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
@@ -74,12 +70,9 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 
 		pkg := types.NewPackage("test", "test")
 		label := types.NewLabel(token.NoPos, pkg, "label")
-		typeInfo := &typesutil.Info{
-			Defs: map[*ast.Ident]types.Object{
-				stmt.Label: label,
-			},
-			Uses: make(map[*ast.Ident]types.Object),
-		}
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+			stmt.Label: label,
+		}, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
@@ -96,12 +89,9 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 
 		pkg := types.NewPackage("test", "test")
 		variable := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
-		typeInfo := &typesutil.Info{
-			Defs: map[*ast.Ident]types.Object{
-				labelIdent: variable, // Not a label, so it won't be skipped.
-			},
-			Uses: make(map[*ast.Ident]types.Object),
-		}
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+			labelIdent: variable, // Not a label, so it won't be skipped.
+		}, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
 
@@ -125,14 +115,11 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 		pkg := types.NewPackage("test", "test")
 		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
 		gotoVar := types.NewVar(token.NoPos, pkg, "goto", types.Typ[types.Int])
-		typeInfo := &typesutil.Info{
-			Defs: map[*ast.Ident]types.Object{
-				labelIdent: labelVar, // Not a label.
-			},
-			Uses: map[*ast.Ident]types.Object{
-				ident: gotoVar, // Not a function.
-			},
-		}
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+			labelIdent: labelVar, // Not a label.
+		}, map[*ast.Ident]types.Object{
+			ident: gotoVar, // Not a function.
+		})
 
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
 	})
@@ -158,14 +145,11 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
 		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "goto", sig)
-		typeInfo := &typesutil.Info{
-			Defs: map[*ast.Ident]types.Object{
-				labelIdent: labelVar, // Not a label.
-			},
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun, // Is a function.
-			},
-		}
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+			labelIdent: labelVar, // Not a label.
+		}, map[*ast.Ident]types.Object{
+			ident: fun, // Is a function.
+		})
 
 		got := CreateCallExprFromBranchStmt(typeInfo, stmt)
 		assert.NotNil(t, got)
@@ -194,7 +178,7 @@ func TestFuncFromCallExpr(t *testing.T) {
 				Value: "\"test\"",
 			},
 		}
-		typeInfo := &typesutil.Info{}
+		typeInfo := newTestTypeInfo(nil, nil)
 		assert.Nil(t, FuncFromCallExpr(typeInfo, expr))
 	})
 
@@ -208,11 +192,9 @@ func TestFuncFromCallExpr(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		got := FuncFromCallExpr(typeInfo, expr)
 		assert.NotNil(t, got)
@@ -232,11 +214,9 @@ func TestFuncFromCallExpr(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "Method", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				sel: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			sel: fun,
+		})
 
 		got := FuncFromCallExpr(typeInfo, expr)
 		assert.NotNil(t, got)
@@ -252,11 +232,9 @@ func TestFuncFromCallExpr(t *testing.T) {
 		pkg := types.NewPackage("test", "test")
 		variable := types.NewVar(token.NoPos, pkg, "testVar", types.Typ[types.Int])
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: variable,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: variable,
+		})
 
 		assert.Nil(t, FuncFromCallExpr(typeInfo, expr))
 	})
@@ -267,9 +245,7 @@ func TestFuncFromCallExpr(t *testing.T) {
 			Fun: ident,
 		}
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{},
-		}
+		typeInfo := newTestTypeInfo(nil, nil)
 
 		assert.Nil(t, FuncFromCallExpr(typeInfo, expr))
 	})
@@ -298,9 +274,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			return true
 		}
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{},
-		}
+		typeInfo := newTestTypeInfo(nil, nil)
 
 		WalkCallExprArgs(typeInfo, expr, walkFn)
 		assert.False(t, walkCalled)
@@ -322,11 +296,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		var walkCalls []struct {
 			paramIndex int
@@ -371,11 +343,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		var walkCalls []struct {
 			paramIndex int
@@ -417,11 +387,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		walkCallCount := 0
 		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
@@ -451,11 +419,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(recv, nil, nil, params, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "Gopt_Sprite_Move", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		var walkCalls []struct {
 			paramIndex int
@@ -494,11 +460,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		var walkCalls []struct {
 			paramIndex int
@@ -534,11 +498,9 @@ func TestWalkCallExprArgs(t *testing.T) {
 		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
 		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := &typesutil.Info{
-			Uses: map[*ast.Ident]types.Object{
-				ident: fun,
-			},
-		}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+			ident: fun,
+		})
 
 		walkCalled := false
 		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {

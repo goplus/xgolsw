@@ -8,7 +8,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -90,14 +90,14 @@ type Pass struct {
 	Analyzer *Analyzer // the identity of the current analyzer
 
 	// syntax and type information
-	Fset         *token.FileSet  // file position information; Run may add new files
-	Files        []*ast.File     // the abstract syntax tree of each file
-	OtherFiles   []string        // names of non-Go files of this package
-	IgnoredFiles []string        // names of ignored source files in this package
-	Pkg          *types.Package  // type information about the package
-	TypesInfo    *typesutil.Info // type information about the syntax trees
-	TypesSizes   types.Sizes     // function for computing sizes of types
-	TypeErrors   []types.Error   // type errors (only if Analyzer.RunDespiteErrors)
+	Fset         *token.FileSet // file position information; Run may add new files
+	Files        []*ast.File    // the abstract syntax tree of each file
+	OtherFiles   []string       // names of non-Go files of this package
+	IgnoredFiles []string       // names of ignored source files in this package
+	Pkg          *types.Package // type information about the package
+	TypesInfo    *xgo.TypeInfo  // type information about the syntax trees
+	TypesSizes   types.Sizes    // function for computing sizes of types
+	TypeErrors   []types.Error  // type errors (only if Analyzer.RunDespiteErrors)
 
 	// Report reports a Diagnostic, a finding about a specific location
 	// in the analyzed source code such as a potential mistake.

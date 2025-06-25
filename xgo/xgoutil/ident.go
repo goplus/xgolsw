@@ -17,11 +17,8 @@
 package xgoutil
 
 import (
-	"go/types"
-
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/xgo"
 )
 
@@ -49,6 +46,11 @@ func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Positi
 		lineEnd = tokenFile.LineStart(position.Line + 1)
 	} else {
 		lineEnd = token.Pos(tokenFile.Base() + tokenFile.Size())
+	}
+
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
 	}
 
 	var (
@@ -79,8 +81,6 @@ func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Positi
 		}
 		return
 	}
-
-	_, typeInfo, _, _ := proj.TypeInfo()
 	for ident := range typeInfo.Defs {
 		if checkIdent(ident) {
 			return ident
@@ -92,31 +92,4 @@ func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Positi
 		}
 	}
 	return bestIdent
-}
-
-// DefIdentFor returns the identifier where the given object is defined.
-func DefIdentFor(typeInfo *typesutil.Info, obj types.Object) *ast.Ident {
-	if typeInfo == nil || obj == nil {
-		return nil
-	}
-	for ident, o := range typeInfo.Defs {
-		if o == obj {
-			return ident
-		}
-	}
-	return nil
-}
-
-// RefIdentsFor returns all identifiers where the given object is referenced.
-func RefIdentsFor(typeInfo *typesutil.Info, obj types.Object) []*ast.Ident {
-	if typeInfo == nil || obj == nil {
-		return nil
-	}
-	var idents []*ast.Ident
-	for ident, o := range typeInfo.Uses {
-		if o == obj {
-			idents = append(idents, ident)
-		}
-	}
-	return idents
 }

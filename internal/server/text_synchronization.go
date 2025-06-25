@@ -200,7 +200,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 
 	// 1. Get AST diagnostics
 	// Parse the file and check for syntax errors
-	astFile, err := proj.AST(path)
+	astFile, err := proj.ASTFile(path)
 	if err != nil {
 		var (
 			errorList xgoscanner.ErrorList
@@ -252,7 +252,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 
 	// 2. Get type checking diagnostics
 	// Perform type checking on the file
-	_, _, err, _ = proj.TypeInfo()
+	_, err = proj.TypeInfo()
 	if err != nil {
 		// Add type checking errors to diagnostics
 		switch err := err.(type) {

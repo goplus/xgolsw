@@ -32,7 +32,10 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 // rangeStart and rangeEnd positions are provided (non-zero), only hints within
 // the range are included.
 func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, rangeEnd xgotoken.Pos) []InlayHint {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 
 	var inlayHints []InlayHint
 	xgoast.Inspect(astFile, func(node xgoast.Node) bool {
@@ -66,7 +69,13 @@ func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
 func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) []InlayHint {
 	astFile := xgoutil.NodeASTFile(result.proj, callExpr)
-	typeInfo := getTypeInfo(result.proj)
+	if astFile == nil {
+		return nil
+	}
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	fset := result.proj.Fset
 
 	var inlayHints []InlayHint

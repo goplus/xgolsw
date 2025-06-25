@@ -23,13 +23,13 @@ import (
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // CreateCallExprFromBranchStmt attempts to create a call expression from a
 // branch statement. This handles cases in spx where the `Sprite.Goto` method
 // is intended to precede the goto statement.
-func CreateCallExprFromBranchStmt(typeInfo *typesutil.Info, stmt *ast.BranchStmt) *ast.CallExpr {
+func CreateCallExprFromBranchStmt(typeInfo *xgo.TypeInfo, stmt *ast.BranchStmt) *ast.CallExpr {
 	if typeInfo == nil || stmt == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func CreateCallExprFromBranchStmt(typeInfo *typesutil.Info, stmt *ast.BranchStmt
 }
 
 // FuncFromCallExpr returns the function object from a call expression.
-func FuncFromCallExpr(typeInfo *typesutil.Info, expr *ast.CallExpr) *types.Func {
+func FuncFromCallExpr(typeInfo *xgo.TypeInfo, expr *ast.CallExpr) *types.Func {
 	if typeInfo == nil || expr == nil {
 		return nil
 	}
@@ -91,7 +91,7 @@ func FuncFromCallExpr(typeInfo *typesutil.Info, expr *ast.CallExpr) *types.Func 
 // provided walkFn for each argument. It does nothing if the function is not
 // found or if the function is XGo FuncEx type. The walk stops if walkFn
 // returns false.
-func WalkCallExprArgs(typeInfo *typesutil.Info, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
+func WalkCallExprArgs(typeInfo *xgo.TypeInfo, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
 	fun := FuncFromCallExpr(typeInfo, expr)
 	if fun == nil {
 		return

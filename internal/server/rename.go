@@ -20,7 +20,7 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.AST(spxFile)
+	astFile, _ := proj.ASTFile(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -30,12 +30,15 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	if ident == nil {
 		return nil, nil
 	}
-	typeInfo := getTypeInfo(proj)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := xgoutil.DefIdentFor(typeInfo, obj)
+	defIdent := typeInfo.DefIdentFor(obj)
 	if defIdent == nil || xgoutil.NodeTokenFile(proj, defIdent) == nil {
 		return nil, nil
 	}
@@ -64,12 +67,15 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	}
 
 	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := xgoutil.DefIdentFor(typeInfo, obj)
+	defIdent := typeInfo.DefIdentFor(obj)
 	if defIdent == nil || xgoutil.NodeTokenFile(result.proj, defIdent) == nil {
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
 	}
@@ -101,7 +107,10 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 	changes := make(map[DocumentURI][]TextEdit)
 	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
 	fset := result.proj.Fset
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return changes
+	}
 	for _, ref := range result.spxResourceRefs {
 		if ref.ID != id {
 			continue
@@ -114,7 +123,7 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			if ident, ok := expr.(*xgoast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
-				defIdent := xgoutil.DefIdentFor(typeInfo, typeInfo.ObjectOf(ident))
+				defIdent := typeInfo.DefIdentFor(typeInfo.ObjectOf(ident))
 				if defIdent != nil && xgoutil.NodeTokenFile(result.proj, defIdent) != nil {
 					parent, ok := defIdent.Obj.Decl.(*xgoast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {
@@ -177,7 +186,10 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 	}
 	changes := s.spxRenameResourceAtRefs(result, id, newName)
 	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return changes, nil
+	}
 	for expr, tv := range typeInfo.Types {
 		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() || tv.Type == nil {
 			continue

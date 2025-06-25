@@ -17,6 +17,7 @@
 package xgoutil
 
 import (
+	"go/token"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -26,81 +27,177 @@ import (
 )
 
 func TestPosFilename(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
-	filename := PosFilename(proj, xPos)
-	require.NotEmpty(t, filename)
-	assert.Contains(t, filename, "main.xgo")
+		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		filename := PosFilename(proj, xPos)
+		require.NotEmpty(t, filename)
+		assert.Contains(t, filename, "main.xgo")
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		filename := PosFilename(nil, token.Pos(1))
+		assert.Empty(t, filename)
+	})
+
+	t.Run("InvalidPos", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		filename := PosFilename(proj, token.NoPos)
+		assert.Empty(t, filename)
+	})
 }
 
 func TestNodeFilename(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
-	filename := NodeFilename(proj, xDecl)
-	require.NotEmpty(t, filename)
-	assert.Contains(t, filename, "main.xgo")
+		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		filename := NodeFilename(proj, xDecl)
+		require.NotEmpty(t, filename)
+		assert.Contains(t, filename, "main.xgo")
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		filename := NodeFilename(nil, &ast.Ident{Name: "test"})
+		assert.Empty(t, filename)
+	})
+
+	t.Run("NilNode", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		filename := NodeFilename(proj, nil)
+		assert.Empty(t, filename)
+	})
 }
 
 func TestPosTokenFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
-	file := PosTokenFile(proj, xPos)
-	assert.NotNil(t, file)
+		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		file := PosTokenFile(proj, xPos)
+		assert.NotNil(t, file)
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		file := PosTokenFile(nil, token.Pos(1))
+		assert.Nil(t, file)
+	})
+
+	t.Run("InvalidPos", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		file := PosTokenFile(proj, token.NoPos)
+		assert.Nil(t, file)
+	})
 }
 
 func TestNodeTokenFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
-	file := NodeTokenFile(proj, xDecl)
-	assert.NotNil(t, file)
+		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		file := NodeTokenFile(proj, xDecl)
+		assert.NotNil(t, file)
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		file := NodeTokenFile(nil, &ast.Ident{Name: "test"})
+		assert.Nil(t, file)
+	})
+
+	t.Run("NilNode", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		file := NodeTokenFile(proj, nil)
+		assert.Nil(t, file)
+	})
 }
 
 func TestPosASTFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
-	file := PosASTFile(proj, xPos)
-	assert.Equal(t, astFile, file)
+		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		file := PosASTFile(proj, xPos)
+		assert.Equal(t, astFile, file)
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		file := PosASTFile(nil, token.Pos(1))
+		assert.Nil(t, file)
+	})
+
+	t.Run("InvalidPos", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		file := PosASTFile(proj, token.NoPos)
+		assert.Nil(t, file)
+	})
 }
 
 func TestNodeASTFile(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file("var x = 1"),
-	}, xgo.FeatAll)
+	t.Run("Normal", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
-	file := NodeASTFile(proj, xDecl)
-	assert.Equal(t, astFile, file)
+		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		file := NodeASTFile(proj, xDecl)
+		assert.Equal(t, astFile, file)
+	})
+
+	t.Run("NilProject", func(t *testing.T) {
+		file := NodeASTFile(nil, &ast.Ident{Name: "test"})
+		assert.Nil(t, file)
+	})
+
+	t.Run("NilNode", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file("var x = 1"),
+		}, xgo.FeatAll)
+
+		file := NodeASTFile(proj, nil)
+		assert.Nil(t, file)
+	})
 }
