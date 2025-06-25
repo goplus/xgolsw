@@ -72,6 +72,17 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	).Files(nil, slices.Collect(maps.Values(astPkg.Files))); err != nil && len(checkerErrs) == 0 {
 		checkerErrs.Add(err)
 	}
+
+	// Build reverse mapping for O(1) object-to-identifier lookup. For
+	// identifiers that do not denote objects, the object is nil and they
+	// are excluded from this mapping.
+	typeInfo.objToDef = make(map[types.Object]*ast.Ident, len(typeInfo.Defs))
+	for ident, obj := range typeInfo.Defs {
+		if obj != nil {
+			typeInfo.objToDef[obj] = ident
+		}
+	}
+
 	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
 }
 
@@ -95,6 +106,10 @@ type TypeInfo struct {
 	typesutil.Info
 
 	pkg *types.Package
+
+	// objToDef is a reverse mapping of typesutil.Info.Defs for O(1)
+	// object-to-identifier lookup.
+	objToDef map[types.Object]*ast.Ident
 }
 
 // Pkg returns the package associated with this type information.
@@ -104,15 +119,7 @@ func (ti *TypeInfo) Pkg() *types.Package {
 
 // DefIdentFor returns the identifier where the given object is defined.
 func (ti *TypeInfo) DefIdentFor(obj types.Object) *ast.Ident {
-	if obj == nil {
-		return nil
-	}
-	for ident, o := range ti.Defs {
-		if o == obj {
-			return ident
-		}
-	}
-	return nil
+	return ti.objToDef[obj]
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced.

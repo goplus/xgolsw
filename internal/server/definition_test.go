@@ -40,7 +40,7 @@ onStart => {
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
 			},
 		}, mainSpxMySpriteDef.(Location))
 
@@ -66,7 +66,7 @@ onStart => {
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 9},
 			},
 		}, mainSpxMySpriteDef.(Location))
 	})
@@ -174,7 +174,7 @@ fmt2.println "Hello, spx!"
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
-				End:   Position{Line: 1, Character: 7},
+				End:   Position{Line: 1, Character: 11},
 			},
 		}, def.(Location))
 	})

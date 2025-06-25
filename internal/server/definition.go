@@ -41,19 +41,16 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 
 	obj := typeInfo.ObjectOf(ident)
-	if !xgoutil.IsInMainPkg(obj) {
+	if !xgoutil.IsInMainPkg(obj) || !obj.Pos().IsValid() {
 		return nil, nil
 	}
 
-	if !obj.Pos().IsValid() {
-		return nil, nil
+	defIdent := typeInfo.DefIdentFor(obj)
+	if defIdent == nil {
+		// Fall back to the start position of the object identifier in declaration.
+		return s.locationForPos(proj, obj.Pos()), nil
 	}
-
-	location := Location{
-		URI:   s.toDocumentURI(xgoutil.PosFilename(proj, obj.Pos())),
-		Range: RangeForASTFilePosition(proj, astFile, proj.Fset.Position(obj.Pos())),
-	}
-	return location, nil
+	return s.locationForNode(proj, defIdent), nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
