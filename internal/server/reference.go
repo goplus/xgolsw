@@ -20,7 +20,10 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	position := ToPosition(result.proj, astFile, params.Position)
 
 	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
 	obj := typeInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil, nil
@@ -36,7 +39,7 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	}
 
 	if params.Context.IncludeDeclaration {
-		defIdent := xgoutil.DefIdentFor(typeInfo, obj)
+		defIdent := typeInfo.DefIdentFor(obj)
 		if defIdent == nil {
 			objPos := obj.Pos()
 			if xgoutil.PosTokenFile(result.proj, objPos) != nil {
@@ -52,7 +55,11 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 
 // findReferenceLocations returns all locations where the given object is referenced.
 func (s *Server) findReferenceLocations(result *compileResult, obj types.Object) []Location {
-	refIdents := xgoutil.RefIdentsFor(getTypeInfo(result.proj), obj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
+	refIdents := typeInfo.RefIdentsFor(obj)
 	if len(refIdents) == 0 {
 		return nil
 	}
@@ -87,7 +94,10 @@ func (s *Server) handleMethodReferences(result *compileResult, fn *types.Func) [
 func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
 	var locations []Location
 	seenIfaces := make(map[*types.Interface]bool)
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return locations
+	}
 
 	var find func(*types.Interface)
 	find = func(current *types.Interface) {
@@ -125,7 +135,10 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 // findImplementingMethodReferences finds references to all methods that
 // implement the given interface method.
 func (s *Server) findImplementingMethodReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	var locations []Location
 	xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
 		typeSpec := spec.(*xgoast.TypeSpec)
@@ -150,7 +163,10 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 // findInterfaceMethodReferences finds references to interface methods that this
 // method implements, including methods from embedded interfaces.
 func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.Func) []Location {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	var locations []Location
 	recvType := fn.Type().(*types.Signature).Recv().Type()
 	seenIfaces := make(map[*types.Interface]bool)
@@ -179,7 +195,10 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 
 // handleEmbeddedFieldReferences finds all references through embedded fields.
 func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.Object) []Location {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	var locations []Location
 	if fn, ok := obj.(*types.Func); ok {
 		recv := fn.Type().(*types.Signature).Recv()
@@ -239,7 +258,10 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 		}
 	}
 	if hasEmbed {
-		typeInfo := getTypeInfo(result.proj)
+		typeInfo, _ := result.proj.TypeInfo()
+		if typeInfo == nil {
+			return nil
+		}
 		xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
 			typeSpec := spec.(*xgoast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)

@@ -5,15 +5,15 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // Callee returns the named target of a function call, if any:
 // a function, method, builtin, or variable.
 //
 // Functions and methods may potentially have type parameters.
-func Callee(info *typesutil.Info, call *ast.CallExpr) types.Object {
+func Callee(info *xgo.TypeInfo, call *ast.CallExpr) types.Object {
 	fun := astutil.Unparen(call.Fun)
 
 	// Look through type instantiation if necessary.
@@ -53,7 +53,7 @@ func Callee(info *typesutil.Info, call *ast.CallExpr) types.Object {
 //
 // Note: for calls of instantiated functions and methods, StaticCallee returns
 // the corresponding generic function or method on the generic type.
-func StaticCallee(info *typesutil.Info, call *ast.CallExpr) *types.Func {
+func StaticCallee(info *xgo.TypeInfo, call *ast.CallExpr) *types.Func {
 	if f, ok := Callee(info, call).(*types.Func); ok && !interfaceMethod(f) {
 		return f
 	}

@@ -34,8 +34,12 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 		})
 	}
 
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
 	// Add links for spx definitions.
-	typeInfo := getTypeInfo(result.proj)
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *xgoast.Ident) {
 		if xgoutil.NodeFilename(result.proj, ident) != spxFile {

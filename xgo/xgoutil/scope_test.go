@@ -27,77 +27,138 @@ import (
 )
 
 func TestInnermostScopeAt(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		// Create a project that will have nil TypeInfo due to unsupported features.
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`invalid syntax`),
+		}, 0) // Use feature flag 0 to trigger unsupported cache kind.
+
+		// This should return nil when typeInfo is nil.
+		scope := InnermostScopeAt(proj, token.Pos(1))
+		assert.Nil(t, scope)
+	})
+
+	t.Run("InvalidPosition", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`var x = 1`),
+		}, xgo.FeatAll)
+
+		scope := InnermostScopeAt(proj, token.NoPos)
+		assert.Nil(t, scope)
+	})
+
+	t.Run("CanSeeGlobalVariable", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
 var x = 1
 
 func test() {
+	println(x)
+}
+`),
+		}, xgo.FeatAll)
+
+		typeInfo, _ := proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+
+		// Get position of variable x declaration.
+		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		scope := InnermostScopeAt(proj, xPos)
+		require.NotNil(t, scope)
+
+		// Should be able to see variable x.
+		if scope == typeInfo.Scopes[astFile] {
+			scope = scope.Parent()
+		}
+		require.NotNil(t, scope)
+		assert.NotNil(t, scope.Lookup("x"))
+	})
+
+	t.Run("CanSeeFunctionLocalVariable", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+func test() {
 	y := 2
+	println(y)
+}
+`),
+		}, xgo.FeatAll)
+
+		typeInfo, _ := proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+
+		// Get position of function body.
+		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		scope := InnermostScopeAt(proj, funcDecl.Body.Pos())
+		require.NotNil(t, scope)
+
+		// Should be able to see variable y.
+		assert.NotNil(t, scope.Lookup("y"))
+	})
+
+	t.Run("CanSeeBlockScopedVariable", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+func test() {
 	if true {
 		z := 3
-		println(x, y, z)
+		println(z)
 	}
 }
 `),
-	}, xgo.FeatAll)
+		}, xgo.FeatAll)
 
-	_, typeInfo, _, _ := proj.TypeInfo()
-	require.NotNil(t, typeInfo)
+		typeInfo, _ := proj.TypeInfo()
+		require.NotNil(t, typeInfo)
 
-	astFile, err := proj.AST("main.xgo")
-	require.NoError(t, err)
-	require.Len(t, astFile.Decls, 2)
-	astFileScope := typeInfo.Scopes[astFile]
-	require.NotNil(t, astFileScope)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
 
-	for _, tt := range []struct {
-		name    string
-		pos     token.Pos
-		wantNil bool
-		wantVar string
-	}{
-		{
-			name:    "CanSeeX",
-			pos:     astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos(),
-			wantVar: "x",
-		},
-		{
-			name:    "CanSeeY",
-			pos:     astFile.Decls[1].(*ast.FuncDecl).Body.Pos(),
-			wantVar: "y",
-		},
-		{
-			name: "CanSeeZ",
-			pos: func() token.Pos {
-				body := astFile.Decls[1].(*ast.FuncDecl).Body
-				for _, stmt := range body.List {
-					if ifStmt, ok := stmt.(*ast.IfStmt); ok {
-						return ifStmt.Body.Pos()
-					}
-				}
-				return token.NoPos
-			}(),
-			wantVar: "z",
-		},
-		{
-			name:    "NotFound",
-			pos:     token.NoPos,
-			wantNil: true,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			scope := InnermostScopeAt(proj, tt.pos)
-			if tt.wantNil {
-				require.Nil(t, scope)
-			} else {
-				require.NotNil(t, scope)
-				if scope == astFileScope {
-					scope = scope.Parent()
-				}
-				if tt.wantVar != "" {
-					assert.NotNil(t, scope.Lookup(tt.wantVar))
-				}
+		// Find the if statement body position.
+		var ifPos token.Pos
+		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		for _, stmt := range funcDecl.Body.List {
+			if ifStmt, ok := stmt.(*ast.IfStmt); ok {
+				ifPos = ifStmt.Body.Pos()
+				break
 			}
-		})
-	}
+		}
+		require.NotEqual(t, token.NoPos, ifPos)
+
+		scope := InnermostScopeAt(proj, ifPos)
+		require.NotNil(t, scope)
+
+		// Should be able to see variable z.
+		assert.NotNil(t, scope.Lookup("z"))
+	})
+
+	t.Run("FuncDeclScopeFromType", func(t *testing.T) {
+		proj := xgo.NewProject(nil, map[string]*xgo.File{
+			"main.xgo": file(`
+func test(param int) {
+	println(param)
+}
+`),
+		}, xgo.FeatAll)
+
+		typeInfo, _ := proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+
+		// Get position inside function body where we might access parameters.
+		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		scope := InnermostScopeAt(proj, funcDecl.Body.Pos())
+		require.NotNil(t, scope)
+
+		// Should be able to see function parameter.
+		assert.NotNil(t, scope.Lookup("param"))
+	})
 }

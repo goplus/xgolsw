@@ -24,6 +24,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,25 @@ import (
 
 func file(content string) *xgo.File {
 	return &xgo.File{Content: []byte(content)}
+}
+
+func newTestTypeInfo(defs map[*ast.Ident]types.Object, uses map[*ast.Ident]types.Object) *xgo.TypeInfo {
+	if defs == nil {
+		defs = make(map[*ast.Ident]types.Object)
+	}
+	if uses == nil {
+		uses = make(map[*ast.Ident]types.Object)
+	}
+	return &xgo.TypeInfo{
+		Info: typesutil.Info{
+			Types:      make(map[ast.Expr]types.TypeAndValue),
+			Defs:       defs,
+			Uses:       uses,
+			Selections: make(map[*ast.SelectorExpr]*types.Selection),
+			Implicits:  make(map[ast.Node]types.Object),
+			Scopes:     make(map[ast.Node]*types.Scope),
+		},
+	}
 }
 
 func TestRangeASTSpecs(t *testing.T) {
@@ -249,7 +269,7 @@ func test() {
 `),
 	}, xgo.FeatAll)
 
-	_, typeInfo, _, _ := proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	require.NotNil(t, typeInfo)
 
 	// Get objects from definitions
@@ -289,7 +309,7 @@ func test() {
 `),
 	}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
+	astFile, err := proj.ASTFile("main.xgo")
 	require.NoError(t, err)
 
 	t.Run("WalkFunction", func(t *testing.T) {
@@ -448,10 +468,10 @@ func test() {
 `),
 	}, xgo.FeatAll)
 
-	_, typeInfo, _, _ := proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	require.NotNil(t, typeInfo)
 
-	astFile, err := proj.AST("main.xgo")
+	astFile, err := proj.ASTFile("main.xgo")
 	require.NoError(t, err)
 
 	t.Run("StringLiteral", func(t *testing.T) {

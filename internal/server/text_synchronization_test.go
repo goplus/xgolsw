@@ -713,7 +713,7 @@ func TestChangedText(t *testing.T) {
 
 			// For AST parsing to work, we need a real file with content
 			// parsed into the AST before we can apply changes
-			_, err := proj.AST(path)
+			_, err := proj.ASTFile(path)
 			if err != nil {
 				t.Fatalf("Failed to setup test: %v", err)
 			}
@@ -856,7 +856,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 
 			// For tests with content, ensure we have AST
 			if tt.initialContent != "" {
-				_, err := proj.AST(path)
+				_, err := proj.ASTFile(path)
 				if err != nil {
 					t.Fatalf("Failed to setup test: %v", err)
 				}

@@ -28,13 +28,19 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.AST(spxFile)
+	astFile, _ := proj.ASTFile(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-
 	position := ToPosition(proj, astFile, params.Position)
-	obj := getTypeInfo(proj).ObjectOf(xgoutil.IdentAtPosition(proj, astFile, position))
+	ident := xgoutil.IdentAtPosition(proj, astFile, position)
+
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
+	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}
@@ -61,14 +67,19 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.AST(spxFile)
+	astFile, _ := proj.ASTFile(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-
 	ident := xgoutil.IdentAtPosition(proj, astFile, position)
-	obj := getTypeInfo(proj).ObjectOf(ident)
+
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
+	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}

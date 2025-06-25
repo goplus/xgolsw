@@ -6,7 +6,6 @@ import (
 	"regexp"
 
 	xgoast "github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -44,8 +43,10 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 	if astFile == nil {
 		return ""
 	}
-
-	typeInfo := getTypeInfo(proj)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return ""
+	}
 
 	// Check for selector expression context first.
 	if typeName := tryGetSelectorContext(typeInfo, astFile, ident); typeName != "" {
@@ -58,7 +59,7 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 	}
 
 	// Handle spx package's implicit receiver semantics.
-	if typeName := tryGetSpxImplicitReceiver(proj, typeInfo, astFile, ident, obj); typeName != "" {
+	if typeName := tryGetSpxImplicitReceiver(proj, astFile, ident, obj); typeName != "" {
 		return typeName
 	}
 
@@ -67,7 +68,7 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 }
 
 // tryGetSelectorContext checks if the identifier is in a selector expression context.
-func tryGetSelectorContext(typeInfo *typesutil.Info, astFile *xgoast.File, ident *xgoast.Ident) string {
+func tryGetSelectorContext(typeInfo *xgo.TypeInfo, astFile *xgoast.File, ident *xgoast.Ident) string {
 	var typeName string
 	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), true, func(node xgoast.Node) bool {
 		sel, ok := node.(*xgoast.SelectorExpr)
@@ -85,8 +86,12 @@ func tryGetSelectorContext(typeInfo *typesutil.Info, astFile *xgoast.File, ident
 }
 
 // tryGetSpxImplicitReceiver handles spx package's special implicit receiver semantics.
-func tryGetSpxImplicitReceiver(proj *xgo.Project, typeInfo *typesutil.Info, astFile *xgoast.File, ident *xgoast.Ident, obj types.Object) string {
+func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *xgoast.File, ident *xgoast.Ident, obj types.Object) string {
 	if !IsInSpxPkg(obj) {
+		return ""
+	}
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
 		return ""
 	}
 
@@ -106,7 +111,7 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, typeInfo *typesutil.Info, astF
 }
 
 // getTypeFromObject infers type from the identifier's object.
-func getTypeFromObject(typeInfo *typesutil.Info, obj types.Object) string {
+func getTypeFromObject(typeInfo *xgo.TypeInfo, obj types.Object) string {
 	switch obj := obj.(type) {
 	case *types.Var:
 		if !obj.IsField() {
@@ -147,7 +152,7 @@ func extractTypeName(typ types.Type) string {
 }
 
 // findFieldOwnerType finds the type that owns a given field.
-func findFieldOwnerType(typeInfo *typesutil.Info, field *types.Var) string {
+func findFieldOwnerType(typeInfo *xgo.TypeInfo, field *types.Var) string {
 	if !field.IsField() {
 		return ""
 	}
@@ -201,7 +206,7 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 }
 
 // searchAllDefsForField is a fallback method that searches all type definitions.
-func searchAllDefsForField(typeInfo *typesutil.Info, field *types.Var) string {
+func searchAllDefsForField(typeInfo *xgo.TypeInfo, field *types.Var) string {
 	fieldPkg := field.Pkg()
 	for _, def := range typeInfo.Defs {
 		if def == nil || def.Pkg() != fieldPkg {

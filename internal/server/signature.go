@@ -17,9 +17,14 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		return nil, nil
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
-
 	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
-	obj := getTypeInfo(result.proj).ObjectOf(ident)
+
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
+	obj := typeInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil, nil
 	}

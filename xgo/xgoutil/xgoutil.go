@@ -30,7 +30,11 @@ import (
 
 // RangeASTSpecs iterates all XGo AST specs.
 func RangeASTSpecs(proj *xgo.Project, tok token.Token, f func(spec ast.Spec)) {
-	proj.RangeASTFiles(func(_ string, file *ast.File) bool {
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
+		return
+	}
+	for _, file := range astPkg.Files {
 		for _, decl := range file.Decls {
 			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
 				for _, spec := range decl.Specs {
@@ -38,15 +42,17 @@ func RangeASTSpecs(proj *xgo.Project, tok token.Token, f func(spec ast.Spec)) {
 				}
 			}
 		}
-		return true
-	})
+	}
 }
 
 // IsDefinedInClassFieldsDecl reports whether the given object is defined in
 // the class fields declaration of an AST file.
 func IsDefinedInClassFieldsDecl(proj *xgo.Project, obj types.Object) bool {
-	_, typeInfo, _, _ := proj.TypeInfo()
-	defIdent := DefIdentFor(typeInfo, obj)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return false
+	}
+	defIdent := typeInfo.DefIdentFor(obj)
 	if defIdent == nil {
 		return false
 	}

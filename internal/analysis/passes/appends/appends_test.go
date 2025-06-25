@@ -11,6 +11,7 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 func TestAppends(t *testing.T) {
@@ -46,10 +47,12 @@ _ = append(s, 1)
 				t.Fatal(err)
 			}
 
-			info := &typesutil.Info{
-				Types: make(map[ast.Expr]types.TypeAndValue),
-				Defs:  make(map[*ast.Ident]types.Object),
-				Uses:  make(map[*ast.Ident]types.Object),
+			info := &xgo.TypeInfo{
+				Info: typesutil.Info{
+					Types: make(map[ast.Expr]types.TypeAndValue),
+					Defs:  make(map[*ast.Ident]types.Object),
+					Uses:  make(map[*ast.Ident]types.Object),
+				},
 			}
 
 			checker := typesutil.NewChecker(
@@ -59,7 +62,7 @@ _ = append(s, 1)
 					Types: types.NewPackage("test", "test"),
 				},
 				nil,
-				info,
+				&info.Info,
 			)
 
 			if err := checker.Files(nil, []*ast.File{f}); err != nil {

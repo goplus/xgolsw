@@ -17,7 +17,6 @@
 package xgoutil
 
 import (
-	"go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -40,7 +39,7 @@ func test() {
 `),
 	}, xgo.FeatAll)
 
-	astFile, err := proj.AST("main.xgo")
+	astFile, err := proj.ASTFile("main.xgo")
 	require.NoError(t, err)
 
 	// Get positions for all identifiers.
@@ -148,7 +147,7 @@ func test() {
 `),
 		}, xgo.FeatAll)
 
-		astFileOverlap, err := projOverlap.AST("main.xgo")
+		astFileOverlap, err := projOverlap.ASTFile("main.xgo")
 		require.NoError(t, err)
 
 		fsetOverlap := projOverlap.Fset
@@ -187,106 +186,5 @@ func test() {
 		// Very high column number.
 		ident = IdentAtPosition(proj, astFile, pos(2, 1000))
 		assert.Nil(t, ident)
-	})
-}
-
-func TestDefIdentFor(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
-var x = 1
-var y = x + 2
-
-func test() {
-	z := x + y
-	println(z)
-}
-`),
-	}, xgo.FeatAll)
-
-	_, typeInfo, _, _ := proj.TypeInfo()
-	require.NotNil(t, typeInfo)
-
-	// Get all definitions from typeInfo.
-	var xObj, yObj types.Object
-	for ident, obj := range typeInfo.Defs {
-		switch ident.Name {
-		case "x":
-			xObj = obj
-		case "y":
-			yObj = obj
-		}
-	}
-	require.NotNil(t, xObj)
-	require.NotNil(t, yObj)
-
-	t.Run("FindDefinition", func(t *testing.T) {
-		ident := DefIdentFor(typeInfo, xObj)
-		require.NotNil(t, ident)
-		assert.Equal(t, "x", ident.Name)
-
-		ident = DefIdentFor(typeInfo, yObj)
-		require.NotNil(t, ident)
-		assert.Equal(t, "y", ident.Name)
-	})
-
-	t.Run("NilTypeInfo", func(t *testing.T) {
-		assert.Nil(t, DefIdentFor(nil, xObj))
-	})
-
-	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, DefIdentFor(typeInfo, nil))
-	})
-
-	t.Run("UnknownObject", func(t *testing.T) {
-		unknownObj := types.NewVar(token.NoPos, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, DefIdentFor(typeInfo, unknownObj))
-	})
-}
-
-func TestRefIdentsFor(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
-var x = 1
-var y = x + 2
-
-func test() {
-	z := x + y
-	println(z, x)
-}
-`),
-	}, xgo.FeatAll)
-
-	_, typeInfo, _, _ := proj.TypeInfo()
-	require.NotNil(t, typeInfo)
-
-	// Find x definition from Defs.
-	var xObj types.Object
-	for ident, obj := range typeInfo.Defs {
-		if ident.Name == "x" {
-			xObj = obj
-			break
-		}
-	}
-	require.NotNil(t, xObj)
-
-	t.Run("FindReferences", func(t *testing.T) {
-		refs := RefIdentsFor(typeInfo, xObj)
-		require.Len(t, refs, 3) // y = x + 2, z := x + y, println(z, x)
-		for _, ref := range refs {
-			assert.Equal(t, "x", ref.Name)
-		}
-	})
-
-	t.Run("NilTypeInfo", func(t *testing.T) {
-		assert.Nil(t, RefIdentsFor(nil, xObj))
-	})
-
-	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, RefIdentsFor(typeInfo, nil))
-	})
-
-	t.Run("UnknownObject", func(t *testing.T) {
-		unknownObj := types.NewVar(token.NoPos, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, RefIdentsFor(typeInfo, unknownObj))
 	})
 }

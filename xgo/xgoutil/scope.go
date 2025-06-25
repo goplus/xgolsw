@@ -30,8 +30,11 @@ func InnermostScopeAt(proj *xgo.Project, pos token.Pos) *types.Scope {
 	if !pos.IsValid() {
 		return nil
 	}
-	_, typeInfo, _, _ := proj.TypeInfo()
 
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	astFile := PosASTFile(proj, pos)
 	if astFile == nil {
 		return nil

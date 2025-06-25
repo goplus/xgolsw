@@ -79,9 +79,12 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if astFile == nil {
 		return nil, nil
 	}
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
 
 	var fset = result.proj.Fset
-	var typeInfo = getTypeInfo(result.proj)
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos xgotoken.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
 		if !startPos.IsValid() || !endPos.IsValid() {
@@ -156,7 +159,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 						tokenType = PropertyType
 					}
 				} else if obj.Parent() != nil && obj.Parent().Parent() == nil {
-					defIdent := xgoutil.DefIdentFor(typeInfo, obj)
+					defIdent := typeInfo.DefIdentFor(obj)
 					if defIdent == node {
 						tokenType = ParameterType
 					} else {
@@ -179,7 +182,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *types.Label:
 				tokenType = LabelType
 			}
-			if xgoutil.DefIdentFor(typeInfo, obj) == node {
+			if typeInfo.DefIdentFor(obj) == node {
 				modifiers = append(modifiers, ModDeclaration)
 			}
 			if obj.Pkg() != nil && !xgoutil.IsInMainPkg(obj) && !strings.Contains(xgoutil.PkgPath(obj.Pkg()), ".") {

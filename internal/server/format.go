@@ -11,7 +11,6 @@ import (
 	xgoast "github.com/goplus/xgo/ast"
 	xgofmt "github.com/goplus/xgo/format"
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -117,8 +116,8 @@ func (s *Server) formatSpxXGo(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
 func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
 	snapshot.UpdateFiles(s.fileMapGetter())
-	astFile, ok := getASTPkg(snapshot).Files[spxFile]
-	if !ok {
+	astFile, _ := snapshot.ASTFile(spxFile)
+	if astFile == nil {
 		return nil, nil
 	}
 
@@ -140,8 +139,9 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 
 // formatSpxDecls formats an spx source file by reordering declarations.
 func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	astFile, ok := getASTPkg(snapshot).Files[spxFile]
-	if !ok {
+	var astFile *xgoast.File
+	astFile, _ = snapshot.ASTFile(spxFile)
+	if astFile == nil {
 		return nil, nil
 	}
 
@@ -517,7 +517,10 @@ func getDeclDoc(decl xgoast.Decl) *xgoast.CommentGroup {
 //
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *xgoast.File) {
-	typeInfo := getTypeInfo(proj)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return
+	}
 	xgoast.Inspect(astFile, func(n xgoast.Node) bool {
 		callExpr, ok := n.(*xgoast.CallExpr)
 		if !ok {
@@ -596,7 +599,11 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *xgoast.File) {
 
 // getFuncAndOverloadsType returns the function type and all its overloads.
 func getFuncAndOverloadsType(proj *xgo.Project, funIdent *xgoast.Ident) (fun *types.Func, overloads []*types.Func) {
-	funTypeObj := getTypeInfo(proj).ObjectOf(funIdent)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return
+	}
+	funTypeObj := typeInfo.ObjectOf(funIdent)
 	if funTypeObj == nil {
 		return
 	}
@@ -642,8 +649,11 @@ func getFuncAndOverloadsType(proj *xgo.Project, funIdent *xgoast.Ident) (fun *ty
 	return funType, xgoutil.ExpandXGoOverloadableFunc(underlineFunType)
 }
 
-func isIdentUsed(typeInfo *typesutil.Info, ident *xgoast.Ident) bool {
+func isIdentUsed(typeInfo *xgo.TypeInfo, ident *xgoast.Ident) bool {
 	obj := typeInfo.ObjectOf(ident)
+	if obj == nil {
+		return false
+	}
 	for _, usedObj := range typeInfo.Uses {
 		if usedObj == obj {
 			return true

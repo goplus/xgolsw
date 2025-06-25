@@ -13,7 +13,6 @@ import (
 	xgoast "github.com/goplus/xgo/ast"
 	xgoscanner "github.com/goplus/xgo/scanner"
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
@@ -42,8 +41,10 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 		return nil, nil
 	}
 
-	proj := result.proj
-	typeInfo := getTypeInfo(proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
 	ctx := &completionContext{
 		itemSet:        newCompletionItemSet(),
 		proj:           result.proj,
@@ -52,7 +53,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 		spxFile:        spxFile,
 		astFile:        astFile,
 		astFileScope:   typeInfo.Scopes[astFile],
-		tokenFile:      xgoutil.NodeTokenFile(proj, astFile),
+		tokenFile:      xgoutil.NodeTokenFile(result.proj, astFile),
 		pos:            pos,
 		innermostScope: innermostScope,
 	}
@@ -87,7 +88,7 @@ type completionContext struct {
 	itemSet *completionItemSet
 
 	proj           *xgo.Project
-	typeInfo       *typesutil.Info
+	typeInfo       *xgo.TypeInfo
 	result         *compileResult
 	spxFile        string
 	astFile        *xgoast.File
@@ -110,10 +111,6 @@ type completionContext struct {
 
 	inStringLit       bool
 	inSpxEventHandler bool
-}
-
-func (ctx *completionContext) pkgDoc() *pkgdoc.PkgDoc {
-	return getPkgDoc(ctx.proj)
 }
 
 // analyze analyzes the completion context to determine the kind of completion needed.
@@ -178,7 +175,7 @@ func (ctx *completionContext) analyze() {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
 					if ident, ok := node.Lhs[j].(*xgoast.Ident); ok {
-						defIdent := xgoutil.DefIdentFor(ctx.typeInfo, ctx.typeInfo.ObjectOf(ident))
+						defIdent := ctx.typeInfo.DefIdentFor(ctx.typeInfo.ObjectOf(ident))
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
 						}
@@ -464,7 +461,7 @@ func (ctx *completionContext) collectGeneral() error {
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
 
 	// Add local definitions from innermost scope and its parents.
-	pkg := getPkg(ctx.proj)
+	pkg := ctx.typeInfo.Pkg()
 	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
 		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
@@ -472,7 +469,7 @@ func (ctx *completionContext) collectGeneral() error {
 			if !xgoutil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if defIdent := xgoutil.DefIdentFor(ctx.typeInfo, obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+			if defIdent := ctx.typeInfo.DefIdentFor(obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
 				continue
 			}
 
@@ -626,7 +623,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if xgoutil.IsMainPkg(pkg) {
-		pkgDoc = ctx.pkgDoc()
+		pkgDoc, _ = ctx.proj.PkgDoc()
 	} else {
 		pkgPath := xgoutil.PkgPath(pkg)
 		var err error
@@ -902,7 +899,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if xgoutil.IsMainPkg(pkg) {
-		pkgDoc = ctx.pkgDoc()
+		pkgDoc, _ = ctx.proj.PkgDoc()
 	} else {
 		pkgPath := xgoutil.PkgPath(pkg)
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)

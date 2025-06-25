@@ -121,7 +121,10 @@ func (s *Server) spxGetInputSlots(params []SpxGetInputSlotsParams) ([]SpxInputSl
 
 // findInputSlots finds all input slots in the AST file.
 func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 
 	var inputSlots []SpxInputSlot
 	addInputSlots := func(slots ...SpxInputSlot) {
@@ -285,7 +288,10 @@ func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot 
 
 // findInputSlotsFromCallExpr finds input slots from a call expression.
 func findInputSlotsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) []SpxInputSlot {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 
 	var inputSlots []SpxInputSlot
 	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
@@ -511,7 +517,10 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *xgoast.BasicLi
 
 // createValueInputSlotFromIdent creates a value input slot from an identifier.
 func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, declaredType types.Type) *SpxInputSlot {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	typ := typeInfo.TypeOf(ident)
 	if typ == nil {
 		return nil
@@ -654,7 +663,10 @@ func createValueInputSlotFromUnaryExpr(result *compileResult, expr *xgoast.Unary
 // createValueInputSlotFromColorFuncCall creates a value input slot from an spx
 // color function call.
 func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *xgoast.CallExpr, declaredType types.Type) *SpxInputSlot {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 
 	fun := xgoutil.FuncFromCallExpr(typeInfo, callExpr)
 	if fun == nil || !IsInSpxPkg(fun) || !isSpxColorFunc(fun) {
@@ -774,7 +786,10 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 // inferSpxSpriteResourceEnclosingNode infers the enclosing [SpxSpriteResource]
 // for the given node. It returns nil if no [SpxSpriteResource] can be inferred.
 func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node) *SpxSpriteResource {
-	typeInfo := getTypeInfo(result.proj)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
 	spxFile := xgoutil.NodeFilename(result.proj, node)
 	astFile := xgoutil.NodeASTFile(result.proj, node)
 
