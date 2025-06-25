@@ -14,11 +14,11 @@ using [JSON-RPC 2.0](https://www.jsonrpc.org/specification) for message exchange
 implementations that require a network transport layer, this project operates directly in the browser's memory space
 through its API interfaces.
 
-## Difference between `goxls` and `xgolsw`
+## Difference between [`xgols`](https://github.com/goplus/xgols) and `xgolsw`
 
-* `goxls` runs locally, while `xgolsw` runs in the browser using WebAssembly.
-* `goxls` supports a workspace (multiple projects), while `xgolsw` supports a single project.
-* `goxls` supports mixed programming of Go and XGo, while `xgolsw` only supports a pure XGo project.
+* `xgols` runs locally, while `xgolsw` runs in the browser using WebAssembly.
+* `xgols` supports a workspace (multiple projects), while `xgolsw` supports a single project.
+* `xgols` supports mixed programming of Go and XGo, while `xgolsw` only supports a pure XGo project.
 
 ## Building from source
 
