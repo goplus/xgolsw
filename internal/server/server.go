@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
@@ -347,8 +348,12 @@ func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
 			return s.replyError(id, context.Cause(ctx))
 		}
 
+		startTime := time.Now()
 		result, err := fn()
-		resp, err := jsonrpc2.NewResponse(id, result, err)
+		duration := time.Since(startTime)
+		resp, err := jsonrpc2.NewResponseWithMeta(id, result, err, map[string]interface{}{
+			"_executionTimeMs": duration.Milliseconds(),
+		})
 		if err != nil {
 			return err
 		}

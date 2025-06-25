@@ -60,6 +60,8 @@ type wireResponse struct {
 	Error *WireError `json:"error,omitempty"`
 	// ID must be set and is the identifier of the Request this is a response to.
 	ID *ID `json:"id,omitempty"`
+	// Meta is optional metadata that can be used to pass additional information.
+	Meta map[string]any `json:"meta,omitempty"`
 }
 
 // wireCombined has all the fields of both Request and Response.

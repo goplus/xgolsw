@@ -133,6 +133,37 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ResponseWithMeta is a Response that includes additional metadata.
+type ResponseWithMeta struct {
+	Response
+	Meta map[string]interface{} `json:"meta,omitempty"`
+}
+
+// NewResponseWithMeta constructs a new ResponseWithMeta message that is a reply
+func NewResponseWithMeta(id ID, result any, err error, meta map[string]interface{}) (*ResponseWithMeta, error) {
+	resp, err := NewResponse(id, result, err)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ResponseWithMeta{
+		Response: *resp,
+		Meta:     meta,
+	}, nil
+}
+
+func (r *ResponseWithMeta) MarshalJSON() ([]byte, error) {
+	msg := &wireResponse{Error: toWireError(r.err), ID: &r.id, Meta: r.Meta}
+	if msg.Error == nil {
+		msg.Result = &r.result
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return data, fmt.Errorf("marshaling notification: %w", err)
+	}
+	return data, nil
+}
+
 // NewResponse constructs a new Response message that is a reply to the
 // supplied. If err is set result may be ignored.
 func NewResponse(id ID, result interface{}, err error) (*Response, error) {
