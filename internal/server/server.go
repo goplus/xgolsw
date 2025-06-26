@@ -339,12 +339,15 @@ func (s *Server) wrapWithMetrics(id jsonrpc2.ID, method string, command string, 
 	return func() (any, error) {
 		startTime := time.Now()
 		result, err := fn()
+		endTime := time.Now()
 		// Prepare telemetry message
 		telemetryMsg := map[string]interface{}{
-			"id":       &id,
-			"method":   method,
-			"duration": time.Since(startTime).Milliseconds(),
-			"success":  err == nil,
+			"id":             &id,
+			"method":         method,
+			"startTimestamp": startTime.UnixMilli(),
+			"endTimestamp":   endTime.UnixMilli(),
+			"duration":       endTime.Sub(startTime).Milliseconds(),
+			"success":        err == nil,
 		}
 		if command != "" {
 			telemetryMsg["command"] = command
