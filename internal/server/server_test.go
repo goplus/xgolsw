@@ -170,6 +170,12 @@ func TestHandleMessage_Call(t *testing.T) {
 			msgNum: 1,
 		},
 		{
+			name:   "ShutDown",
+			method: "shutdown",
+			params: nil,
+			msgNum: 2, // 1 response + 1 notification
+		},
+		{
 			name:   "TextDocument/Hover",
 			method: "textDocument/hover",
 			params: &HoverParams{
