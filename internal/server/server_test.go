@@ -76,16 +76,16 @@ echo x
 		replier := &mockReplier{}
 		s := New(newMapFSWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
 
-		requestID1 := jsonrpc2.NewStringID("test-request-1")
-		requestID2 := jsonrpc2.NewStringID("test-request-2")
+		call1, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-1"), "$/cancelRequest", &CancelParams{ID: "test-request-1"})
+		call2, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-2"), "$/cancelRequest", &CancelParams{ID: "test-request-2"})
 
 		var request1Runned bool
 		var request2Runned bool
-		s.runWithResponse(requestID1, func() (any, error) {
+		s.runWithResponse(call1, func() (any, error) {
 			request1Runned = true
 			return "should not reach here", nil
 		})
-		s.runWithResponse(requestID2, func() (any, error) {
+		s.runWithResponse(call2, func() (any, error) {
 			request2Runned = true
 			return "should not reach here either", nil
 		})
@@ -108,21 +108,21 @@ echo x
 		for _, v := range messages {
 			response, ok := v.(*jsonrpc2.Response)
 			require.True(t, ok, "Should receive a Response message")
-			if response.ID() == requestID1 {
+			if response.ID() == call1.ID() {
 				response1 = response
-			} else if response.ID() == requestID2 {
+			} else if response.ID() == call2.ID() {
 				response2 = response
 			}
 		}
 
-		assert.Equal(t, requestID1, response1.ID())
+		assert.Equal(t, call1.ID(), response1.ID())
 		assert.NotNil(t, response1.Err())
 		var wireErr1 *jsonrpc2.WireError
 		require.True(t, errors.As(response1.Err(), &wireErr1))
 		assert.Equal(t, int64(RequestCancelled), wireErr1.Code)
 		assert.Contains(t, wireErr1.Message, "Request cancelled")
 
-		assert.Equal(t, requestID2, response2.ID())
+		assert.Equal(t, call2.ID(), response2.ID())
 		assert.NotNil(t, response2.Err())
 		var wireErr2 *jsonrpc2.WireError
 		require.True(t, errors.As(response2.Err(), &wireErr2))
