@@ -437,27 +437,21 @@ fmt.Println("Hello, World!")
 			if tc.params != nil {
 				var err error
 				params, err = json.Marshal(tc.params)
-				if err != nil {
-					t.Fatalf("Failed to marshal params: %v", err)
-				}
+				require.NoError(t, err, "Failed to marshal params")
 			}
 
 			id := jsonrpc2.NewIntID(1)
 			call, err := jsonrpc2.NewCall(id, tc.method, params)
-			if err != nil {
-				t.Fatalf("Failed to create call: %v", err)
-			}
+			require.NoError(t, err, "Failed to create call")
 
 			err = server.HandleMessage(call)
-			if err != nil {
-				t.Fatalf("Failed to handle message: %v", err)
-			}
+			require.NoError(t, err, "Failed to handle message")
 
 			time.Sleep(100 * time.Millisecond)
 			msgs := replier.getMessages()
-			if len(msgs) != tc.msgNum {
-				t.Fatalf("%s Expected 1 message, got %d", tc.method, len(msgs))
-			}
+			assert.Len(t, msgs, tc.msgNum,
+				"Method '%s': Expected %d messages, got %d",
+				tc.method, tc.msgNum, len(msgs))
 		})
 	}
 }

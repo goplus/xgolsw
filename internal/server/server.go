@@ -349,7 +349,6 @@ func (s *Server) wrapWithMetrics(id jsonrpc2.ID, method string, command string, 
 			"initTimestamp":  initTime.UnixMilli(),
 			"startTimestamp": startTime.UnixMilli(),
 			"endTimestamp":   endTime.UnixMilli(),
-			"duration":       endTime.Sub(startTime).Milliseconds(),
 			"success":        err == nil,
 		}
 		if command != "" {
