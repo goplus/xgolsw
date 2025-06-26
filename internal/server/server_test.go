@@ -1,7 +1,9 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ func (m *mockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, msg)
+	fmt.Println("ReplyMessage", msg)
 	return nil
 }
 
@@ -30,6 +33,7 @@ func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	defer m.mu.Unlock()
 	result := make([]jsonrpc2.Message, len(m.messages))
 	copy(result, m.messages)
+	fmt.Println("getMessages", len(result))
 	return result
 }
 
@@ -153,4 +157,309 @@ echo x
 			})
 		}
 	})
+}
+
+func TestHandleMessage_Call(t *testing.T) {
+	// 测试用例
+	testCases := []struct {
+		name   string
+		method string
+		params interface{}
+		files  map[string][]byte
+		msgNum int
+	}{
+		{
+			name:   "Method Not Found",
+			method: "unknown/method",
+			msgNum: 1,
+		},
+		{
+			name:   "TextDocument/Hover",
+			method: "textDocument/hover",
+			params: &HoverParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 2, Character: 1},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte(`
+import (
+	"fmt"
+	"image"
+)
+
+fmt.Println("Hello, World!")
+`)},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Completion",
+			method: "textDocument/completion",
+			params: CompletionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/SignatureHelp",
+			method: "textDocument/signatureHelp",
+			params: SignatureHelpParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho(x)"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Declaration",
+			method: "textDocument/declaration",
+			params: DeclarationParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Definition",
+			method: "textDocument/definition",
+			params: DefinitionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/TypeDefinition",
+			method: "textDocument/typeDefinition",
+			params: TypeDefinitionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Implementation",
+			method: "textDocument/implementation",
+			params: ImplementationParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/References",
+			method: "textDocument/references",
+			params: ReferenceParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+				Context: ReferenceContext{
+					IncludeDeclaration: true,
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/DocumentHighlight",
+			method: "textDocument/documentHighlight",
+			params: DocumentHighlightParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 1, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/DocumentLink",
+			method: "textDocument/documentLink",
+			params: DocumentLinkParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte(`import "fmt"`),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Diagnostic",
+			method: "textDocument/diagnostic",
+			params: DocumentDiagnosticParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "Workspace/Diagnostic",
+			method: "workspace/diagnostic",
+			params: WorkspaceDiagnosticParams{},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Formatting",
+			method: "textDocument/formatting",
+			params: DocumentFormattingParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x=100\necho   x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/PrepareRename",
+			method: "textDocument/prepareRename",
+			params: PrepareRenameParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 0, Character: 5},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/Rename",
+			method: "textDocument/rename",
+			params: RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 0, Character: 5},
+				NewName:      "y",
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/SemanticTokens/Full",
+			method: "textDocument/semanticTokens/full",
+			params: SemanticTokensParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "TextDocument/InlayHint",
+			method: "textDocument/inlayHint",
+			params: InlayHintParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Range: Range{
+					Start: Position{Line: 0, Character: 0},
+					End:   Position{Line: 1, Character: 6},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "Workspace/ExecuteCommand",
+			method: "workspace/executeCommand",
+			params: ExecuteCommandParams{
+				Command: "spx.renameResource",
+				Arguments: func() []json.RawMessage {
+					arg := map[string]interface{}{
+						"resource": map[string]interface{}{
+							"uri": "spx://resources/sprites/sprite1",
+						},
+						"newName": "sprite2",
+					}
+					data, _ := json.Marshal(arg)
+					return []json.RawMessage{data}
+				}(),
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := &mockReplier{}
+			server := New(newMapFSWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+
+			// 创建调用消息
+			var params json.RawMessage
+			if tc.params != nil {
+				var err error
+				params, err = json.Marshal(tc.params)
+				if err != nil {
+					t.Fatalf("Failed to marshal params: %v", err)
+				}
+			}
+
+			println("Method:", tc.method, "Params:", string(params))
+
+			id := jsonrpc2.NewIntID(1)
+			call, err := jsonrpc2.NewCall(id, tc.method, params)
+			if err != nil {
+				t.Fatalf("Failed to create call: %v", err)
+			}
+
+			// 执行测试
+			err = server.HandleMessage(call)
+			if err != nil {
+				t.Fatalf("Failed to handle message: %v", err)
+			}
+
+			time.Sleep(100 * time.Millisecond)
+			msgs := replier.getMessages()
+			if len(msgs) != tc.msgNum {
+				t.Fatalf("%s Expected 1 message, got %d", tc.method, len(msgs))
+			}
+		})
+	}
 }
