@@ -105,8 +105,7 @@ func (s *Server) HandleMessage(m jsonrpc2.Message) error {
 
 // handleCall handles a call message.
 func (s *Server) handleCall(c *jsonrpc2.Call) error {
-	method := c.Method()
-	switch method {
+	switch c.Method() {
 	case "initialize":
 		var params InitializeParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
