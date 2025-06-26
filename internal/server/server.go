@@ -336,6 +336,7 @@ func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) e
 
 // wrapWithMetrics wraps a function to add telemetry for its execution.
 func (s *Server) wrapWithMetrics(id jsonrpc2.ID, method string, command string, fn func() (any, error)) func() (any, error) {
+	initTime := time.Now()
 	return func() (any, error) {
 		startTime := time.Now()
 		result, err := fn()
@@ -344,6 +345,7 @@ func (s *Server) wrapWithMetrics(id jsonrpc2.ID, method string, command string, 
 		telemetryMsg := map[string]interface{}{
 			"id":             &id,
 			"method":         method,
+			"initTimestamp":  initTime.UnixMilli(),
 			"startTimestamp": startTime.UnixMilli(),
 			"endTimestamp":   endTime.UnixMilli(),
 			"duration":       endTime.Sub(startTime).Milliseconds(),
