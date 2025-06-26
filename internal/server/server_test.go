@@ -436,8 +436,6 @@ fmt.Println("Hello, World!")
 				}
 			}
 
-			println("Method:", tc.method, "Params:", string(params))
-
 			id := jsonrpc2.NewIntID(1)
 			call, err := jsonrpc2.NewCall(id, tc.method, params)
 			if err != nil {
