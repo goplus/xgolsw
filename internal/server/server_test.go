@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +23,6 @@ func (m *mockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, msg)
-	fmt.Println("ReplyMessage", msg)
 	return nil
 }
 
@@ -33,7 +31,6 @@ func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	defer m.mu.Unlock()
 	result := make([]jsonrpc2.Message, len(m.messages))
 	copy(result, m.messages)
-	fmt.Println("getMessages", len(result))
 	return result
 }
 
@@ -160,7 +157,6 @@ echo x
 }
 
 func TestHandleMessage_Call(t *testing.T) {
-	// 测试用例
 	testCases := []struct {
 		name   string
 		method string
@@ -431,7 +427,6 @@ fmt.Println("Hello, World!")
 			replier := &mockReplier{}
 			server := New(newMapFSWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
 
-			// 创建调用消息
 			var params json.RawMessage
 			if tc.params != nil {
 				var err error
@@ -449,7 +444,6 @@ fmt.Println("Hello, World!")
 				t.Fatalf("Failed to create call: %v", err)
 			}
 
-			// 执行测试
 			err = server.HandleMessage(call)
 			if err != nil {
 				t.Fatalf("Failed to handle message: %v", err)
