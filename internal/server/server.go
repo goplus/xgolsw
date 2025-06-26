@@ -344,7 +344,7 @@ func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
 
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
 		if ctx.Err() != nil {
-			return s.replyError(id, context.Cause(ctx))
+			return context.Cause(ctx)
 		}
 
 		result, err := fn()
