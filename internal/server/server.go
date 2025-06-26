@@ -313,6 +313,7 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 	return nil
 }
 
+// sendTelemetryEvent sends a telemetry event to the client.
 func (s *Server) sendTelemetryEvent(data map[string]interface{}) error {
 	n, err := jsonrpc2.NewNotification("telemetry/event", data)
 	if err != nil {
