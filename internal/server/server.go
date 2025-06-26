@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
@@ -104,7 +105,8 @@ func (s *Server) HandleMessage(m jsonrpc2.Message) error {
 
 // handleCall handles a call message.
 func (s *Server) handleCall(c *jsonrpc2.Call) error {
-	switch c.Method() {
+	method := c.Method()
+	switch method {
 	case "initialize":
 		var params InitializeParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
@@ -112,153 +114,153 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		}
 		return errors.New("TODO")
 	case "shutdown":
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return nil, nil // Protocol conformance only.
-		})
+		}))
 	case "textDocument/hover":
 		var params HoverParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentHover(&params)
-		})
+		}))
 	case "textDocument/completion":
 		var params CompletionParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentCompletion(&params)
-		})
+		}))
 	case "textDocument/signatureHelp":
 		var params SignatureHelpParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentSignatureHelp(&params)
-		})
+		}))
 	case "textDocument/declaration":
 		var params DeclarationParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentDeclaration(&params)
-		})
+		}))
 	case "textDocument/definition":
 		var params DefinitionParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentDefinition(&params)
-		})
+		}))
 	case "textDocument/typeDefinition":
 		var params TypeDefinitionParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentTypeDefinition(&params)
-		})
+		}))
 	case "textDocument/implementation":
 		var params ImplementationParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentImplementation(&params)
-		})
+		}))
 	case "textDocument/references":
 		var params ReferenceParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentReferences(&params)
-		})
+		}))
 	case "textDocument/documentHighlight":
 		var params DocumentHighlightParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentDocumentHighlight(&params)
-		})
+		}))
 	case "textDocument/documentLink":
 		var params DocumentLinkParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentDocumentLink(&params)
-		})
+		}))
 	case "textDocument/diagnostic":
 		var params DocumentDiagnosticParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentDiagnostic(&params)
-		})
+		}))
 	case "workspace/diagnostic":
 		var params WorkspaceDiagnosticParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.workspaceDiagnostic(&params)
-		})
+		}))
 	case "textDocument/formatting":
 		var params DocumentFormattingParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentFormatting(&params)
-		})
+		}))
 	case "textDocument/prepareRename":
 		var params PrepareRenameParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentPrepareRename(&params)
-		})
+		}))
 	case "textDocument/rename":
 		var params RenameParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentRename(&params)
-		})
+		}))
 	case "textDocument/semanticTokens/full":
 		var params SemanticTokensParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentSemanticTokensFull(&params)
-		})
+		}))
 	case "textDocument/inlayHint":
 		var params InlayHintParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, "", func() (any, error) {
 			return s.textDocumentInlayHint(&params)
-		})
+		}))
 	case "workspace/executeCommand":
 		var params ExecuteCommandParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c.ID(), func() (any, error) {
+		s.runWithResponse(c.ID(), s.fnWithTelemetry(method, params.Command, func() (any, error) {
 			return s.workspaceExecuteCommand(&params)
-		})
+		}))
 	default:
 		return s.replyMethodNotFound(c.ID(), c.Method())
 	}
@@ -311,6 +313,14 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 	return nil
 }
 
+func (s *Server) sendTelemetryEvent(data map[string]interface{}) error {
+	n, err := jsonrpc2.NewNotification("telemetry/event", data)
+	if err != nil {
+		return fmt.Errorf("Failed to create telemetry notification: %v\n", err)
+	}
+	return s.replier.ReplyMessage(n)
+}
+
 // publishDiagnostics sends diagnostic notifications to the client.
 func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) error {
 	params := &PublishDiagnosticsParams{
@@ -322,6 +332,25 @@ func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) e
 		return fmt.Errorf("failed to create diagnostic notification: %w", err)
 	}
 	return s.replier.ReplyMessage(n)
+}
+
+// fnWithTelemetry wraps a function to add telemetry for its execution.
+func (s *Server) fnWithTelemetry(method string, command string, fn func() (any, error)) func() (any, error) {
+	return func() (any, error) {
+		startTime := time.Now()
+		result, err := fn()
+		// Prepare telemetry message
+		telemetryMsg := map[string]interface{}{
+			"method":   method,
+			"duration": time.Since(startTime).Milliseconds(),
+			"success":  err == nil,
+		}
+		if command != "" {
+			telemetryMsg["command"] = command
+		}
+		s.sendTelemetryEvent(telemetryMsg)
+		return result, err
+	}
 }
 
 // run runs the given function in a goroutine and replies to the client with any
@@ -344,7 +373,7 @@ func (s *Server) runWithResponse(id jsonrpc2.ID, fn func() (any, error)) {
 
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
 		if ctx.Err() != nil {
-			return s.replyError(id, context.Cause(ctx))
+			return context.Cause(ctx)
 		}
 
 		result, err := fn()
