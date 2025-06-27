@@ -9,6 +9,7 @@ import (
 
 	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -442,6 +443,136 @@ fmt.Println("Hello, World!")
 
 			id := jsonrpc2.NewIntID(1)
 			call, err := jsonrpc2.NewCall(id, tc.method, params)
+			require.NoError(t, err, "Failed to create call")
+
+			err = server.HandleMessage(call)
+			require.NoError(t, err, "Failed to handle message")
+
+			time.Sleep(100 * time.Millisecond)
+			msgs := replier.getMessages()
+			assert.Len(t, msgs, tc.msgNum,
+				"Method '%s': Expected %d messages, got %d",
+				tc.method, tc.msgNum, len(msgs))
+		})
+	}
+}
+
+func TestHandleMessage_Notification(t *testing.T) {
+	testCases := []struct {
+		name   string
+		method string
+		params any
+		files  map[string][]byte
+		msgNum int
+	}{
+		{
+			name:   "initialized",
+			method: "initialized",
+			params: InitializedParams{},
+			msgNum: 1, // only telemetry event
+		},
+		{
+			name:   "exit",
+			method: "exit",
+			params: nil,
+			msgNum: 0, // exit 不发送任何消息
+		},
+		{
+			name:   "$/cancelRequest",
+			method: "$/cancelRequest",
+			params: CancelParams{
+				ID: jsonrpc2.NewStringID("test-request"),
+			},
+			msgNum: 1, // only telemetry event
+		},
+		{
+			name:   "textDocument/didOpen",
+			method: "textDocument/didOpen",
+			params: DidOpenTextDocumentParams{
+				TextDocument: protocol.TextDocumentItem{
+					URI:        "file:///main.spx",
+					LanguageID: "spx",
+					Version:    1,
+					Text:       "var x = 100\necho x",
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2, // telemetry event + diagnostics notification
+		},
+		{
+			name:   "textDocument/didChange",
+			method: "textDocument/didChange",
+			params: DidChangeTextDocumentParams{
+				TextDocument: protocol.VersionedTextDocumentIdentifier{
+					TextDocumentIdentifier: TextDocumentIdentifier{
+						URI: "file:///main.spx",
+					},
+					Version: 2,
+				},
+				ContentChanges: []protocol.TextDocumentContentChangeEvent{
+					{
+						Text: "var y = 200\necho y",
+					},
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2, // telemetry event + diagnostics notification
+		},
+		{
+			name:   "textDocument/didSave",
+			method: "textDocument/didSave",
+			params: DidSaveTextDocumentParams{
+				TextDocument: TextDocumentIdentifier{
+					URI: "file:///main.spx",
+				},
+				Text: func() *string {
+					text := "var x = 100\necho x"
+					return &text
+				}(),
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2, // telemetry event + diagnostics notification
+		},
+		{
+			name:   "textDocument/didClose",
+			method: "textDocument/didClose",
+			params: DidCloseTextDocumentParams{
+				TextDocument: TextDocumentIdentifier{
+					URI: "file:///main.spx",
+				},
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2, // telemetry event + diagnostics notification
+		},
+		{
+			name:   "Unknown Notification Method",
+			method: "unknown/method",
+			params: nil,
+			msgNum: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := &mockReplier{}
+			server := New(newMapFSWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+
+			var params json.RawMessage
+			if tc.params != nil {
+				var err error
+				params, err = json.Marshal(tc.params)
+				require.NoError(t, err, "Failed to marshal params")
+			}
+
+			call, err := jsonrpc2.NewNotification(tc.method, params)
 			require.NoError(t, err, "Failed to create call")
 
 			err = server.HandleMessage(call)
