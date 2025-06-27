@@ -81,11 +81,11 @@ echo x
 
 		var request1Runned bool
 		var request2Runned bool
-		s.runWithResponse(call1, func() (any, error) {
+		s.runForCall(call1, func() (any, error) {
 			request1Runned = true
 			return "should not reach here", nil
 		})
-		s.runWithResponse(call2, func() (any, error) {
+		s.runForCall(call2, func() (any, error) {
 			request2Runned = true
 			return "should not reach here either", nil
 		})

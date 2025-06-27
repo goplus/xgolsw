@@ -113,7 +113,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		}
 		return errors.New("TODO")
 	case "shutdown":
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return nil, nil // Protocol conformance only.
 		})
 	case "textDocument/hover":
@@ -121,7 +121,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentHover(&params)
 		})
 	case "textDocument/completion":
@@ -129,7 +129,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentCompletion(&params)
 		})
 	case "textDocument/signatureHelp":
@@ -137,7 +137,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentSignatureHelp(&params)
 		})
 	case "textDocument/declaration":
@@ -145,7 +145,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentDeclaration(&params)
 		})
 	case "textDocument/definition":
@@ -153,7 +153,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentDefinition(&params)
 		})
 	case "textDocument/typeDefinition":
@@ -161,7 +161,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentTypeDefinition(&params)
 		})
 	case "textDocument/implementation":
@@ -169,7 +169,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentImplementation(&params)
 		})
 	case "textDocument/references":
@@ -177,7 +177,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentReferences(&params)
 		})
 	case "textDocument/documentHighlight":
@@ -185,7 +185,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentDocumentHighlight(&params)
 		})
 	case "textDocument/documentLink":
@@ -193,7 +193,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentDocumentLink(&params)
 		})
 	case "textDocument/diagnostic":
@@ -201,7 +201,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentDiagnostic(&params)
 		})
 	case "workspace/diagnostic":
@@ -209,7 +209,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.workspaceDiagnostic(&params)
 		})
 	case "textDocument/formatting":
@@ -217,7 +217,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentFormatting(&params)
 		})
 	case "textDocument/prepareRename":
@@ -225,7 +225,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentPrepareRename(&params)
 		})
 	case "textDocument/rename":
@@ -233,7 +233,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentRename(&params)
 		})
 	case "textDocument/semanticTokens/full":
@@ -241,7 +241,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentSemanticTokensFull(&params)
 		})
 	case "textDocument/inlayHint":
@@ -249,7 +249,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.textDocumentInlayHint(&params)
 		})
 	case "workspace/executeCommand":
@@ -257,7 +257,7 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runWithResponse(c, func() (any, error) {
+		s.runForCall(c, func() (any, error) {
 			return s.workspaceExecuteCommand(&params)
 		})
 	default:
@@ -274,40 +274,51 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse initialized params: %w", err)
 		}
-		return errors.New("TODO")
+		s.runForNotification(n, func() error {
+			return errors.New("TODO")
+		})
 	case "exit":
-		return nil // Protocol conformance only.
+		// Protocol conformance only.
 	case "$/cancelRequest":
 		var params CancelParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse cancelRequest params: %w", err)
 		}
-		return s.cancelRequest(&params)
+		s.runForNotification(n, func() error {
+			return s.cancelRequest(&params)
+		})
 	case "textDocument/didOpen":
 		var params DidOpenTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didOpen params: %w", err)
 		}
-
-		return s.didOpen(&params)
+		s.runForNotification(n, func() error {
+			return s.didOpen(&params)
+		})
 	case "textDocument/didChange":
 		var params DidChangeTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didChange params: %w", err)
 		}
-		return s.didChange(&params)
+		s.runForNotification(n, func() error {
+			return s.didChange(&params)
+		})
 	case "textDocument/didSave":
 		var params DidSaveTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didSave params: %w", err)
 		}
-		return s.didSave(&params)
+		s.runForNotification(n, func() error {
+			return s.didSave(&params)
+		})
 	case "textDocument/didClose":
 		var params DidCloseTextDocumentParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse didClose params: %w", err)
 		}
-		return s.didClose(&params)
+		s.runForNotification(n, func() error {
+			return s.didClose(&params)
+		})
 	}
 	return nil
 }
@@ -334,63 +345,79 @@ func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) e
 	return s.replier.ReplyMessage(n)
 }
 
-// wrapWithMetrics wraps a function to add telemetry for its execution.
-func (s *Server) wrapWithMetrics(call *jsonrpc2.Call, fn func() (any, error)) func() (any, error) {
+// wrapWithMetrics is a helper function to wrap a function with telemetry metrics
+func (s *Server) wrapWithMetrics(msg jsonrpc2.Message, fn func() (any, error)) func() (any, error) {
 	initTime := time.Now()
-	id := call.ID()
-	method := call.Method()
-	params := call.Params()
+	telemetryMsg := make(map[string]any)
+
+	switch m := msg.(type) {
+	case *jsonrpc2.Call:
+		id := m.ID()
+		telemetryMsg = map[string]any{
+			"call": map[string]any{
+				"id":     &id,
+				"method": m.Method(),
+				"params": m.Params(),
+			},
+		}
+	case *jsonrpc2.Notification:
+		telemetryMsg = map[string]any{
+			"notification": map[string]any{
+				"method": m.Method(),
+				"params": m.Params(),
+			},
+		}
+	}
+
 	return func() (any, error) {
 		startTime := time.Now()
 		result, err := fn()
 		endTime := time.Now()
-		// Prepare telemetry message
-		telemetryMsg := map[string]any{
-			"call": map[string]any{
-				"id":     &id,
-				"method": method,
-				"params": params,
-			},
-			"initTimestamp":  initTime.UnixMilli(),
-			"startTimestamp": startTime.UnixMilli(),
-			"endTimestamp":   endTime.UnixMilli(),
-			"success":        err == nil,
-		}
+
+		telemetryMsg["initTimestamp"] = initTime.UnixMilli()
+		telemetryMsg["startTimestamp"] = startTime.UnixMilli()
+		telemetryMsg["endTimestamp"] = endTime.UnixMilli()
+		telemetryMsg["success"] = err == nil
+
 		s.sendTelemetryEvent(telemetryMsg)
 		return result, err
 	}
 }
 
-// run runs the given function in a goroutine and replies to the client with any
-// errors.
-func (s *Server) run(id jsonrpc2.ID, fn func() error) {
-	go func() {
-		if err := fn(); err != nil {
-			s.replyError(id, err)
-		}
-	}()
-}
-
-// runWithResponse runs the given function in a goroutine and handles the response.
-func (s *Server) runWithResponse(call *jsonrpc2.Call, fn func() (any, error)) {
+// runForCall runs a function for a call message and replies with the result or error.
+func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
 	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
 	s.cancelCauseFuncs.Store(call.ID(), cancelCauseFunc)
 	wrap := s.wrapWithMetrics(call, fn)
-	s.run(call.ID(), func() error {
+	go func() error {
 		defer s.cancelCauseFuncs.Delete(call.ID())
 
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
 		if ctx.Err() != nil {
-			return context.Cause(ctx)
+			return s.replyError(call.ID(), context.Cause(ctx))
 		}
 
 		result, err := wrap()
 		resp, err := jsonrpc2.NewResponse(call.ID(), result, err)
 		if err != nil {
-			return err
+			return s.replyError(call.ID(), err)
 		}
 		return s.replier.ReplyMessage(resp)
+	}()
+}
+
+// runForNotification runs a function for a notification message without expecting a response.
+func (s *Server) runForNotification(notify *jsonrpc2.Notification, fn func() error) {
+	wrap := s.wrapWithMetrics(notify, func() (any, error) {
+		if err := fn(); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	})
+	go func() error {
+		_, err := wrap()
+		return err
+	}()
 }
 
 var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
