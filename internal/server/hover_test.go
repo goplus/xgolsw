@@ -118,7 +118,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:main?Game.count\" overview=\"var count int\">\ncount is a variable.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.count\" overview=\"var count int\">\ncount is a variable.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 11, Character: 1},
@@ -137,7 +137,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:main?MaxCount\" overview=\"const MaxCount = 100\">\nMaxCount is a constant.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?MaxCount\" overview=\"const MaxCount = 100\">\nMaxCount is a constant.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 17, Character: 6},
@@ -156,7 +156,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:main?Game.Add\" overview=\"func Add(x int, y int) int\">\nAdd is a function.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.Add\" overview=\"func Add(x int, y int) int\">\nAdd is a function.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 20, Character: 5},
@@ -175,7 +175,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:main?Point\" overview=\"type Point\">\nPoint is a type.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Point\" overview=\"type Point\">\nPoint is a type.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 25, Character: 5},
@@ -194,7 +194,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:main?Point.X\" overview=\"field X int\">\nX is a field.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Point.X\" overview=\"field X int\">\nX is a field.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 27, Character: 1},
@@ -239,7 +239,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:builtin?int8\" overview=\"type int8\">\nint8 is the set of all signed 8-bit integers.\nRange: -128 through 127.\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:builtin?int8\" overview=\"type int8\">\nint8 is the set of all signed 8-bit integers.\nRange: -128 through 127.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 33, Character: 12},
@@ -328,7 +328,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 38, Character: 5},
@@ -347,7 +347,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 39, Character: 0},
@@ -380,7 +380,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 1, Character: 9},
@@ -399,7 +399,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 0},
@@ -418,7 +418,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:github.com/goplus/spx/v2?Sprite.clone#0\" overview=\"func clone()\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Sprite.clone#0\" overview=\"func clone()\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 5, Character: 1},
@@ -437,7 +437,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<definition-item def-id=\"xgo:image?Point.X\" overview=\"field X int\">\n</definition-item>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:image?Point.X\" overview=\"field X int\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 6, Character: 12},
