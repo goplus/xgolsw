@@ -389,18 +389,24 @@ func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
 	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
 	s.cancelCauseFuncs.Store(call.ID(), cancelCauseFunc)
 	wrap := s.wrapWithMetrics(call, fn)
-	go func() error {
-		defer s.cancelCauseFuncs.Delete(call.ID())
+	go func() (err error) {
+		defer func() {
+			s.cancelCauseFuncs.Delete(call.ID())
+			if err != nil {
+				s.replyError(call.ID(), err)
+			}
+		}()
 
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
 		if ctx.Err() != nil {
-			return s.replyError(call.ID(), context.Cause(ctx))
+			err = context.Cause(ctx)
+			return err
 		}
 
 		result, err := wrap()
 		resp, err := jsonrpc2.NewResponse(call.ID(), result, err)
 		if err != nil {
-			return s.replyError(call.ID(), err)
+			return err
 		}
 		return s.replier.ReplyMessage(resp)
 	}()
@@ -409,15 +415,9 @@ func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
 // runForNotification runs a function for a notification message without expecting a response.
 func (s *Server) runForNotification(notify *jsonrpc2.Notification, fn func() error) {
 	wrap := s.wrapWithMetrics(notify, func() (any, error) {
-		if err := fn(); err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return nil, fn()
 	})
-	go func() error {
-		_, err := wrap()
-		return err
-	}()
+	go wrap()
 }
 
 var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
