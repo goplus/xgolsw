@@ -313,7 +313,7 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 }
 
 // sendTelemetryEvent sends a telemetry event to the client.
-func (s *Server) sendTelemetryEvent(data map[string]interface{}) error {
+func (s *Server) sendTelemetryEvent(data map[string]any) error {
 	n, err := jsonrpc2.NewNotification("telemetry/event", data)
 	if err != nil {
 		return fmt.Errorf("Failed to create telemetry notification: %v\n", err)
@@ -345,8 +345,8 @@ func (s *Server) wrapWithMetrics(call *jsonrpc2.Call, fn func() (any, error)) fu
 		result, err := fn()
 		endTime := time.Now()
 		// Prepare telemetry message
-		telemetryMsg := map[string]interface{}{
-			"call": map[string]interface{}{
+		telemetryMsg := map[string]any{
+			"call": map[string]any{
 				"id":     &id,
 				"method": method,
 				"params": params,

@@ -139,7 +139,7 @@ echo x
 
 		testCases := []struct {
 			name string
-			id   interface{}
+			id   any
 		}{
 			{"InvalidType", []int{1, 2, 3}},
 			{"EmptyMap", map[string]string{}},
@@ -160,7 +160,7 @@ func TestHandleMessage_Call(t *testing.T) {
 	testCases := []struct {
 		name   string
 		method string
-		params interface{}
+		params any
 		files  map[string][]byte
 		msgNum int
 	}{
@@ -411,8 +411,8 @@ fmt.Println("Hello, World!")
 			params: ExecuteCommandParams{
 				Command: "spx.renameResource",
 				Arguments: func() []json.RawMessage {
-					arg := map[string]interface{}{
-						"resource": map[string]interface{}{
+					arg := map[string]any{
+						"resource": map[string]any{
 							"uri": "spx://resources/sprites/sprite1",
 						},
 						"newName": "sprite2",
