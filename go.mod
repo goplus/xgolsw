@@ -12,7 +12,7 @@ require (
 	github.com/qiniu/x v1.15.1
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/mod v0.25.0
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.16.0
 	golang.org/x/tools v0.34.0
 )
 
