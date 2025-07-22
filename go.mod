@@ -7,7 +7,7 @@ tool github.com/goplus/xgolsw/cmd/pkgdatagen
 require (
 	github.com/goplus/gogen v1.19.0
 	github.com/goplus/mod v0.17.1
-	github.com/goplus/spx/v2 v2.0.0-beta8
+	github.com/goplus/spx/v2 v2.0.0-beta9
 	github.com/goplus/xgo v1.5.0
 	github.com/qiniu/x v1.15.1
 	github.com/stretchr/testify v1.10.0
@@ -18,6 +18,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/realdream-ai/mathf v0.0.0-20250513071532-e55e1277a8c5 // indirect
