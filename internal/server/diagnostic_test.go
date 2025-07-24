@@ -105,6 +105,30 @@ var (
 		})
 	})
 
+	t.Run("TypeError", func(t *testing.T) {
+		fileMap := newTestFileMap()
+		// case for https://github.com/goplus/xgolsw/issues/163
+		fileMap["main.spx"] = []byte(`
+		
+func calcPos() (posX float64, posY float64) {
+	return 1.0, 1.0
+}
+
+onStart => {
+	var x, y int
+	x, y = calcPos()
+}
+`)
+		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		params := &DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		report, err := s.textDocumentDiagnostic(params)
+		require.NoError(t, err)
+		require.NotNil(t, report)
+	})
+
 	t.Run("NonSpxFile", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.xgo"] = []byte(`echo "Hello, XGo!"`)
