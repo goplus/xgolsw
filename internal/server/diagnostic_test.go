@@ -108,8 +108,7 @@ var (
 	t.Run("TypeError", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		// case for https://github.com/goplus/xgolsw/issues/163
-		fileMap["main.spx"] = []byte(`
-		
+		fileMap["main.spx"] = []byte(`	
 func calcPos() (posX float64, posY float64) {
 	return 1.0, 1.0
 }
@@ -127,6 +126,18 @@ onStart => {
 		report, err := s.textDocumentDiagnostic(params)
 		require.NoError(t, err)
 		require.NotNil(t, report)
+
+		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
+		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		require.Len(t, fullReport.Items, 1)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  "cannot use float64 value as type int in assignment",
+			Range: Range{
+				Start: Position{Line: 7, Character: 1},
+				End:   Position{Line: 7, Character: 1},
+			},
+		})
 	})
 
 	t.Run("NonSpxFile", func(t *testing.T) {
