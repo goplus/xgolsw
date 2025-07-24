@@ -136,11 +136,14 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 					if star, ok := recvType.(*xgoast.StarExpr); ok {
 						recvType = star.X
 					}
-					recvTypeName := recvType.(*xgoast.Ident).Name
-					recvTypeDoc = pkgDoc.typeDoc(recvTypeName)
+					if recvIdent, ok := recvType.(*xgoast.Ident); ok {
+						recvTypeDoc = pkgDoc.typeDoc(recvIdent.Name)
+					}
 				}
 
-				recvTypeDoc.Methods[decl.Name.Name] = doc
+				if recvTypeDoc != nil {
+					recvTypeDoc.Methods[decl.Name.Name] = doc
+				}
 			}
 		}
 	}
