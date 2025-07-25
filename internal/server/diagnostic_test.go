@@ -108,7 +108,7 @@ var (
 	t.Run("TypeError", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		// case for https://github.com/goplus/xgolsw/issues/163
-		fileMap["main.spx"] = []byte(`	
+		fileMap["main.spx"] = []byte(`
 func calcPos() (posX float64, posY float64) {
 	return 1.0, 1.0
 }
