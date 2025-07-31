@@ -233,6 +233,116 @@ func TestProjectSnapshot(t *testing.T) {
 	})
 }
 
+func TestProjectSnapshotWithOverlay(t *testing.T) {
+	t.Run("BasicOverlay", func(t *testing.T) {
+		files := map[string]*File{
+			"main.go": file("package main"),
+			"test.go": file("package test"),
+		}
+		proj := NewProject(nil, files, 0)
+
+		overlay := map[string]*File{
+			"main.go": file("package main\n// updated"),
+			"new.go":  file("package new"),
+		}
+
+		snapshot := proj.SnapshotWithOverlay(overlay)
+
+		// Verify snapshot has overlay files.
+		assert.Len(t, snapshot.files, 3)
+
+		// Verify overlay file is applied.
+		mainFile, ok := snapshot.files["main.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package main\n// updated"), mainFile.Content)
+
+		// Verify new file is added.
+		newFile, ok := snapshot.files["new.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package new"), newFile.Content)
+
+		// Verify original file is preserved.
+		testFile, ok := snapshot.files["test.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package test"), testFile.Content)
+	})
+
+	t.Run("EmptyOverlay", func(t *testing.T) {
+		files := map[string]*File{
+			"main.go": file("package main"),
+		}
+		proj := NewProject(nil, files, 0)
+
+		snapshot := proj.SnapshotWithOverlay(map[string]*File{})
+
+		// Verify snapshot is equivalent to regular snapshot.
+		assert.Len(t, snapshot.files, 1)
+		mainFile, ok := snapshot.files["main.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package main"), mainFile.Content)
+	})
+
+	t.Run("NilOverlay", func(t *testing.T) {
+		files := map[string]*File{
+			"main.go": file("package main"),
+		}
+		proj := NewProject(nil, files, 0)
+
+		snapshot := proj.SnapshotWithOverlay(nil)
+
+		// Verify snapshot is equivalent to regular snapshot.
+		assert.Len(t, snapshot.files, 1)
+		mainFile, ok := snapshot.files["main.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package main"), mainFile.Content)
+	})
+
+	t.Run("OriginalUnchanged", func(t *testing.T) {
+		files := map[string]*File{
+			"main.go": file("package main"),
+		}
+		proj := NewProject(nil, files, 0)
+
+		overlay := map[string]*File{
+			"main.go": file("package main\n// updated"),
+		}
+
+		snapshot := proj.SnapshotWithOverlay(overlay)
+
+		// Verify original project is unchanged.
+		mainFile, ok := proj.files["main.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package main"), mainFile.Content)
+
+		// Verify snapshot has overlay.
+		snapshotMainFile, ok := snapshot.files["main.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package main\n// updated"), snapshotMainFile.Content)
+	})
+
+	t.Run("FilesSnapshotIsUpdated", func(t *testing.T) {
+		files := map[string]*File{
+			"main.go": file("package main"),
+		}
+		proj := NewProject(nil, files, 0)
+
+		overlay := map[string]*File{
+			"new.go": file("package new"),
+		}
+
+		snapshot := proj.SnapshotWithOverlay(overlay)
+
+		// Verify snapshot has updated files snapshot.
+		snapshotFiles := snapshot.filesSnapshot.Load()
+		assert.NotNil(t, snapshotFiles)
+		assert.Len(t, *snapshotFiles, 2)
+
+		newFile, ok := (*snapshotFiles)["new.go"]
+		assert.True(t, ok)
+		assert.Equal(t, []byte("package new"), newFile.Content)
+	})
+}
+
 func TestProjectFiles(t *testing.T) {
 	t.Run("EmptyProject", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)

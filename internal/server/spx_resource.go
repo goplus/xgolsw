@@ -2,16 +2,16 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/url"
 	"path"
 	"slices"
 	"strings"
 
 	xgoast "github.com/goplus/xgo/ast"
-	"github.com/goplus/xgolsw/internal/vfs"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // SpxResourceID is the ID of an spx resource.
@@ -82,19 +82,21 @@ type SpxResourceSet struct {
 }
 
 // NewSpxResourceSet creates a new spx resource set.
-func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
+func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, error) {
 	// Read and parse the main index.json for backdrops and widgets.
-	metadata, err := rootFS.ReadFile("index.json")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read index.json: %w", err)
+	metadataPath := rootDir + "/index.json"
+	metadataFile, ok := proj.File(metadataPath)
+	if !ok {
+		return nil, fmt.Errorf("failed to read metadata: %w", fs.ErrNotExist)
 	}
+	metadata := metadataFile.Content
 
 	var assets struct {
 		Backdrops []SpxBackdropResource `json:"backdrops"`
 		Zorder    []json.RawMessage     `json:"zorder"`
 	}
 	if err := json.Unmarshal(metadata, &assets); err != nil {
-		return nil, fmt.Errorf("failed to parse index.json: %w", err)
+		return nil, fmt.Errorf("failed to parse metadata: %w", err)
 	}
 
 	// Process backdrops.
@@ -115,21 +117,15 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	}
 
 	// Read sounds directory.
-	soundEntries, err := rootFS.Readdir("sounds")
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("failed to read sounds directory: %w", err)
-	}
-	sounds := make(map[string]*SpxSoundResource, len(soundEntries))
-	for _, entry := range soundEntries {
-		if !entry.IsDir() {
-			continue
+	soundDirs := listSubdirs(proj, rootDir+"/sounds")
+	sounds := make(map[string]*SpxSoundResource, len(soundDirs))
+	for _, soundName := range soundDirs {
+		soundMetadataPath := rootDir + "/sounds/" + soundName + "/index.json"
+		soundMetadataFile, ok := proj.File(soundMetadataPath)
+		if !ok {
+			return nil, fmt.Errorf("failed to read sound metadata: %w", fs.ErrNotExist)
 		}
-
-		soundName := entry.Name()
-		soundMetadata, err := rootFS.ReadFile(path.Join("sounds", soundName, "index.json"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read sound metadata: %w", err)
-		}
+		soundMetadata := soundMetadataFile.Content
 
 		var sound SpxSoundResource
 		if err := json.Unmarshal(soundMetadata, &sound); err != nil {
@@ -141,21 +137,15 @@ func NewSpxResourceSet(rootFS vfs.SubFS) (*SpxResourceSet, error) {
 	}
 
 	// Read sprites directory.
-	spriteEntries, err := rootFS.Readdir("sprites")
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("failed to read sprites directory: %w", err)
-	}
-	sprites := make(map[string]*SpxSpriteResource, len(spriteEntries))
-	for _, entry := range spriteEntries {
-		if !entry.IsDir() {
-			continue
+	spriteDirs := listSubdirs(proj, rootDir+"/sprites")
+	sprites := make(map[string]*SpxSpriteResource, len(spriteDirs))
+	for _, spriteName := range spriteDirs {
+		spriteMetadataPath := rootDir + "/sprites/" + spriteName + "/index.json"
+		spriteMetadataFile, ok := proj.File(spriteMetadataPath)
+		if !ok {
+			return nil, fmt.Errorf("failed to read sprite metadata: %w", fs.ErrNotExist)
 		}
-
-		spriteName := entry.Name()
-		spriteMetadata, err := rootFS.ReadFile(path.Join("sprites", spriteName, "index.json"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read sprite metadata: %w", err)
-		}
+		spriteMetadata := spriteMetadataFile.Content
 
 		sprite := SpxSpriteResource{
 			ID:   SpxSpriteResourceID{SpriteName: spriteName},
@@ -476,4 +466,22 @@ func getCostumeIndex(name string, costumes []SpxSpriteCostumeResource) *int {
 		}
 	}
 	return nil
+}
+
+// listSubdirs returns a list of subdirectories under the given directory.
+func listSubdirs(proj *xgo.Project, dir string) []string {
+	prefix := path.Clean(dir) + "/"
+	subdirs := make(map[string]bool)
+	for file := range proj.Files() {
+		if strings.HasPrefix(file, prefix) {
+			remaining := file[len(prefix):]
+			if idx := strings.Index(remaining, "/"); idx > 0 {
+				subdirs[remaining[:idx]] = true
+			}
+		}
+	}
+
+	result := slices.Collect(maps.Keys(subdirs))
+	slices.Sort(result)
+	return result
 }

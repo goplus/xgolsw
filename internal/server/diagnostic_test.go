@@ -52,7 +52,7 @@ onCloned => {
 
 func TestServerTextDocumentDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -74,7 +74,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 var (
 	MyAircraft MyAircraft
 `)
-		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -118,7 +118,7 @@ onStart => {
 	x, y = calcPos()
 }
 `)
-		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -143,7 +143,7 @@ onStart => {
 	t.Run("NonSpxFile", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.xgo"] = []byte(`echo "Hello, XGo!"`)
-		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		}
@@ -161,7 +161,7 @@ onStart => {
 	t.Run("NonMainPackageDecl", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.spx"] = []byte("package nonmain")
-		s := New(newMapFSWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -185,7 +185,7 @@ onStart => {
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
 		}
@@ -203,7 +203,7 @@ onStart => {
 
 func TestServerWorkspaceDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -234,7 +234,7 @@ var (
 			"assets/index.json":                    []byte(`{}`),
 			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -267,7 +267,7 @@ var (
 	})
 
 	t.Run("EmptyWorkspace", func(t *testing.T) {
-		s := New(newMapFSWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}), &MockScheduler{})
+		s := New(newProjectWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.EqualError(t, err, "no valid main.spx file found in main package")
@@ -302,7 +302,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -363,7 +363,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -440,7 +440,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -513,7 +513,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -561,7 +561,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -613,7 +613,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -670,7 +670,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -694,7 +694,7 @@ run "assets", {Title: "My Game"}
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -721,7 +721,7 @@ run "assets", {Title: "My Game"}
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newMapFSWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)

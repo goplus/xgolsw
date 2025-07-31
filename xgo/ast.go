@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/goplus/xgo/ast"
@@ -85,10 +85,10 @@ func buildASTPackageCache(proj *Project) (any, error) {
 		Files: make(map[string]*ast.File),
 	}
 	var parserErrs scanner.ErrorList
-	for path := range proj.Files() {
-		switch filepath.Ext(path) { // TODO(xsw): use xgomod
+	for file := range proj.Files() {
+		switch path.Ext(file) { // TODO(xsw): use xgomod
 		case ".spx", ".xgo", ".gop", ".gox":
-			astFile, err := proj.ASTFile(path)
+			astFile, err := proj.ASTFile(file)
 			if err != nil {
 				if el, ok := err.(scanner.ErrorList); ok {
 					parserErrs = append(parserErrs, el...)
@@ -100,7 +100,7 @@ func buildASTPackageCache(proj *Project) (any, error) {
 				if pkg.Name == "" {
 					pkg.Name = astFile.Name.Name
 				}
-				pkg.Files[path] = astFile
+				pkg.Files[file] = astFile
 			}
 		}
 	}

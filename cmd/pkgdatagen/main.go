@@ -30,7 +30,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"slices"
 
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -172,7 +171,7 @@ func generate(pkgPaths []string, outputFile string) error {
 
 		var pkgDoc *pkgdoc.PkgDoc
 		if pkgPath == "builtin" {
-			astFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(buildPkg.Dir, "builtin.go"), nil, parser.ParseComments)
+			astFile, err := parser.ParseFile(token.NewFileSet(), path.Join(buildPkg.Dir, "builtin.go"), nil, parser.ParseComments)
 			if err != nil {
 				return fmt.Errorf("failed to parse builtin.go: %w", err)
 			}

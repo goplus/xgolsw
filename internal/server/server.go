@@ -16,7 +16,6 @@ import (
 	xgotoken "github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -32,8 +31,8 @@ type MessageReplier interface {
 	ReplyMessage(m jsonrpc2.Message) error
 }
 
-// FileMapGetter is a function that returns a map of file names to [vfs.MapFile]s.
-type FileMapGetter func() map[string]*vfs.MapFile
+// FileMapGetter is a function that returns a map of file names to [xgo.File]s.
+type FileMapGetter func() map[string]*xgo.File
 
 // Scheduler is an interface for task scheduling.
 type Scheduler interface {
@@ -45,7 +44,7 @@ type Scheduler interface {
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
 	workspaceRootURI DocumentURI
-	workspaceRootFS  *vfs.MapFS
+	workspaceRootFS  *xgo.Project
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
 	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
@@ -64,18 +63,18 @@ func (s *Server) getProjWithFile() *xgo.Project {
 }
 
 // New creates a new Server instance.
-func New(mapFS *vfs.MapFS, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
+func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
 	mod := xgomod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
 		panic(fmt.Errorf("failed to import classes: %w", err))
 	}
-	mapFS.PkgPath = "main"
-	mapFS.Mod = mod
-	mapFS.Importer = internal.Importer
+	proj.PkgPath = "main"
+	proj.Mod = mod
+	proj.Importer = internal.Importer
 	return &Server{
 		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
-		workspaceRootFS:  mapFS,
+		workspaceRootFS:  proj,
 		replier:          replier,
 		analyzers:        initAnalyzers(true),
 		fileMapGetter:    fileMapGetter,
@@ -327,7 +326,7 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 func (s *Server) sendTelemetryEvent(data map[string]any) error {
 	n, err := jsonrpc2.NewNotification("telemetry/event", data)
 	if err != nil {
-		return fmt.Errorf("Failed to create telemetry notification: %v\n", err)
+		return fmt.Errorf("failed to create telemetry notification: %v", err)
 	}
 	return s.replier.ReplyMessage(n)
 }

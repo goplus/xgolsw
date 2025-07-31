@@ -138,6 +138,15 @@ func (p *Project) Snapshot() *Project {
 	return proj
 }
 
+// SnapshotWithOverlay creates a snapshot with overlay files applied.
+func (p *Project) SnapshotWithOverlay(overlay map[string]*File) *Project {
+	snapshot := p.Snapshot()
+	for path, file := range overlay {
+		snapshot.PutFile(path, file)
+	}
+	return snapshot
+}
+
 // Files returns an iterator over all file path-content pairs in the project.
 func (p *Project) Files() iter.Seq2[string, *File] {
 	snapshot := p.filesSnapshot.Load()
