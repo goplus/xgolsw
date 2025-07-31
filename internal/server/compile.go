@@ -16,7 +16,6 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	"github.com/goplus/xgolsw/internal/pkgdata"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -344,10 +343,12 @@ func (s *Server) compile() (*compileResult, error) {
 
 // compileAt compiles spx source files at the given snapshot and returns the
 // compile result.
-func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
-	spxFiles, err := vfs.ListSpxFiles(snapshot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get spx files: %w", err)
+func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
+	var spxFiles []string
+	for file := range snapshot.Files() {
+		if path.Ext(file) == ".spx" {
+			spxFiles = append(spxFiles, file)
+		}
 	}
 	if len(spxFiles) == 0 {
 		return nil, errNoMainSpxFile
@@ -439,16 +440,24 @@ func (s *Server) compileAt(snapshot *vfs.MapFS) (*compileResult, error) {
 	}
 	pkg := typeInfo.Pkg()
 
-	vfs.RangeSpriteNames(snapshot, func(name string) bool {
-		obj := pkg.Scope().Lookup(name)
+	for file := range snapshot.Files() {
+		if file == "main.spx" {
+			// Skip the main.spx file, as it is not a sprite file.
+			continue
+		}
+		if path.Ext(file) != ".spx" {
+			continue
+		}
+
+		spriteName := strings.TrimSuffix(path.Base(file), ".spx")
+		obj := pkg.Scope().Lookup(spriteName)
 		if obj != nil {
 			named, ok := obj.Type().(*types.Named)
 			if ok {
 				result.spxSpriteTypes[named] = struct{}{}
 			}
 		}
-		return true
-	})
+	}
 
 	s.inspectForSpxResourceSet(snapshot, result)
 	s.inspectForSpxResourceRefs(result)
@@ -479,7 +488,7 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 }
 
 // inspectForSpxResourceSet inspects for spx resource set in main.spx.
-func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileResult) {
+func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compileResult) {
 	mainASTFile, _ := result.proj.ASTFile(result.mainSpxFile)
 	typeInfo, _ := snapshot.TypeInfo()
 	if typeInfo == nil {
@@ -517,9 +526,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *vfs.MapFS, result *compileRe
 	if spxResourceRootDir == "" {
 		spxResourceRootDir = "assets"
 	}
-	spxResourceRootFS := vfs.Sub(snapshot, spxResourceRootDir)
-
-	spxResourceSet, err := NewSpxResourceSet(spxResourceRootFS)
+	spxResourceSet, err := NewSpxResourceSet(snapshot, spxResourceRootDir)
 	if err != nil {
 		documentURI := s.toDocumentURI(result.mainSpxFile)
 		result.addDiagnostics(documentURI, Diagnostic{

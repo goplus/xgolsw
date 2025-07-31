@@ -8,9 +8,9 @@ import (
 
 	"github.com/goplus/gogen"
 	xgoscanner "github.com/goplus/xgo/scanner"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/qiniu/x/errors"
 )
 
@@ -282,7 +282,7 @@ func (s *Server) ModifyFiles(changes []FileChange) {
 	// Process all changes in a batch
 	for _, change := range changes {
 		// Create new file with updated content
-		file := &vfs.MapFile{
+		file := &xgo.File{
 			Content: change.Content,
 			Version: change.Version,
 		}

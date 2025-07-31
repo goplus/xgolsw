@@ -11,7 +11,6 @@ import (
 
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/internal/server"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
 )
@@ -39,12 +38,12 @@ func NewSpxls(this js.Value, args []js.Value) any {
 		messageReplier: args[1],
 	}
 
-	filesMapGetter := func() map[string]*vfs.MapFile {
+	fileMapGetter := func() map[string]*xgo.File {
 		files := filesProvider.Invoke()
 		return ConvertJSFilesToMap(files)
 	}
 	scheduler := &JSScheduler{}
-	s.server = server.New(xgo.NewProject(nil, filesMapGetter(), xgo.FeatAll), s, filesMapGetter, scheduler)
+	s.server = server.New(xgo.NewProject(nil, fileMapGetter(), xgo.FeatAll), s, fileMapGetter, scheduler)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})
@@ -171,17 +170,17 @@ func JSUint8ArrayToBytes(uint8Array js.Value) []byte {
 }
 
 // ConvertJSFilesToMap converts a JavaScript object of files to a map.
-func ConvertJSFilesToMap(files js.Value) map[string]*vfs.MapFile {
+func ConvertJSFilesToMap(files js.Value) map[string]*xgo.File {
 	if files.Type() != js.TypeObject {
 		return nil
 	}
 	keys := js.Global().Get("Object").Call("keys", files)
-	result := make(map[string]*vfs.MapFile, keys.Length())
+	result := make(map[string]*xgo.File, keys.Length())
 	for i := range keys.Length() {
 		key := keys.Index(i).String()
 		value := files.Get(key)
 		if value.InstanceOf(js.Global().Get("Object")) {
-			result[key] = &vfs.MapFile{
+			result[key] = &xgo.File{
 				Content: JSUint8ArrayToBytes(value.Get("content")),
 				ModTime: time.UnixMilli(int64(value.Get("modTime").Int())),
 			}

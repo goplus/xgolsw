@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/types"
+	"io/fs"
 	"path"
 	"slices"
 	"time"
@@ -11,7 +12,6 @@ import (
 	xgoast "github.com/goplus/xgo/ast"
 	xgofmt "github.com/goplus/xgo/format"
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -27,10 +27,11 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	}
 
 	snapshot := s.getProj().Snapshot()
-	original, err := vfs.ReadFile(snapshot, spxFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read spx source file: %w", err)
+	file, ok := snapshot.File(spxFile)
+	if !ok {
+		return nil, fmt.Errorf("failed to read spx source file: %w", fs.ErrNotExist)
 	}
+	original := file.Content
 	// FIXME(wyvern): Remove this workaround when the server supports CRLF line endings.
 	original = bytes.ReplaceAll(original, []byte("\r\n"), []byte("\n"))
 	formatted, err := s.formatSpx(snapshot, spxFile, original)
@@ -65,7 +66,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 
 // spxFormatter defines a function that formats an spx source file in the given
 // root file system snapshot.
-type spxFormatter func(snapshot *vfs.MapFS, spxFile string) (formatted []byte, err error)
+type spxFormatter func(snapshot *xgo.Project, spxFile string) (formatted []byte, err error)
 
 // formatSpx applies a series of formatters to an spx source file in order.
 //
@@ -85,7 +86,7 @@ func (s *Server) formatSpx(snapshot *xgo.Project, spxFile string, original []byt
 			return nil, err
 		}
 		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			snapshot = vfs.WithOverlay(snapshot, map[string]*vfs.MapFile{
+			snapshot = snapshot.SnapshotWithOverlay(map[string]*xgo.File{
 				spxFile: {
 					Content: subFormatted,
 					ModTime: time.Now(),
@@ -98,11 +99,12 @@ func (s *Server) formatSpx(snapshot *xgo.Project, spxFile string, original []byt
 }
 
 // formatSpxXGo formats an spx source file with XGo formatter.
-func (s *Server) formatSpxXGo(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
-	original, err := vfs.ReadFile(snapshot, spxFile)
-	if err != nil {
-		return nil, err
+func (s *Server) formatSpxXGo(snapshot *xgo.Project, spxFile string) ([]byte, error) {
+	file, ok := snapshot.File(spxFile)
+	if !ok {
+		return nil, fs.ErrNotExist
 	}
+	original := file.Content
 	formatted, err := xgofmt.Source(original, true, spxFile)
 	if err != nil {
 		return nil, err
@@ -114,7 +116,7 @@ func (s *Server) formatSpxXGo(snapshot *vfs.MapFS, spxFile string) ([]byte, erro
 }
 
 // formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
-func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
+func (s *Server) formatSpxLambda(snapshot *xgo.Project, spxFile string) ([]byte, error) {
 	snapshot.UpdateFiles(s.fileMapGetter())
 	astFile, _ := snapshot.ASTFile(spxFile)
 	if astFile == nil {
@@ -138,7 +140,7 @@ func (s *Server) formatSpxLambda(snapshot *vfs.MapFS, spxFile string) ([]byte, e
 }
 
 // formatSpxDecls formats an spx source file by reordering declarations.
-func (s *Server) formatSpxDecls(snapshot *vfs.MapFS, spxFile string) ([]byte, error) {
+func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, error) {
 	var astFile *xgoast.File
 	astFile, _ = snapshot.ASTFile(spxFile)
 	if astFile == nil {

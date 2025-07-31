@@ -7,7 +7,6 @@ import (
 	"time"
 
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
@@ -27,7 +26,7 @@ func (m *MockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 }
 
 func file(text string) *xgo.File {
-	return &vfs.MapFile{Content: []byte(text)}
+	return &xgo.File{Content: []byte(text)}
 }
 
 // strPtr returns a pointer to the given string
@@ -59,7 +58,7 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "update existing file with newer version",
 			initial: map[string]*xgo.File{
-				"main.go": &vfs.MapFile{
+				"main.go": &xgo.File{
 					Content: []byte("old content"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -78,7 +77,7 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "ignore older version update",
 			initial: map[string]*xgo.File{
-				"main.go": &vfs.MapFile{
+				"main.go": &xgo.File{
 					Content: []byte("current content"),
 					Version: 200,
 				},
@@ -97,11 +96,11 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "multiple file changes",
 			initial: map[string]*xgo.File{
-				"file1.go": &vfs.MapFile{
+				"file1.go": &xgo.File{
 					Content: []byte("content1"),
 					ModTime: time.UnixMilli(100),
 				},
-				"file2.go": &vfs.MapFile{
+				"file2.go": &xgo.File{
 					Content: []byte("content2"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -406,7 +405,7 @@ func TestDidChange(t *testing.T) {
 			files := make(map[string]*xgo.File)
 			path := "test.xgo"
 
-			files[path] = &vfs.MapFile{
+			files[path] = &xgo.File{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Time{},
 			}
@@ -508,7 +507,7 @@ func TestDidSave(t *testing.T) {
 			files := make(map[string]*xgo.File)
 			path := "test.xgo"
 
-			files[path] = &vfs.MapFile{
+			files[path] = &xgo.File{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Time{},
 			}
@@ -573,7 +572,7 @@ func TestDidClose(t *testing.T) {
 			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
-			files[path] = &vfs.MapFile{
+			files[path] = &xgo.File{
 				Content: []byte("package main"),
 				ModTime: time.Time{},
 			}
@@ -704,7 +703,7 @@ func TestChangedText(t *testing.T) {
 			path := "/test.xgo"
 
 			// Create initial file
-			files[path] = &vfs.MapFile{
+			files[path] = &xgo.File{
 				Content: []byte(tt.initialContent),
 				ModTime: time.Now(),
 			}
@@ -846,7 +845,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			path := "/test.xgo"
 
 			if tt.initialContent != "" {
-				files[path] = &vfs.MapFile{
+				files[path] = &xgo.File{
 					Content: []byte(tt.initialContent),
 					ModTime: time.Now(),
 				}
@@ -943,7 +942,7 @@ func TestGetDiagnostics(t *testing.T) {
 			files := make(map[string]*xgo.File)
 
 			// Create the test file
-			files[tt.path] = &vfs.MapFile{
+			files[tt.path] = &xgo.File{
 				Content: []byte(tt.content),
 				ModTime: time.Now(),
 			}

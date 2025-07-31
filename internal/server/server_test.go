@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goplus/xgolsw/internal/vfs"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
@@ -41,19 +40,19 @@ func (m *mockReplier) reset() {
 	m.messages = nil
 }
 
-func newMapFSWithoutModTime(files map[string][]byte) *vfs.MapFS {
-	fileMap := make(map[string]*vfs.MapFile)
+func newProjectWithoutModTime(files map[string][]byte) *xgo.Project {
+	fileMap := make(map[string]*xgo.File)
 	for k, v := range files {
-		fileMap[k] = &vfs.MapFile{Content: v}
+		fileMap[k] = &xgo.File{Content: v}
 	}
 	return xgo.NewProject(nil, fileMap, xgo.FeatAll)
 }
 
-func fileMapGetter(files map[string][]byte) func() map[string]*vfs.MapFile {
-	return func() map[string]*vfs.MapFile {
-		fileMap := make(map[string]*vfs.MapFile)
+func fileMapGetter(files map[string][]byte) func() map[string]*xgo.File {
+	return func() map[string]*xgo.File {
+		fileMap := make(map[string]*xgo.File)
 		for k, v := range files {
-			fileMap[k] = &vfs.MapFile{Content: v}
+			fileMap[k] = &xgo.File{Content: v}
 		}
 		return fileMap
 	}
@@ -75,7 +74,7 @@ echo x
 `),
 		}
 		replier := &mockReplier{}
-		s := New(newMapFSWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
+		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
 
 		call1, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-1"), "$/cancelRequest", &CancelParams{ID: "test-request-1"})
 		call2, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-2"), "$/cancelRequest", &CancelParams{ID: "test-request-2"})
@@ -136,7 +135,7 @@ echo x
 			"main.spx": []byte(`var x = 100`),
 		}
 		replier := &mockReplier{}
-		s := New(newMapFSWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
+		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
 
 		testCases := []struct {
 			name string
@@ -432,7 +431,7 @@ fmt.Println("Hello, World!")
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := &mockReplier{}
-			server := New(newMapFSWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
 
 			var params json.RawMessage
 			if tc.params != nil {
@@ -563,7 +562,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := &mockReplier{}
-			server := New(newMapFSWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
 
 			var params json.RawMessage
 			if tc.params != nil {
