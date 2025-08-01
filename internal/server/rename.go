@@ -26,20 +26,20 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	}
 	position := ToPosition(proj, astFile, params.Position)
 
-	ident := xgoutil.IdentAtPosition(proj, astFile, position)
-	if ident == nil {
-		return nil, nil
-	}
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
+		return nil, nil
+	}
+	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
+	if ident == nil {
 		return nil, nil
 	}
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := typeInfo.DefIdentFor(obj)
-	if defIdent == nil || xgoutil.NodeTokenFile(proj, defIdent) == nil {
+	defIdent := typeInfo.ObjToDef[obj]
+	if defIdent == nil || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
 		return nil, nil
 	}
 
@@ -57,7 +57,7 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
 
-	if spxResourceRef := result.spxResourceRefAtASTFilePosition(astFile, position); spxResourceRef != nil {
+	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
 		return s.spxRenameResourcesWithCompileResult(result, []SpxRenameResourceParams{{
 			Resource: SpxResourceIdentifier{
 				URI: spxResourceRef.ID.URI(),
@@ -66,17 +66,17 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		}})
 	}
 
-	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
-	defIdent := typeInfo.DefIdentFor(obj)
-	if defIdent == nil || xgoutil.NodeTokenFile(result.proj, defIdent) == nil {
+	defIdent := typeInfo.ObjToDef[obj]
+	if defIdent == nil || xgoutil.NodeTokenFile(result.proj.Fset, defIdent) == nil {
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
 	}
 
@@ -123,8 +123,8 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			if ident, ok := expr.(*xgoast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
-				defIdent := typeInfo.DefIdentFor(typeInfo.ObjectOf(ident))
-				if defIdent != nil && xgoutil.NodeTokenFile(result.proj, defIdent) != nil {
+				defIdent := typeInfo.ObjToDef[typeInfo.ObjectOf(ident)]
+				if defIdent != nil && xgoutil.NodeTokenFile(result.proj.Fset, defIdent) != nil {
 					parent, ok := defIdent.Obj.Decl.(*xgoast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {
 						nodePos = fset.Position(parent.Values[0].Pos())
@@ -140,7 +140,8 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			nodeEnd.Column--
 		}
 
-		astFile := xgoutil.NodeASTFile(result.proj, ref.Node)
+		astPkg, _ := result.proj.ASTPackage()
+		astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, ref.Node)
 		textEdit := TextEdit{
 			Range: Range{
 				Start: FromPosition(result.proj, astFile, nodePos),

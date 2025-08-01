@@ -25,12 +25,11 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 )
 
 // RangeASTSpecs iterates all XGo AST specs.
-func RangeASTSpecs(proj *xgo.Project, tok token.Token, f func(spec ast.Spec)) {
-	astPkg, _ := proj.ASTPackage()
+func RangeASTSpecs(astPkg *ast.Package, tok token.Token, f func(spec ast.Spec)) {
 	if astPkg == nil {
 		return
 	}
@@ -45,18 +44,17 @@ func RangeASTSpecs(proj *xgo.Project, tok token.Token, f func(spec ast.Spec)) {
 	}
 }
 
-// IsDefinedInClassFieldsDecl reports whether the given object is defined in
-// the class fields declaration of an AST file.
-func IsDefinedInClassFieldsDecl(proj *xgo.Project, obj types.Object) bool {
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
+// IsDefinedInClassFieldsDecl reports whether the given object is defined in the
+// class fields declaration of an AST file.
+func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, obj types.Object) bool {
+	if fset == nil || typeInfo == nil || astPkg == nil || obj == nil {
 		return false
 	}
-	defIdent := typeInfo.DefIdentFor(obj)
+	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent == nil {
 		return false
 	}
-	astFile := NodeASTFile(proj, defIdent)
+	astFile := NodeASTFile(fset, astPkg, defIdent)
 	if astFile == nil {
 		return false
 	}

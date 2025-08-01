@@ -7,6 +7,7 @@ import (
 
 	xgoast "github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -39,12 +40,13 @@ func GetSimplifiedTypeString(typ types.Type) string {
 // SelectorTypeNameForIdent returns the selector type name for the given
 // identifier. It returns empty string if no selector can be inferred.
 func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
-	astFile := xgoutil.NodeASTFile(proj, ident)
-	if astFile == nil {
-		return ""
-	}
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
+		return ""
+	}
+	astPkg, _ := proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, ident)
+	if astFile == nil {
 		return ""
 	}
 
@@ -68,7 +70,7 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 }
 
 // tryGetSelectorContext checks if the identifier is in a selector expression context.
-func tryGetSelectorContext(typeInfo *xgo.TypeInfo, astFile *xgoast.File, ident *xgoast.Ident) string {
+func tryGetSelectorContext(typeInfo *xgotypes.Info, astFile *xgoast.File, ident *xgoast.Ident) string {
 	var typeName string
 	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), true, func(node xgoast.Node) bool {
 		sel, ok := node.(*xgoast.SelectorExpr)
@@ -94,16 +96,17 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *xgoast.File, ident *x
 	if typeInfo == nil {
 		return ""
 	}
+	astPkg, _ := proj.ASTPackage()
 
 	astFileScope := typeInfo.Scopes[astFile]
-	innermostScope := xgoutil.InnermostScopeAt(proj, ident.Pos())
+	innermostScope := xgoutil.InnermostScopeAt(proj.Fset, typeInfo, astPkg, ident.Pos())
 
 	// Check if we're in the right scope context.
-	if innermostScope != astFileScope && (!astFile.HasShadowEntry() || xgoutil.InnermostScopeAt(proj, astFile.ShadowEntry.Pos()) != innermostScope) {
+	if innermostScope != astFileScope && (!astFile.HasShadowEntry() || xgoutil.InnermostScopeAt(proj.Fset, typeInfo, astPkg, astFile.ShadowEntry.Pos()) != innermostScope) {
 		return ""
 	}
 
-	spxFile := xgoutil.NodeFilename(proj, ident)
+	spxFile := xgoutil.NodeFilename(proj.Fset, ident)
 	if path.Base(spxFile) == "main.spx" {
 		return "Game"
 	}
@@ -111,7 +114,7 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *xgoast.File, ident *x
 }
 
 // getTypeFromObject infers type from the identifier's object.
-func getTypeFromObject(typeInfo *xgo.TypeInfo, obj types.Object) string {
+func getTypeFromObject(typeInfo *xgotypes.Info, obj types.Object) string {
 	switch obj := obj.(type) {
 	case *types.Var:
 		if !obj.IsField() {
@@ -152,7 +155,7 @@ func extractTypeName(typ types.Type) string {
 }
 
 // findFieldOwnerType finds the type that owns a given field.
-func findFieldOwnerType(typeInfo *xgo.TypeInfo, field *types.Var) string {
+func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
 	if !field.IsField() {
 		return ""
 	}
@@ -206,7 +209,7 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 }
 
 // searchAllDefsForField is a fallback method that searches all type definitions.
-func searchAllDefsForField(typeInfo *xgo.TypeInfo, field *types.Var) string {
+func searchAllDefsForField(typeInfo *xgotypes.Info, field *types.Var) string {
 	fieldPkg := field.Pkg()
 	for _, def := range typeInfo.Defs {
 		if def == nil || def.Pkg() != fieldPkg {

@@ -13,6 +13,7 @@ import (
 	xgofmt "github.com/goplus/xgo/format"
 	xgotoken "github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -651,7 +652,7 @@ func getFuncAndOverloadsType(proj *xgo.Project, funIdent *xgoast.Ident) (fun *ty
 	return funType, xgoutil.ExpandXGoOverloadableFunc(underlineFunType)
 }
 
-func isIdentUsed(typeInfo *xgo.TypeInfo, ident *xgoast.Ident) bool {
+func isIdentUsed(typeInfo *xgotypes.Info, ident *xgoast.Ident) bool {
 	obj := typeInfo.ObjectOf(ident)
 	if obj == nil {
 		return false

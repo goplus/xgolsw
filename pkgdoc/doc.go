@@ -21,6 +21,8 @@ import (
 	"go/doc"
 	"go/token"
 	"strings"
+
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // PkgDoc is the documentation for a package.
@@ -79,7 +81,7 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		for _, name := range c.Names {
 			if token.IsExported(name) {
 				pkgDoc.Consts[name] = c.Doc
-				if name == XGoPackage {
+				if name == xgoutil.XGoPackage {
 					isXGoPackage = true
 				}
 			}
@@ -147,8 +149,8 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(f.Name, XGotPrefix):
-			recvTypeName, methodName, ok := SplitXGotMethodName(f.Name, true)
+		case strings.HasPrefix(f.Name, xgoutil.XGotPrefix):
+			recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(f.Name, true)
 			if !ok {
 				continue
 			}
@@ -157,40 +159,4 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 	}
 
 	return pkgDoc
-}
-
-const (
-	XGotPrefix = "Gopt_"      // XGo template method
-	XGooPrefix = "Gopo_"      // XGo overload function/method
-	XGoxPrefix = "Gopx_"      // XGo type as parameters function/method
-	XGoPackage = "GopPackage" // Indicates an XGo package
-)
-
-// SplitXGotMethodName splits an XGo template method name into receiver type
-// name and method name.
-func SplitXGotMethodName(name string, trimXGox bool) (recvTypeName string, methodName string, ok bool) {
-	if !strings.HasPrefix(name, XGotPrefix) {
-		return "", "", false
-	}
-	recvTypeName, methodName, ok = strings.Cut(name[len(XGotPrefix):], "_")
-	if !ok {
-		return "", "", false
-	}
-	if trimXGox {
-		if funcName, ok := SplitXGoxFuncName(methodName); ok {
-			methodName = funcName
-		}
-	}
-	return
-}
-
-// SplitXGoxFuncName splits an XGo type as parameters function name into the
-// function name.
-func SplitXGoxFuncName(name string) (funcName string, ok bool) {
-	if !strings.HasPrefix(name, XGoxPrefix) {
-		return "", false
-	}
-	funcName = strings.TrimPrefix(name, XGoxPrefix)
-	ok = true
-	return
 }

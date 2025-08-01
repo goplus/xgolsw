@@ -58,7 +58,7 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "update existing file with newer version",
 			initial: map[string]*xgo.File{
-				"main.go": &xgo.File{
+				"main.go": {
 					Content: []byte("old content"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -77,7 +77,7 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "ignore older version update",
 			initial: map[string]*xgo.File{
-				"main.go": &xgo.File{
+				"main.go": {
 					Content: []byte("current content"),
 					Version: 200,
 				},
@@ -96,11 +96,11 @@ func TestModifyFiles(t *testing.T) {
 		{
 			name: "multiple file changes",
 			initial: map[string]*xgo.File{
-				"file1.go": &xgo.File{
+				"file1.go": {
 					Content: []byte("content1"),
 					ModTime: time.UnixMilli(100),
 				},
-				"file2.go": &xgo.File{
+				"file2.go": {
 					Content: []byte("content2"),
 					ModTime: time.UnixMilli(100),
 				},
@@ -180,7 +180,8 @@ func TestDidOpen(t *testing.T) {
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://workspace/echo.spx",
 					Version: 1,
-					Text:    "echo \"100\""},
+					Text:    "echo \"100\"",
+				},
 			},
 			expectedPath:    "echo.spx",
 			expectedContent: "echo \"100\"",

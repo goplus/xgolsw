@@ -16,6 +16,7 @@ import (
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -36,13 +37,14 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	if !pos.IsValid() {
 		return nil, nil
 	}
-	innermostScope := xgoutil.InnermostScopeAt(result.proj, pos)
-	if innermostScope == nil {
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
 		return nil, nil
 	}
 
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
+	astPkg, _ := result.proj.ASTPackage()
+	innermostScope := xgoutil.InnermostScopeAt(result.proj.Fset, typeInfo, astPkg, pos)
+	if innermostScope == nil {
 		return nil, nil
 	}
 	ctx := &completionContext{
@@ -53,7 +55,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 		spxFile:        spxFile,
 		astFile:        astFile,
 		astFileScope:   typeInfo.Scopes[astFile],
-		tokenFile:      xgoutil.NodeTokenFile(result.proj, astFile),
+		tokenFile:      xgoutil.NodeTokenFile(result.proj.Fset, astFile),
 		pos:            pos,
 		innermostScope: innermostScope,
 	}
@@ -88,7 +90,7 @@ type completionContext struct {
 	itemSet *completionItemSet
 
 	proj           *xgo.Project
-	typeInfo       *xgo.TypeInfo
+	typeInfo       *xgotypes.Info
 	result         *compileResult
 	spxFile        string
 	astFile        *xgoast.File
@@ -175,7 +177,7 @@ func (ctx *completionContext) analyze() {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
 					if ident, ok := node.Lhs[j].(*xgoast.Ident); ok {
-						defIdent := ctx.typeInfo.DefIdentFor(ctx.typeInfo.ObjectOf(ident))
+						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
 						}
@@ -461,7 +463,7 @@ func (ctx *completionContext) collectGeneral() error {
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
 
 	// Add local definitions from innermost scope and its parents.
-	pkg := ctx.typeInfo.Pkg()
+	pkg := ctx.typeInfo.Pkg
 	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
 		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
@@ -469,7 +471,7 @@ func (ctx *completionContext) collectGeneral() error {
 			if !xgoutil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if defIdent := ctx.typeInfo.DefIdentFor(obj); defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+			if defIdent := ctx.typeInfo.ObjToDef[obj]; defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
 				continue
 			}
 
