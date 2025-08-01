@@ -17,148 +17,159 @@
 package xgoutil
 
 import (
+	"go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestInnermostScopeAt(t *testing.T) {
 	t.Run("NilTypeInfo", func(t *testing.T) {
-		// Create a project that will have nil TypeInfo due to unsupported features.
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`invalid syntax`),
-		}, 0) // Use feature flag 0 to trigger unsupported cache kind.
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		// This should return nil when typeInfo is nil.
-		scope := InnermostScopeAt(proj, token.Pos(1))
+		scope := InnermostScopeAt(fset, nil, astPkg, token.Pos(1))
 		assert.Nil(t, scope)
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`var x = 1`),
-		}, xgo.FeatAll)
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
 
-		scope := InnermostScopeAt(proj, token.NoPos)
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, token.NoPos)
 		assert.Nil(t, scope)
 	})
 
 	t.Run("CanSeeGlobalVariable", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
-var x = 1
-
-func test() {
-	println(x)
-}
-`),
-		}, xgo.FeatAll)
-
-		typeInfo, _ := proj.TypeInfo()
-		require.NotNil(t, typeInfo)
-
-		astFile, err := proj.ASTFile("main.xgo")
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1\nfunc test() { println(x) }")
 		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		// Get position of variable x declaration.
-		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
-		scope := InnermostScopeAt(proj, xPos)
-		require.NotNil(t, scope)
+		pkg := types.NewPackage("main", "main")
+		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
+		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		packageScope.Insert(xVar)
 
-		// Should be able to see variable x.
-		if scope == typeInfo.Scopes[astFile] {
-			scope = scope.Parent()
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.Scopes = map[ast.Node]*types.Scope{
+			astFile: packageScope,
 		}
+
+		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, xPos)
 		require.NotNil(t, scope)
+
 		assert.NotNil(t, scope.Lookup("x"))
 	})
 
 	t.Run("CanSeeFunctionLocalVariable", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
-func test() {
-	y := 2
-	println(y)
-}
-`),
-		}, xgo.FeatAll)
-
-		typeInfo, _ := proj.TypeInfo()
-		require.NotNil(t, typeInfo)
-
-		astFile, err := proj.ASTFile("main.xgo")
+		fset, astFile, err := newTestFile("main.xgo", "func test() { y := 2; println(y) }")
 		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		// Get position of function body.
+		pkg := types.NewPackage("main", "main")
+		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+
+		yVar := types.NewVar(token.NoPos, pkg, "y", types.Typ[types.Int])
+		functionScope.Insert(yVar)
+
+		typeInfo := newTestTypeInfo(nil, nil)
 		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
-		scope := InnermostScopeAt(proj, funcDecl.Body.Pos())
+		typeInfo.Scopes = map[ast.Node]*types.Scope{
+			astFile:       packageScope,
+			funcDecl.Body: functionScope,
+		}
+
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, funcDecl.Body.Pos())
 		require.NotNil(t, scope)
 
-		// Should be able to see variable y.
 		assert.NotNil(t, scope.Lookup("y"))
 	})
 
 	t.Run("CanSeeBlockScopedVariable", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
-func test() {
-	if true {
-		z := 3
-		println(z)
-	}
-}
-`),
-		}, xgo.FeatAll)
-
-		typeInfo, _ := proj.TypeInfo()
-		require.NotNil(t, typeInfo)
-
-		astFile, err := proj.ASTFile("main.xgo")
+		fset, astFile, err := newTestFile("main.xgo", "func test() { if true { z := 3; println(z) } }")
 		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		// Find the if statement body position.
-		var ifPos token.Pos
+		pkg := types.NewPackage("main", "main")
+		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		blockScope := types.NewScope(functionScope, token.NoPos, token.NoPos, "block")
+
+		zVar := types.NewVar(token.NoPos, pkg, "z", types.Typ[types.Int])
+		blockScope.Insert(zVar)
+
+		// Find the if statement body
 		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		var ifBody *ast.BlockStmt
 		for _, stmt := range funcDecl.Body.List {
 			if ifStmt, ok := stmt.(*ast.IfStmt); ok {
-				ifPos = ifStmt.Body.Pos()
+				ifBody = ifStmt.Body
 				break
 			}
 		}
-		require.NotEqual(t, token.NoPos, ifPos)
+		require.NotNil(t, ifBody)
 
-		scope := InnermostScopeAt(proj, ifPos)
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.Scopes = map[ast.Node]*types.Scope{
+			astFile:       packageScope,
+			funcDecl.Body: functionScope,
+			ifBody:        blockScope,
+		}
+
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, ifBody.Pos())
 		require.NotNil(t, scope)
 
-		// Should be able to see variable z.
 		assert.NotNil(t, scope.Lookup("z"))
 	})
 
 	t.Run("FuncDeclScopeFromType", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
-func test(param int) {
-	println(param)
-}
-`),
-		}, xgo.FeatAll)
-
-		typeInfo, _ := proj.TypeInfo()
-		require.NotNil(t, typeInfo)
-
-		astFile, err := proj.ASTFile("main.xgo")
+		fset, astFile, err := newTestFile("main.xgo", "func test(param int) { println(param) }")
 		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		// Get position inside function body where we might access parameters.
+		pkg := types.NewPackage("main", "main")
+		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+
+		paramVar := types.NewVar(token.NoPos, pkg, "param", types.Typ[types.Int])
+		functionScope.Insert(paramVar)
+
 		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
-		scope := InnermostScopeAt(proj, funcDecl.Body.Pos())
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.Scopes = map[ast.Node]*types.Scope{
+			astFile:       packageScope,
+			funcDecl.Type: functionScope, // Scope for function parameters
+		}
+
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, funcDecl.Body.Pos())
 		require.NotNil(t, scope)
 
-		// Should be able to see function parameter.
 		assert.NotNil(t, scope.Lookup("param"))
+	})
+
+	t.Run("NilPackage", func(t *testing.T) {
+		fset := token.NewFileSet()
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		scope := InnermostScopeAt(fset, typeInfo, nil, token.Pos(1))
+		assert.Nil(t, scope)
+	})
+
+	t.Run("NilFileSet", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		scope := InnermostScopeAt(nil, typeInfo, astPkg, token.Pos(1))
+		assert.Nil(t, scope)
 	})
 }

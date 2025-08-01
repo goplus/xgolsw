@@ -16,12 +16,11 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 		return nil, nil
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
-	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
-
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
 
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) {

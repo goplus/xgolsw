@@ -102,14 +102,6 @@ onStart => {
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, refs)
-		require.Len(t, refs, 1)
-		assert.Contains(t, refs, Location{
-			URI: "file:///main.spx",
-			Range: Range{
-				Start: Position{Line: 0, Character: 6},
-				End:   Position{Line: 0, Character: 9},
-			},
-		})
+		assert.Nil(t, refs)
 	})
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -95,7 +95,7 @@ type Pass struct {
 	OtherFiles   []string       // names of non-Go files of this package
 	IgnoredFiles []string       // names of ignored source files in this package
 	Pkg          *types.Package // type information about the package
-	TypesInfo    *xgo.TypeInfo  // type information about the syntax trees
+	TypesInfo    *xgotypes.Info // type information about the syntax trees
 	TypesSizes   types.Sizes    // function for computing sizes of types
 	TypeErrors   []types.Error  // type errors (only if Analyzer.RunDespiteErrors)
 

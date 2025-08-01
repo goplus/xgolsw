@@ -19,11 +19,11 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
 
-	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
 	obj := typeInfo.ObjectOf(ident)
 	if obj == nil {
 		return nil, nil
@@ -39,13 +39,13 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	}
 
 	if params.Context.IncludeDeclaration {
-		defIdent := typeInfo.DefIdentFor(obj)
+		defIdent := typeInfo.ObjToDef[obj]
 		if defIdent == nil {
 			objPos := obj.Pos()
-			if xgoutil.PosTokenFile(result.proj, objPos) != nil {
+			if xgoutil.PosTokenFile(result.proj.Fset, objPos) != nil {
 				locations = append(locations, s.locationForPos(result.proj, objPos))
 			}
-		} else if xgoutil.NodeTokenFile(result.proj, defIdent) != nil {
+		} else if xgoutil.NodeTokenFile(result.proj.Fset, defIdent) != nil {
 			locations = append(locations, s.locationForNode(result.proj, defIdent))
 		}
 	}
@@ -99,6 +99,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 		return locations
 	}
 
+	astPkg, _ := result.proj.ASTPackage()
 	var find func(*types.Interface)
 	find = func(current *types.Interface) {
 		if seenIfaces[current] {
@@ -106,7 +107,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 		}
 		seenIfaces[current] = true
 
-		xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
 			typeSpec := spec.(*xgoast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
@@ -140,7 +141,8 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 		return nil
 	}
 	var locations []Location
-	xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
+	astPkg, _ := result.proj.ASTPackage()
+	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
 		typeSpec := spec.(*xgoast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
@@ -170,8 +172,9 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 	var locations []Location
 	recvType := fn.Type().(*types.Signature).Recv().Type()
 	seenIfaces := make(map[*types.Interface]bool)
+	astPkg, _ := result.proj.ASTPackage()
 
-	xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
+	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
 		typeSpec := spec.(*xgoast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
@@ -207,7 +210,8 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.
 		}
 
 		seenTypes := make(map[types.Type]bool)
-		xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
+		astPkg, _ := result.proj.ASTPackage()
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
 			typeSpec := spec.(*xgoast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
@@ -262,7 +266,8 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 		if typeInfo == nil {
 			return nil
 		}
-		xgoutil.RangeASTSpecs(result.proj, token.TYPE, func(spec xgoast.Spec) {
+		astPkg, _ := result.proj.ASTPackage()
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
 			typeSpec := spec.(*xgoast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {

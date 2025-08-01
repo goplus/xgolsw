@@ -55,9 +55,9 @@ func main() {
 
 		// Verify the type info structure.
 		typeInfo := typeInfoCache.typeInfo
-		assert.NotNil(t, typeInfo.Pkg())
-		assert.Equal(t, proj.PkgPath, typeInfo.Pkg().Path())
-		assert.Equal(t, "main", typeInfo.Pkg().Name())
+		assert.NotNil(t, typeInfo.Pkg)
+		assert.Equal(t, proj.PkgPath, typeInfo.Pkg.Path())
+		assert.Equal(t, "main", typeInfo.Pkg.Name())
 		assert.NotEmpty(t, typeInfo.Defs)
 		assert.NotEmpty(t, typeInfo.Uses)
 	})
@@ -104,7 +104,7 @@ func test() {
 
 		// But still should have some type information.
 		typeInfo := typeInfoCache.typeInfo
-		assert.NotNil(t, typeInfo.Pkg())
+		assert.NotNil(t, typeInfo.Pkg)
 	})
 }
 
@@ -130,9 +130,9 @@ func getCounter() int {
 		require.NoError(t, err)
 		require.NotNil(t, typeInfo)
 
-		assert.NotNil(t, typeInfo.Pkg())
-		assert.Equal(t, proj.PkgPath, typeInfo.Pkg().Path())
-		assert.Equal(t, "main", typeInfo.Pkg().Name())
+		assert.NotNil(t, typeInfo.Pkg)
+		assert.Equal(t, proj.PkgPath, typeInfo.Pkg.Path())
+		assert.Equal(t, "main", typeInfo.Pkg.Name())
 
 		// Verify that we have type information.
 		assert.NotEmpty(t, typeInfo.Defs)
@@ -184,145 +184,5 @@ func getCounter() int {
 		assert.Error(t, err)
 		assert.Equal(t, ErrUnknownCacheKind, err)
 		assert.Nil(t, typeInfo)
-	})
-}
-
-func TestTypeInfoPkg(t *testing.T) {
-	t.Run("PackageInfo", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.xgo": {
-				Content: []byte(`
-var version string = "1.0.0"
-
-func getVersion() string {
-	return version
-}
-`),
-			},
-		}, FeatAll)
-
-		typeInfo, err := proj.TypeInfo()
-		require.NoError(t, err)
-		require.NotNil(t, typeInfo)
-
-		pkg := typeInfo.Pkg()
-		require.NotNil(t, pkg)
-
-		// Verify package properties.
-		assert.Equal(t, proj.PkgPath, pkg.Path())
-		assert.Equal(t, "main", pkg.Name())
-
-		// Verify package scope contains expected symbols.
-		scope := pkg.Scope()
-		assert.NotNil(t, scope)
-
-		// Check that version variable exists in package scope.
-		versionObj := scope.Lookup("version")
-		assert.NotNil(t, versionObj)
-		assert.Equal(t, "string", versionObj.Type().String())
-
-		// Check that getVersion function exists in package scope.
-		getVersionObj := scope.Lookup("getVersion")
-		assert.NotNil(t, getVersionObj)
-		assert.Contains(t, getVersionObj.Type().String(), "func() string")
-	})
-}
-
-func TestTypeInfoDefIdentFor(t *testing.T) {
-	proj := NewProject(nil, map[string]*File{
-		"main.xgo": {
-			Content: []byte(`
-var x = 1
-var y = x + 2
-
-func test() {
-	z := x + y
-	println(z)
-}
-`),
-		},
-	}, FeatAll)
-
-	typeInfo, err := proj.TypeInfo()
-	require.NoError(t, err)
-	require.NotNil(t, typeInfo)
-
-	// Get all definitions from typeInfo.
-	var xObj, yObj types.Object
-	for ident, obj := range typeInfo.Defs {
-		switch ident.Name {
-		case "x":
-			xObj = obj
-		case "y":
-			yObj = obj
-		}
-	}
-	require.NotNil(t, xObj)
-	require.NotNil(t, yObj)
-
-	t.Run("FindDefinition", func(t *testing.T) {
-		ident := typeInfo.DefIdentFor(xObj)
-		require.NotNil(t, ident)
-		assert.Equal(t, "x", ident.Name)
-
-		ident = typeInfo.DefIdentFor(yObj)
-		require.NotNil(t, ident)
-		assert.Equal(t, "y", ident.Name)
-	})
-
-	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, typeInfo.DefIdentFor(nil))
-	})
-
-	t.Run("UnknownObject", func(t *testing.T) {
-		unknownObj := types.NewVar(0, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, typeInfo.DefIdentFor(unknownObj))
-	})
-}
-
-func TestTypeInfoRefIdentsFor(t *testing.T) {
-	proj := NewProject(nil, map[string]*File{
-		"main.xgo": {
-			Content: []byte(`
-var x = 1
-var y = x + 2
-
-func test() {
-	z := x + y
-	println(z, x)
-}
-`),
-		},
-	}, FeatAll)
-
-	typeInfo, err := proj.TypeInfo()
-	require.NoError(t, err)
-	require.NotNil(t, typeInfo)
-
-	// Find x definition from Defs.
-	var xObj types.Object
-	for ident, obj := range typeInfo.Defs {
-		if ident.Name == "x" {
-			xObj = obj
-			break
-		}
-	}
-	require.NotNil(t, xObj)
-
-	t.Run("FindReferences", func(t *testing.T) {
-		refs := typeInfo.RefIdentsFor(xObj)
-		require.Len(t, refs, 3) // y = x + 2, z := x + y, println(z, x)
-		for _, ref := range refs {
-			assert.Equal(t, "x", ref.Name)
-		}
-	})
-
-	t.Run("NilObject", func(t *testing.T) {
-		assert.Nil(t, typeInfo.RefIdentsFor(nil))
-	})
-
-	t.Run("UnknownObject", func(t *testing.T) {
-		unknownObj := types.NewVar(0, nil, "unknown", types.Typ[types.Int])
-		assert.Nil(t, typeInfo.RefIdentsFor(unknownObj))
 	})
 }

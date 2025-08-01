@@ -123,7 +123,7 @@ func PositionOffset(content []byte, position Position) int {
 
 // FromPosition converts a [xgotoken.Position] to a [Position].
 func FromPosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Position) Position {
-	tokenFile := xgoutil.NodeTokenFile(proj, astFile)
+	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
 	line := position.Line
 	lineStart := int(tokenFile.LineStart(line))
@@ -138,7 +138,7 @@ func FromPosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Pos
 
 // ToPosition converts a [Position] to a [xgotoken.Position].
 func ToPosition(proj *xgo.Project, astFile *xgoast.File, position Position) xgotoken.Position {
-	tokenFile := xgoutil.NodeTokenFile(proj, astFile)
+	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
 	line := min(int(position.Line)+1, tokenFile.LineCount())
 	lineStart := int(tokenFile.LineStart(line))
@@ -160,7 +160,7 @@ func ToPosition(proj *xgo.Project, astFile *xgoast.File, position Position) xgot
 
 // PosAt returns the [xgotoken.Pos] of the given position in the given AST file.
 func PosAt(proj *xgo.Project, astFile *xgoast.File, position Position) xgotoken.Pos {
-	tokenFile := xgoutil.NodeTokenFile(proj, astFile)
+	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	if int(position.Line) > tokenFile.LineCount()-1 {
 		return xgotoken.Pos(tokenFile.Base() + tokenFile.Size()) // EOF
 	}
@@ -185,12 +185,14 @@ func RangeForASTFileNode(proj *xgo.Project, astFile *xgoast.File, node xgoast.No
 
 // RangeForPos returns the [Range] for the given position.
 func RangeForPos(proj *xgo.Project, pos xgotoken.Pos) Range {
-	return RangeForASTFilePosition(proj, xgoutil.PosASTFile(proj, pos), proj.Fset.Position(pos))
+	astPkg, _ := proj.ASTPackage()
+	return RangeForASTFilePosition(proj, xgoutil.PosASTFile(proj.Fset, astPkg, pos), proj.Fset.Position(pos))
 }
 
 // RangeForPosEnd returns the [Range] for the given pos and end positions.
 func RangeForPosEnd(proj *xgo.Project, pos, end xgotoken.Pos) Range {
-	astFile := xgoutil.PosASTFile(proj, pos)
+	astPkg, _ := proj.ASTPackage()
+	astFile := xgoutil.PosASTFile(proj.Fset, astPkg, pos)
 	return Range{
 		Start: FromPosition(proj, astFile, proj.Fset.Position(pos)),
 		End:   FromPosition(proj, astFile, proj.Fset.Position(end)),
@@ -199,7 +201,8 @@ func RangeForPosEnd(proj *xgo.Project, pos, end xgotoken.Pos) Range {
 
 // RangeForNode returns the [Range] for the given node.
 func RangeForNode(proj *xgo.Project, node xgoast.Node) Range {
-	return RangeForASTFileNode(proj, xgoutil.NodeASTFile(proj, node), node)
+	astPkg, _ := proj.ASTPackage()
+	return RangeForASTFileNode(proj, xgoutil.NodeASTFile(proj.Fset, astPkg, node), node)
 }
 
 // IsRangesOverlap reports whether two ranges overlap.

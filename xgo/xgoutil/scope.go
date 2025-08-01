@@ -21,21 +21,17 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 )
 
 // InnermostScopeAt returns the innermost scope that contains the given
 // position. It returns nil if not found.
-func InnermostScopeAt(proj *xgo.Project, pos token.Pos) *types.Scope {
-	if !pos.IsValid() {
+func InnermostScopeAt(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, pos token.Pos) *types.Scope {
+	if fset == nil || typeInfo == nil || astPkg == nil || !pos.IsValid() {
 		return nil
 	}
 
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-	astFile := PosASTFile(proj, pos)
+	astFile := PosASTFile(fset, astPkg, pos)
 	if astFile == nil {
 		return nil
 	}

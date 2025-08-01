@@ -21,7 +21,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
 
-	if spxResourceRef := result.spxResourceRefAtASTFilePosition(astFile, position); spxResourceRef != nil {
+	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
 		return &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
@@ -31,7 +31,12 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		}, nil
 	}
 
-	ident := xgoutil.IdentAtPosition(result.proj, astFile, position)
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+
+	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
