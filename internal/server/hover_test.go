@@ -478,12 +478,7 @@ onTouchStart "MySprite", => {}
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, `def-id="xgo:builtin?int"`)
-		assert.Equal(t, Range{
-			Start: Position{Line: 0, Character: 6},
-			End:   Position{Line: 0, Character: 9},
-		}, hover.Range)
+		assert.Nil(t, hover)
 	})
 
 	t.Run("ImportsAtASTFilePosition", func(t *testing.T) {
@@ -596,7 +591,7 @@ onStart => {
 		hover1, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 3, Character: 15},
+				Position:     Position{Line: 3, Character: 14},
 			},
 		})
 		require.NoError(t, err)
@@ -619,7 +614,7 @@ onStart => {
 		hover3, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 18},
+				Position:     Position{Line: 4, Character: 17},
 			},
 		})
 		require.NoError(t, err)

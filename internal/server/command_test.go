@@ -753,7 +753,7 @@ onStart => {
 			})
 			require.NotNil(t, expr)
 
-			got := checkAddressInputSlot(result, expr, nil)
+			got := checkAddressInputSlot(result, expr)
 			if tt.wantNil {
 				assert.Nil(t, got)
 			} else {

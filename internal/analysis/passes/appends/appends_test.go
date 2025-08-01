@@ -11,7 +11,7 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 )
 
 func TestAppends(t *testing.T) {
@@ -47,7 +47,7 @@ _ = append(s, 1)
 				t.Fatal(err)
 			}
 
-			info := &xgo.TypeInfo{
+			info := &xgotypes.Info{
 				Info: typesutil.Info{
 					Types: make(map[ast.Expr]types.TypeAndValue),
 					Defs:  make(map[*ast.Ident]types.Object),

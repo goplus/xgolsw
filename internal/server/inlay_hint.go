@@ -68,12 +68,13 @@ func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, 
 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
 func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) []InlayHint {
-	astFile := xgoutil.NodeASTFile(result.proj, callExpr)
-	if astFile == nil {
-		return nil
-	}
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
+		return nil
+	}
+	astPkg, _ := result.proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, callExpr)
+	if astFile == nil {
 		return nil
 	}
 	fset := result.proj.Fset

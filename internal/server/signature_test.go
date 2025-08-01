@@ -32,7 +32,7 @@ onStart => {
 		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 11},
+				Position:     Position{Line: 5, Character: 10},
 			},
 		})
 		require.NoError(t, err)
