@@ -3,14 +3,12 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/goplus/gogen v1.19.0 h1:eRi3pEDfICO6saw+JZ/jWPfBYTP7CkV6cjTsNjhhC4k=
-github.com/goplus/gogen v1.19.0/go.mod h1:owX2e1EyU5WD+Nm6oH2m/GXjLdlBYcwkLO4wN8HHXZI=
 github.com/goplus/gogen v1.19.1-0.20250724034352-9d71af3407a9 h1:YMnKbo+4ub+3L4nVmv9PdAW7/rn6jIzXQhhNsQS2p2s=
 github.com/goplus/gogen v1.19.1-0.20250724034352-9d71af3407a9/go.mod h1:owX2e1EyU5WD+Nm6oH2m/GXjLdlBYcwkLO4wN8HHXZI=
 github.com/goplus/mod v0.17.1 h1:ITovxDcc5zbURV/Wrp3/SBsYLgC1KrxY6pq1zMM2V94=
 github.com/goplus/mod v0.17.1/go.mod h1:iXEszBKqi38BAyQApBPyQeurLHmQN34YMgC2ZNdap50=
-github.com/goplus/spx/v2 v2.0.0-beta9 h1:ntv3iFf66GImJRe7XCU88EFYl+aiLoH3uY0/6GoV/T0=
-github.com/goplus/spx/v2 v2.0.0-beta9/go.mod h1:e+pIxAvh2j/8mETvup0OxVvB2c+dQO3BoDt4O7L/JXw=
+github.com/goplus/spx/v2 v2.0.0-pre.1 h1:Gui/TjeBIPXX48yYzCoCYBRF1DaXcXzR7Tq6qxocoOc=
+github.com/goplus/spx/v2 v2.0.0-pre.1/go.mod h1:e+pIxAvh2j/8mETvup0OxVvB2c+dQO3BoDt4O7L/JXw=
 github.com/goplus/xgo v1.5.0 h1:cOSGtJOUfBkSFa6e9K8HCrJDtiNp0sRos5ZGoCOtEZQ=
 github.com/goplus/xgo v1.5.0/go.mod h1:v9VsPjlFeO3EWafE8Qz8iwMoqNqNwlX9uSZL5+ZGlVg=
 github.com/h2non/filetype v1.1.3 h1:FKkx9QbD7HR/zjK1Ia5XiBsq9zdLi5Kf3zGyFTAFkGg=
