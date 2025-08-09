@@ -19,18 +19,21 @@ package xgoutil
 import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 )
 
 // IdentAtPosition returns the identifier at the given position in the given AST file.
-func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Position) *ast.Ident {
-	fset := proj.Fset
+func IdentAtPosition(fset *token.FileSet, typeInfo *xgotypes.Info, astFile *ast.File, position token.Position) *ast.Ident {
+	if fset == nil || typeInfo == nil || astFile == nil {
+		return nil
+	}
+
 	astFilePosition := fset.Position(astFile.Pos())
 	if astFilePosition.Filename != position.Filename {
 		return nil
 	}
 
-	tokenFile := PosTokenFile(proj, astFile.Pos())
+	tokenFile := PosTokenFile(fset, astFile.Pos())
 	if tokenFile == nil {
 		return nil
 	}
@@ -48,11 +51,6 @@ func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Positi
 		lineEnd = token.Pos(tokenFile.Base() + tokenFile.Size())
 	}
 
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-
 	var (
 		bestIdent    *ast.Ident
 		bestNodeSpan int
@@ -68,7 +66,7 @@ func IdentAtPosition(proj *xgo.Project, astFile *ast.File, position token.Positi
 		}
 		identPosPosition := fset.Position(identPos)
 		identEndPosition := fset.Position(ident.End())
-		if identPosPosition.Column > position.Column || identEndPosition.Column < position.Column {
+		if identPosPosition.Column > position.Column || identEndPosition.Column <= position.Column {
 			return
 		}
 

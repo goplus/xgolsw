@@ -34,12 +34,6 @@ func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	return result
 }
 
-func (m *mockReplier) reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.messages = nil
-}
-
 func newProjectWithoutModTime(files map[string][]byte) *xgo.Project {
 	fileMap := make(map[string]*xgo.File)
 	for k, v := range files {
@@ -192,7 +186,8 @@ import (
 )
 
 fmt.Println("Hello, World!")
-`)},
+`),
+			},
 			msgNum: 2,
 		},
 		{

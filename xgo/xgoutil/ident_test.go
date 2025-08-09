@@ -17,174 +17,182 @@
 package xgoutil
 
 import (
+	"go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIdentAtPosition(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
-var longVarName = 1
-var short = 2
-
-func test() {
-	result := longVarName + short
-	println(result)
-}
-`),
-	}, xgo.FeatAll)
-
-	astFile, err := proj.ASTFile("main.xgo")
-	require.NoError(t, err)
-
-	// Get positions for all identifiers.
-	fset := proj.Fset
-	pos := func(line, column int) token.Position {
-		return token.Position{Filename: fset.Position(astFile.Pos()).Filename, Line: line, Column: column}
-	}
-
 	t.Run("ExactMatch", func(t *testing.T) {
-		// Line 2: var longVarName = 1
-		ident := IdentAtPosition(proj, astFile, pos(2, 5)) // 'longVarName' start
+		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1\nvar short = 2")
+		require.NoError(t, err)
+
+		longVarIdent := findIdent(astFile, "longVarName")
+		shortIdent := findIdent(astFile, "short")
+		require.NotNil(t, longVarIdent)
+		require.NotNil(t, shortIdent)
+
+		pkg := types.NewPackage("main", "main")
+		typeInfo := newTestTypeInfo(
+			map[*ast.Ident]types.Object{
+				longVarIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
+				shortIdent:   types.NewVar(token.NoPos, pkg, "short", types.Typ[types.Int]),
+			},
+			nil,
+		)
+
+		// Test 'longVarName' at position (1, 5)
+		pos := token.Position{Filename: "main.xgo", Line: 1, Column: 5}
+		ident := IdentAtPosition(fset, typeInfo, astFile, pos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "longVarName", ident.Name)
 
-		// Line 3: var short = 2
-		ident = IdentAtPosition(proj, astFile, pos(3, 5)) // 'short' start
+		// Test 'short' at position (2, 5)
+		pos = token.Position{Filename: "main.xgo", Line: 2, Column: 5}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "short", ident.Name)
 	})
 
 	t.Run("MultipleIdentifiersOnSameLine", func(t *testing.T) {
-		// Find the function declaration.
-		var funcDecl *ast.FuncDecl
-		for _, decl := range astFile.Decls {
-			if fd, ok := decl.(*ast.FuncDecl); ok {
-				funcDecl = fd
-				break
-			}
-		}
-		require.NotNil(t, funcDecl)
+		fset, astFile, err := newTestFile("main.xgo", "func test() { result := longVarName + short }")
+		require.NoError(t, err)
 
-		// Find the assignment statement.
-		var assignStmt *ast.AssignStmt
-		for _, stmt := range funcDecl.Body.List {
-			if as, ok := stmt.(*ast.AssignStmt); ok {
-				assignStmt = as
-				break
-			}
-		}
-		require.NotNil(t, assignStmt)
+		resultIdent, resultPos := findIdentWithPos(fset, astFile, "result")
+		longVarNameIdent, longVarNamePos := findIdentWithPos(fset, astFile, "longVarName")
+		shortIdent, shortPos := findIdentWithPos(fset, astFile, "short")
 
-		// Get positions from AST nodes.
-		resultPos := fset.Position(assignStmt.Lhs[0].(*ast.Ident).Pos())
-		longVarNamePos := fset.Position(assignStmt.Rhs[0].(*ast.BinaryExpr).X.(*ast.Ident).Pos())
-		shortPos := fset.Position(assignStmt.Rhs[0].(*ast.BinaryExpr).Y.(*ast.Ident).Pos())
+		pkg := types.NewPackage("main", "main")
+		typeInfo := newTestTypeInfo(
+			map[*ast.Ident]types.Object{
+				resultIdent: types.NewVar(token.NoPos, pkg, "result", types.Typ[types.Int]),
+			},
+			map[*ast.Ident]types.Object{
+				longVarNameIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
+				shortIdent:       types.NewVar(token.NoPos, pkg, "short", types.Typ[types.Int]),
+			},
+		)
 
-		// Test each identifier.
-		ident := IdentAtPosition(proj, astFile, token.Position{
-			Filename: resultPos.Filename,
-			Line:     resultPos.Line,
-			Column:   resultPos.Column,
-		})
+		// Test each identifier
+		ident := IdentAtPosition(fset, typeInfo, astFile, resultPos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "result", ident.Name)
 
-		ident = IdentAtPosition(proj, astFile, token.Position{
-			Filename: longVarNamePos.Filename,
-			Line:     longVarNamePos.Line,
-			Column:   longVarNamePos.Column,
-		})
+		ident = IdentAtPosition(fset, typeInfo, astFile, longVarNamePos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "longVarName", ident.Name)
 
-		ident = IdentAtPosition(proj, astFile, token.Position{
-			Filename: shortPos.Filename,
-			Line:     shortPos.Line,
-			Column:   shortPos.Column,
-		})
+		ident = IdentAtPosition(fset, typeInfo, astFile, shortPos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "short", ident.Name)
 	})
 
 	t.Run("NoMatch", func(t *testing.T) {
-		// Line 1: empty
-		ident := IdentAtPosition(proj, astFile, pos(1, 1))
+		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1")
+		require.NoError(t, err)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		// Empty position
+		pos := token.Position{Filename: "main.xgo", Line: 1, Column: 1}
+		ident := IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 
-		// Line 2: var longVarName = 1 (after identifier)
-		ident = IdentAtPosition(proj, astFile, pos(2, 20))
+		// After identifier
+		pos = token.Position{Filename: "main.xgo", Line: 1, Column: 20}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 	})
 
 	t.Run("BoundaryConditions", func(t *testing.T) {
-		// Line 2: var longVarName = 1
-		ident := IdentAtPosition(proj, astFile, pos(2, 4)) // just before 'longVarName'
+		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1")
+		require.NoError(t, err)
+
+		longVarNameIdent := findIdent(astFile, "longVarName")
+		require.NotNil(t, longVarNameIdent)
+
+		pkg := types.NewPackage("main", "main")
+		typeInfo := newTestTypeInfo(
+			map[*ast.Ident]types.Object{
+				longVarNameIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
+			},
+			nil,
+		)
+
+		identPos := fset.Position(longVarNameIdent.Pos())
+		identEnd := fset.Position(longVarNameIdent.End())
+
+		// Just before identifier
+		pos := token.Position{Filename: identPos.Filename, Line: identPos.Line, Column: identPos.Column - 1}
+		ident := IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 
-		ident = IdentAtPosition(proj, astFile, pos(2, 16)) // last character of 'longVarName'
+		// Last character of identifier
+		pos = token.Position{Filename: identPos.Filename, Line: identPos.Line, Column: identEnd.Column - 1}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "longVarName", ident.Name)
 
-		ident = IdentAtPosition(proj, astFile, pos(2, 17)) // just after 'longVarName'
+		// Just after identifier
+		pos = token.Position{Filename: identPos.Filename, Line: identPos.Line, Column: identEnd.Column}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 	})
 
 	t.Run("OverlappingIdentifiers", func(t *testing.T) {
-		projOverlap := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
-var i = 1
-var ii = 2
-
-func test() {
-	result := i + ii
-}
-`),
-		}, xgo.FeatAll)
-
-		astFileOverlap, err := projOverlap.ASTFile("main.xgo")
+		fset, astFile, err := newTestFile("main.xgo", "var i = 1\nvar ii = 2")
 		require.NoError(t, err)
 
-		fsetOverlap := projOverlap.Fset
-		posOverlap := func(line, column int) token.Position {
-			return token.Position{Filename: fsetOverlap.Position(astFileOverlap.Pos()).Filename, Line: line, Column: column}
-		}
+		iIdent, iPos := findIdentWithPos(fset, astFile, "i")
+		iiIdent, iiPos := findIdentWithPos(fset, astFile, "ii")
 
-		// Should find 'i' not 'ii' when at the start of 'i'.
-		ident := IdentAtPosition(projOverlap, astFileOverlap, posOverlap(2, 5)) // 'i' position
+		pkg := types.NewPackage("main", "main")
+		typeInfo := newTestTypeInfo(
+			map[*ast.Ident]types.Object{
+				iIdent:  types.NewVar(token.NoPos, pkg, "i", types.Typ[types.Int]),
+				iiIdent: types.NewVar(token.NoPos, pkg, "ii", types.Typ[types.Int]),
+			},
+			nil,
+		)
+
+		// Should find 'i' not 'ii' when at the start of 'i'
+		ident := IdentAtPosition(fset, typeInfo, astFile, iPos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "i", ident.Name)
 
-		// Should find 'ii' when at the second character.
-		ident = IdentAtPosition(projOverlap, astFileOverlap, posOverlap(3, 5)) // 'ii' position
+		// Should find 'ii' when at the start of 'ii'
+		ident = IdentAtPosition(fset, typeInfo, astFile, iiPos)
 		require.NotNil(t, ident)
 		assert.Equal(t, "ii", ident.Name)
 	})
 
 	t.Run("EdgeCases", func(t *testing.T) {
-		// Invalid line numbers.
-		ident := IdentAtPosition(proj, astFile, pos(0, 1)) // line 0
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		// Invalid line numbers
+		pos := token.Position{Filename: "main.xgo", Line: 0, Column: 1}
+		ident := IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 
-		ident = IdentAtPosition(proj, astFile, pos(100, 1)) // line beyond file
+		pos = token.Position{Filename: "main.xgo", Line: 100, Column: 1}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 
-		// Wrong filename.
-		wrongFilenamePos := token.Position{
-			Filename: "wrong.xgo",
-			Line:     2,
-			Column:   5,
-		}
-		ident = IdentAtPosition(proj, astFile, wrongFilenamePos)
+		// Wrong filename
+		pos = token.Position{Filename: "wrong.xgo", Line: 1, Column: 5}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 
-		// Very high column number.
-		ident = IdentAtPosition(proj, astFile, pos(2, 1000))
+		// Very high column number
+		pos = token.Position{Filename: "main.xgo", Line: 1, Column: 1000}
+		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 	})
 }

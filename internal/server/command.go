@@ -169,7 +169,7 @@ func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot 
 			}
 		case *xgoast.AssignStmt:
 			for _, lhs := range node.Lhs {
-				slot := checkAddressInputSlot(result, lhs, nil)
+				slot := checkAddressInputSlot(result, lhs)
 				if slot != nil {
 					addInputSlots(*slot)
 				}
@@ -257,14 +257,14 @@ func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot 
 			}
 		case *xgoast.RangeStmt:
 			if node.Key != nil && !isBlank(node.Key) {
-				slot := checkAddressInputSlot(result, node.Key, nil)
+				slot := checkAddressInputSlot(result, node.Key)
 				if slot != nil {
 					addInputSlots(*slot)
 				}
 			}
 
 			if node.Value != nil && !isBlank(node.Value) {
-				slot := checkAddressInputSlot(result, node.Value, nil)
+				slot := checkAddressInputSlot(result, node.Value)
 				if slot != nil {
 					addInputSlots(*slot)
 				}
@@ -275,7 +275,7 @@ func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot 
 				addInputSlots(*slot)
 			}
 		case *xgoast.IncDecStmt:
-			slot := checkAddressInputSlot(result, node.X, nil)
+			slot := checkAddressInputSlot(result, node.X)
 			if slot != nil {
 				addInputSlots(*slot)
 			}
@@ -316,8 +316,10 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr
 
 // collectPredefinedNames collects all predefined names for the given expression.
 func collectPredefinedNames(result *compileResult, expr xgoast.Expr, declaredType types.Type) []string {
-	astFile := xgoutil.NodeASTFile(result.proj, expr)
-	innermostScope := xgoutil.InnermostScopeAt(result.proj, expr.Pos())
+	typeInfo, _ := result.proj.TypeInfo()
+	astPkg, _ := result.proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, expr)
+	innermostScope := xgoutil.InnermostScopeAt(result.proj.Fset, typeInfo, astPkg, expr.Pos())
 
 	var names []string
 	growNames := func(n int) {
@@ -442,7 +444,7 @@ func checkValueInputSlot(result *compileResult, expr xgoast.Expr, declaredType t
 }
 
 // checkAddressInputSlot checks if the expression is an address input slot.
-func checkAddressInputSlot(result *compileResult, expr xgoast.Expr, declaredType types.Type) *SpxInputSlot {
+func checkAddressInputSlot(result *compileResult, expr xgoast.Expr) *SpxInputSlot {
 	if ident, ok := expr.(*xgoast.Ident); ok {
 		return &SpxInputSlot{
 			Kind:   SpxInputSlotKindAddress,
@@ -452,7 +454,7 @@ func checkAddressInputSlot(result *compileResult, expr xgoast.Expr, declaredType
 				Type: SpxInputTypeUnknown,
 				Name: ident.Name,
 			},
-			PredefinedNames: collectPredefinedNames(result, expr, declaredType),
+			PredefinedNames: collectPredefinedNames(result, expr, nil),
 			Range:           RangeForNode(result.proj, ident),
 		}
 	}
@@ -790,8 +792,9 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 	if typeInfo == nil {
 		return nil
 	}
-	spxFile := xgoutil.NodeFilename(result.proj, node)
-	astFile := xgoutil.NodeASTFile(result.proj, node)
+	spxFile := xgoutil.NodeFilename(result.proj.Fset, node)
+	astPkg, _ := result.proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, node)
 
 	var spxSpriteResource *SpxSpriteResource
 	xgoutil.WalkPathEnclosingInterval(astFile, node.Pos(), node.End(), false, func(node xgoast.Node) bool {

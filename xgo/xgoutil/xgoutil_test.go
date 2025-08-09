@@ -19,29 +19,47 @@ package xgoutil
 import (
 	"go/constant"
 	"go/types"
+	"path"
 	"slices"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func file(content string) *xgo.File {
-	return &xgo.File{Content: []byte(content)}
+func newTestFile(filename string, source any) (*token.FileSet, *ast.File, error) {
+	fset := token.NewFileSet()
+	mode := parser.ParseComments
+	if path.Ext(filename) == ".gox" {
+		mode |= parser.ParseGoPlusClass
+	}
+	astFile, err := parser.ParseEntry(fset, filename, source, parser.Config{Mode: mode})
+	return fset, astFile, err
 }
 
-func newTestTypeInfo(defs map[*ast.Ident]types.Object, uses map[*ast.Ident]types.Object) *xgo.TypeInfo {
+func newTestPackage(files map[string]*ast.File) *ast.Package {
+	if files == nil {
+		files = make(map[string]*ast.File)
+	}
+	return &ast.Package{
+		Name:  "main",
+		Files: files,
+	}
+}
+
+func newTestTypeInfo(defs map[*ast.Ident]types.Object, uses map[*ast.Ident]types.Object) *xgotypes.Info {
 	if defs == nil {
 		defs = make(map[*ast.Ident]types.Object)
 	}
 	if uses == nil {
 		uses = make(map[*ast.Ident]types.Object)
 	}
-	return &xgo.TypeInfo{
+	return &xgotypes.Info{
 		Info: typesutil.Info{
 			Types:      make(map[ast.Expr]types.TypeAndValue),
 			Defs:       defs,
@@ -53,14 +71,48 @@ func newTestTypeInfo(defs map[*ast.Ident]types.Object, uses map[*ast.Ident]types
 	}
 }
 
+func findIdent(astFile *ast.File, name string) *ast.Ident {
+	var result *ast.Ident
+	ast.Inspect(astFile, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok && ident.Name == name {
+			if result == nil {
+				result = ident
+			}
+		}
+		return result == nil
+	})
+	return result
+}
+
+func findIdentWithPos(fset *token.FileSet, astFile *ast.File, name string) (*ast.Ident, token.Position) {
+	var result *ast.Ident
+	ast.Inspect(astFile, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok && ident.Name == name {
+			if result == nil {
+				result = ident
+			}
+		}
+		return result == nil
+	})
+	if result != nil {
+		return result, fset.Position(result.Pos())
+	}
+	return nil, token.Position{}
+}
+
+func markAsXGoPackage(pkg *types.Package) {
+	cnst := types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true))
+	pkg.Scope().Insert(cnst)
+}
+
 func TestRangeASTSpecs(t *testing.T) {
 	t.Run("SingleTypeSpec", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file("type A = int"),
-		}, xgo.FeatAll)
+		_, astFile, err := newTestFile("main.xgo", "type A = int")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -71,8 +123,7 @@ func TestRangeASTSpecs(t *testing.T) {
 	})
 
 	t.Run("MultipleTypeSpecs", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
+		_, astFile, err := newTestFile("main.xgo", `
 type (
 	A = int
 	B = string
@@ -80,11 +131,12 @@ type (
 		Field int
 	}
 )
-`),
-		}, xgo.FeatAll)
+`)
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -100,17 +152,17 @@ type (
 	})
 
 	t.Run("VariableSpecs", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
+		_, astFile, err := newTestFile("main.xgo", `
 var (
 	x = 1
 	y = "hello"
 )
-`),
-		}, xgo.FeatAll)
+`)
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.VAR, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.VAR, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -125,17 +177,17 @@ var (
 	})
 
 	t.Run("ConstantSpecs", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
+		_, astFile, err := newTestFile("main.xgo", `
 const (
 	Pi = 3.14
 	E  = 2.71
 )
-`),
-		}, xgo.FeatAll)
+`)
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.CONST, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.CONST, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -150,13 +202,18 @@ const (
 	})
 
 	t.Run("MultipleFiles", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo":  file("type MainType = int"),
-			"other.xgo": file("type OtherType = string"),
-		}, xgo.FeatAll)
+		_, mainFile, err := newTestFile("main.xgo", "type MainType = int")
+		require.NoError(t, err)
+		_, otherFile, err := newTestFile("other.xgo", "type OtherType = string")
+		require.NoError(t, err)
+
+		astPkg := newTestPackage(map[string]*ast.File{
+			"main.xgo":  mainFile,
+			"other.xgo": otherFile,
+		})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -171,23 +228,23 @@ const (
 	})
 
 	t.Run("NoMatchingSpecs", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file("var x = 1"),
-		}, xgo.FeatAll)
+		_, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
 		assert.Len(t, specs, 0)
 	})
 
-	t.Run("EmptyProject", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{}, xgo.FeatAll)
+	t.Run("EmptyPackage", func(t *testing.T) {
+		astPkg := newTestPackage(nil)
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -195,27 +252,26 @@ const (
 	})
 
 	t.Run("MixedDeclarations", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
+		_, astFile, err := newTestFile("main.xgo", `
 type MyType = int
 var myVar = 1
 const myConst = 42
-func myFunc() {}
-`),
-		}, xgo.FeatAll)
+func myFunc() {}`)
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var typeSpecs []ast.Spec
-		RangeASTSpecs(proj, token.TYPE, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
 			typeSpecs = append(typeSpecs, spec)
 		})
 
 		var varSpecs []ast.Spec
-		RangeASTSpecs(proj, token.VAR, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.VAR, func(spec ast.Spec) {
 			varSpecs = append(varSpecs, spec)
 		})
 
 		var constSpecs []ast.Spec
-		RangeASTSpecs(proj, token.CONST, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.CONST, func(spec ast.Spec) {
 			constSpecs = append(constSpecs, spec)
 		})
 
@@ -229,17 +285,17 @@ func myFunc() {}
 	})
 
 	t.Run("ImportSpecs", func(t *testing.T) {
-		proj := xgo.NewProject(nil, map[string]*xgo.File{
-			"main.xgo": file(`
+		_, astFile, err := newTestFile("main.xgo", `
 import (
 	"fmt"
 	"strconv"
 )
-`),
-		}, xgo.FeatAll)
+`)
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
 		var specs []ast.Spec
-		RangeASTSpecs(proj, token.IMPORT, func(spec ast.Spec) {
+		RangeASTSpecs(astPkg, token.IMPORT, func(spec ast.Spec) {
 			specs = append(specs, spec)
 		})
 
@@ -252,67 +308,93 @@ import (
 		assert.Contains(t, paths, `"fmt"`)
 		assert.Contains(t, paths, `"strconv"`)
 	})
+
+	t.Run("NilPackage", func(t *testing.T) {
+		var specs []ast.Spec
+		RangeASTSpecs(nil, token.TYPE, func(spec ast.Spec) {
+			specs = append(specs, spec)
+		})
+
+		assert.Len(t, specs, 0)
+	})
 }
 
 func TestIsDefinedInClassFieldsDecl(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.gox": file(`
+	t.Run("DefinedInClassFields", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.gox", []byte(`
 var (
 	x int
 	y string
 )
+`))
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
+		pkg := types.NewPackage("main", "main")
+		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		xIdent := findIdent(astFile, "x")
+		require.NotNil(t, xIdent)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{
+			xVar: xIdent,
+		}
+
+		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
+		assert.True(t, result)
+	})
+
+	t.Run("NotDefinedInClassFields", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.gox", `
 func test() {
 	z := 1
 	println(z)
 }
-`),
-	}, xgo.FeatAll)
+`)
+		require.NoError(t, err)
 
-	typeInfo, _ := proj.TypeInfo()
-	require.NotNil(t, typeInfo)
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
-	// Get objects from definitions
-	var xObj, zObj types.Object
-	for ident, obj := range typeInfo.Defs {
-		switch ident.Name {
-		case "x":
-			xObj = obj
-		case "z":
-			zObj = obj
+		zVar := types.NewVar(token.NoPos, types.NewPackage("main", "main"), "z", types.Typ[types.Int])
+		zIdent := findIdent(astFile, "z")
+		require.NotNil(t, zIdent)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{
+			zVar: zIdent,
 		}
-	}
-	require.NotNil(t, xObj)
-	require.NotNil(t, zObj)
 
-	t.Run("DefinedInClassFields", func(t *testing.T) {
-		assert.True(t, IsDefinedInClassFieldsDecl(proj, xObj))
-	})
-
-	t.Run("NotDefinedInClassFields", func(t *testing.T) {
-		assert.False(t, IsDefinedInClassFieldsDecl(proj, zObj))
+		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, zVar)
+		assert.False(t, result)
 	})
 
 	t.Run("NilObject", func(t *testing.T) {
-		assert.False(t, IsDefinedInClassFieldsDecl(proj, nil))
+		fset, astFile, err := newTestFile("main.gox", "var x int")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, nil)
+		assert.False(t, result)
+	})
+
+	t.Run("NilFileSet", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.gox", "var x int")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+		pkg := types.NewPackage("main", "main")
+		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+
+		result := IsDefinedInClassFieldsDecl(nil, typeInfo, astPkg, xVar)
+		assert.False(t, result)
 	})
 }
 
 func TestWalkPathEnclosingInterval(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
-var x = 1
-func test() {
-	y := x + 2
-	println(y)
-}
-`),
-	}, xgo.FeatAll)
-
-	astFile, err := proj.ASTFile("main.xgo")
-	require.NoError(t, err)
-
 	t.Run("WalkFunction", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "func test() { println(1) }")
+		require.NoError(t, err)
 		var funcDecl *ast.FuncDecl
 		ast.Inspect(astFile, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
@@ -334,14 +416,12 @@ func test() {
 	})
 
 	t.Run("WalkSinglePosition", func(t *testing.T) {
-		var identPos token.Pos
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if ident, ok := n.(*ast.Ident); ok && ident.Name == "x" {
-				identPos = ident.Pos()
-				return false
-			}
-			return true
-		})
+		_, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+
+		xIdent := findIdent(astFile, "x")
+		require.NotNil(t, xIdent)
+		identPos := xIdent.Pos()
 		require.NotEqual(t, token.NoPos, identPos)
 
 		var nodes []ast.Node
@@ -359,6 +439,9 @@ func test() {
 	})
 
 	t.Run("StopWalk", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "func test() { println(1) }")
+		require.NoError(t, err)
+
 		var funcDecl *ast.FuncDecl
 		ast.Inspect(astFile, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
@@ -378,6 +461,9 @@ func test() {
 	})
 
 	t.Run("EmptyInterval", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "package main")
+		require.NoError(t, err)
+
 		var nodes []ast.Node
 		WalkPathEnclosingInterval(astFile, token.NoPos, token.NoPos, false, func(node ast.Node) bool {
 			nodes = append(nodes, node)
@@ -387,6 +473,9 @@ func test() {
 	})
 
 	t.Run("WalkBackward", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "func test() { x := 1; y := 2 }")
+		require.NoError(t, err)
+
 		var funcDecl *ast.FuncDecl
 		ast.Inspect(astFile, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "test" {
@@ -455,115 +544,55 @@ func TestToLowerCamelCase(t *testing.T) {
 }
 
 func TestStringLitOrConstValue(t *testing.T) {
-	proj := xgo.NewProject(nil, map[string]*xgo.File{
-		"main.xgo": file(`
-const strConst = "constant value"
-const intConst = 42
-var strVar = "variable value"
-
-func test() {
-	local := "local string"
-	println("literal", strConst, strVar, local)
-}
-`),
-	}, xgo.FeatAll)
-
-	typeInfo, _ := proj.TypeInfo()
-	require.NotNil(t, typeInfo)
-
-	astFile, err := proj.ASTFile("main.xgo")
-	require.NoError(t, err)
-
 	t.Run("StringLiteral", func(t *testing.T) {
-		var strLit *ast.BasicLit
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == `"literal"` {
-				strLit = lit
-				return false
-			}
-			return true
-		})
-		require.NotNil(t, strLit)
+		strLit := &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: `"literal"`,
+		}
 
-		tv := typeInfo.Types[strLit]
+		tv := types.TypeAndValue{}
 		value, ok := StringLitOrConstValue(strLit, tv)
 		assert.True(t, ok)
 		assert.Equal(t, "literal", value)
 	})
 
 	t.Run("StringConstant", func(t *testing.T) {
-		var constIdent *ast.Ident
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if ident, ok := n.(*ast.Ident); ok && ident.Name == "strConst" {
-				if obj := typeInfo.Uses[ident]; obj != nil {
-					constIdent = ident
-					return false
-				}
-			}
-			return true
-		})
-		require.NotNil(t, constIdent)
+		ident := &ast.Ident{Name: "strConst"}
+		tv := types.TypeAndValue{Value: constant.MakeString("constant value")}
 
-		tv := typeInfo.Types[constIdent]
-		value, ok := StringLitOrConstValue(constIdent, tv)
+		value, ok := StringLitOrConstValue(ident, tv)
 		assert.True(t, ok)
 		assert.Equal(t, "constant value", value)
 	})
 
 	t.Run("StringVariable", func(t *testing.T) {
-		var varIdent *ast.Ident
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if ident, ok := n.(*ast.Ident); ok && ident.Name == "strVar" {
-				if obj := typeInfo.Uses[ident]; obj != nil {
-					varIdent = ident
-					return false
-				}
-			}
-			return true
-		})
-		require.NotNil(t, varIdent)
+		ident := &ast.Ident{Name: "strVar"}
+		tv := types.TypeAndValue{Value: nil} // Variables don't have constant values
 
-		tv := typeInfo.Types[varIdent]
-		value, ok := StringLitOrConstValue(varIdent, tv)
+		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
 	})
 
 	t.Run("NonStringLiteral", func(t *testing.T) {
-		var intLit *ast.BasicLit
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.INT && lit.Value == "42" {
-				intLit = lit
-				return false
-			}
-			return true
-		})
-		require.NotNil(t, intLit)
+		intLit := &ast.BasicLit{
+			Kind:  token.INT,
+			Value: "42",
+		}
 
-		tv := typeInfo.Types[intLit]
+		tv := types.TypeAndValue{}
 		value, ok := StringLitOrConstValue(intLit, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
 	})
 
 	t.Run("NonStringConstant", func(t *testing.T) {
-		var intIdent *ast.Ident
-		ast.Inspect(astFile, func(n ast.Node) bool {
-			if ident, ok := n.(*ast.Ident); ok && ident.Name == "intConst" {
-				if obj := typeInfo.Uses[ident]; obj != nil {
-					intIdent = ident
-					return false
-				}
-			}
-			return true
-		})
+		ident := &ast.Ident{Name: "intConst"}
+		tv := types.TypeAndValue{Value: constant.MakeInt64(42)}
 
-		if intIdent != nil {
-			tv := typeInfo.Types[intIdent]
-			value, ok := StringLitOrConstValue(intIdent, tv)
-			assert.False(t, ok)
-			assert.Equal(t, "", value)
-		}
+		value, ok := StringLitOrConstValue(ident, tv)
+		assert.False(t, ok)
+		assert.Equal(t, "", value)
 	})
 
 	t.Run("InvalidStringLiteral", func(t *testing.T) {

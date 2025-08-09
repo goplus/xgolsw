@@ -24,15 +24,16 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/x/typesutil"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/qiniu/x/errors"
 )
 
-// typeInfoCacheKind is a cache kind type for [TypeInfo].
+// typeInfoCacheKind is a cache kind type for [xgotypes.Info].
 type typeInfoCacheKind struct{}
 
-// typeInfoCache is a cache for [TypeInfo].
+// typeInfoCache is a cache for [xgotypes.Info].
 type typeInfoCache struct {
-	typeInfo   *TypeInfo
+	typeInfo   *xgotypes.Info
 	checkerErr error
 }
 
@@ -44,7 +45,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		return nil, fmt.Errorf("failed to retrieve AST package: %w", astErr)
 	}
 
-	typeInfo := &TypeInfo{
+	typeInfo := &xgotypes.Info{
 		Info: typesutil.Info{
 			Types:      make(map[ast.Expr]types.TypeAndValue),
 			Defs:       make(map[*ast.Ident]types.Object),
@@ -53,7 +54,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			Implicits:  make(map[ast.Node]types.Object),
 			Scopes:     make(map[ast.Node]*types.Scope),
 		},
-		pkg: types.NewPackage(proj.PkgPath, astPkg.Name),
+		Pkg: types.NewPackage(proj.PkgPath, astPkg.Name),
 	}
 
 	var checkerErrs errors.List
@@ -63,7 +64,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			Importer: proj.Importer,
 		},
 		&typesutil.Config{
-			Types: typeInfo.pkg,
+			Types: typeInfo.Pkg,
 			Fset:  proj.Fset,
 			Mod:   proj.Mod,
 		},
@@ -76,62 +77,26 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	// Build reverse mapping for O(1) object-to-identifier lookup. For
 	// identifiers that do not denote objects, the object is nil and they
 	// are excluded from this mapping.
-	typeInfo.objToDef = make(map[types.Object]*ast.Ident, len(typeInfo.Defs))
+	typeInfo.ObjToDef = make(map[types.Object]*ast.Ident, len(typeInfo.Defs))
 	for ident, obj := range typeInfo.Defs {
 		if obj != nil {
-			typeInfo.objToDef[obj] = ident
+			typeInfo.ObjToDef[obj] = ident
 		}
 	}
 
 	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
 }
 
-// TypeInfo retrieves the [TypeInfo] from the project. The returned
-// [TypeInfo] is nil only if building failed.
+// TypeInfo retrieves the [xgotypes.Info] from the project. The returned
+// [xgotypes.Info] is nil only if building failed.
 //
-// NOTE: Both the returned [TypeInfo] and error can be non-nil, which
+// NOTE: Both the returned [xgotypes.Info] and error can be non-nil, which
 // indicates that only part of the project was type checked successfully.
-func (p *Project) TypeInfo() (*TypeInfo, error) {
+func (p *Project) TypeInfo() (*xgotypes.Info, error) {
 	cacheIface, err := p.Cache(typeInfoCacheKind{})
 	if err != nil {
 		return nil, err
 	}
 	cache := cacheIface.(*typeInfoCache)
 	return cache.typeInfo, cache.checkerErr
-}
-
-// TypeInfo is an enhanced version of [typesutil.Info] for XGo projects. It
-// embeds [typesutil.Info] and adds additional functionality and context.
-type TypeInfo struct {
-	typesutil.Info
-
-	pkg *types.Package
-
-	// objToDef is a reverse mapping of typesutil.Info.Defs for O(1)
-	// object-to-identifier lookup.
-	objToDef map[types.Object]*ast.Ident
-}
-
-// Pkg returns the package associated with this type information.
-func (ti *TypeInfo) Pkg() *types.Package {
-	return ti.pkg
-}
-
-// DefIdentFor returns the identifier where the given object is defined.
-func (ti *TypeInfo) DefIdentFor(obj types.Object) *ast.Ident {
-	return ti.objToDef[obj]
-}
-
-// RefIdentsFor returns all identifiers where the given object is referenced.
-func (ti *TypeInfo) RefIdentsFor(obj types.Object) []*ast.Ident {
-	if obj == nil {
-		return nil
-	}
-	var idents []*ast.Ident
-	for ident, o := range ti.Uses {
-		if o == obj {
-			idents = append(idents, ident)
-		}
-	}
-	return idents
 }

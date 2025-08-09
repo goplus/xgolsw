@@ -17,7 +17,6 @@
 package xgoutil
 
 import (
-	"go/constant"
 	"go/token"
 	"go/types"
 	"testing"
@@ -119,8 +118,7 @@ func TestIsXGoClassStructType(t *testing.T) {
 		pkg := types.NewPackage("test", "test")
 
 		// Mark package as XGo package.
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		structType := types.NewStruct([]*types.Var{}, []string{})
 		typeName := types.NewTypeName(token.NoPos, pkg, "SomeOtherType", structType)
@@ -132,8 +130,7 @@ func TestIsXGoClassStructType(t *testing.T) {
 		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as XGo package.
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		structType := types.NewStruct([]*types.Var{}, []string{})
 		typeName := types.NewTypeName(token.NoPos, pkg, "Game", structType)
@@ -145,8 +142,7 @@ func TestIsXGoClassStructType(t *testing.T) {
 		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as XGo package.
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		structType := types.NewStruct([]*types.Var{}, []string{})
 		typeName := types.NewTypeName(token.NoPos, pkg, "SpriteImpl", structType)
@@ -166,8 +162,7 @@ func TestIsXGoClassStructType(t *testing.T) {
 		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as XGo package.
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		structType := types.NewStruct([]*types.Var{}, []string{})
 		typeName := types.NewTypeName(token.NoPos, pkg, "Sprite", structType)
@@ -407,8 +402,7 @@ func TestWalkStruct(t *testing.T) {
 		pkg := types.NewPackage(spxPkgPath, "spx")
 
 		// Mark package as XGo package.
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		// Create XGo class struct.
 		field := types.NewField(token.NoPos, pkg, "TestField", types.Typ[types.String], false)

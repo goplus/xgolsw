@@ -20,57 +20,52 @@ import (
 	"go/token"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgolsw/xgo"
 )
 
 // PosFilename returns the filename for the given position.
-func PosFilename(proj *xgo.Project, pos token.Pos) string {
-	if proj == nil || !pos.IsValid() {
+func PosFilename(fset *token.FileSet, pos token.Pos) string {
+	if fset == nil || !pos.IsValid() {
 		return ""
 	}
-	return proj.Fset.Position(pos).Filename
+	return fset.Position(pos).Filename
 }
 
 // NodeFilename returns the filename for the given node.
-func NodeFilename(proj *xgo.Project, node ast.Node) string {
-	if proj == nil || node == nil {
+func NodeFilename(fset *token.FileSet, node ast.Node) string {
+	if fset == nil || node == nil {
 		return ""
 	}
-	return PosFilename(proj, node.Pos())
+	return PosFilename(fset, node.Pos())
 }
 
 // PosTokenFile returns the token file for the given position.
-func PosTokenFile(proj *xgo.Project, pos token.Pos) *token.File {
-	if proj == nil || !pos.IsValid() {
+func PosTokenFile(fset *token.FileSet, pos token.Pos) *token.File {
+	if fset == nil || !pos.IsValid() {
 		return nil
 	}
-	return proj.Fset.File(pos)
+	return fset.File(pos)
 }
 
 // NodeTokenFile returns the token file for the given node.
-func NodeTokenFile(proj *xgo.Project, node ast.Node) *token.File {
-	if proj == nil || node == nil {
+func NodeTokenFile(fset *token.FileSet, node ast.Node) *token.File {
+	if fset == nil || node == nil {
 		return nil
 	}
-	return PosTokenFile(proj, node.Pos())
+	return PosTokenFile(fset, node.Pos())
 }
 
 // PosASTFile returns the AST file for the given position.
-func PosASTFile(proj *xgo.Project, pos token.Pos) *ast.File {
-	if proj == nil || !pos.IsValid() {
+func PosASTFile(fset *token.FileSet, astPkg *ast.Package, pos token.Pos) *ast.File {
+	if fset == nil || astPkg == nil || !pos.IsValid() {
 		return nil
 	}
-	astPkg, _ := proj.ASTPackage()
-	if astPkg == nil {
-		return nil
-	}
-	return astPkg.Files[PosFilename(proj, pos)]
+	return astPkg.Files[PosFilename(fset, pos)]
 }
 
 // NodeASTFile returns the AST file for the given node.
-func NodeASTFile(proj *xgo.Project, node ast.Node) *ast.File {
-	if proj == nil || node == nil {
+func NodeASTFile(fset *token.FileSet, astPkg *ast.Package, node ast.Node) *ast.File {
+	if fset == nil || astPkg == nil || node == nil {
 		return nil
 	}
-	return PosASTFile(proj, node.Pos())
+	return PosASTFile(fset, astPkg, node.Pos())
 }
