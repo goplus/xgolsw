@@ -156,7 +156,9 @@ func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, erro
 		}
 
 		// Process costumes.
+		costumeIndexes := make(map[string]int, len(sprite.Costumes))
 		for i, costume := range sprite.Costumes {
+			costumeIndexes[costume.Name] = i
 			sprite.Costumes[i].ID = SpxSpriteCostumeResourceID{
 				SpriteName:  spriteName,
 				CostumeName: costume.Name,
@@ -164,23 +166,33 @@ func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, erro
 		}
 
 		// Process animations.
+		animationCostumes := make(map[int]struct{})
 		sprite.Animations = make([]SpxSpriteAnimationResource, 0, len(sprite.FAnimations))
 		for animName, fAnim := range sprite.FAnimations {
-			sprite.Animations = append(sprite.Animations, SpxSpriteAnimationResource{
-				ID:        SpxSpriteAnimationResourceID{SpriteName: spriteName, AnimationName: animName},
-				Name:      animName,
-				FromIndex: getCostumeIndex(fAnim.FrameFrom, sprite.Costumes),
-				ToIndex:   getCostumeIndex(fAnim.FrameTo, sprite.Costumes),
-			})
+			animation := SpxSpriteAnimationResource{
+				ID:   SpxSpriteAnimationResourceID{SpriteName: spriteName, AnimationName: animName},
+				Name: animName,
+			}
+			if fromIdx, ok := costumeIndexes[fAnim.FrameFrom]; ok {
+				animation.FromIndex = &fromIdx
+			}
+			if toIdx, ok := costumeIndexes[fAnim.FrameTo]; ok {
+				animation.ToIndex = &toIdx
+			}
+			if animation.FromIndex != nil && animation.ToIndex != nil {
+				for i := *animation.FromIndex; i <= *animation.ToIndex; i++ {
+					if i >= 0 && i < len(sprite.Costumes) {
+						animationCostumes[i] = struct{}{}
+					}
+				}
+			}
+			sprite.Animations = append(sprite.Animations, animation)
 		}
 
 		// Process normal costumes.
 		sprite.NormalCostumes = make([]SpxSpriteCostumeResource, 0, len(sprite.Costumes))
 		for i, costume := range sprite.Costumes {
-			isAnimation := slices.ContainsFunc(sprite.Animations, func(anim SpxSpriteAnimationResource) bool {
-				return anim.includeCostume(i)
-			})
-			if !isAnimation {
+			if _, ok := animationCostumes[i]; !ok {
 				sprite.NormalCostumes = append(sprite.NormalCostumes, costume)
 			}
 		}
@@ -393,13 +405,6 @@ type SpxSpriteAnimationResource struct {
 	ToIndex   *int                         `json:"-"`
 }
 
-func (a *SpxSpriteAnimationResource) includeCostume(index int) bool {
-	if a.FromIndex == nil || a.ToIndex == nil {
-		return false
-	}
-	return *a.FromIndex <= index && index <= *a.ToIndex
-}
-
 // SpxSpriteAnimationResourceID is the ID of an spx sprite animation resource.
 type SpxSpriteAnimationResourceID struct {
 	SpriteName    string
@@ -459,15 +464,6 @@ func (id SpxWidgetResourceID) ContextURI() SpxResourceContextURI {
 	return SpxWidgetResourceContextURI
 }
 
-func getCostumeIndex(name string, costumes []SpxSpriteCostumeResource) *int {
-	for i, costume := range costumes {
-		if costume.Name == name {
-			return &i
-		}
-	}
-	return nil
-}
-
 // listSubdirs returns a list of subdirectories under the given directory.
 func listSubdirs(proj *xgo.Project, dir string) []string {
 	prefix := path.Clean(dir) + "/"
@@ -475,7 +471,7 @@ func listSubdirs(proj *xgo.Project, dir string) []string {
 	for file := range proj.Files() {
 		if strings.HasPrefix(file, prefix) {
 			remaining := file[len(prefix):]
-			if idx := strings.Index(remaining, "/"); idx > 0 {
+			if idx := strings.IndexByte(remaining, '/'); idx > 0 {
 				subdirs[remaining[:idx]] = true
 			}
 		}

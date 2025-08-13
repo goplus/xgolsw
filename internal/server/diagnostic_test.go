@@ -312,6 +312,16 @@ onStart => {
 			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
+			case "file:///main.spx":
+				require.Len(t, fullReport.Items, 1)
+				assert.Contains(t, fullReport.Items, Diagnostic{
+					Severity: SeverityError,
+					Message:  `sound resource "Sound1" not found`,
+					Range: Range{
+						Start: Position{Line: 2, Character: 1},
+						End:   Position{Line: 2, Character: 7},
+					},
+				})
 			case "file:///MySprite.spx":
 				require.Len(t, fullReport.Items, 3)
 				assert.Contains(t, fullReport.Items, Diagnostic{
@@ -419,33 +429,26 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 var (
-	MySprite1 Sprite
-	MySprite2 MySprite2
+	MySprite    Sprite
+	OtherSprite Sprite
 )
 run "assets", {Title: "My Game"}
 `),
-			"MySprite1.spx": []byte(`
-var MySprite3 Sprite
+			"MySprite.spx": []byte(`
 onStart => {
-	animate "roll-in"
-	MySprite2.animate "roll-out"
+	say "hi"
+	OtherSprite.say "hi"
 }
 `),
-			"MySprite2.spx": []byte(`
-onStart => {
-	MySprite1.animate "roll-out"
-	animate "roll-in"
-	MySprite2.animate "roll-out"
-}
-`),
-			"assets/index.json": []byte(`{}`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
 		require.NotNil(t, report)
-		assert.Len(t, report.Items, 3)
+		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
 			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
@@ -453,44 +456,10 @@ onStart => {
 			case "file:///main.spx":
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
-					Message:  `sprite resource "MySprite2" not found`,
+					Message:  `sprite resource "OtherSprite" not found`,
 					Range: Range{
 						Start: Position{Line: 3, Character: 1},
-						End:   Position{Line: 3, Character: 10},
-					},
-				})
-			case "file:///MySprite1.spx":
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "MySprite1" not found`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 1},
-						End:   Position{Line: 3, Character: 18},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "MySprite2" not found`,
-					Range: Range{
-						Start: Position{Line: 4, Character: 1},
-						End:   Position{Line: 4, Character: 10},
-					},
-				})
-			case "file:///MySprite2.spx":
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "MySprite2" not found`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 1},
-						End:   Position{Line: 3, Character: 18},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "MySprite2" not found`,
-					Range: Range{
-						Start: Position{Line: 4, Character: 1},
-						End:   Position{Line: 4, Character: 10},
+						End:   Position{Line: 3, Character: 12},
 					},
 				})
 			default:
