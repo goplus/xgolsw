@@ -17,7 +17,6 @@
 package xgoutil
 
 import (
-	"go/constant"
 	"go/types"
 	"testing"
 
@@ -410,8 +409,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 		}
 
 		pkg := types.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(0, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 
 		recv := types.NewParam(token.NoPos, pkg, "recv", types.Typ[types.Int])
 		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])

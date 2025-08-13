@@ -23,13 +23,13 @@ import (
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 )
 
 // CreateCallExprFromBranchStmt attempts to create a call expression from a
-// branch statement. This handles cases in spx where the `Sprite.Goto` method
-// is intended to precede the goto statement.
-func CreateCallExprFromBranchStmt(typeInfo *xgo.TypeInfo, stmt *ast.BranchStmt) *ast.CallExpr {
+// branch statement. This handles cases in spx where the `Sprite.Goto` method is
+// intended to precede the goto statement.
+func CreateCallExprFromBranchStmt(typeInfo *xgotypes.Info, stmt *ast.BranchStmt) *ast.CallExpr {
 	if typeInfo == nil || stmt == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func CreateCallExprFromBranchStmt(typeInfo *xgo.TypeInfo, stmt *ast.BranchStmt) 
 }
 
 // FuncFromCallExpr returns the function object from a call expression.
-func FuncFromCallExpr(typeInfo *xgo.TypeInfo, expr *ast.CallExpr) *types.Func {
+func FuncFromCallExpr(typeInfo *xgotypes.Info, expr *ast.CallExpr) *types.Func {
 	if typeInfo == nil || expr == nil {
 		return nil
 	}
@@ -89,9 +89,13 @@ func FuncFromCallExpr(typeInfo *xgo.TypeInfo, expr *ast.CallExpr) *types.Func {
 
 // WalkCallExprArgs walks the arguments of a call expression and calls the
 // provided walkFn for each argument. It does nothing if the function is not
-// found or if the function is XGo FuncEx type. The walk stops if walkFn
-// returns false.
-func WalkCallExprArgs(typeInfo *xgo.TypeInfo, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
+// found or if the function is XGo FuncEx type. The walk stops if walkFn returns
+// false.
+func WalkCallExprArgs(typeInfo *xgotypes.Info, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
+	if typeInfo == nil || expr == nil {
+		return
+	}
+
 	fun := FuncFromCallExpr(typeInfo, expr)
 	if fun == nil {
 		return

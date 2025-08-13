@@ -475,7 +475,7 @@ func (s *Server) toDocumentURI(path string) DocumentURI {
 
 // posDocumentURI returns the [DocumentURI] for the given position in the project.
 func (s *Server) posDocumentURI(proj *xgo.Project, pos xgotoken.Pos) DocumentURI {
-	return s.toDocumentURI(xgoutil.PosFilename(proj, pos))
+	return s.toDocumentURI(xgoutil.PosFilename(proj.Fset, pos))
 }
 
 // nodeDocumentURI returns the [DocumentURI] for the given node in the project.

@@ -68,7 +68,8 @@ func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, 
 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
 func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) []InlayHint {
-	astFile := xgoutil.NodeASTFile(result.proj, callExpr)
+	astPkg, _ := result.proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, callExpr)
 	if astFile == nil {
 		return nil
 	}
@@ -76,7 +77,6 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallE
 	if typeInfo == nil {
 		return nil
 	}
-	fset := result.proj.Fset
 
 	var inlayHints []InlayHint
 	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
@@ -92,7 +92,7 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallE
 		}
 
 		// Create an inlay hint with the parameter name before the argument.
-		position := fset.Position(arg.Pos())
+		position := result.proj.Fset.Position(arg.Pos())
 		label := params.At(paramIndex).Name()
 		if fun.Signature().Variadic() && argIndex == params.Len()-1 {
 			label += "..."

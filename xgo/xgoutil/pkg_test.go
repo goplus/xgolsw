@@ -41,8 +41,7 @@ func TestIsMarkedAsXGoPackage(t *testing.T) {
 
 	t.Run("PackageWithXGoPackageMarker", func(t *testing.T) {
 		pkg := types.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(types.NewConst(0, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true)))
+		markAsXGoPackage(pkg)
 		assert.True(t, IsMarkedAsXGoPackage(pkg))
 	})
 

@@ -33,19 +33,18 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-	ident := xgoutil.IdentAtPosition(proj, astFile, position)
-
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
 
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) || !obj.Pos().IsValid() {
 		return nil, nil
 	}
 
-	defIdent := typeInfo.DefIdentFor(obj)
+	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent == nil {
 		// Fall back to the start position of the object identifier in declaration.
 		return s.locationForPos(proj, obj.Pos()), nil
@@ -69,12 +68,11 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-	ident := xgoutil.IdentAtPosition(proj, astFile, position)
-
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
 
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) {
@@ -88,7 +86,7 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	}
 
 	objPos := named.Obj().Pos()
-	if xgoutil.PosTokenFile(proj, objPos) == nil {
+	if xgoutil.PosTokenFile(proj.Fset, objPos) == nil {
 		return nil, nil
 	}
 	return s.locationForPos(proj, objPos), nil
