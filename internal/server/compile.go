@@ -657,6 +657,11 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 				s.inspectSpxResourceRefForTypeAtExpr(result, s.resolveIdentifierToAssignedExpr(result, expr), typ, nil)
 			}
 		case *xgoast.CallExpr:
+			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
+			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
+				continue
+			}
+
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})

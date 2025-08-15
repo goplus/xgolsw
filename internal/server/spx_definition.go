@@ -943,3 +943,51 @@ func GetSpxDefinitionForPkg(pkgName *types.PkgName, pkgDoc *pkgdoc.PkgDoc) (def 
 	}
 	return
 }
+
+// nonMainPkgSpxResourceNameTypeFuncCache is a cache of non-main package
+// function spx resource name type parameter check results.
+var nonMainPkgSpxResourceNameTypeFuncCache sync.Map // map[*types.Func]bool
+
+// HasSpxResourceNameTypeParams reports if a function has parameters of spx
+// resource name types.
+func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
+	if fun == nil {
+		return false
+	}
+	if !xgoutil.IsInMainPkg(fun) {
+		if !IsInSpxPkg(fun) {
+			// Early return for non-spx packages since they cannot
+			// have spx resource type parameters.
+			return false
+		}
+
+		if hasIface, ok := nonMainPkgSpxResourceNameTypeFuncCache.Load(fun); ok {
+			return hasIface.(bool)
+		}
+		defer func() {
+			nonMainPkgSpxResourceNameTypeFuncCache.Store(fun, has)
+		}()
+	}
+
+	funcSig, ok := fun.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+
+	for param := range funcSig.Params().Variables() {
+		paramType := xgoutil.DerefType(param.Type())
+		if slice, ok := paramType.(*types.Slice); ok {
+			paramType = slice.Elem()
+		}
+		switch paramType {
+		case GetSpxBackdropNameType(),
+			GetSpxSpriteNameType(),
+			GetSpxSpriteCostumeNameType(),
+			GetSpxSpriteAnimationNameType(),
+			GetSpxSoundNameType(),
+			GetSpxWidgetNameType():
+			return true
+		}
+	}
+	return false
+}
