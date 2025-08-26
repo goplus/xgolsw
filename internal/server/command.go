@@ -544,7 +544,6 @@ func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, d
 	case SpxInputTypeDirection,
 		SpxInputTypeEffectKind,
 		SpxInputTypeKey,
-		SpxInputTypePlayAction,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
 		obj := typeInfo.ObjectOf(ident)
@@ -775,8 +774,6 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		return SpxInputTypeEffectKind
 	case GetSpxKeyType():
 		return SpxInputTypeKey
-	case GetSpxPlayActionType():
-		return SpxInputTypePlayAction
 	case GetSpxSpecialObjType():
 		return SpxInputTypeSpecialObj
 	case GetSpxRotationStyleType():
@@ -817,7 +814,7 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 			if obj == nil {
 				return false
 			}
-			named, ok := obj.Type().(*types.Named)
+			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
 			if !ok {
 				return false
 			}

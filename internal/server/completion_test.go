@@ -12,9 +12,6 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 
 MySprite.
 run "assets", {Title: "My Game"}
@@ -32,7 +29,7 @@ onStart => {
 		emptyLineItems, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 0},
+				Position:     Position{Line: 1, Character: 0},
 			},
 		})
 		require.NoError(t, err)
@@ -61,7 +58,7 @@ onStart => {
 		mySpriteDotItems, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 9},
+				Position:     Position{Line: 2, Character: 9},
 			},
 		})
 		require.NoError(t, err)
@@ -376,10 +373,6 @@ run "assets", {Title: "My Game"}
 	t.Run("FuncOverloads", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	recording Sound
-)
-
 play r
 run "assets", {Title: "My Game"}
 `),
@@ -391,13 +384,12 @@ run "assets", {Title: "My Game"}
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 6},
+				Position:     Position{Line: 1, Character: 6},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "recording"))
 		assert.True(t, containsCompletionItemLabel(items, `"recording"`))
 	})
 
@@ -431,15 +423,10 @@ onClick => {
 	t.Run("WithExplicitSpxSpriteResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 MySprite.setCostume "c"
 run "assets", {Title: "My Game"}
 `),
-			"MySprite.spx": []byte(`
-`),
+			"MySprite.spx":                       []byte(``),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
 		}
@@ -448,7 +435,7 @@ run "assets", {Title: "My Game"}
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 22},
+				Position:     Position{Line: 1, Character: 22},
 			},
 		})
 		require.NoError(t, err)
@@ -460,10 +447,6 @@ run "assets", {Title: "My Game"}
 	t.Run("WithCrossSpxSpriteResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sprite1 Sprite
-	Sprite2 Sprite2
-)
 run "assets", {Title: "My Game"}
 `),
 			"Sprite1.spx": []byte(`
@@ -471,8 +454,7 @@ onClick => {
 	Sprite2.setCostume "c"
 }
 `),
-			"Sprite2.spx": []byte(`
-`),
+			"Sprite2.spx":                       []byte(``),
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
@@ -516,9 +498,6 @@ onClick => {
 	t.Run("AtLineStartWithAMemberAccessExpression", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.setCo`), // Cursor at EOF.
 			"MySprite.spx": []byte(`
 onClick => {
@@ -533,7 +512,7 @@ onClick => {
 		items1, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 14},
+				Position:     Position{Line: 1, Character: 14},
 			},
 		})
 		require.NoError(t, err)

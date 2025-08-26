@@ -291,7 +291,6 @@ const (
 	SpxInputTypeColor         SpxInputType = "spx-color"
 	SpxInputTypeEffectKind    SpxInputType = "spx-effect-kind"
 	SpxInputTypeKey           SpxInputType = "spx-key"
-	SpxInputTypePlayAction    SpxInputType = "spx-play-action"
 	SpxInputTypeSpecialObj    SpxInputType = "spx-special-obj"
 	SpxInputTypeRotationStyle SpxInputType = "spx-rotation-style"
 	SpxInputTypeUnknown       SpxInputType = "unknown"

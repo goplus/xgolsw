@@ -273,7 +273,6 @@ type SpxInputSlotAccept =
         | SpxInputType.SpxColor
         | SpxInputType.SpxEffectKind
         | SpxInputType.SpxKey
-        | SpxInputType.SpxPlayAction
         | SpxInputType.SpxSpecialObj
         | SpxInputType.SpxRotationStyle
         | SpxInputType.Unknown
@@ -341,11 +340,6 @@ enum SpxInputType {
   SpxKey = 'spx-key',
 
   /**
-   * Sound playback action values in spx.
-   */
-  SpxPlayAction = 'spx-play-action',
-
-  /**
    * Special object values in spx.
    */
   SpxSpecialObj = 'spx-special-obj',
@@ -395,7 +389,6 @@ type SpxInputTypedValue =
     }
   | { type: SpxInputType.SpxEffectKind; value: string }
   | { type: SpxInputType.SpxKey; value: string }
-  | { type: SpxInputType.SpxPlayAction; value: string }
   | { type: SpxInputType.SpxSpecialObj; value: string }
   | { type: SpxInputType.SpxRotationStyle; value: string }
   | { type: SpxInputType.Unknown; value: void }

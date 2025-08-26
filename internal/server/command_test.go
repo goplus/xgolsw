@@ -17,10 +17,6 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// Literals of different types.
 	count := 5
@@ -39,7 +35,7 @@ onStart => {
 	}
 
 	// Spx resource name.
-	MySprite.goto "OtherSprite"
+	MySprite.stepTo "OtherSprite"
 }
 `),
 			"MySprite.spx":                          []byte(``),
@@ -281,10 +277,6 @@ var (
 func TestFindInputSlots(t *testing.T) {
 	m := map[string][]byte{
 		"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// Initialize variables
 	count := 5
@@ -341,7 +333,7 @@ onStart => {
 	count++
 
 	// Spx resource name
-	MySprite.goto "OtherSprite"
+	MySprite.stepTo "OtherSprite"
 
 	// Other commands
 	MySprite.turn MySprite.heading
@@ -351,7 +343,7 @@ onStart => {
 		"MySprite.spx": []byte(`
 onStart => {
 	name := "OtherSprite"
-	goto name
+	stepTo name
 	data := "data"
 	clone data
 }
@@ -502,7 +494,7 @@ onStart => {
 		}
 	})
 
-	t.Run("spx.Sprite.Goto", func(t *testing.T) {
+	t.Run("spx.Sprite.StepTo", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -520,8 +512,8 @@ onStart => {
 		assert.Equal(t, "name", slot.Input.Name)
 		assert.Contains(t, slot.PredefinedNames, "backdropName")
 		assert.Equal(t, slot.Range, Range{
-			Start: Position{Line: 3, Character: 6},
-			End:   Position{Line: 3, Character: 10},
+			Start: Position{Line: 3, Character: 8},
+			End:   Position{Line: 3, Character: 12},
 		})
 	})
 
@@ -772,10 +764,6 @@ onStart => {
 func TestCreateValueInputSlotFromBasicLit(t *testing.T) {
 	m := map[string][]byte{
 		"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// Integer literals.
 	x := 42
@@ -787,7 +775,7 @@ onStart => {
 
 	// String literals.
 	message := "Hello, world!"
-	MySprite.goto "OtherSprite"
+	MySprite.stepTo "OtherSprite"
 }
 `),
 		"MySprite.spx":                          []byte(``),
@@ -814,7 +802,7 @@ onStart => {
 	}{
 		{
 			name:           "Integer",
-			litPosition:    Position{Line: 7, Character: 7},
+			litPosition:    Position{Line: 3, Character: 7},
 			wantAcceptType: SpxInputTypeInteger,
 			wantInputType:  SpxInputTypeInteger,
 			wantInputKind:  SpxInputKindInPlace,
@@ -822,7 +810,7 @@ onStart => {
 		},
 		{
 			name:           "HexInteger",
-			litPosition:    Position{Line: 8, Character: 14},
+			litPosition:    Position{Line: 4, Character: 14},
 			wantAcceptType: SpxInputTypeInteger,
 			wantInputType:  SpxInputTypeInteger,
 			wantInputKind:  SpxInputKindInPlace,
@@ -830,7 +818,7 @@ onStart => {
 		},
 		{
 			name:           "Float",
-			litPosition:    Position{Line: 11, Character: 7},
+			litPosition:    Position{Line: 7, Character: 7},
 			wantAcceptType: SpxInputTypeDecimal,
 			wantInputType:  SpxInputTypeDecimal,
 			wantInputKind:  SpxInputKindInPlace,
@@ -838,7 +826,7 @@ onStart => {
 		},
 		{
 			name:           "ScientificFloat",
-			litPosition:    Position{Line: 12, Character: 16},
+			litPosition:    Position{Line: 8, Character: 16},
 			wantAcceptType: SpxInputTypeDecimal,
 			wantInputType:  SpxInputTypeDecimal,
 			wantInputKind:  SpxInputKindInPlace,
@@ -846,7 +834,7 @@ onStart => {
 		},
 		{
 			name:           "String",
-			litPosition:    Position{Line: 15, Character: 13},
+			litPosition:    Position{Line: 11, Character: 13},
 			wantAcceptType: SpxInputTypeString,
 			wantInputType:  SpxInputTypeString,
 			wantInputKind:  SpxInputKindInPlace,
@@ -854,7 +842,7 @@ onStart => {
 		},
 		{
 			name:           "SpxResourceString",
-			litPosition:    Position{Line: 16, Character: 16},
+			litPosition:    Position{Line: 12, Character: 18},
 			declaredType:   GetSpxSpriteNameType(),
 			wantAcceptType: SpxInputTypeResourceName,
 			wantInputType:  SpxInputTypeResourceName,
@@ -929,7 +917,6 @@ func TestCreateValueInputSlotFromIdent(t *testing.T) {
 		"main.spx": []byte(`
 var (
 	regularVar int
-	MySprite   Sprite
 )
 
 onStart => {
@@ -947,10 +934,7 @@ onStart => {
 	if MySprite.touching(myMouse) {}
 
 	// Effect kind
-	setEffect ColorEffect, 0
-
-	// Play action
-	play "MySound", &PlayOptions{Action: PlayStop}
+	setGraphicEffect ColorEffect, 0
 
 	// Key
 	if keyPressed(KeySpace) {}
@@ -982,56 +966,49 @@ onStart => {
 	}{
 		{
 			name:           "Boolean",
-			identPosition:  Position{Line: 8, Character: 13},
+			identPosition:  Position{Line: 7, Character: 13},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeBoolean,
 			wantInputValue: true,
 		},
 		{
 			name:           "Direction",
-			identPosition:  Position{Line: 11, Character: 16},
+			identPosition:  Position{Line: 10, Character: 16},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeDirection,
 			wantInputValue: float64(-90),
 		},
 		{
 			name:           "SpecialObject",
-			identPosition:  Position{Line: 14, Character: 23},
+			identPosition:  Position{Line: 13, Character: 23},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeSpecialObj,
 			wantInputValue: "Mouse",
 		},
 		{
 			name:          "SpecialObjectVariable",
-			identPosition: Position{Line: 18, Character: 23},
+			identPosition: Position{Line: 17, Character: 23},
 			wantInputKind: SpxInputKindPredefined,
 			wantInputType: SpxInputTypeSpecialObj,
 			wantInputName: "myMouse",
 		},
 		{
 			name:           "EffectKind",
-			identPosition:  Position{Line: 21, Character: 12},
+			identPosition:  Position{Line: 20, Character: 19},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeEffectKind,
 			wantInputValue: "ColorEffect",
 		},
 		{
-			name:           "PlayAction",
-			identPosition:  Position{Line: 24, Character: 39},
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypePlayAction,
-			wantInputValue: "PlayStop",
-		},
-		{
 			name:           "Key",
-			identPosition:  Position{Line: 27, Character: 16},
+			identPosition:  Position{Line: 23, Character: 16},
 			wantInputKind:  SpxInputKindInPlace,
 			wantInputType:  SpxInputTypeKey,
 			wantInputValue: "KeySpace",
 		},
 		{
 			name:          "Regular",
-			identPosition: Position{Line: 30, Character: 11},
+			identPosition: Position{Line: 26, Character: 11},
 			wantInputKind: SpxInputKindPredefined,
 			wantInputType: SpxInputTypeInteger,
 			wantInputName: "regularVar",
@@ -1382,7 +1359,6 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 			want       SpxInputType
 		}{
 			{"EffectKind", GetSpxEffectKindType, SpxInputTypeEffectKind},
-			{"PlayAction", GetSpxPlayActionType, SpxInputTypePlayAction},
 			{"SpecialObj", GetSpxSpecialObjType, SpxInputTypeSpecialObj},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -1396,10 +1372,6 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 	m := map[string][]byte{
 		"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	MySprite.setXYpos 10, 20
 }
@@ -1421,7 +1393,7 @@ onStart => {
 		require.NotNil(t, astFile)
 
 		// MySprite.setXYpos
-		pos := PosAt(result.proj, astFile, Position{Line: 6, Character: 11})
+		pos := PosAt(result.proj, astFile, Position{Line: 2, Character: 11})
 		require.True(t, pos.IsValid())
 
 		var callExpr *xgoast.CallExpr
@@ -1471,7 +1443,7 @@ onStart => {
 		require.NotNil(t, astFile)
 
 		// onStart
-		pos := PosAt(result.proj, astFile, Position{Line: 5, Character: 2})
+		pos := PosAt(result.proj, astFile, Position{Line: 1, Character: 2})
 		require.True(t, pos.IsValid())
 
 		var callExpr *xgoast.CallExpr
@@ -1670,6 +1642,7 @@ func findInputSlot(inputSlots []SpxInputSlot, value any, name string, inputType 
 	}
 	return nil
 }
+
 func findAddressInputSlot(inputSlots []SpxInputSlot, name string) *SpxInputSlot {
 	for _, slot := range inputSlots {
 		if slot.Kind == SpxInputSlotKindAddress && slot.Input.Name == name {

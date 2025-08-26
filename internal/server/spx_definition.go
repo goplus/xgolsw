@@ -455,12 +455,6 @@ var (
 		return spxPkg.Scope().Lookup("SpriteAnimationName").Type().(*types.Alias)
 	})
 
-	// GetSpxSoundType returns the [spx.Sound] type.
-	GetSpxSoundType = sync.OnceValue(func() *types.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Sound").Type().(*types.Named)
-	})
-
 	// GetSpxSoundNameType returns the [spx.SoundName] type.
 	GetSpxSoundNameType = sync.OnceValue(func() *types.Alias {
 		spxPkg := GetSpxPkg()
@@ -489,12 +483,6 @@ var (
 	GetSpxKeyType = sync.OnceValue(func() *types.Alias {
 		spxPkg := GetSpxPkg()
 		return spxPkg.Scope().Lookup("Key").Type().(*types.Alias)
-	})
-
-	// GetSpxPlayActionType returns the [spx.PlayAction] type.
-	GetSpxPlayActionType = sync.OnceValue(func() *types.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("PlayAction").Type().(*types.Named)
 	})
 
 	// GetSpxSpecialObjType returns the [spx.SpecialObj] type.

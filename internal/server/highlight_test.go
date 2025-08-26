@@ -11,10 +11,8 @@ func TestServerTextDocumentDocumentHighlight(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.turn Left
+MySprite.turn Right
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
@@ -30,7 +28,7 @@ onStart => {
 		mySpriteHighlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 1},
+				Position:     Position{Line: 1, Character: 0},
 			},
 		})
 		require.NoError(t, err)
@@ -38,15 +36,15 @@ onStart => {
 		assert.Len(t, *mySpriteHighlights, 2)
 		assert.Contains(t, *mySpriteHighlights, DocumentHighlight{
 			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
+				Start: Position{Line: 1, Character: 0},
+				End:   Position{Line: 1, Character: 8},
 			},
-			Kind: Write,
+			Kind: Read,
 		})
 		assert.Contains(t, *mySpriteHighlights, DocumentHighlight{
 			Range: Range{
-				Start: Position{Line: 4, Character: 0},
-				End:   Position{Line: 4, Character: 8},
+				Start: Position{Line: 2, Character: 0},
+				End:   Position{Line: 2, Character: 8},
 			},
 			Kind: Read,
 		})
@@ -54,7 +52,7 @@ onStart => {
 		leftHighlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 14},
+				Position:     Position{Line: 2, Character: 14},
 			},
 		})
 		require.NoError(t, err)
@@ -62,8 +60,8 @@ onStart => {
 		assert.Len(t, *leftHighlights, 1)
 		assert.Contains(t, *leftHighlights, DocumentHighlight{
 			Range: Range{
-				Start: Position{Line: 4, Character: 14},
-				End:   Position{Line: 4, Character: 18},
+				Start: Position{Line: 2, Character: 14},
+				End:   Position{Line: 2, Character: 19},
 			},
 			Kind: Read,
 		})

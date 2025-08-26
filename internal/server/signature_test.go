@@ -12,9 +12,6 @@ func TestTextDocumentSignatureHelp(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 import "fmt"
-var (
-	MySprite Sprite
-)
 fmt.Println 
 MySprite.turn Left
 run "assets", {Title: "My Game"}
@@ -32,7 +29,7 @@ onStart => {
 		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 10},
+				Position:     Position{Line: 2, Character: 10},
 			},
 		})
 		require.NoError(t, err)
