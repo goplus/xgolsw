@@ -10,7 +10,7 @@ require (
 	github.com/goplus/spx/v2 v2.0.0-pre.5
 	github.com/goplus/xgo v1.5.1
 	github.com/qiniu/x v1.15.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	golang.org/x/mod v0.27.0
 	golang.org/x/sync v0.16.0
 	golang.org/x/tools v0.36.0
