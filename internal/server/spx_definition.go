@@ -54,52 +54,62 @@ var (
 	GeneralSpxDefinitions = []SpxDefinition{
 		{
 			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_iterate")},
-			Overview: "for i, v <- set { ... }",
+			Overview: "for v in arr {}",
 			Detail:   "Iterate within given set",
 
 			CompletionItemLabel:            "for",
 			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:i}, ${2:v} <- ${3:set} {\n\t$0\n}",
+			CompletionItemInsertText:       "for ${1:v} in ${2:[]} {\n\t$0\n}",
+			CompletionItemInsertTextFormat: SnippetTextFormat,
+		},
+		{
+			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_iterate_with_index")},
+			Overview: "for i, v in arr {}",
+			Detail:   "Iterate with index within given set",
+
+			CompletionItemLabel:            "for",
+			CompletionItemKind:             KeywordCompletion,
+			CompletionItemInsertText:       "for ${1:i}, ${2:v} in ${3:[]} {\n\t$0\n}",
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
 			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_condition")},
-			Overview: "for condition { ... }",
+			Overview: "for condition {}",
 			Detail:   "Loop with condition",
 
 			CompletionItemLabel:            "for",
 			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:condition} {\n\t$0\n}",
+			CompletionItemInsertText:       "for ${1:true} {\n\t$0\n}",
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
 			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_range")},
-			Overview: "for i <- start:end { ... }",
+			Overview: "for i in start:end {}",
 			Detail:   "Loop with range",
 
 			CompletionItemLabel:            "for",
 			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:i} <- ${2:start}:${3:end} {\n\t$0\n}",
+			CompletionItemInsertText:       "for ${1:i} in ${2:1}:${3:5} {\n\t$0\n}",
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
 			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_statement")},
-			Overview: "if condition { ... }",
+			Overview: "if condition {}",
 			Detail:   "If statement",
 
 			CompletionItemLabel:            "if",
 			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "if ${1:condition} {\n\t$0\n}",
+			CompletionItemInsertText:       "if ${1:true} {\n\t$0\n}",
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
 			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_else_statement")},
-			Overview: "if condition { ... } else { ... }",
+			Overview: "if condition {} else {}",
 			Detail:   "If else statement",
 
 			CompletionItemLabel:            "if",
 			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "if ${1:condition} {\n\t${2:}\n} else {\n\t$0\n}",
+			CompletionItemInsertText:       "if ${1:true} {\n\t$2\n} else {\n\t$0\n}",
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
