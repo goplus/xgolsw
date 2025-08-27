@@ -135,7 +135,7 @@ onStart => {
 			Message:  "cannot use float64 value as type int in assignment",
 			Range: Range{
 				Start: Position{Line: 7, Character: 1},
-				End:   Position{Line: 7, Character: 1},
+				End:   Position{Line: 7, Character: 17},
 			},
 		})
 	})
