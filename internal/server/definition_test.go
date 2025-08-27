@@ -11,9 +11,6 @@ func TestServerTextDocumentDefinition(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.turn Left
 run "assets", {Title: "My Game"}
 `),
@@ -30,24 +27,16 @@ onStart => {
 		mainSpxMySpriteDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 0},
+				Position:     Position{Line: 1, Character: 0},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, mainSpxMySpriteDef)
-		require.IsType(t, Location{}, mainSpxMySpriteDef)
-		assert.Equal(t, Location{
-			URI: "file:///main.spx",
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-		}, mainSpxMySpriteDef.(Location))
+		require.Nil(t, mainSpxMySpriteDef)
 
 		mainSpxMySpriteTurnDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 9},
+				Position:     Position{Line: 1, Character: 9},
 			},
 		})
 		require.NoError(t, err)
@@ -60,15 +49,7 @@ onStart => {
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, mySpriteSpxMySpriteDef)
-		require.IsType(t, Location{}, mainSpxMySpriteDef)
-		assert.Equal(t, Location{
-			URI: "file:///main.spx",
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-		}, mainSpxMySpriteDef.(Location))
+		require.Nil(t, mySpriteSpxMySpriteDef)
 	})
 
 	t.Run("BuiltinType", func(t *testing.T) {

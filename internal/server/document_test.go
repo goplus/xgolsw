@@ -13,10 +13,6 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 			"main.spx": []byte(`
 const Backdrop1 BackdropName = "backdrop1"
 const Backdrop1a = Backdrop1
-var (
-	MySound  Sound
-	MySprite Sprite
-)
 run "assets", {Title: "Bullet (by XGo)"}
 `),
 			"MySprite.spx": []byte(`
@@ -40,7 +36,7 @@ onStart => {
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		})
 		require.NoError(t, err)
-		require.Len(t, linksForMainSpx, 14)
+		require.Len(t, linksForMainSpx, 8)
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
 				Start: Position{Line: 1, Character: 6},
@@ -91,63 +87,15 @@ onStart => {
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
-				Start: Position{Line: 4, Character: 1},
-				End:   Position{Line: 4, Character: 8},
-			},
-			Target: toURI("spx://resources/sounds/MySound"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
-			},
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 4, Character: 1},
-				End:   Position{Line: 4, Character: 8},
-			},
-			Target: toURI("xgo:main?Game.MySound"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 4, Character: 10},
-				End:   Position{Line: 4, Character: 15},
-			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Sound"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 5, Character: 1},
-				End:   Position{Line: 5, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
-			},
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 5, Character: 1},
-				End:   Position{Line: 5, Character: 9},
-			},
-			Target: toURI("xgo:main?Game.MySprite"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 5, Character: 10},
-				End:   Position{Line: 5, Character: 16},
-			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Sprite"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 7, Character: 0},
-				End:   Position{Line: 7, Character: 3},
+				Start: Position{Line: 3, Character: 0},
+				End:   Position{Line: 3, Character: 3},
 			},
 			Target: toURI("xgo:github.com/goplus/spx/v2?Game.run"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
-				Start: Position{Line: 7, Character: 15},
-				End:   Position{Line: 7, Character: 20},
+				Start: Position{Line: 3, Character: 15},
+				End:   Position{Line: 3, Character: 20},
 			},
 			Target: toURI("xgo:github.com/goplus/spx/v2?Game.Title"),
 		})
@@ -276,8 +224,8 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 // Invalid syntax
-var (
-	MySound Sound
+const (
+	MySound SoundName = "MySound"
 `),
 			"assets/index.json":                []byte(`{}`),
 			"assets/sounds/MySound/index.json": []byte(`{}`),
@@ -294,164 +242,24 @@ var (
 				Start: Position{Line: 3, Character: 1},
 				End:   Position{Line: 3, Character: 8},
 			},
-			Target: toURI("spx://resources/sounds/MySound"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
-			},
-		})
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 3, Character: 1},
-				End:   Position{Line: 3, Character: 8},
-			},
-			Target: toURI("xgo:main?Game.MySound"),
+			Target: toURI("xgo:main?MySound"),
 		})
 		assert.Contains(t, links, DocumentLink{
 			Range: Range{
 				Start: Position{Line: 3, Character: 9},
-				End:   Position{Line: 3, Character: 14},
+				End:   Position{Line: 3, Character: 18},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Sound"),
-		})
-	})
-
-	t.Run("AutoBindingSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.Len(t, links, 3)
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
-			},
-		})
-		assert.NotContains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBindingReference,
-			},
+			Target: toURI("xgo:github.com/goplus/spx/v2?SoundName"),
 		})
 		assert.Contains(t, links, DocumentLink{
 			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("xgo:main?Game.MySprite"),
-		})
-	})
-
-	t.Run("AutoBindingSpriteAsEmbeddedField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MySprite
-)
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.Len(t, links, 3)
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
-			},
-		})
-		assert.NotContains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBindingReference,
-			},
-		})
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			Target: toURI("xgo:main?Game.MySprite"),
-		})
-	})
-
-	t.Run("AutoBindingSound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MySound Sound
-)
-`),
-			"assets/index.json":                []byte(`{}`),
-			"assets/sounds/MySound/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.Len(t, links, 3)
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
+				Start: Position{Line: 3, Character: 21},
+				End:   Position{Line: 3, Character: 30},
 			},
 			Target: toURI("spx://resources/sounds/MySound"),
 			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBinding,
+				Kind: SpxResourceRefKindStringLiteral,
 			},
-		})
-		assert.NotContains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			Target: toURI("spx://resources/sounds/MySound"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBindingReference,
-			},
-		})
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			Target: toURI("xgo:main?Game.MySound"),
 		})
 	})
 

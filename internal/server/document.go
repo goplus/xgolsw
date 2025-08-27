@@ -42,7 +42,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	// Add links for spx definitions.
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *xgoast.Ident) {
-		if xgoutil.NodeFilename(result.proj.Fset, ident) != spxFile {
+		if ident.Implicit() || xgoutil.NodeFilename(result.proj.Fset, ident) != spxFile {
 			return
 		}
 		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {

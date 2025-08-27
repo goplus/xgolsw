@@ -12,22 +12,19 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// Function calls with named parameters.
 	println "Hello, World!"
 	MySprite.turn Left
 
 	// Call with multiple parameters.
-	setEffect ColorEffect, 50
+	setGraphicEffect ColorEffect, 50
 
 	// Function with HSB color value.
 	color := HSB(255, 0, 0)
 }
 `),
+			"MySprite.spx":                       []byte(`{}`),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
@@ -47,24 +44,24 @@ onStart => {
 		assert.NotEmpty(t, inlayHints)
 
 		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 7 && hint.Label != "" && hint.Kind == Parameter
+			return hint.Position.Line == 3 && hint.Label != "" && hint.Kind == Parameter
 		}))
 
 		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 8 && hint.Label != "" && hint.Kind == Parameter
+			return hint.Position.Line == 4 && hint.Label != "" && hint.Kind == Parameter
 		}))
 
-		setEffectHintCount := 0
+		setGraphicEffectHintCount := 0
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 11 && hint.Kind == Parameter {
-				setEffectHintCount++
+			if hint.Position.Line == 7 && hint.Kind == Parameter {
+				setGraphicEffectHintCount++
 			}
 		}
-		assert.Equal(t, 2, setEffectHintCount)
+		assert.Equal(t, 2, setGraphicEffectHintCount)
 
 		hsbHintCount := 0
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 14 && hint.Kind == Parameter {
+			if hint.Position.Line == 10 && hint.Kind == Parameter {
 				hsbHintCount++
 			}
 		}
@@ -119,7 +116,7 @@ onStart => {
 	// Line 8
 	MySprite.turn Left
 	// Line 10
-	setEffect ColorEffect, 50
+	setGraphicEffect ColorEffect, 50
 	// Line 12
 	color := HSB(255, 0, 0)
 }
@@ -161,17 +158,13 @@ func TestCollectInlayHints(t *testing.T) {
 	t.Run("FunctionCallsWithNamedParams", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// Regular function calls with parameters.
 	println "Hello, World!"
 	MySprite.turn Left
 
 	// Function call with multiple parameters.
-	setEffect ColorEffect, 50
+	setGraphicEffect ColorEffect, 50
 	getWidget Monitor, "myWidget"
 
 	// Function call with lambda expression.
@@ -186,7 +179,7 @@ onStart => {
 			"MySprite.spx": []byte(`
 onStart => {
 	// Branch statement that converts to call expression.
-	goto "OtherSprite"
+	stepTo "OtherSprite"
 }
 `),
 			"OtherSprite.spx":                       []byte(``),
@@ -205,27 +198,27 @@ onStart => {
 		assert.NotEmpty(t, inlayHints)
 
 		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 7 && hint.Label != ""
+			return hint.Position.Line == 3 && hint.Label != ""
 		}))
 
 		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 8 && hint.Label != ""
+			return hint.Position.Line == 4 && hint.Label != ""
 		}))
 
-		setEffectHintCount := 0
+		setGraphicEffectHintCount := 0
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 11 {
-				setEffectHintCount++
+			if hint.Position.Line == 7 {
+				setGraphicEffectHintCount++
 			}
 		}
-		assert.Equal(t, 2, setEffectHintCount)
+		assert.Equal(t, 2, setGraphicEffectHintCount)
 
 		var (
 			getWidgetHintCount  int
 			getWidgetHintLabels []string
 		)
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 12 {
+			if hint.Position.Line == 8 {
 				getWidgetHintCount++
 				getWidgetHintLabels = append(getWidgetHintLabels, hint.Label)
 			}
@@ -235,7 +228,7 @@ onStart => {
 
 		hsbHintCount := 0
 		for _, hint := range inlayHints {
-			if hint.Position.Line == 20 {
+			if hint.Position.Line == 16 {
 				hsbHintCount++
 			}
 		}
@@ -249,23 +242,19 @@ onStart => {
 		require.NotNil(t, spriteInlayHints)
 		assert.NotEmpty(t, spriteInlayHints)
 
-		hasGotoHint := false
+		hasStepToHint := false
 		for _, hint := range spriteInlayHints {
 			if hint.Position.Line == 3 {
-				hasGotoHint = true
+				hasStepToHint = true
 				break
 			}
 		}
-		assert.True(t, hasGotoHint)
+		assert.True(t, hasStepToHint)
 	})
 
 	t.Run("NoInlayHints", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
 	// No function calls with parameters.
 	a := 5
@@ -331,21 +320,18 @@ onStart => {
 	t.Run("RangeFiltering", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
 onStart => {
-	// Line 6
+	// Line 2
 	println "Hello"
-	// Line 8
+	// Line 4
 	MySprite.turn Left
-	// Line 10
-	setEffect ColorEffect, 50
-	// Line 12
+	// Line 6
+	setGraphicEffect ColorEffect, 50
+	// Line 8
 	color := HSB(255, 0, 0)
 }
 `),
+			"MySprite.spx":                       []byte(``),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
@@ -355,8 +341,8 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		rangeStart := PosAt(result.proj, astFile, Position{Line: 7, Character: 0})
-		rangeEnd := PosAt(result.proj, astFile, Position{Line: 10, Character: 0})
+		rangeStart := PosAt(result.proj, astFile, Position{Line: 3, Character: 0})
+		rangeEnd := PosAt(result.proj, astFile, Position{Line: 6, Character: 0})
 		filteredHints := collectInlayHints(result, astFile, rangeStart, rangeEnd)
 		require.NotNil(t, filteredHints)
 		assert.NotEmpty(t, filteredHints)
@@ -368,18 +354,18 @@ onStart => {
 		assert.Less(t, len(filteredHints), len(allHints))
 
 		for _, hint := range filteredHints {
-			assert.True(t, hint.Position.Line >= 7 && hint.Position.Line <= 10)
+			assert.True(t, hint.Position.Line >= 3 && hint.Position.Line <= 6)
 		}
 		assert.True(t, slices.ContainsFunc(filteredHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 7 && hint.Kind == Parameter
+			return hint.Position.Line == 3 && hint.Kind == Parameter
 		}))
 		assert.True(t, slices.ContainsFunc(filteredHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 9 && hint.Kind == Parameter
+			return hint.Position.Line == 5 && hint.Kind == Parameter
 		}))
 
 		hsbHintCount := 0
 		for _, hint := range filteredHints {
-			if hint.Position.Line > 10 {
+			if hint.Position.Line > 6 {
 				hsbHintCount++
 			}
 		}

@@ -48,9 +48,6 @@ type compileResult struct {
 	// duplicates.
 	seenSpxResourceRefs map[SpxResourceRef]struct{}
 
-	// spxSoundResourceAutoBindings stores spx sound resource auto-bindings.
-	spxSoundResourceAutoBindings map[types.Object]struct{}
-
 	// spxSpriteResourceAutoBindings stores spx sprite resource auto-bindings.
 	spxSpriteResourceAutoBindings map[types.Object]struct{}
 
@@ -70,7 +67,6 @@ func newCompileResult(proj *xgo.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
 		spxSpriteTypes:                make(map[types.Type]struct{}),
-		spxSoundResourceAutoBindings:  make(map[types.Object]struct{}),
 		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
 	}
@@ -294,6 +290,13 @@ func (r *compileResult) hasSpxSpriteType(typ types.Type) bool {
 	return ok
 }
 
+// hasSpxSpriteResourceAutoBinding reports whether the given object is an spx
+// resource auto-binding.
+func (r *compileResult) hasSpxSpriteResourceAutoBinding(obj types.Object) bool {
+	_, ok := r.spxSpriteResourceAutoBindings[obj]
+	return ok
+}
+
 // addSpxResourceRef adds an spx resource reference to the compile result.
 func (r *compileResult) addSpxResourceRef(ref SpxResourceRef) {
 	if r.seenSpxResourceRefs == nil {
@@ -456,7 +459,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		spriteName := strings.TrimSuffix(path.Base(file), ".spx")
 		obj := pkg.Scope().Lookup(spriteName)
 		if obj != nil {
-			named, ok := obj.Type().(*types.Named)
+			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
 			if ok {
 				result.spxSpriteTypes[named] = struct{}{}
 			}
@@ -703,51 +706,17 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 		if !ok {
 			return true
 		}
-		fieldType, ok := field.Type().(*types.Named)
+		fieldType, ok := xgoutil.DerefType(field.Type()).(*types.Named)
 		if !ok {
 			return true
 		}
-		ident, ok := typeInfo.ObjToDef[member]
-		if !ok {
-			return true
-		}
-
-		if fieldType == GetSpxSoundType() {
-			spxSoundName := field.Name()
-			if result.spxResourceSet.Sound(spxSoundName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, ident, "sound", spxSoundName, "")
-				return true
-			}
-			result.spxSoundResourceAutoBindings[member] = struct{}{}
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSoundResourceID{SoundName: spxSoundName},
-				Kind: SpxResourceRefKindAutoBinding,
-				Node: ident,
-			})
-		} else if fieldType == GetSpxSpriteType() || result.hasSpxSpriteType(fieldType) {
-			spxSpriteName := field.Name()
-			if result.spxResourceSet.Sprite(spxSpriteName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, ident, "sprite", spxSpriteName, "")
-				return true
-			}
+		if fieldType == GetSpxSpriteType() || result.hasSpxSpriteType(fieldType) {
 			result.spxSpriteResourceAutoBindings[member] = struct{}{}
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteResourceID{SpriteName: spxSpriteName},
-				Kind: SpxResourceRefKindAutoBinding,
-				Node: ident,
-			})
 		}
 		return true
 	})
 	for ident, obj := range typeInfo.Uses {
-		if _, ok := result.spxSoundResourceAutoBindings[obj]; ok {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSoundResourceID{SoundName: obj.Name()},
-				Kind: SpxResourceRefKindAutoBindingReference,
-				Node: ident,
-			})
-		}
-		if _, ok := result.spxSpriteResourceAutoBindings[obj]; ok {
+		if result.hasSpxSpriteResourceAutoBinding(obj) && !ident.Implicit() {
 			result.addSpxResourceRef(SpxResourceRef{
 				ID:   SpxSpriteResourceID{SpriteName: obj.Name()},
 				Kind: SpxResourceRefKindAutoBindingReference,
@@ -823,7 +792,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 		if obj == nil {
 			return nil
 		}
-		if _, ok := result.spxSpriteResourceAutoBindings[obj]; !ok {
+		if !result.hasSpxSpriteResourceAutoBinding(obj) {
 			return nil
 		}
 

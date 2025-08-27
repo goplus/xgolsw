@@ -25,7 +25,7 @@ import (
 
 func init() {
 	xgomod.SpxProject.PkgPaths = []string{"github.com/goplus/spx/v2", "math"}
-	xgomod.SpxProject.Works = []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl"}}
+	xgomod.SpxProject.Works = []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}}
 }
 
 // SetClassfileAutoImportedPackages sets the auto-imported packages for the
