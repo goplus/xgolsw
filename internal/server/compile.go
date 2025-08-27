@@ -375,7 +375,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 					result.addDiagnostics(documentURI, Diagnostic{
 						Severity: SeverityError,
 						Range:    RangeForASTFilePosition(result.proj, astFile, e.Pos),
-						Message:  e.Msg,
+						Message:  s.translate(e.Msg),
 					})
 				}
 			} else if errors.As(err, &codeError) {
@@ -383,13 +383,13 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 				result.addDiagnostics(documentURI, Diagnostic{
 					Severity: SeverityError,
 					Range:    RangeForPos(result.proj, codeError.Pos),
-					Message:  codeError.Error(),
+					Message:  s.translate(codeError.Error()),
 				})
 			} else {
 				// Handle unknown errors (including recovered panics).
 				result.addDiagnostics(documentURI, Diagnostic{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("failed to parse spx file: %v", err),
+					Message:  s.translate(fmt.Sprintf("failed to parse spx file: %v", err)),
 				})
 			}
 		}
@@ -400,7 +400,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			result.addDiagnostics(documentURI, Diagnostic{
 				Severity: SeverityError,
 				Range:    RangeForASTFileNode(result.proj, astFile, astFile.Name),
-				Message:  "package name must be main",
+				Message:  s.translate("package name must be main"),
 			})
 			continue
 		}
@@ -426,7 +426,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			result.addDiagnostics(documentURI, Diagnostic{
 				Severity: SeverityError,
 				Range:    RangeForPos(result.proj, typeErr.Pos),
-				Message:  typeErr.Msg,
+				Message:  s.translate(typeErr.Msg),
 			})
 		}
 	}
@@ -522,7 +522,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compile
 			result.addDiagnostics(documentURI, Diagnostic{
 				Severity: SeverityError,
 				Range:    RangeForNode(result.proj, firstArg),
-				Message:  "first argument of run must be a string literal or constant",
+				Message:  s.translate("first argument of run must be a string literal or constant"),
 			})
 		}
 		break
@@ -535,7 +535,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compile
 		documentURI := s.toDocumentURI(result.mainSpxFile)
 		result.addDiagnostics(documentURI, Diagnostic{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("failed to create spx resource set: %v", err),
+			Message:  s.translate(fmt.Sprintf("failed to create spx resource set: %v", err)),
 		})
 		return
 	}
@@ -579,7 +579,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 				diagnostics = append(diagnostics, Diagnostic{
 					Range:    RangeForPosEnd(proj, d.Pos, d.End),
 					Severity: SeverityError,
-					Message:  d.Message,
+					Message:  s.translate(d.Message),
 				})
 			},
 			ResultOf: map[*protocol.Analyzer]any{
@@ -592,7 +592,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			if _, err := an.Run(pass); err != nil {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("analyzer %q failed: %v", an.Name, err),
+					Message:  s.translate(fmt.Sprintf("analyzer %q failed: %v", an.Name, err)),
 				})
 			}
 		}
@@ -957,7 +957,7 @@ func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr x
 	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
 		Severity: SeverityError,
 		Range:    RangeForNode(result.proj, expr),
-		Message:  fmt.Sprintf("%s resource name cannot be empty", resourceType),
+		Message:  s.translate(fmt.Sprintf("%s resource name cannot be empty", resourceType)),
 	})
 }
 
@@ -970,6 +970,6 @@ func (s *Server) addSpxResourceNotFoundDiagnostic(result *compileResult, expr xg
 	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
 		Severity: SeverityError,
 		Range:    RangeForNode(result.proj, expr),
-		Message:  message,
+		Message:  s.translate(message),
 	})
 }
