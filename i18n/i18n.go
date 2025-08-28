@@ -70,11 +70,19 @@ func NewTranslator() *Translator {
 			Translation: "$1 在此代码块中重复声明",
 		},
 		{
-			Pattern:     regexp.MustCompile(`^(.+?) redeclared\n\t(.+?) other declaration of (.+?)$`),
+			Pattern:     regexp.MustCompile(`^(.+?) redeclared in this block\n\t(.+?) other declaration of (.+?)$`),
 			Translation: "$1 重复声明\n\t$2 $3 的其他声明",
+		},
+		{
+			Pattern:     regexp.MustCompile(`^(.+?) redeclared in this block\n\tprevious declaration at (.+?)$`),
+			Translation: "$1 在此代码块中重复声明\n\t先前声明位于 $2",
 		},
 
 		// 6. 赋值错误 (Assignment Errors)
+		{
+			Pattern:     regexp.MustCompile(`^no new variables on left side of :=\n(.+?): cannot use (.+?) \(type (.+?)\) as type (.+?) in (.+?)$`),
+			Translation: ":= 左侧没有新变量\n$1: 无法将 $2 (类型 $3) 用作类型 $4 在 $5 中",
+		},
 		{
 			Pattern:     regexp.MustCompile(`^assignment mismatch: (\d+) variables? but (.+?) returns? (\d+) values?$`),
 			Translation: "赋值不匹配: $1 个变量但 $2 返回 $3 个值",
@@ -110,6 +118,10 @@ func NewTranslator() *Translator {
 		{
 			Pattern:     regexp.MustCompile(`^not enough arguments in call to (.+?)\n\thave \(([^)]*)\)\n\twant \(([^)]*)\)$`),
 			Translation: "调用 $1 的参数不足\n\t现有 ($2)\n\t需要 ($3)",
+		},
+		{
+			Pattern:     regexp.MustCompile(`^not enough arguments to return\n\thave \(([^)]*)\)\n\twant \(([^)]*)\)$`),
+			Translation: "return 的参数不足\n\t有 ($1)\n\t想要 ($2)",
 		},
 		{
 			Pattern:     regexp.MustCompile(`^too (?:few|many) arguments to return\n\thave \(([^)]*)\)\n\twant \(([^)]*)\)$`),
@@ -152,12 +164,24 @@ func NewTranslator() *Translator {
 			Translation: "switch 中重复的 case $1",
 		},
 		{
+			Pattern:     regexp.MustCompile(`^duplicate case (.+?) in (?:type )?switch\n\tprevious case at (.+?)$`),
+			Translation: "switch 中重复的 case $1\n\t先前 case 位于 $2",
+		},
+		{
 			Pattern:     regexp.MustCompile(`^multiple defaults in (?:type )?switch$`),
 			Translation: "switch 中有多个 default",
 		},
 		{
+			Pattern:     regexp.MustCompile(`^multiple defaults in (?:type )?switch \(first at (.+?)\)$`),
+			Translation: "switch 中有多个 default (第一个位于 $1)",
+		},
+		{
 			Pattern:     regexp.MustCompile(`^multiple nil cases in type switch$`),
 			Translation: "类型 switch 中有多个 nil case",
+		},
+		{
+			Pattern:     regexp.MustCompile(`^multiple nil cases in type switch \(first at (.+?)\)$`),
+			Translation: "类型 switch 中有多个 nil case (第一个位于 $1)",
 		},
 
 		// 13. 分支语句错误 (Branch Statement Errors)
@@ -184,6 +208,10 @@ func NewTranslator() *Translator {
 		{
 			Pattern:     regexp.MustCompile(`^array index (\d+) out of bounds \[0:(\d+)\]$`),
 			Translation: "数组索引 $1 超出范围 [0:$2]",
+		},
+		{
+			Pattern:     regexp.MustCompile(`^array index (\d+) \(value (\d+)\) out of bounds \[0:(\d+)\]$`),
+			Translation: "数组索引 $1 (值 $2) 超出范围 [0:$3]",
 		},
 		{
 			Pattern:     regexp.MustCompile(`^cannot use (.+?) as index which must be non-negative integer constant$`),
@@ -306,17 +334,12 @@ func NewTranslator() *Translator {
 
 // Translate translates an error message to the specified language
 func (t *Translator) Translate(msg string, lang Language) string {
-	// If language is English, return the original message
-	if lang == LanguageEN {
-		return msg
-	}
-
 	// If language is Chinese, try to match patterns and translate
 	if lang == LanguageCN {
 		return t.translateToChinese(msg)
 	}
 
-	// For unsupported languages, return the original message
+	// For English or unsupported languages, return the original message
 	return msg
 }
 
