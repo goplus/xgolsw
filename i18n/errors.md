@@ -9,41 +9,41 @@ This document organizes all diagnostic error messages in the XGo Language Server
 **Error Pattern**: `cannot use X (type Y) as type Z`
 
 ```go
-// 基本类型不匹配
+// Basic type mismatches
 "cannot use \"Hi\" (type untyped string) as type int in assignment"
 "cannot use []string{} (type []string) as type string in assignment" 
 "cannot use [2]string{} (type [2]string) as type string in assignment"
 "cannot use map[int]string{} (type map[int]string) as type string in assignment"
 "cannot use func(){} (type func()) as type string in assignment"
 
-// 函数参数类型不匹配
+// Function parameter type mismatches
 "cannot use \"Hi\" (type untyped string) as type error in return argument"
 "cannot use x (type int) as type string in return argument"
 "cannot use byte value as type error in return argument"
 
-// 复合类型中的类型不匹配
+// Type mismatches in composite types
 "cannot use 3.14 (type untyped float) as type int in slice literal"
 "cannot use x (type int) as type string in value of field y"
 "cannot use 1 (type untyped int) as type string in map key"
 "cannot use \"Go\" + \"+\" (type untyped string) as type int in map value"
 ```
 
-### 1.2 类型转换错误 (Type Conversion Errors)
+### 1.2 Type Conversion Errors
 
-**错误代码模式**：`cannot convert X to type Y`
+**Error Pattern**: `cannot convert X to type Y`
 
 ```go
-// 数值范围溢出
+// Numeric range overflow
 "cannot convert 1<<127 (untyped int constant 170141183460469231731687303715884105728) to type Int128"
 "cannot convert -1 (untyped int constant -1) to type Uint128"
 
-// 无效转换
+// Invalid conversions
 "cannot convert 1<<128 (untyped int constant 340282366920938463463374607431768211456) to type Uint128"
 ```
 
-### 1.3 泛型类型错误 (Generic Type Errors)
+### 1.3 Generic Type Errors
 
-**错误代码模式**：`cannot use generic type X` | `got N type parameters`
+**Error Pattern**: `cannot use generic type X` | `got N type parameters`
 
 ```go
 "cannot use generic type %v without instantiation"
