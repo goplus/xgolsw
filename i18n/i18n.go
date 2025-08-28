@@ -360,11 +360,6 @@ func (t *Translator) translateToChinese(msg string) string {
 	return msg
 }
 
-// GetSupportedLanguages returns a list of supported languages
-func (t *Translator) GetSupportedLanguages() []Language {
-	return []Language{LanguageEN, LanguageCN}
-}
-
 // Global translator instance
 var defaultTranslator = NewTranslator()
 

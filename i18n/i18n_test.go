@@ -123,24 +123,6 @@ func TestTranslate_GlobalFunction(t *testing.T) {
 	}
 }
 
-func TestTranslator_GetSupportedLanguages(t *testing.T) {
-	translator := NewTranslator()
-	languages := translator.GetSupportedLanguages()
-
-	expectedLanguages := []Language{LanguageEN, LanguageCN}
-
-	if len(languages) != len(expectedLanguages) {
-		t.Errorf("Expected %d languages, got %d", len(expectedLanguages), len(languages))
-		return
-	}
-
-	for i, lang := range languages {
-		if lang != expectedLanguages[i] {
-			t.Errorf("Expected language %s at index %d, got %s", expectedLanguages[i], i, lang)
-		}
-	}
-}
-
 // TestCodeBasedErrorTranslation tests error translation using actual xgo code compilation
 // This approach is more robust than regex-based testing as it uses real error messages from xgo
 //
