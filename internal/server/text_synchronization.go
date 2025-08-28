@@ -3,11 +3,11 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"go/types"
 	"time"
 
 	"github.com/goplus/gogen"
 	xgoscanner "github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
@@ -238,12 +238,12 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	astFilePos := proj.Fset.Position(astFile.Pos())
 
 	handleErr := func(err error) {
-		if typeErr, ok := err.(types.Error); ok {
+		if typeErr, ok := err.(typesutil.Error); ok {
 			position := typeErr.Fset.Position(typeErr.Pos)
 			if position.Filename == astFilePos.Filename {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Range:    RangeForPos(proj, typeErr.Pos),
+					Range:    RangeForPosEnd(proj, typeErr.Pos, typeErr.End),
 					Message:  typeErr.Msg,
 				})
 			}

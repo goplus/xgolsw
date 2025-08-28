@@ -13,6 +13,7 @@ import (
 	xgoast "github.com/goplus/xgo/ast"
 	xgoscanner "github.com/goplus/xgo/scanner"
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
@@ -420,7 +421,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 	}
 
 	handleErr := func(err error) {
-		if typeErr, ok := err.(types.Error); ok {
+		if typeErr, ok := err.(typesutil.Error); ok {
 			if !typeErr.Pos.IsValid() {
 				panic(fmt.Sprintf("unexpected nopos error: %s", typeErr.Msg))
 			}
@@ -428,7 +429,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			documentURI := s.toDocumentURI(position.Filename)
 			result.addDiagnostics(documentURI, Diagnostic{
 				Severity: SeverityError,
-				Range:    RangeForPos(result.proj, typeErr.Pos),
+				Range:    RangeForPosEnd(result.proj, typeErr.Pos, typeErr.End),
 				Message:  typeErr.Msg,
 			})
 		}
