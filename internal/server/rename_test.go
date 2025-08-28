@@ -11,8 +11,9 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
+const title = "My Game"
 MySprite.turn Left
-run "assets", {Title: "My Game"}
+run "assets", {Title: title}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -27,24 +28,33 @@ onStart => {
 		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 0},
+				Position:     Position{Line: 1, Character: 6},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, range1)
 		assert.Equal(t, Range{
-			Start: Position{Line: 1, Character: 0},
-			End:   Position{Line: 1, Character: 8},
+			Start: Position{Line: 1, Character: 6},
+			End:   Position{Line: 1, Character: 11},
 		}, *range1)
 
 		range2, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 14},
+				Position:     Position{Line: 2, Character: 0},
 			},
 		})
 		require.NoError(t, err)
 		require.Nil(t, range2)
+
+		range3, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 14},
+			},
+		})
+		require.NoError(t, err)
+		require.Nil(t, range3)
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
@@ -213,16 +223,18 @@ onStart => {
 	t.Run("SpxResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-MySprite.turn Left
+MySprite.turnTo "OtherSprite"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
-	MySprite.turn Right
+	MySprite.turnTo "OtherSprite"
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+			"OtherSprite.spx":                       []byte(``),
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/MySprite/index.json":    []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
@@ -232,88 +244,15 @@ onStart => {
 			NewName:      "NewSprite",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
+		require.Nil(t, workspaceEdit)
 
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 0},
-				End:   Position{Line: 1, Character: 8},
-			},
-			NewText: "NewSprite",
-		})
-
-		mySpriteSpxChanges := workspaceEdit.Changes["file:///MySprite.spx"]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			NewText: "NewSprite",
-		})
-	})
-
-	t.Run("SpxResourceInOtherSpriteFiles", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-run "assets", {Title: "Bullet (by XGo)"}
-`),
-			"MyAircraft.spx": []byte(`
-onStart => {
-	for {
-		wait 0.1
-		Bullet.clone
-		setXYpos mouseX, mouseY
-	}
-}
-`),
-			"Bullet.spx": []byte(`
-onCloned => {
-	setXYpos MyAircraft.xpos, MyAircraft.ypos+5
-	show
-	for {
-		wait 0.04
-		step 10
-		if touching(Edge) {
-			destroy
-		}
-	}
-}
-`),
-			"assets/index.json":                    []byte(`{}`),
-			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
-			"assets/sprites/Bullet/index.json":     []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///Bullet.spx"},
-			Position:     Position{Line: 2, Character: 10},
-			NewName:      "Jet",
+		workspaceEdit1, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Position:     Position{Line: 1, Character: 16},
+			NewName:      "NewSprite",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		bulletSpxChanges := workspaceEdit.Changes["file:///Bullet.spx"]
-		require.Len(t, bulletSpxChanges, 2)
-		assert.Contains(t, bulletSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 10},
-				End:   Position{Line: 2, Character: 20},
-			},
-			NewText: "Jet",
-		})
-		assert.Contains(t, bulletSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 27},
-				End:   Position{Line: 2, Character: 37},
-			},
-			NewText: "Jet",
-		})
+		require.Nil(t, workspaceEdit1)
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {

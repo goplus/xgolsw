@@ -11,37 +11,39 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
-	if err != nil {
-		return nil, err
+	proj := s.getProjWithFile()
+	if proj == nil {
+		return nil, nil
 	}
+	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+
+	astFile, _ := proj.ASTFile(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
+	position := ToPosition(proj, astFile, params.Position)
 
-	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
-		return ToPtr(RangeForNode(result.proj, spxResourceRef.Node)), nil
-	}
-
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
+	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
 	if ident == nil {
 		return nil, nil
 	}
 	obj := typeInfo.ObjectOf(ident)
-	if !xgoutil.IsRenameable(obj) && !result.hasSpxSpriteResourceAutoBinding(obj) {
+	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
 	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil || xgoutil.NodeTokenFile(result.proj.Fset, defIdent) == nil {
+	if defIdent == nil || defIdent.Implicit() || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
 		return nil, nil
 	}
 
-	return ToPtr(RangeForNode(result.proj, ident)), nil
+	return ToPtr(RangeForNode(proj, ident)), nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_rename
@@ -55,22 +57,13 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
 
-	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
-		return s.spxRenameResourcesWithCompileResult(result, []SpxRenameResourceParams{{
-			Resource: SpxResourceIdentifier{
-				URI: spxResourceRef.ID.URI(),
-			},
-			NewName: params.NewName,
-		}})
-	}
-
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
 	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
 	obj := typeInfo.ObjectOf(ident)
-	if !xgoutil.IsRenameable(obj) && !result.hasSpxSpriteResourceAutoBinding(obj) {
+	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
 	defIdent := typeInfo.ObjToDef[obj]
