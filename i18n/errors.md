@@ -1,12 +1,12 @@
-# XGo 错误信息分类汇总
+# XGo Error Message Classification Summary
 
-本文档整理了 XGo Language Server 中的所有诊断错误信息，按类型分类，以提高错误信息的可读性和准确性，便于开发者发现问题和 AI 修复代码。
+This document organizes all diagnostic error messages in the XGo Language Server, categorized by type to improve error message readability and accuracy, helping developers identify issues and enabling AI code fixes.
 
-## 1. 类型系统错误 (Type System Errors)
+## 1. Type System Errors
 
-### 1.1 类型不匹配 (Type Mismatch)
+### 1.1 Type Mismatch
 
-**错误代码模式**：`cannot use X (type Y) as type Z`
+**Error Pattern**: `cannot use X (type Y) as type Z`
 
 ```go
 // 基本类型不匹配
@@ -51,11 +51,11 @@
 "got %v arguments but %v type parameters"
 ```
 
-## 2. 变量和常量错误 (Variable & Constant Errors)
+## 2. Variable & Constant Errors
 
-### 2.1 未定义标识符 (Undefined Identifiers)
+### 2.1 Undefined Identifiers
 
-**错误代码模式**：`undefined: X`
+**Error Pattern**: `undefined: X`
 
 ```go
 "undefined: foo"
@@ -64,9 +64,9 @@
 "undefined: println1"
 ```
 
-### 2.2 重复声明 (Redeclaration Errors)
+### 2.2 Redeclaration Errors
 
-**错误代码模式**：`X redeclared in this block`
+**Error Pattern**: `X redeclared in this block`
 
 ```go
 "a redeclared in this block\n\tprevious declaration at bar.xgo:2:5"
@@ -75,54 +75,54 @@
 "%s redeclared in this block\n\tprevious declaration at %v"
 ```
 
-### 2.3 赋值错误 (Assignment Errors)
+### 2.3 Assignment Errors
 
-**错误代码模式**：`assignment mismatch` | `cannot use X as value` | `no new variables`
+**Error Pattern**: `assignment mismatch` | `cannot use X as value` | `no new variables`
 
 ```go
-// 赋值数量不匹配
+// Assignment count mismatch
 "assignment mismatch: 1 variables but bar returns 2 values"
 "assignment mismatch: 1 variables but 2 values"
 "assignment mismatch: 2 variables but 1 values"
 
-// 特殊值使用错误
+// Special value usage errors
 "cannot use _ as value"
 "println is not a variable"
 
-// 新变量定义错误
+// New variable definition errors
 "no new variables on left side of :="
 ```
 
-### 2.4 常量错误 (Constant Errors)
+### 2.4 Constant Errors
 
-**错误代码模式**：`missing value` | `non-constant X`
+**Error Pattern**: `missing value` | `non-constant X`
 
 ```go
 "missing value in const declaration"
 "non-constant array bound n"
 ```
 
-## 3. 函数和方法错误 (Function & Method Errors)
+## 3. Function & Method Errors
 
-### 3.1 函数调用错误 (Function Call Errors)
+### 3.1 Function Call Errors
 
-**错误代码模式**：`not enough arguments in call to X` | `too few/many arguments to return`
+**Error Pattern**: `not enough arguments in call to X` | `too few/many arguments to return`
 
 ```go
-// 参数数量错误
+// Parameter count errors
 "not enough arguments in call to Ls\n\thave ()\n\twant (int)"
 "not enough arguments in call to f.Ls\n\thave ()\n\twant (int)"
 "not enough arguments in call to set\n\thave (untyped string)\n\twant (name string, v int)"
 
-// 返回值错误
+// Return value errors
 "too few arguments to return\n\thave (untyped int)\n\twant (int, error)"
 "too many arguments to return\n\thave (untyped int, untyped int, untyped string)\n\twant (int, error)"
 "not enough arguments to return\n\thave ()\n\twant (byte)"
 ```
 
-### 3.2 方法接收器错误 (Method Receiver Errors)
+### 3.2 Method Receiver Errors
 
-**错误代码模式**：`invalid receiver type X`
+**Error Pattern**: `invalid receiver type X`
 
 ```go
 "invalid receiver type %v (%v is not a defined type)"
@@ -131,52 +131,52 @@
 "invalid receiver type []byte ([]byte is not a defined type)"
 ```
 
-### 3.3 Lambda 表达式错误 (Lambda Expression Errors)
+### 3.3 Lambda Expression Errors
 
-**错误代码模式**：`arguments in lambda expression` | `cannot use lambda literal` | `lambda unsupport`
+**Error Pattern**: `arguments in lambda expression` | `cannot use lambda literal` | `lambda unsupport`
 
 ```go
-// Lambda 参数错误
+// Lambda parameter errors
 "too few arguments in lambda expression\n\thave ()\n\twant (int, int)"
 "too many arguments in lambda expression\n\thave (x, y, z)\n\twant (int, int)"
 
-// Lambda 类型使用错误
+// Lambda type usage errors
 "cannot use lambda literal as type int in field value to Plot"
 "cannot use lambda literal as type func() in argument to foo"
 "cannot use lambda literal as type func() int in assignment to foo"
 "lambda unsupport multiple assignment"
 ```
 
-### 3.4 特殊函数错误 (Special Function Errors)
+### 3.4 Special Function Errors
 
-**错误代码模式**：`func init must` | `use of builtin X not in function call`
+**Error Pattern**: `func init must` | `use of builtin X not in function call`
 
 ```go
 "func init must have no arguments and no return values"
 "use of builtin %s not in function call"
 ```
 
-## 4. 控制流错误 (Control Flow Errors)
+## 4. Control Flow Errors
 
-### 4.1 Switch 语句错误 (Switch Statement Errors)
+### 4.1 Switch Statement Errors
 
-**错误代码模式**：`duplicate case X` | `multiple defaults`
+**Error Pattern**: `duplicate case X` | `multiple defaults`
 
 ```go
-// 重复 case
+// Duplicate cases
 "duplicate case %s in switch\n\tprevious case at %v"
 "duplicate case %s (value %#v) in switch\n\tprevious case at %v"
 "duplicate case int in type switch\n\tprevious case at %v"
 
-// 多个 default
+// Multiple defaults
 "multiple defaults in switch (first at %v)"
 "multiple defaults in type switch (first at %v)"
 "multiple nil cases in type switch (first at %v)"
 ```
 
-### 4.2 分支语句错误 (Branch Statement Errors)
+### 4.2 Branch Statement Errors
 
-**错误代码模式**：`fallthrough statement out of place` | `label X is not defined` | `label X already defined`
+**Error Pattern**: `fallthrough statement out of place` | `label X is not defined` | `label X already defined`
 
 ```go
 "fallthrough statement out of place"
@@ -184,34 +184,34 @@
 "label %v already defined at %v\n%v: label %v defined and not used"
 ```
 
-### 4.3 循环错误 (Loop Errors)
+### 4.3 Loop Errors
 
-**错误代码模式**：`cannot assign type X to Y in range`
+**Error Pattern**: `cannot assign type X to Y in range`
 
 ```go
 "cannot assign type string to a (type int) in range"
 ```
 
-## 5. 数据结构错误 (Data Structure Errors)
+## 5. Data Structure Errors
 
-### 5.1 数组错误 (Array Errors)
+### 5.1 Array Errors
 
-**错误代码模式**：`array index X out of bounds` | `cannot use X as index`
+**Error Pattern**: `array index X out of bounds` | `cannot use X as index`
 
 ```go
-// 数组索引错误
+// Array index errors
 "array index %d out of bounds [0:%d]"
 "array index %d (value %d) out of bounds [0:%d]"
 "cannot use a as index which must be non-negative integer constant"
 
-// 数组字面量错误
+// Array literal errors
 "cannot use a+\"!\" (type string) as type int in array literal"
 "cannot use a (type string) as type int in array literal"
 ```
 
-### 5.2 切片错误 (Slice Errors)
+### 5.2 Slice Errors
 
-**错误代码模式**：`cannot slice X` | `invalid operation X (3-index slice)`
+**Error Pattern**: `cannot slice X` | `invalid operation X (3-index slice)`
 
 ```go
 "cannot slice a (type *byte)"
@@ -220,9 +220,9 @@
 "cannot use a (type string) as type int in slice literal"
 ```
 
-### 5.3 映射错误 (Map Errors)
+### 5.3 Map Errors
 
-**错误代码模式**：`missing key in map literal` | `invalid map literal` | `invalid composite literal type`
+**Error Pattern**: `missing key in map literal` | `invalid map literal` | `invalid composite literal type`
 
 ```go
 "missing key in map literal"
@@ -230,9 +230,9 @@
 "invalid composite literal type %v"
 ```
 
-### 5.4 结构体错误 (Struct Errors)
+### 5.4 Struct Errors
 
-**错误代码模式**：`too many/few values in struct` | `X undefined (type Y has no field or method X)`
+**Error Pattern**: `too many/few values in struct` | `X undefined (type Y has no field or method X)`
 
 ```go
 "too many values in struct{x int; y string}{...}"
@@ -240,20 +240,20 @@
 "z undefined (type struct{x int; y string} has no field or method z)"
 ```
 
-## 6. 指针和内存操作错误 (Pointer & Memory Errors)
+## 6. Pointer & Memory Operation Errors
 
-### 6.1 指针操作错误 (Pointer Operation Errors)
+### 6.1 Pointer Operation Errors
 
-**错误代码模式**：`invalid indirect of X` | `cannot assign to X (immutable)`
+**Error Pattern**: `invalid indirect of X` | `cannot assign to X (immutable)`
 
 ```go
 "invalid indirect of a (type string)"
 "cannot assign to a[1] (strings are immutable)"
 ```
 
-### 6.2 成员访问错误 (Member Access Errors)
+### 6.2 Member Access Errors
 
-**错误代码模式**：`X undefined (type Y has no field or method X)`
+**Error Pattern**: `X undefined (type Y has no field or method X)`
 
 ```go
 "a.x undefined (type string has no field or method x)"
@@ -261,20 +261,20 @@
 "[].string undefined (type []interface{} has no field or method string)"
 ```
 
-## 7. 包和导入错误 (Package & Import Errors)
+## 7. Package & Import Errors
 
-### 7.1 包导入错误 (Package Import Errors)
+### 7.1 Package Import Errors
 
-**错误代码模式**：`package X is not in std` | `no required module provides package X`
+**Error Pattern**: `package X is not in std` | `no required module provides package X`
 
 ```go
 "package fmt2 is not in std (%v)"
 "no required module provides package github.com/goplus/xgo/fmt2; to add it:\n\tgo get github.com/goplus/xgo/fmt2"
 ```
 
-### 7.2 符号访问错误 (Symbol Access Errors)
+### 7.2 Symbol Access Errors
 
-**错误代码模式**：`confliction: X declared both in` | `cannot refer to unexported name` | `X is not a type`
+**Error Pattern**: `confliction: X declared both in` | `cannot refer to unexported name` | `X is not a type`
 
 ```go
 "confliction: NewEncoding declared both in \"encoding/base64\" and \"encoding/base32\""
@@ -285,11 +285,11 @@
 "%s is not a type"
 ```
 
-## 8. XGo 特有错误 (XGo-Specific Errors)
+## 8. XGo-Specific Errors
 
-### 8.1 环境变量操作错误 (Environment Variable Errors)
+### 8.1 Environment Variable Operation Errors
 
-**错误代码模式**：`operator $X undefined`
+**Error Pattern**: `operator $X undefined`
 
 ```go
 "operator $%v undefined"
@@ -297,18 +297,18 @@
 "operator $id undefined"
 ```
 
-### 8.2 字符串模板错误 (String Template Errors)
+### 8.2 String Template Errors
 
-**错误代码模式**：`X.string undefined` | `X.stringY`
+**Error Pattern**: `X.string undefined` | `X.stringY`
 
 ```go
 "[].string undefined (type []interface{} has no field or method string)"
 "%s.string%s"
 ```
 
-### 8.3 重载函数错误 (Overload Function Errors)
+### 8.3 Overload Function Errors
 
-**错误代码模式**：`invalid func/recv/method/overload X` | `unknown func X`
+**Error Pattern**: `invalid func/recv/method/overload X` | `unknown func X`
 
 ```go
 "invalid func (foo).mulInt"
@@ -321,19 +321,19 @@
 "invalid overload operator ++"
 ```
 
-### 8.4 发送语句错误 (Send Statement Errors)
+### 8.4 Send Statement Errors
 
-**错误代码模式**：`can't send multiple values to a channel`
+**Error Pattern**: `can't send multiple values to a channel`
 
 ```go
 "can't send multiple values to a channel"
 ```
 
-## 9. 编译和语法错误 (Compilation & Syntax Errors)
+## 9. Compilation & Syntax Errors
 
-### 9.1 编译错误 (Compilation Errors)
+### 9.1 Compilation Errors
 
-**错误代码模式**：`compile X: Y` | `compileExpr failed` | `unreachable`
+**Error Pattern**: `compile X: Y` | `compileExpr failed` | `unreachable`
 
 ```go
 "compile `%v`: %v"
@@ -342,9 +342,9 @@
 "compileExprLHS failed: unknown - %T"
 ```
 
-### 9.2 类型推导错误 (Type Inference Errors)
+### 9.2 Type Inference Errors
 
-**错误代码模式**：`toType unexpected` | `X is not a type` | `expected X, found Y`
+**Error Pattern**: `toType unexpected` | `X is not a type` | `expected X, found Y`
 
 ```go
 "toType unexpected: %T"
@@ -354,25 +354,23 @@
 "expected statement, found ','"
 ```
 
-## 10. 运行时和操作错误 (Runtime & Operation Errors)
+## 10. Runtime & Operation Errors
 
-### 10.1 无效操作 (Invalid Operations)
+### 10.1 Invalid Operations
 
-**错误代码模式**：`invalid operation X` | `type Y does not support Z`
+**Error Pattern**: `invalid operation X` | `type Y does not support Z`
 
 ```go
 "invalid operation: a[1] (type bool does not support indexing)"
 "invalid operation a[1:2:5] (3-index slice of string)"
 ```
 
-### 10.2 类型检查错误 (Type Checking Errors)
+### 10.2 Type Checking Errors
 
-**错误代码模式**：`X not type` | `inconsistent matrix column count`
+**Error Pattern**: `X not type` | `inconsistent matrix column count`
 
 ```go
 "%v not type"
 "inconsistent matrix column count: got %v, want %v"
 ```
 
-
-这个分类体系涵盖了 XGo 编译器中的主要错误类型，有助于提高错误诊断的准确性和用户体验。通过基于代码的测试方法，我们确保了翻译的实用性和与实际开发体验的一致性。

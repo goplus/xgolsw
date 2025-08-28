@@ -157,7 +157,7 @@ func TestCodeBasedErrorTranslation(t *testing.T) {
 		expectEnError string // Expected complete English error message
 		expectCnError string // Expected complete Chinese translation
 	}{
-		// 1. 类型系统错误 (Type System Errors)
+		// 1. Type System Errors
 		{
 			name:          "Type mismatch string to int",
 			code:          `var a int = "Hi"`,
@@ -201,7 +201,7 @@ func TestCodeBasedErrorTranslation(t *testing.T) {
 			expectCnError: `无法将 "Hi" (类型 untyped string) 用作类型 error 在 return argument 中`,
 		},
 
-		// 2. 变量和常量错误 (Variable & Constant Errors)
+		// 2. Variable & Constant Errors
 		{
 			name:          "Undefined identifier",
 			code:          `func main() { println(foo) }`,
@@ -263,7 +263,7 @@ main.xgo:1:14: 无法将 "Hi" (类型 untyped string) 用作类型 int 在 assig
 			expectCnError: `println 不是一个变量`,
 		},
 
-		// 3. 赋值错误 (Assignment Errors)
+		// 3. Assignment Errors
 		{
 			name: "Assignment mismatch multiple return",
 			code: `func bar() (int, error) { return 1, nil }
@@ -281,7 +281,7 @@ func main() {
 			expectCnError: `赋值不匹配: 1 个变量但有 2 个值`,
 		},
 
-		// 4. 函数和方法错误 (Function & Method Errors)
+		// 4. Function & Method Errors
 		{
 			name: "Not enough arguments",
 			code: `func Ls(int) {}; func main() { Ls() }`,
@@ -329,7 +329,7 @@ func main() {
 			expectCnError: `func init 必须没有参数和返回值`,
 		},
 
-		// 5. 控制流错误 (Control Flow Errors)
+		// 5. Control Flow Errors
 		{
 			name:          "Range type assignment error",
 			code:          `a := 1; var b []string; for _, a = range b {}`,
@@ -383,7 +383,7 @@ func main() {
 			expectCnError: `switch 中有多个 default (第一个位于 main.xgo:1:44)`,
 		},
 
-		// 6. 数据结构错误 (Data Structure Errors)
+		// 6. Data Structure Errors
 		{
 			name:          "Array literal bounds basic",
 			code:          `var a [3]int = [3]int{1, 2, 3, 4}`,
@@ -487,7 +487,7 @@ func main() {
 			expectCnError: `无效的映射字面量`,
 		},
 
-		// 7. 结构体错误 (Struct Errors)
+		// 7. Struct Errors
 		{
 			name:          "Struct too many values",
 			code:          `x := 1; a := struct{x int; y string}{1, "Hi", 2}`,
@@ -519,7 +519,7 @@ func main() {
 			expectCnError: `a.z 未定义 (类型 struct{x int; y string} 没有字段或方法 z)`,
 		},
 
-		// 8. 包导入错误 (Package Import Errors)
+		// 8. Package Import Errors
 		{
 			name:          "Undefined package in type",
 			code:          `func foo(t *testing.T) {}`,
@@ -545,7 +545,7 @@ func main() {
 			expectCnError: `未定义: os.UndefinedObject`,
 		},
 
-		// 9. 指针操作错误 (Pointer Operation Errors)
+		// 9. Pointer Operation Errors
 		{
 			name:          "Invalid indirect of string",
 			code:          `a := "test"; b := *a`,
@@ -553,7 +553,7 @@ func main() {
 			expectCnError: `无效的间接引用 a (类型 string)`,
 		},
 
-		// 11. Lambda 表达式错误 (Lambda Expression Errors)
+		// 11. Lambda Expression Errors
 		// Note: These may require specific XGo syntax support
 		{
 			name:          "Lambda multiple assignment",
@@ -562,7 +562,7 @@ func main() {
 			expectCnError: `lambda 不支持多重赋值`,
 		},
 
-		// 12. 无效操作 (Invalid Operations)
+		// 12. Invalid Operations
 		{
 			name:          "Invalid operation indexing bool",
 			code:          `a := true; b := a[1]`,

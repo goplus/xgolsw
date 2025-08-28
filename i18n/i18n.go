@@ -27,24 +27,24 @@ type Translator struct {
 // NewTranslator creates a new translator with pre-compiled regex patterns
 func NewTranslator() *Translator {
 	patterns := []ErrorPattern{
-		// 1. 类型不匹配 (Type Mismatch) - 带上下文
+		// 1. Type Mismatch - with context
 		{
 			Pattern:     regexp.MustCompile(`^cannot use (.+?) \(type (.+?)\) as type (.+?) in (.+?)$`),
 			Translation: "无法将 $1 (类型 $2) 用作类型 $3 在 $4 中",
 		},
-		// 1. 类型不匹配 (Type Mismatch) - 不带上下文
+		// 1. Type Mismatch - without context
 		{
 			Pattern:     regexp.MustCompile(`^cannot use (.+?) \(type (.+?)\) as type (.+?)$`),
 			Translation: "无法将 $1 (类型 $2) 用作类型 $3",
 		},
 
-		// 2. 类型转换错误 (Type Conversion Errors)
+		// 2. Type Conversion Errors
 		{
 			Pattern:     regexp.MustCompile(`^cannot convert (.+?) to type (.+?)$`),
 			Translation: "无法将 $1 转换为类型 $2",
 		},
 
-		// 3. 泛型类型错误 (Generic Type Errors)
+		// 3. Generic Type Errors
 		{
 			Pattern:     regexp.MustCompile(`^cannot use generic type (.+?) without instantiation$`),
 			Translation: "无法使用未实例化的泛型类型 $1",
@@ -58,13 +58,13 @@ func NewTranslator() *Translator {
 			Translation: "获得 $1 个参数但需要 $2 个类型参数",
 		},
 
-		// 4. 未定义标识符 (Undefined Identifiers)
+		// 4. Undefined Identifiers
 		{
 			Pattern:     regexp.MustCompile(`^undefined: (.+?)$`),
 			Translation: "未定义: $1",
 		},
 
-		// 5. 重复声明 (Redeclaration Errors)
+		// 5. Redeclaration Errors
 		{
 			Pattern:     regexp.MustCompile(`^(.+?) redeclared in this block$`),
 			Translation: "$1 在此代码块中重复声明",
@@ -78,7 +78,7 @@ func NewTranslator() *Translator {
 			Translation: "$1 在此代码块中重复声明\n\t先前声明位于 $2",
 		},
 
-		// 6. 赋值错误 (Assignment Errors)
+		// 6. Assignment Errors
 		{
 			Pattern:     regexp.MustCompile(`^no new variables on left side of :=\n(.+?): cannot use (.+?) \(type (.+?)\) as type (.+?) in (.+?)$`),
 			Translation: ":= 左侧没有新变量\n$1: 无法将 $2 (类型 $3) 用作类型 $4 在 $5 中",
@@ -104,7 +104,7 @@ func NewTranslator() *Translator {
 			Translation: ":= 左侧没有新变量",
 		},
 
-		// 7. 常量错误 (Constant Errors)
+		// 7. Constant Errors
 		{
 			Pattern:     regexp.MustCompile(`^missing value in const declaration$`),
 			Translation: "const 声明中缺少值",
@@ -114,7 +114,7 @@ func NewTranslator() *Translator {
 			Translation: "非常量 $1",
 		},
 
-		// 8. 函数调用错误 (Function Call Errors)
+		// 8. Function Call Errors
 		{
 			Pattern:     regexp.MustCompile(`^not enough arguments in call to (.+?)\n\thave \(([^)]*)\)\n\twant \(([^)]*)\)$`),
 			Translation: "调用 $1 的参数不足\n\t现有 ($2)\n\t需要 ($3)",
@@ -128,13 +128,13 @@ func NewTranslator() *Translator {
 			Translation: "返回参数数量错误\n\t现有 ($1)\n\t需要 ($2)",
 		},
 
-		// 9. 方法接收器错误 (Method Receiver Errors)
+		// 9. Method Receiver Errors
 		{
 			Pattern:     regexp.MustCompile(`^invalid receiver type (.+?) \((.+?) is (?:not a defined type|a pointer type|an interface type)\)$`),
 			Translation: "无效的接收器类型 $1 ($2)",
 		},
 
-		// 10. Lambda 表达式错误 (Lambda Expression Errors)
+		// 10. Lambda Expression Errors
 		{
 			Pattern:     regexp.MustCompile(`^too (?:few|many) arguments in lambda expression\n\thave \((.+?)\)\n\twant \((.+?)\)$`),
 			Translation: "lambda 表达式参数数量错误\n\t现有 ($1)\n\t需要 ($2)",
@@ -148,7 +148,7 @@ func NewTranslator() *Translator {
 			Translation: "lambda 不支持多重赋值",
 		},
 
-		// 11. 特殊函数错误 (Special Function Errors)
+		// 11. Special Function Errors
 		{
 			Pattern:     regexp.MustCompile(`^func init must have no arguments and no return values$`),
 			Translation: "func init 必须没有参数和返回值",
@@ -158,7 +158,7 @@ func NewTranslator() *Translator {
 			Translation: "内建函数 $1 的使用不在函数调用中",
 		},
 
-		// 12. Switch 语句错误 (Switch Statement Errors)
+		// 12. Switch Statement Errors
 		{
 			Pattern:     regexp.MustCompile(`^duplicate case (.+?) in (?:type )?switch$`),
 			Translation: "switch 中重复的 case $1",
@@ -184,7 +184,7 @@ func NewTranslator() *Translator {
 			Translation: "类型 switch 中有多个 nil case (第一个位于 $1)",
 		},
 
-		// 13. 分支语句错误 (Branch Statement Errors)
+		// 13. Branch Statement Errors
 		{
 			Pattern:     regexp.MustCompile(`^fallthrough statement out of place$`),
 			Translation: "fallthrough 语句位置错误",
@@ -198,13 +198,13 @@ func NewTranslator() *Translator {
 			Translation: "标签 $1 已经定义",
 		},
 
-		// 14. 循环错误 (Loop Errors)
+		// 14. Loop Errors
 		{
 			Pattern:     regexp.MustCompile(`^cannot assign type (.+?) to (.+?) \(type (.+?)\) in range$`),
 			Translation: "无法在 range 中将类型 $1 赋值给 $2 (类型 $3)",
 		},
 
-		// 15. 数组错误 (Array Errors)
+		// 15. Array Errors
 		{
 			Pattern:     regexp.MustCompile(`^array index (\d+) out of bounds \[0:(\d+)\]$`),
 			Translation: "数组索引 $1 超出范围 [0:$2]",
@@ -218,7 +218,7 @@ func NewTranslator() *Translator {
 			Translation: "无法将 $1 用作索引，索引必须是非负整数常量",
 		},
 
-		// 16. 切片错误 (Slice Errors)
+		// 16. Slice Errors
 		{
 			Pattern:     regexp.MustCompile(`^cannot slice (.+?) \(type (.+?)\)$`),
 			Translation: "无法切片 $1 (类型 $2)",
@@ -228,7 +228,7 @@ func NewTranslator() *Translator {
 			Translation: "无效操作 $1 ($2 的 3-索引切片)",
 		},
 
-		// 17. 映射错误 (Map Errors)
+		// 17. Map Errors
 		{
 			Pattern:     regexp.MustCompile(`^missing key in map literal$`),
 			Translation: "映射字面量中缺少键",
@@ -242,7 +242,7 @@ func NewTranslator() *Translator {
 			Translation: "无效的复合字面量类型 $1",
 		},
 
-		// 18. 结构体错误 (Struct Errors)
+		// 18. Struct Errors
 		{
 			Pattern:     regexp.MustCompile(`^too (?:many|few) values in (.+?)\{.*?\}$`),
 			Translation: "$1{...} 中值的数量错误",
@@ -252,7 +252,7 @@ func NewTranslator() *Translator {
 			Translation: "$1 未定义 (类型 $2 没有字段或方法 $3)",
 		},
 
-		// 19. 指针操作错误 (Pointer Operation Errors)
+		// 19. Pointer Operation Errors
 		{
 			Pattern:     regexp.MustCompile(`^invalid indirect of (.+?) \(type (.+?)\)$`),
 			Translation: "无效的间接引用 $1 (类型 $2)",
@@ -262,7 +262,7 @@ func NewTranslator() *Translator {
 			Translation: "无法赋值给 $1 ($2 是不可变的)",
 		},
 
-		// 20. 包导入错误 (Package Import Errors)
+		// 20. Package Import Errors
 		{
 			Pattern:     regexp.MustCompile(`^package (.+?) is not in std$`),
 			Translation: "包 $1 不在标准库中",
@@ -280,7 +280,7 @@ func NewTranslator() *Translator {
 			Translation: "$1 不是一个类型",
 		},
 
-		// 21. XGo 特有错误 (XGo-Specific Errors)
+		// 21. XGo-Specific Errors
 		{
 			Pattern:     regexp.MustCompile(`^operator \$(.+?) undefined$`),
 			Translation: "操作符 $$$1 未定义",
@@ -298,7 +298,7 @@ func NewTranslator() *Translator {
 			Translation: "无法向通道发送多个值",
 		},
 
-		// 22. 编译错误 (Compilation Errors)
+		// 22. Compilation Errors
 		{
 			Pattern:     regexp.MustCompile(`^compile \x60(.+?)\x60: (.+?)$`),
 			Translation: "编译 \x60$1\x60: $2",
@@ -308,7 +308,7 @@ func NewTranslator() *Translator {
 			Translation: "compileExpr 失败: $1",
 		},
 
-		// 23. 类型推导错误 (Type Inference Errors)
+		// 23. Type Inference Errors
 		{
 			Pattern:     regexp.MustCompile(`^expected '(.+?)', found '(.+?)'$`),
 			Translation: "期望 '$1'，但发现 '$2'",
@@ -318,7 +318,7 @@ func NewTranslator() *Translator {
 			Translation: "期望 $1，但发现 $2",
 		},
 
-		// 24. 无效操作 (Invalid Operations)
+		// 24. Invalid Operations
 		{
 			Pattern:     regexp.MustCompile(`^invalid operation: (.+?) \(type (.+?) does not support (.+?)\)$`),
 			Translation: "无效操作: $1 (类型 $2 不支持 $3)",
