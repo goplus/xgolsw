@@ -11,11 +11,9 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
+const title = "My Game"
 MySprite.turn Left
-run "assets", {Title: "My Game"}
+run "assets", {Title: title}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -30,33 +28,29 @@ onStart => {
 		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 1},
+				Position:     Position{Line: 1, Character: 6},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, range1)
 		assert.Equal(t, Range{
-			Start: Position{Line: 2, Character: 1},
-			End:   Position{Line: 2, Character: 9},
+			Start: Position{Line: 1, Character: 6},
+			End:   Position{Line: 1, Character: 11},
 		}, *range1)
 
 		range2, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 0},
+				Position:     Position{Line: 2, Character: 0},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, range2)
-		assert.Equal(t, Range{
-			Start: Position{Line: 4, Character: 0},
-			End:   Position{Line: 4, Character: 8},
-		}, *range2)
+		require.Nil(t, range2)
 
 		range3, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 10},
+				Position:     Position{Line: 2, Character: 14},
 			},
 		})
 		require.NoError(t, err)
@@ -133,9 +127,6 @@ func TestServerTextDocumentRename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 const Foo = "bar"
 MySprite.turn Left
 run "assets", {Title: "My Game"}
@@ -153,7 +144,7 @@ onStart => {
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 4, Character: 6},
+			Position:     Position{Line: 1, Character: 6},
 			NewName:      "Bar",
 		})
 		require.NoError(t, err)
@@ -164,8 +155,8 @@ onStart => {
 		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 4, Character: 6},
-				End:   Position{Line: 4, Character: 9},
+				Start: Position{Line: 1, Character: 6},
+				End:   Position{Line: 1, Character: 9},
 			},
 			NewText: "Bar",
 		})
@@ -184,9 +175,6 @@ onStart => {
 	t.Run("RenameReference", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 const Foo = "bar"
 MySprite.turn Left
 run "assets", {Title: "My Game"}
@@ -215,8 +203,8 @@ onStart => {
 		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 4, Character: 6},
-				End:   Position{Line: 4, Character: 9},
+				Start: Position{Line: 1, Character: 6},
+				End:   Position{Line: 1, Character: 9},
 			},
 			NewText: "Bar",
 		})
@@ -235,139 +223,36 @@ onStart => {
 	t.Run("SpxResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-MySprite.turn Left
+MySprite.turnTo "OtherSprite"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
-	MySprite.turn Right
+	MySprite.turnTo "OtherSprite"
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+			"OtherSprite.spx":                       []byte(``),
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/MySprite/index.json":    []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
 		workspaceEdit, err := s.textDocumentRename(&RenameParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 2, Character: 4},
+			Position:     Position{Line: 1, Character: 0},
 			NewName:      "NewSprite",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
+		require.Nil(t, workspaceEdit)
 
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 2)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			NewText: "NewSprite",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 4, Character: 0},
-				End:   Position{Line: 4, Character: 8},
-			},
-			NewText: "NewSprite",
-		})
-
-		mySpriteSpxChanges := workspaceEdit.Changes["file:///MySprite.spx"]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
-			},
-			NewText: "NewSprite",
-		})
-	})
-
-	t.Run("SpxResourceInOtherSpriteFiles", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MyAircraft MyAircraft
-	Bullet     Bullet
-)
-
-run "assets", {Title: "Bullet (by XGo)"}
-`),
-			"MyAircraft.spx": []byte(`
-onStart => {
-	for {
-		wait 0.1
-		Bullet.clone
-		setXYpos mouseX, mouseY
-	}
-}
-`),
-			"Bullet.spx": []byte(`
-onCloned => {
-	setXYpos MyAircraft.xpos, MyAircraft.ypos+5
-	show
-	for {
-		wait 0.04
-		step 10
-		if touching(Edge) {
-			destroy
-		}
-	}
-}
-`),
-			"assets/index.json":                    []byte(`{}`),
-			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
-			"assets/sprites/Bullet/index.json":     []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///Bullet.spx"},
-			Position:     Position{Line: 2, Character: 10},
-			NewName:      "Jet",
+		workspaceEdit1, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Position:     Position{Line: 1, Character: 16},
+			NewName:      "NewSprite",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 2)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 11},
-			},
-			NewText: "Jet",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 12},
-				End:   Position{Line: 2, Character: 22},
-			},
-			NewText: "Jet",
-		})
-
-		bulletSpxChanges := workspaceEdit.Changes["file:///Bullet.spx"]
-		require.Len(t, bulletSpxChanges, 2)
-		assert.Contains(t, bulletSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 10},
-				End:   Position{Line: 2, Character: 20},
-			},
-			NewText: "Jet",
-		})
-		assert.Contains(t, bulletSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 27},
-				End:   Position{Line: 2, Character: 37},
-			},
-			NewText: "Jet",
-		})
+		require.Nil(t, workspaceEdit1)
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
@@ -573,15 +458,12 @@ func TestServerSpxRenameSoundResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sound1 Sound
-)
 play "Sound1"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
-	play Sound1
+	play "Sound1"
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -601,18 +483,11 @@ onStart => {
 		require.Len(t, changes, 2)
 
 		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 2)
+		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 7},
-			},
-			NewText: "Sound2",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 4, Character: 6},
-				End:   Position{Line: 4, Character: 12},
+				Start: Position{Line: 1, Character: 6},
+				End:   Position{Line: 1, Character: 12},
 			},
 			NewText: "Sound2",
 		})
@@ -621,8 +496,8 @@ onStart => {
 		require.Len(t, mySpriteSpxChanges, 1)
 		assert.Contains(t, mySpriteSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 2, Character: 6},
-				End:   Position{Line: 2, Character: 12},
+				Start: Position{Line: 2, Character: 7},
+				End:   Position{Line: 2, Character: 13},
 			},
 			NewText: "Sound2",
 		})
@@ -656,9 +531,6 @@ func TestServerSpxRenameSpriteResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sprite1 Sprite
-)
 Sprite1.turn Left
 run "assets", {Title: "My Game"}
 `),
@@ -683,82 +555,11 @@ onStart => {
 		require.Len(t, changes, 2)
 
 		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 2)
+		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			NewText: "Sprite2",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 4, Character: 0},
-				End:   Position{Line: 4, Character: 7},
-			},
-			NewText: "Sprite2",
-		})
-
-		sprite1SpxChanges := changes[s.toDocumentURI("Sprite1.spx")]
-		require.Len(t, sprite1SpxChanges, 1)
-		assert.Contains(t, sprite1SpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			NewText: "Sprite2",
-		})
-	})
-
-	t.Run("SpriteType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	Sprite1 Sprite1
-)
-Sprite1.turn Left
-run "assets", {Title: "My Game"}
-`),
-			"Sprite1.spx": []byte(`
-onStart => {
-	Sprite1.turn Right
-}
-`),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteResource(result, id.(SpxSpriteResourceID), "Sprite2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 3)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			NewText: "Sprite2",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 9},
-				End:   Position{Line: 2, Character: 16},
-			},
-			NewText: "Sprite2",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 4, Character: 0},
-				End:   Position{Line: 4, Character: 7},
+				Start: Position{Line: 1, Character: 0},
+				End:   Position{Line: 1, Character: 7},
 			},
 			NewText: "Sprite2",
 		})
@@ -777,10 +578,6 @@ onStart => {
 	t.Run("AlreadyExists", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sprite1 Sprite
-	Sprite2 Sprite
-)
 Sprite1.turn Left
 Sprite2.turn Left
 run "assets", {Title: "My Game"}
@@ -816,11 +613,8 @@ onStart => {
 	t.Run("WrongCodeWithInvalidType", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sprite1 Sprite
-)
-
 onStart => {
+	Sprite1.turn Right
 	invalidFunc()
 }
 
@@ -828,7 +622,7 @@ func invalidFunc() {
 	invalidVar = [rand(-200,200), rand(-200,200)]
 }
 `),
-			"MySprite.spx":                      []byte(``),
+			"Sprite1.spx":                       []byte(``),
 			"assets/index.json":                 []byte(`{}`),
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 		}
@@ -860,9 +654,6 @@ func TestServerSpxRenameSpriteCostumeResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.setCostume "costume1"
 run "assets", {Title: "My Game"}
 `),
@@ -890,8 +681,8 @@ onStart => {
 		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 4, Character: 21},
-				End:   Position{Line: 4, Character: 29},
+				Start: Position{Line: 1, Character: 21},
+				End:   Position{Line: 1, Character: 29},
 			},
 			NewText: "costume2",
 		})
@@ -910,9 +701,6 @@ onStart => {
 	t.Run("AlreadyExists", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.setCostume "costume1"
 run "assets", {Title: "My Game"}
 `),
@@ -940,9 +728,6 @@ onStart => {
 	t.Run("NonExistentSprite", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.setCostume "costume1"
 run "assets", {Title: "My Game"}
 `),
@@ -972,9 +757,6 @@ func TestServerSpxRenameSpriteAnimationResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.animate "anim1"
 run "assets", {Title: "My Game"}
 `),
@@ -1002,8 +784,8 @@ onStart => {
 		require.Len(t, mainSpxChanges, 1)
 		assert.Contains(t, mainSpxChanges, TextEdit{
 			Range: Range{
-				Start: Position{Line: 4, Character: 18},
-				End:   Position{Line: 4, Character: 23},
+				Start: Position{Line: 1, Character: 18},
+				End:   Position{Line: 1, Character: 23},
 			},
 			NewText: "anim2",
 		})
@@ -1022,9 +804,6 @@ onStart => {
 	t.Run("AlreadyExists", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.animate "anim1"
 run "assets", {Title: "My Game"}
 `),
@@ -1052,9 +831,6 @@ onStart => {
 	t.Run("NonExistentSprite", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.animate "anim1"
 run "assets", {Title: "My Game"}
 `),

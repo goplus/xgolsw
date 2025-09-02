@@ -135,7 +135,7 @@ onStart => {
 			Message:  "cannot use float64 value as type int in assignment",
 			Range: Range{
 				Start: Position{Line: 7, Character: 1},
-				End:   Position{Line: 7, Character: 1},
+				End:   Position{Line: 7, Character: 17},
 			},
 		})
 	})
@@ -277,17 +277,13 @@ var (
 	t.Run("SoundResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	Sound1 Sound
-)
-play Sound1
+play "Sound1"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 const ConstSoundName = "ConstSoundName"
 var (
 	VarSoundName string
-	Sound2       Sound
 )
 VarSoundName = "VarSoundName"
 onStart => {
@@ -295,8 +291,7 @@ onStart => {
 	play ConstSoundName
 	play "LiteralSoundName"
 	play VarSoundName
-	play Sound1
-	play Sound2
+	play "Sound1"
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -318,34 +313,42 @@ onStart => {
 					Severity: SeverityError,
 					Message:  `sound resource "Sound1" not found`,
 					Range: Range{
-						Start: Position{Line: 2, Character: 1},
-						End:   Position{Line: 2, Character: 7},
+						Start: Position{Line: 1, Character: 5},
+						End:   Position{Line: 1, Character: 13},
 					},
 				})
 			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 3)
+				require.Len(t, fullReport.Items, 4)
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  "sound resource name cannot be empty",
 					Range: Range{
-						Start: Position{Line: 8, Character: 6},
-						End:   Position{Line: 8, Character: 8},
+						Start: Position{Line: 7, Character: 6},
+						End:   Position{Line: 7, Character: 8},
 					},
 				})
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  `sound resource "ConstSoundName" not found`,
 					Range: Range{
-						Start: Position{Line: 9, Character: 6},
-						End:   Position{Line: 9, Character: 20},
+						Start: Position{Line: 8, Character: 6},
+						End:   Position{Line: 8, Character: 20},
 					},
 				})
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  `sound resource "LiteralSoundName" not found`,
 					Range: Range{
-						Start: Position{Line: 10, Character: 6},
-						End:   Position{Line: 10, Character: 24},
+						Start: Position{Line: 9, Character: 6},
+						End:   Position{Line: 9, Character: 24},
+					},
+				})
+				assert.Contains(t, fullReport.Items, Diagnostic{
+					Severity: SeverityError,
+					Message:  `sound resource "Sound1" not found`,
+					Range: Range{
+						Start: Position{Line: 11, Character: 6},
+						End:   Position{Line: 11, Character: 14},
 					},
 				})
 			default:
@@ -428,16 +431,14 @@ onStart => {
 	t.Run("SpriteResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite    Sprite
-	OtherSprite Sprite
-)
+MySprite.say "hi"
+MySprite.touching "OtherSprite"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
 	say "hi"
-	OtherSprite.say "hi"
+	touching "OtherSprite"
 }
 `),
 			"assets/index.json":                  []byte(`{}`),
@@ -454,12 +455,23 @@ onStart => {
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///main.spx":
+				require.Len(t, fullReport.Items, 1)
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  `sprite resource "OtherSprite" not found`,
 					Range: Range{
-						Start: Position{Line: 3, Character: 1},
-						End:   Position{Line: 3, Character: 12},
+						Start: Position{Line: 2, Character: 18},
+						End:   Position{Line: 2, Character: 31},
+					},
+				})
+			case "file:///MySprite.spx":
+				require.Len(t, fullReport.Items, 1)
+				assert.Contains(t, fullReport.Items, Diagnostic{
+					Severity: SeverityError,
+					Message:  `sprite resource "OtherSprite" not found`,
+					Range: Range{
+						Start: Position{Line: 3, Character: 10},
+						End:   Position{Line: 3, Character: 23},
 					},
 				})
 			default:
@@ -669,33 +681,6 @@ run "assets", {Title: "My Game"}
 		require.NoError(t, err)
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 1)
-		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			assert.Empty(t, fullReport.Items)
-		}
-	})
-
-	t.Run("NoTypeSpriteVarDeclaration", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`// An spx game.
-
-var (
-	MySprite
-)
-
-run "assets", {Title: "My Game"}
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
 			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)

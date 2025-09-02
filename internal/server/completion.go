@@ -759,12 +759,6 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 				}
 			}
 		}
-	case GetSpxSoundType():
-		for spxSound := range ctx.result.spxSoundResourceAutoBindings {
-			if spxSound.Type() == typ {
-				ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSound, "Game")...)
-			}
-		}
 	case GetSpxSoundNameType():
 		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sounds))
 		for spxSoundName := range ctx.result.spxResourceSet.sounds {
@@ -819,7 +813,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	if obj == nil {
 		return nil
 	}
-	named, ok := obj.Type().(*types.Named)
+	named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
 	if !ok {
 		return nil
 	}

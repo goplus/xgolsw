@@ -50,11 +50,6 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 		return ""
 	}
 
-	// Check for selector expression context first.
-	if typeName := tryGetSelectorContext(typeInfo, astFile, ident); typeName != "" {
-		return typeName
-	}
-
 	obj := typeInfo.ObjectOf(ident)
 	if obj == nil || obj.Pkg() == nil {
 		return ""
@@ -67,24 +62,6 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 
 	// Infer type from object properties.
 	return getTypeFromObject(typeInfo, obj)
-}
-
-// tryGetSelectorContext checks if the identifier is in a selector expression context.
-func tryGetSelectorContext(typeInfo *xgotypes.Info, astFile *xgoast.File, ident *xgoast.Ident) string {
-	var typeName string
-	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), true, func(node xgoast.Node) bool {
-		sel, ok := node.(*xgoast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		tv, ok := typeInfo.Types[sel.X]
-		if !ok {
-			return true
-		}
-		typeName = extractTypeName(xgoutil.DerefType(tv.Type))
-		return typeName == ""
-	})
-	return typeName
 }
 
 // tryGetSpxImplicitReceiver handles spx package's special implicit receiver semantics.
@@ -174,7 +151,7 @@ func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
 			continue
 		}
 
-		named, ok := typeName.Type().(*types.Named)
+		named, ok := xgoutil.DerefType(typeName.Type()).(*types.Named)
 		if !ok || !xgoutil.IsNamedStructType(named) {
 			continue
 		}

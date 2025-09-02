@@ -11,10 +11,8 @@ func TestServerTextDocumentReferences(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.turn Left
+MySprite.turn Right
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
@@ -30,7 +28,7 @@ onStart => {
 		mainSpxMySpriteRef, err := s.textDocumentReferences(&ReferenceParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 2},
+				Position:     Position{Line: 1, Character: 0},
 			},
 			Context: ReferenceContext{
 				IncludeDeclaration: true,
@@ -42,15 +40,15 @@ onStart => {
 		assert.Contains(t, mainSpxMySpriteRef, Location{
 			URI: "file:///main.spx",
 			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 9},
+				Start: Position{Line: 1, Character: 0},
+				End:   Position{Line: 1, Character: 8},
 			},
 		})
 		assert.Contains(t, mainSpxMySpriteRef, Location{
 			URI: "file:///main.spx",
 			Range: Range{
-				Start: Position{Line: 4, Character: 0},
-				End:   Position{Line: 4, Character: 8},
+				Start: Position{Line: 2, Character: 0},
+				End:   Position{Line: 2, Character: 8},
 			},
 		})
 		assert.Contains(t, mainSpxMySpriteRef, Location{
@@ -64,7 +62,7 @@ onStart => {
 		mainSpxTurnRef, err := s.textDocumentReferences(&ReferenceParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 9},
+				Position:     Position{Line: 1, Character: 9},
 			},
 			Context: ReferenceContext{
 				IncludeDeclaration: true,
@@ -72,12 +70,19 @@ onStart => {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxTurnRef)
-		require.Len(t, mainSpxTurnRef, 2)
+		require.Len(t, mainSpxTurnRef, 3)
 		assert.Contains(t, mainSpxTurnRef, Location{
 			URI: "file:///main.spx",
 			Range: Range{
-				Start: Position{Line: 4, Character: 9},
-				End:   Position{Line: 4, Character: 13},
+				Start: Position{Line: 1, Character: 9},
+				End:   Position{Line: 1, Character: 13},
+			},
+		})
+		assert.Contains(t, mainSpxTurnRef, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 2, Character: 9},
+				End:   Position{Line: 2, Character: 13},
 			},
 		})
 		assert.Contains(t, mainSpxTurnRef, Location{

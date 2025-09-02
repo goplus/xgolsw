@@ -65,6 +65,9 @@ func (s *Server) findReferenceLocations(result *compileResult, obj types.Object)
 	}
 	locations := make([]Location, 0, len(refIdents))
 	for _, refIdent := range refIdents {
+		if refIdent.Implicit() {
+			continue
+		}
 		locations = append(locations, s.locationForNode(result.proj, refIdent))
 	}
 	return locations

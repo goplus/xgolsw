@@ -11,9 +11,6 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
 MySprite.turn Left
 run "assets", {Title: "My Game"}
 `),
@@ -33,14 +30,8 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxTokens)
 		assert.Equal(t, []uint32{
-			1, 0, 3, 9, 0, // var
-			0, 4, 1, 13, 0, // (
-			1, 1, 8, 5, 1, // MySprite
-			0, 9, 6, 1, 0, // Sprite
-			0, 0, 6, 2, 0, // Sprite
-			1, 0, 1, 13, 0, // )
 			1, 0, 1, 13, 0, // {
-			0, 0, 8, 5, 0, // MySprite
+			0, 0, 8, 6, 0, // MySprite
 			0, 8, 1, 13, 0, // .
 			0, 1, 4, 8, 0, // turn
 			0, 5, 4, 5, 6, // Left
@@ -64,7 +55,7 @@ onStart => {
 			0, 0, 7, 8, 0, // onStart
 			0, 8, 2, 13, 0, // =>
 			0, 3, 1, 13, 0, // {
-			1, 1, 8, 5, 0, // MySprite
+			1, 1, 8, 6, 0, // MySprite
 			0, 8, 1, 13, 0, // .
 			0, 1, 4, 8, 0, // turn
 			0, 5, 5, 5, 6, // Right

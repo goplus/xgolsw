@@ -39,7 +39,7 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 		return nil, nil
 	}
 	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
+	if defIdent == nil || defIdent.Implicit() || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
 		return nil, nil
 	}
 
@@ -56,15 +56,6 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		return nil, nil
 	}
 	position := ToPosition(result.proj, astFile, params.Position)
-
-	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
-		return s.spxRenameResourcesWithCompileResult(result, []SpxRenameResourceParams{{
-			Resource: SpxResourceIdentifier{
-				URI: spxResourceRef.ID.URI(),
-			},
-			NewName: params.NewName,
-		}})
-	}
 
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {

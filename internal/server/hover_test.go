@@ -17,9 +17,6 @@ import (
 )
 
 var (
-	MySound  Sound
-	MySprite Sprite
-
 	// count is a variable.
 	count int
 
@@ -45,7 +42,7 @@ type Point struct {
 
 fmt.Println(int8(1))
 
-play MySound
+play "MySound"
 MySprite.turn Left
 MySprite.setCostume "costume1"
 Game.onClick => {}
@@ -69,48 +66,10 @@ onTouchStart "MySprite", => {}
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
-		mySoundHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 7, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySoundHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sounds/MySound\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 7, Character: 1},
-				End:   Position{Line: 7, Character: 8},
-			},
-		}, mySoundHover)
-
-		mySpriteHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 8, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 8, Character: 1},
-				End:   Position{Line: 8, Character: 9},
-			},
-		}, mySpriteHover)
-
 		varHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 11, Character: 1},
+				Position:     Position{Line: 8, Character: 1},
 			},
 		})
 		require.NoError(t, err)
@@ -121,15 +80,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.count\" overview=\"var count int\">\ncount is a variable.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 11, Character: 1},
-				End:   Position{Line: 11, Character: 6},
+				Start: Position{Line: 8, Character: 1},
+				End:   Position{Line: 8, Character: 6},
 			},
 		}, varHover)
 
 		constHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 17, Character: 6},
+				Position:     Position{Line: 14, Character: 6},
 			},
 		})
 		require.NoError(t, err)
@@ -140,15 +99,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?MaxCount\" overview=\"const MaxCount = 100\">\nMaxCount is a constant.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 17, Character: 6},
-				End:   Position{Line: 17, Character: 14},
+				Start: Position{Line: 14, Character: 6},
+				End:   Position{Line: 14, Character: 14},
 			},
 		}, constHover)
 
 		funcHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 20, Character: 5},
+				Position:     Position{Line: 17, Character: 5},
 			},
 		})
 		require.NoError(t, err)
@@ -159,15 +118,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.Add\" overview=\"func Add(x int, y int) int\">\nAdd is a function.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 20, Character: 5},
-				End:   Position{Line: 20, Character: 8},
+				Start: Position{Line: 17, Character: 5},
+				End:   Position{Line: 17, Character: 8},
 			},
 		}, funcHover)
 
 		typeHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 25, Character: 5},
+				Position:     Position{Line: 22, Character: 5},
 			},
 		})
 		require.NoError(t, err)
@@ -178,15 +137,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Point\" overview=\"type Point\">\nPoint is a type.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 25, Character: 5},
-				End:   Position{Line: 25, Character: 10},
+				Start: Position{Line: 22, Character: 5},
+				End:   Position{Line: 22, Character: 10},
 			},
 		}, typeHover)
 
 		typeFieldHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 27, Character: 1},
+				Position:     Position{Line: 24, Character: 1},
 			},
 		})
 		require.NoError(t, err)
@@ -197,41 +156,41 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Point.X\" overview=\"field X int\">\nX is a field.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 27, Character: 1},
-				End:   Position{Line: 27, Character: 2},
+				Start: Position{Line: 24, Character: 1},
+				End:   Position{Line: 24, Character: 2},
 			},
 		}, typeFieldHover)
 
 		pkgHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 33, Character: 0},
+				Position:     Position{Line: 30, Character: 0},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, pkgHover)
 		assert.Equal(t, Range{
-			Start: Position{Line: 33, Character: 0},
-			End:   Position{Line: 33, Character: 3},
+			Start: Position{Line: 30, Character: 0},
+			End:   Position{Line: 30, Character: 3},
 		}, pkgHover.Range)
 
 		pkgFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 33, Character: 4},
+				Position:     Position{Line: 30, Character: 4},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, pkgFuncHover)
 		assert.Equal(t, Range{
-			Start: Position{Line: 33, Character: 4},
-			End:   Position{Line: 33, Character: 11},
+			Start: Position{Line: 30, Character: 4},
+			End:   Position{Line: 30, Character: 11},
 		}, pkgFuncHover.Range)
 
 		builtinFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 33, Character: 12},
+				Position:     Position{Line: 30, Character: 12},
 			},
 		})
 		require.NoError(t, err)
@@ -242,15 +201,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:builtin?int8\" overview=\"type int8\">\nint8 is the set of all signed 8-bit integers.\nRange: -128 through 127.\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 33, Character: 12},
-				End:   Position{Line: 33, Character: 16},
+				Start: Position{Line: 30, Character: 12},
+				End:   Position{Line: 30, Character: 16},
 			},
 		}, builtinFuncHover)
 
 		mySoundRefHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 35, Character: 5},
+				Position:     Position{Line: 32, Character: 5},
 			},
 		})
 		require.NoError(t, err)
@@ -261,15 +220,15 @@ onTouchStart "MySprite", => {}
 				Value: "<resource-preview resource=\"spx://resources/sounds/MySound\" />\n",
 			},
 			Range: Range{
-				Start: Position{Line: 35, Character: 5},
-				End:   Position{Line: 35, Character: 12},
+				Start: Position{Line: 32, Character: 5},
+				End:   Position{Line: 32, Character: 14},
 			},
 		}, mySoundRefHover)
 
 		mySpriteRefHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 36, Character: 0},
+				Position:     Position{Line: 33, Character: 0},
 			},
 		})
 		require.NoError(t, err)
@@ -280,15 +239,15 @@ onTouchStart "MySprite", => {}
 				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite\" />\n",
 			},
 			Range: Range{
-				Start: Position{Line: 36, Character: 0},
-				End:   Position{Line: 36, Character: 8},
+				Start: Position{Line: 33, Character: 0},
+				End:   Position{Line: 33, Character: 8},
 			},
 		}, mySpriteRefHover)
 
 		mySpriteCostumeRefHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 37, Character: 20},
+				Position:     Position{Line: 34, Character: 20},
 			},
 		})
 		require.NoError(t, err)
@@ -299,28 +258,28 @@ onTouchStart "MySprite", => {}
 				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite/costumes/costume1\" />\n",
 			},
 			Range: Range{
-				Start: Position{Line: 37, Character: 20},
-				End:   Position{Line: 37, Character: 30},
+				Start: Position{Line: 34, Character: 20},
+				End:   Position{Line: 34, Character: 30},
 			},
 		}, mySpriteCostumeRefHover)
 
 		mySpriteSetCostumeFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 37, Character: 9},
+				Position:     Position{Line: 34, Character: 9},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mySpriteSetCostumeFuncHover)
 		assert.Equal(t, Range{
-			Start: Position{Line: 37, Character: 9},
-			End:   Position{Line: 37, Character: 19},
+			Start: Position{Line: 34, Character: 9},
+			End:   Position{Line: 34, Character: 19},
 		}, mySpriteSetCostumeFuncHover.Range)
 
 		GameOnClickHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 38, Character: 5},
+				Position:     Position{Line: 35, Character: 5},
 			},
 		})
 		require.NoError(t, err)
@@ -331,15 +290,15 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 38, Character: 5},
-				End:   Position{Line: 38, Character: 12},
+				Start: Position{Line: 35, Character: 5},
+				End:   Position{Line: 35, Character: 12},
 			},
 		}, GameOnClickHover)
 
 		mainSpxOnClickHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 39, Character: 0},
+				Position:     Position{Line: 36, Character: 0},
 			},
 		})
 		require.NoError(t, err)
@@ -350,23 +309,23 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 39, Character: 0},
-				End:   Position{Line: 39, Character: 7},
+				Start: Position{Line: 36, Character: 0},
+				End:   Position{Line: 36, Character: 7},
 			},
 		}, mainSpxOnClickHover)
 
 		mainSpxOnHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 40, Character: 0},
+				Position:     Position{Line: 37, Character: 0},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxOnHover)
 		assert.Contains(t, mainSpxOnHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Game.on#2"`)
 		assert.Equal(t, Range{
-			Start: Position{Line: 40, Character: 0},
-			End:   Position{Line: 40, Character: 2},
+			Start: Position{Line: 37, Character: 0},
+			End:   Position{Line: 37, Character: 2},
 		}, mainSpxOnHover.Range)
 
 		mySpriteOnClickFuncHover, err := s.textDocumentHover(&HoverParams{

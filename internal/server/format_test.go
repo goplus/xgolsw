@@ -330,11 +330,10 @@ onKey [KeyLeft, KeyRight], (key) => {
 onKey [KeyLeft, KeyRight], (key) => {
 	println "key"
 }
-onTouchStart s => {}
-onTouchStart s => {
+onTouchStart "MySprite", (s) => {
 	println "touched", s
 }
-onTouchStart => {}
+onTouchStart "MySprite", (s) => {}
 onTouchStart (s, t) => { // type mismatch
 }
 onTouchStart 123, (s) => { // type mismatch
@@ -352,18 +351,16 @@ onTouchStart 123, (s) => { // type mismatch
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 13, Character: 0},
+				End:   Position{Line: 12, Character: 0},
 			},
 			NewText: `// An spx game.
 onKey [KeyLeft, KeyRight], () => {
 	println "key"
 }
-onTouchStart => {
-}
-onTouchStart s => {
+onTouchStart "MySprite", (s) => {
 	println "touched", s
 }
-onTouchStart => {
+onTouchStart "MySprite", () => {
 }
 onTouchStart (s, t) => { // type mismatch
 }
