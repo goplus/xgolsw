@@ -32,8 +32,10 @@ func (s *Server) setLanguageFromLocale(locale string) {
 	s.language = i18n.LanguageEN
 
 	// Check if locale starts with Chinese indicators
+	// https://datatracker.ietf.org/doc/html/rfc5646
+	// locale examples: "zh", "zh-CN", "zh-Hans", "zh-Hant-TW"
 	locale = strings.ToLower(locale)
-	if strings.HasPrefix(locale, "zh") || strings.HasPrefix(locale, "cn") {
+	if strings.HasPrefix(locale, "zh") {
 		s.language = i18n.LanguageCN
 	}
 }
