@@ -14,6 +14,7 @@ import (
 	"github.com/goplus/mod/xgomod"
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
 	"github.com/goplus/xgolsw/jsonrpc2"
@@ -50,6 +51,7 @@ type Server struct {
 	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
 	cancelCauseFuncs sync.Map      // Map of request IDs to cancel functions (with cause).
 	scheduler        Scheduler
+	language         i18n.Language // Current language for error message translation
 }
 
 func (s *Server) getProj() *xgo.Project {
@@ -79,6 +81,7 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 		analyzers:        initAnalyzers(true),
 		fileMapGetter:    fileMapGetter,
 		scheduler:        scheduler,
+		language:         i18n.LanguageEN, // Default to English until initialize is called
 	}
 }
 
@@ -110,7 +113,9 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		return errors.New("TODO")
+		s.runForCall(c, func() (any, error) {
+			return s.initialize(&params)
+		})
 	case "shutdown":
 		s.runForCall(c, func() (any, error) {
 			return nil, nil // Protocol conformance only.
