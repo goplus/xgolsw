@@ -270,6 +270,8 @@ type SpxInputSlotAccept =
         | SpxInputType.String
         | SpxInputType.Boolean
         | SpxInputType.SpxDirection
+        | SpxInputType.SpxLayerAction
+        | SpxInputType.SpxDirAction
         | SpxInputType.SpxColor
         | SpxInputType.SpxEffectKind
         | SpxInputType.SpxKey
@@ -325,6 +327,16 @@ enum SpxInputType {
   SpxDirection = 'spx-direction',
 
   /**
+   * layerAction values in spx.
+   */
+  SpxLayerAction = 'spx-layer-action',
+
+  /**
+   * dirAction values in spx.
+   */
+  SpxDirAction = 'spx-dir-action',
+
+  /**
    * Color values in spx.
    */
   SpxColor = 'spx-color',
@@ -374,6 +386,8 @@ type SpxInputTypedValue =
   | { type: SpxInputType.Boolean; value: boolean }
   | { type: SpxInputType.SpxResourceName; value: ResourceURI }
   | { type: SpxInputType.SpxDirection; value: number }
+  | { type: SpxInputType.SpxLayerAction; value: string }
+  | { type: SpxInputType.SpxDirAction; value: string }
   | {
       type: SpxInputType.SpxColor
       value: {

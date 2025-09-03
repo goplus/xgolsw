@@ -473,6 +473,18 @@ var (
 		return spxPkg.Scope().Lookup("Direction").Type().(*types.Alias)
 	})
 
+	// GetSpxLayerActionType returns the [spx.LayerAction] type.
+	GetSpxLayerActionType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("layerAction").Type().(*types.Named)
+	})
+
+	// GetSpxDirActionType returns the [spx.DirLayer] type.
+	GetSpxDirActionType = sync.OnceValue(func() *types.Named {
+		spxPkg := GetSpxPkg()
+		return spxPkg.Scope().Lookup("dirAction").Type().(*types.Named)
+	})
+
 	// GetSpxEffectKindType returns the [spx.EffectKind] type.
 	GetSpxEffectKindType = sync.OnceValue(func() *types.Named {
 		spxPkg := GetSpxPkg()

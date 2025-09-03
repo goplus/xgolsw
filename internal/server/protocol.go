@@ -288,6 +288,8 @@ const (
 	SpxInputTypeBoolean       SpxInputType = "boolean"
 	SpxInputTypeResourceName  SpxInputType = "spx-resource-name"
 	SpxInputTypeDirection     SpxInputType = "spx-direction"
+	SpxInputTypeLayerAction   SpxInputType = "spx-layer-action"
+	SpxInputTypeDirAction     SpxInputType = "spx-dir-action"
 	SpxInputTypeColor         SpxInputType = "spx-color"
 	SpxInputTypeEffectKind    SpxInputType = "spx-effect-kind"
 	SpxInputTypeKey           SpxInputType = "spx-key"
