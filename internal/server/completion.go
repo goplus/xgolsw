@@ -172,6 +172,9 @@ func (ctx *completionContext) analyze() {
 					continue
 				}
 				if j < len(node.Lhs) {
+					if ctx.isAfterNumberLiteral() {
+						continue
+					}
 					ctx.kind = completionKindAssignOrDefine
 					if tv, ok := ctx.typeInfo.Types[node.Lhs[j]]; ok {
 						ctx.expectedTypes = []types.Type{tv.Type}
@@ -217,6 +220,9 @@ func (ctx *completionContext) analyze() {
 					if !ok || len(valueSpec.Names) == 0 {
 						continue
 					}
+					if ctx.isAfterNumberLiteral() {
+						continue
+					}
 					ctx.kind = completionKindDecl
 					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
 						ctx.expectedTypes = []types.Type{typ}
@@ -245,7 +251,9 @@ func (ctx *completionContext) analyze() {
 			ctx.kind = completionKindImport
 			ctx.inStringLit = true
 		case ctx.isLineStart(), ctx.isInIdentifier():
-			ctx.kind = completionKindGeneral
+			if !ctx.isAfterNumberLiteral() {
+				ctx.kind = completionKindGeneral
+			}
 		}
 	}
 
@@ -359,6 +367,53 @@ func (ctx *completionContext) isInIdentifier() bool {
 		}
 	}
 	return false
+}
+
+// isAfterNumberLiteral reports whether the position is immediately after a
+// number literal followed by a dot.
+func (ctx *completionContext) isAfterNumberLiteral() bool {
+	fileBase := xgotoken.Pos(ctx.tokenFile.Base())
+	relPos := ctx.pos - fileBase
+	if relPos < 1 || int(relPos) > len(ctx.astFile.Code) {
+		return false
+	}
+
+	// Check if the previous character is a dot.
+	if ctx.astFile.Code[relPos-1] != '.' {
+		return false
+	}
+
+	// Check if before the dot is a number.
+	if relPos < 2 {
+		return false
+	}
+
+	// Scan backwards to find the start of the number.
+	foundDigit := false
+	for i := relPos - 2; i >= 0; i-- {
+		ch := ctx.astFile.Code[i]
+		if unicode.IsDigit(rune(ch)) {
+			foundDigit = true
+		} else if foundDigit {
+			// Found a non-digit character after finding digits.
+			// Check if it's a valid number terminator.
+			if unicode.IsSpace(rune(ch)) {
+				return true
+			}
+			switch ch {
+			case '=', '(', '{', '\t', '\n':
+				return true
+			}
+			// Found invalid character, not a number literal.
+			return false
+		} else {
+			// Haven't found any digits yet and found a non-digit.
+			return false
+		}
+	}
+
+	// We scanned to the beginning and found only digits.
+	return foundDigit
 }
 
 // enclosingFunction gets the function signature containing the current position.
