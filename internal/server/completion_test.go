@@ -917,6 +917,48 @@ onStart => {
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "MyStruct"))
 	})
+
+	t.Run("NoCompletionAfterNumberLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var x = 123.
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 13}, // After "123."
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionAfterNumberLiteralInShortVarDecl", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	x := 123.
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 10}, // After "123."
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {
