@@ -1,12 +1,12 @@
 package i18n
 
 import (
+	gotoken "go/token"
 	"strings"
 	"testing"
 
-	gotoken "go/token"
-
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTranslator_Translate(t *testing.T) {
@@ -106,9 +106,7 @@ func TestTranslator_Translate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := translator.Translate(tt.msg, tt.lang)
-			if result != tt.expected {
-				t.Errorf("Translate() = %q, expected %q", result, tt.expected)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -118,9 +116,7 @@ func TestTranslate_GlobalFunction(t *testing.T) {
 	result := Translate(`undefined: foo`, LanguageCN)
 	expected := `未定义: foo`
 
-	if result != expected {
-		t.Errorf("Global Translate() = %q, expected %q", result, expected)
-	}
+	assert.Equal(t, expected, result)
 }
 
 // TestCodeBasedErrorTranslation tests error translation using actual xgo code compilation
@@ -566,7 +562,7 @@ func main() {
 
 			// Check if we got the expected error message
 			if tt.expectEnError != "" && actualError != tt.expectEnError {
-				t.Errorf("Got different error than expected. Got: %s, Expected: %s", actualError, tt.expectEnError)
+				assert.Equal(t, tt.expectEnError, actualError, "Got different error than expected")
 			}
 
 			translator := NewTranslator()
@@ -575,7 +571,7 @@ func main() {
 
 			// Check if the translated message equals expected Chinese terms
 			if tt.expectCnError != "" && cnResult != tt.expectCnError {
-				t.Errorf("Chinese translation doesn't equals expected term '%s'. Got: %q", tt.expectCnError, cnResult)
+				assert.Equal(t, tt.expectCnError, cnResult, "Chinese translation doesn't match expected term")
 			}
 		})
 	}

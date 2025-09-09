@@ -1,7 +1,7 @@
 package server
 
 import (
-	"strings"
+	"golang.org/x/text/language"
 
 	"github.com/goplus/xgolsw/i18n"
 )
@@ -31,11 +31,17 @@ func (s *Server) setLanguageFromLocale(locale string) {
 	// Default to English
 	s.language = i18n.LanguageEN
 
-	// Check if locale starts with Chinese indicators
-	// https://datatracker.ietf.org/doc/html/rfc5646
-	// locale examples: "zh", "zh-CN", "zh-Hans", "zh-Hant-TW"
-	locale = strings.ToLower(locale)
-	if strings.HasPrefix(locale, "zh") {
+	// Parse the locale using golang.org/x/text/language
+	tag, err := language.Parse(locale)
+	if err != nil {
+		// If parsing fails, keep the default language
+		return
+	}
+
+	// Check if the base language is Chinese
+	base, _ := tag.Base()
+	chineseBase, _ := language.Chinese.Base()
+	if base == chineseBase {
 		s.language = i18n.LanguageCN
 	}
 }
