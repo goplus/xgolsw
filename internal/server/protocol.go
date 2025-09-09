@@ -77,6 +77,9 @@ type (
 	ParameterInformation = protocol.ParameterInformation
 
 	InitializeParams     = protocol.InitializeParams
+	InitializeResult     = protocol.InitializeResult
+	ServerCapabilities   = protocol.ServerCapabilities
+	ServerInfo           = protocol.ServerInfo
 	InitializedParams    = protocol.InitializedParams
 	ExecuteCommandParams = protocol.ExecuteCommandParams
 	CancelParams         = protocol.CancelParams
