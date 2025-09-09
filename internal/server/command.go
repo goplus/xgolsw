@@ -543,6 +543,8 @@ func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, d
 		}
 	case SpxInputTypeDirection,
 		SpxInputTypeEffectKind,
+		SpxInputTypeLayerAction,
+		SpxInputTypeDirAction,
 		SpxInputTypeKey,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
@@ -770,6 +772,10 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		return SpxInputTypeResourceName
 	case GetSpxDirectionType():
 		return SpxInputTypeDirection
+	case GetSpxLayerActionType():
+		return SpxInputTypeLayerAction
+	case GetSpxDirActionType():
+		return SpxInputTypeDirAction
 	case GetSpxEffectKindType():
 		return SpxInputTypeEffectKind
 	case GetSpxKeyType():

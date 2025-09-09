@@ -23,6 +23,8 @@ onStart => {
 	message := "Hello"
 	isVisible := true
 	direction := Left
+	layerAction := Front
+	dirAction := Forward
 
 	// Function calls with different types.
 	println 42, 3.14, "text"
@@ -82,6 +84,22 @@ onStart => {
 					value:       float64(-90),
 					acceptType:  SpxInputTypeDecimal,
 					inputType:   SpxInputTypeDirection,
+					inputKind:   SpxInputKindInPlace,
+					shouldExist: true,
+				},
+				{
+					name:        "LayerAction",
+					value:       "Front",
+					acceptType:  SpxInputTypeLayerAction,
+					inputType:   SpxInputTypeLayerAction,
+					inputKind:   SpxInputKindInPlace,
+					shouldExist: true,
+				},
+				{
+					name:        "DirAction",
+					value:       "Forward",
+					acceptType:  SpxInputTypeDirAction,
+					inputType:   SpxInputTypeDirAction,
 					inputKind:   SpxInputKindInPlace,
 					shouldExist: true,
 				},

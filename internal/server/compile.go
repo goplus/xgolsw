@@ -386,8 +386,8 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 				// Handle code generation errors.
 				result.addDiagnostics(documentURI, Diagnostic{
 					Severity: SeverityError,
-					Range:    RangeForPos(result.proj, codeError.Pos),
-					Message:  s.translate(codeError.Error()),
+					Range:    RangeForPosEnd(result.proj, codeError.Pos, codeError.End),
+					Message:  codeError.Error(),
 				})
 			} else {
 				// Handle unknown errors (including recovered panics).
