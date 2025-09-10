@@ -91,16 +91,16 @@ var (
 			Severity: SeverityError,
 			Message:  "expected ')', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 23},
-				End:   Position{Line: 3, Character: 23},
+				Start: Position{Line: 3, Character: 22},
+				End:   Position{Line: 3, Character: 22},
 			},
 		})
 		assert.Contains(t, fullReport.Items, Diagnostic{
 			Severity: SeverityError,
 			Message:  "expected ';', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 23},
-				End:   Position{Line: 3, Character: 23},
+				Start: Position{Line: 3, Character: 22},
+				End:   Position{Line: 3, Character: 22},
 			},
 		})
 	})
@@ -248,16 +248,16 @@ var (
 					Severity: SeverityError,
 					Message:  "expected ')', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 23},
-						End:   Position{Line: 3, Character: 23},
+						Start: Position{Line: 3, Character: 22},
+						End:   Position{Line: 3, Character: 22},
 					},
 				})
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  "expected ';', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 23},
-						End:   Position{Line: 3, Character: 23},
+						Start: Position{Line: 3, Character: 22},
+						End:   Position{Line: 3, Character: 22},
 					},
 				})
 			} else {

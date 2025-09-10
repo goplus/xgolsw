@@ -3,7 +3,10 @@ package server
 import (
 	"testing"
 
+	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUTF16Len(t *testing.T) {
@@ -216,7 +219,300 @@ func TestUTF16PosToUTF8Offset(t *testing.T) {
 	}
 }
 
-func TestRangesOverlap(t *testing.T) {
+func TestFromPosition(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		code     string
+		position xgotoken.Position
+		want     Position
+	}{
+		{
+			name: "FirstCharacterOfFile",
+			code: "package main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 1,
+			},
+			want: Position{
+				Line:      0,
+				Character: 0,
+			},
+		},
+		{
+			name: "MiddleOfFirstLine",
+			code: "package main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 8,
+			},
+			want: Position{
+				Line:      0,
+				Character: 7,
+			},
+		},
+		{
+			name: "EndOfFirstLine",
+			code: "package main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 13,
+			},
+			want: Position{
+				Line:      0,
+				Character: 12,
+			},
+		},
+		{
+			name: "SecondLineStart",
+			code: "package main\nimport \"fmt\"",
+			position: xgotoken.Position{
+				Line:   2,
+				Column: 1,
+			},
+			want: Position{
+				Line:      1,
+				Character: 0,
+			},
+		},
+		{
+			name: "SecondLineMiddle",
+			code: "package main\nimport \"fmt\"",
+			position: xgotoken.Position{
+				Line:   2,
+				Column: 7,
+			},
+			want: Position{
+				Line:      1,
+				Character: 6,
+			},
+		},
+		{
+			name: "WithCJKCharacters",
+			code: "// 世界\npackage main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 4, // After "// "
+			},
+			want: Position{
+				Line:      0,
+				Character: 3, // "// " is 3 UTF-16 units
+			},
+		},
+		{
+			name: "AfterCJKCharacters",
+			code: "// 世界\npackage main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 8, // After "// 世界" (UTF-8: 3 + 3 + 3 = 9 bytes, but column is 8)
+			},
+			want: Position{
+				Line:      0,
+				Character: 5, // "// " (3) + "世界" (2) = 5 UTF-16 units
+			},
+		},
+		{
+			name: "WithEmoji",
+			code: "// 😀\npackage main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 4, // After "// "
+			},
+			want: Position{
+				Line:      0,
+				Character: 3, // "// " is 3 UTF-16 units
+			},
+		},
+		{
+			name: "AfterEmoji",
+			code: "// 😀\npackage main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 8, // After "// 😀" (UTF-8: 3 + 4 = 7 bytes, column would be 8)
+			},
+			want: Position{
+				Line:      0,
+				Character: 5, // "// " (3) + emoji (2) = 5 UTF-16 units
+			},
+		},
+		{
+			name: "EmptyLine",
+			code: "package main\n\nfunc main() {}",
+			position: xgotoken.Position{
+				Line:   2,
+				Column: 1,
+			},
+			want: Position{
+				Line:      1,
+				Character: 0,
+			},
+		},
+		{
+			name: "WithTabs",
+			code: "\tpackage main",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 2,
+			},
+			want: Position{
+				Line:      0,
+				Character: 1, // Tab is 1 UTF-16 unit
+			},
+		},
+		{
+			name: "ColumnExceedsLineLength",
+			code: "abc",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 10, // Beyond the line length
+			},
+			want: Position{
+				Line:      0,
+				Character: 3, // Should be clamped to the line length
+			},
+		},
+		{
+			name: "ZeroLineAndColumn",
+			code: "package main",
+			position: xgotoken.Position{
+				Line:   0, // Invalid line (will be corrected to 1)
+				Column: 0, // Invalid column (will be corrected to 1)
+			},
+			want: Position{
+				Line:      0,
+				Character: 0,
+			},
+		},
+		{
+			name: "NegativeLineAndColumn",
+			code: "package main",
+			position: xgotoken.Position{
+				Line:   -1, // Invalid line (will be corrected to 1)
+				Column: -1, // Invalid column (will be corrected to 1)
+			},
+			want: Position{
+				Line:      0,
+				Character: 0,
+			},
+		},
+		{
+			name: "ColumnExceedsLineLengthWithNewline",
+			code: "abc\ndef",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 10, // Beyond the first line length
+			},
+			want: Position{
+				Line:      0,
+				Character: 3, // Should be clamped to the first line length (3 chars in "abc")
+			},
+		},
+		{
+			name: "ColumnExceedsLineLengthMultiLine",
+			code: "first\nsecond line\nthird",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 20, // Way beyond the first line
+			},
+			want: Position{
+				Line:      0,
+				Character: 5, // Should be "first" which is 5 chars
+			},
+		},
+		{
+			name: "ColumnExactlyAtNewline",
+			code: "test\nnext",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 5, // Points to the newline character position
+			},
+			want: Position{
+				Line:      0,
+				Character: 4, // Should be "test" which is 4 chars
+			},
+		},
+		{
+			name: "ColumnAfterNewline",
+			code: "line1\nline2",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 6, // Points after the newline character
+			},
+			want: Position{
+				Line:      0,
+				Character: 5, // Should be clamped to "line1" length (5 chars)
+			},
+		},
+		{
+			name: "LastLineWithoutNewline",
+			code: "first\nlast",
+			position: xgotoken.Position{
+				Line:   2,
+				Column: 5, // Points to end of last line (no newline after it)
+			},
+			want: Position{
+				Line:      1,
+				Character: 4, // Should be "last" which is 4 chars
+			},
+		},
+		{
+			name: "LineExceedsFileLineCount",
+			code: "line1\nline2",
+			position: xgotoken.Position{
+				Line:   5, // File only has 2 lines
+				Column: 1,
+			},
+			want: Position{
+				Line:      1, // Should be clamped to last line (line 2, 0-indexed as 1)
+				Character: 0,
+			},
+		},
+		{
+			name: "MultiByteCharacterMidLine",
+			code: "var café = 1",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 5, // After "var "
+			},
+			want: Position{
+				Line:      0,
+				Character: 4, // "var " is 4 UTF-16 units
+			},
+		},
+		{
+			name: "AfterAccentedCharacter",
+			code: "var café = 1",
+			position: xgotoken.Position{
+				Line:   1,
+				Column: 9, // After "var café"
+			},
+			want: Position{
+				Line:      0,
+				Character: 8, // "var café" is 8 UTF-16 units
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := xgotoken.NewFileSet()
+			files := map[string]*xgo.File{
+				"test.gop": {Content: []byte(tt.code)},
+			}
+			proj := xgo.NewProject(fset, files, xgo.FeatAll)
+
+			astPkg, err := proj.ASTPackage()
+			require.NoError(t, err)
+			require.NotNil(t, astPkg)
+
+			astFile, ok := astPkg.Files["test.gop"]
+			require.True(t, ok)
+			require.NotNil(t, astFile)
+
+			got := FromPosition(proj, astFile, tt.position)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestIsRangesOverlap(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		a    Range
