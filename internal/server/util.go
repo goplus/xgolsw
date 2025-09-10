@@ -125,13 +125,25 @@ func PositionOffset(content []byte, position Position) int {
 func FromPosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Position) Position {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
-	line := position.Line
+	line := min(max(position.Line, 1), tokenFile.LineCount())
+	column := max(position.Column, 1)
+
 	lineStart := int(tokenFile.LineStart(line))
 	relLineStart := lineStart - tokenFile.Base()
-	lineContent := astFile.Code[relLineStart : relLineStart+position.Column-1]
+
+	lineEndOffset := len(astFile.Code)
+	if line < tokenFile.LineCount() {
+		lineEndOffset = int(tokenFile.LineStart(line+1)) - tokenFile.Base()
+	}
+	lineEnd := max(min(relLineStart+column-1, lineEndOffset), relLineStart)
+
+	lineContent := astFile.Code[relLineStart:lineEnd]
+	if len(lineContent) > 0 && lineContent[len(lineContent)-1] == '\n' {
+		lineContent = lineContent[:len(lineContent)-1]
+	}
 
 	return Position{
-		Line:      uint32(position.Line - 1),
+		Line:      uint32(line - 1),
 		Character: uint32(UTF16Len(string(lineContent))),
 	}
 }

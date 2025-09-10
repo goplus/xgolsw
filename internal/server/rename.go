@@ -107,10 +107,11 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			continue
 		}
 
-		nodePos := fset.Position(ref.Node.Pos())
-		nodeEnd := fset.Position(ref.Node.End())
+		node := ref.Node
+		nodePos := fset.Position(node.Pos())
+		nodeEnd := fset.Position(node.End())
 
-		if expr, ok := ref.Node.(xgoast.Expr); ok && types.AssignableTo(typeInfo.TypeOf(expr), types.Typ[types.String]) {
+		if expr, ok := node.(xgoast.Expr); ok && types.AssignableTo(typeInfo.TypeOf(expr), types.Typ[types.String]) {
 			if ident, ok := expr.(*xgoast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
@@ -118,8 +119,9 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 				if defIdent != nil && xgoutil.NodeTokenFile(result.proj.Fset, defIdent) != nil {
 					parent, ok := defIdent.Obj.Decl.(*xgoast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {
-						nodePos = fset.Position(parent.Values[0].Pos())
-						nodeEnd = fset.Position(parent.Values[0].End())
+						node = parent.Values[0]
+						nodePos = fset.Position(node.Pos())
+						nodeEnd = fset.Position(node.End())
 					}
 				}
 			}
@@ -132,7 +134,7 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 		}
 
 		astPkg, _ := result.proj.ASTPackage()
-		astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, ref.Node)
+		astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, node)
 		textEdit := TextEdit{
 			Range: Range{
 				Start: FromPosition(result.proj, astFile, nodePos),
