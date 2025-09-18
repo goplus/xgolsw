@@ -1,5 +1,4 @@
 version: 2
-
 multi-ecosystem-groups:
   infrastructure:
     schedule:
@@ -7,7 +6,6 @@ multi-ecosystem-groups:
   go-modules:
     schedule:
       interval: weekly
-
 updates:
   - package-ecosystem: github-actions
     directory: /
