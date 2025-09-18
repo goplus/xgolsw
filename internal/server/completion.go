@@ -132,8 +132,46 @@ func (ctx *completionContext) analyze() {
 				continue
 			}
 
-			// Only set call context if no more specific context has been set.
-			if ctx.kind == completionKindUnknown {
+			// In XGo, map literals can be passed directly to functions without
+			// explicit type declaration, e.g., `println {"foo": value}`.
+			// When the cursor is inside such a map literal, we should provide
+			// general completions (including variables) rather than restricting
+			// to the expected parameter type.
+			shouldSetCallContext := ctx.kind == completionKindUnknown
+
+			// Check if cursor is inside a composite literal argument where we want
+			// general completions.
+			if shouldSetCallContext {
+				for _, arg := range node.Args {
+					comp, ok := arg.(*xgoast.CompositeLit)
+					if !ok {
+						continue
+					}
+					if comp.Pos() <= ctx.pos && ctx.pos <= comp.End() {
+						// Don't set call context for map literals.
+						if ctx.isMapLiteral(comp) {
+							shouldSetCallContext = false
+							break
+						}
+
+						// Also don't set call context if we're in a struct literal
+						// field value position.
+						for _, elt := range comp.Elts {
+							if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+								if kv.Colon < ctx.pos && ctx.pos <= kv.Value.End() {
+									shouldSetCallContext = false
+									break
+								}
+							}
+						}
+						if !shouldSetCallContext {
+							break
+						}
+					}
+				}
+			}
+
+			if shouldSetCallContext {
 				ctx.kind = completionKindCall
 				ctx.enclosingNode = node
 			}
@@ -149,12 +187,37 @@ func (ctx *completionContext) analyze() {
 				}
 			}
 			typ := xgoutil.DerefType(tv.Type)
+
+			// Skip map literals, as they should use general completion to allow
+			// variable suggestions inside the literal.
+			if isMapType(typ) {
+				continue
+			}
+
 			named, ok := typ.(*types.Named)
 			if !ok {
 				continue
 			}
 			st, ok := named.Underlying().(*types.Struct)
 			if !ok {
+				continue
+			}
+
+			// Check if we're in a field value position (after the colon in `field: value`).
+			// If so, we want general completion for the value, not struct field completion.
+			inFieldValue := false
+			for _, elt := range node.Elts {
+				if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+					// Check if cursor is in the value part of the key-value pair.
+					if kv.Colon < ctx.pos && ctx.pos <= kv.Value.End() {
+						inFieldValue = true
+						break
+					}
+				}
+			}
+
+			if inFieldValue {
+				// Don't set struct literal context for field values.
 				continue
 			}
 
@@ -172,6 +235,9 @@ func (ctx *completionContext) analyze() {
 					continue
 				}
 				if j < len(node.Lhs) {
+					if ctx.isAfterNumberLiteral() {
+						continue
+					}
 					ctx.kind = completionKindAssignOrDefine
 					if tv, ok := ctx.typeInfo.Types[node.Lhs[j]]; ok {
 						ctx.expectedTypes = []types.Type{tv.Type}
@@ -217,6 +283,9 @@ func (ctx *completionContext) analyze() {
 					if !ok || len(valueSpec.Names) == 0 {
 						continue
 					}
+					if ctx.isAfterNumberLiteral() {
+						continue
+					}
 					ctx.kind = completionKindDecl
 					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
 						ctx.expectedTypes = []types.Type{typ}
@@ -245,7 +314,9 @@ func (ctx *completionContext) analyze() {
 			ctx.kind = completionKindImport
 			ctx.inStringLit = true
 		case ctx.isLineStart(), ctx.isInIdentifier():
-			ctx.kind = completionKindGeneral
+			if !ctx.isAfterNumberLiteral() {
+				ctx.kind = completionKindGeneral
+			}
 		}
 	}
 
@@ -356,6 +427,94 @@ func (ctx *completionContext) isInIdentifier() bool {
 		// If we've scanned past our position, we're not in an identifier.
 		if pos > ctx.pos {
 			break
+		}
+	}
+	return false
+}
+
+// isAfterNumberLiteral reports whether the position is immediately after a
+// number literal followed by a dot.
+func (ctx *completionContext) isAfterNumberLiteral() bool {
+	fileBase := xgotoken.Pos(ctx.tokenFile.Base())
+	relPos := ctx.pos - fileBase
+	if relPos < 1 || int(relPos) > len(ctx.astFile.Code) {
+		return false
+	}
+
+	// Check if the previous character is a dot.
+	if ctx.astFile.Code[relPos-1] != '.' {
+		return false
+	}
+
+	// Check if before the dot is a number.
+	if relPos < 2 {
+		return false
+	}
+
+	// Scan backwards to find the start of the number.
+	foundDigit := false
+	for i := relPos - 2; i >= 0; i-- {
+		ch := ctx.astFile.Code[i]
+		if unicode.IsDigit(rune(ch)) {
+			foundDigit = true
+		} else if foundDigit {
+			// Found a non-digit character after finding digits.
+			// Check if it's a valid number terminator.
+			if unicode.IsSpace(rune(ch)) {
+				return true
+			}
+			switch ch {
+			case '=', '(', '{', '\t', '\n':
+				return true
+			}
+			// Found invalid character, not a number literal.
+			return false
+		} else {
+			// Haven't found any digits yet and found a non-digit.
+			return false
+		}
+	}
+
+	// We scanned to the beginning and found only digits.
+	return foundDigit
+}
+
+// isMapType reports whether the given type is a map type.
+func isMapType(typ types.Type) bool {
+	_, isMap := typ.Underlying().(*types.Map)
+	return isMap
+}
+
+// isMapLiteral reports whether the given [xgoast.CompositeLit] represents a map
+// literal.
+//
+// In XGo, map literals can be written without explicit type declaration when
+// passed as function arguments, e.g., `println {"key": value}`.
+func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
+	// Check if we have type information.
+	if tv, ok := ctx.typeInfo.Types[comp]; ok {
+		return isMapType(tv.Type)
+	}
+
+	// Try to get type information from the Type field if available.
+	if comp.Type != nil {
+		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok {
+			return isMapType(tv.Type)
+		}
+
+		// If we have an explicit type but no type info, it's likely not a map.
+		// XGo-style map literals don't have an explicit type.
+		return false
+	}
+
+	// No type info available, but could still be an XGo-style map literal.
+	// Check if it contains key-value pairs (characteristic of map literals).
+	//
+	// Note: An empty composite literal {} is ambiguous and could be either
+	// a map or struct, so we don't consider it a map without type info.
+	for _, elt := range comp.Elts {
+		if _, isKV := elt.(*xgoast.KeyValueExpr); isKV {
+			return true
 		}
 	}
 	return false

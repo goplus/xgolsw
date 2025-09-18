@@ -1,5 +1,0 @@
-coverage:
-  ignore:
-    - "jsonrpc2"
-    - "protocol"
-    - "pkgdoc"

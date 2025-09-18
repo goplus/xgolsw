@@ -290,6 +290,30 @@ var (
 		require.NoError(t, err)
 		assert.Nil(t, inputSlots)
 	})
+
+	t.Run("IncompleteMethodDeclaration", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Foo struct {
+    bar string
+}
+
+func (Foo) Bar`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+
+		var (
+			inputSlots []SpxInputSlot
+			err        error
+		)
+		assert.NotPanics(t, func() {
+			inputSlots, err = s.spxGetInputSlots(params)
+		})
+		require.NoError(t, err)
+		assert.Nil(t, inputSlots)
+	})
 }
 
 func TestFindInputSlots(t *testing.T) {
