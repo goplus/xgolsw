@@ -1051,6 +1051,35 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(items, "count"))
 	})
 
+	t.Run("XGoMapLiteralWithoutType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func printData(data any) {
+	echo data
+}
+
+onStart => {
+	var myVar string
+	printData {
+		"name": m
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 11}, // After "m" in map value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "myVar"))
+	})
+
 	t.Run("RegularStructLitNotAffected", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -1139,7 +1168,7 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(items, "num"))
 	})
 
-	t.Run("StructLiteralFieldCompletion", func(t *testing.T) {
+	t.Run("StructLitFieldValue", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 type MyStruct struct {
@@ -1172,17 +1201,41 @@ onStart => {
 		}
 	})
 
-	t.Run("XGoMapLiteralWithoutType", func(t *testing.T) {
+	t.Run("SimpleReturn", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-func printData(data any) {
-	echo data
+func getName() string {
+	var str string = "myName"
+	return s
 }
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
-onStart => {
-	var myVar string
-	printData {
-		"name": m
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 9}, // After "s" in return
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.False(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("TypedMapLitInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func countFunc() int { return 42 }
+func countFuncNoReturnValue() {}
+func countFuncMultiReturnValues() (int, int) { return 0, 1 }
+
+func getData() map[string]int {
+	var count int = 42
+	return map[string]int{
+		"total": c
 	}
 }
 `),
@@ -1192,13 +1245,413 @@ onStart => {
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 8, Character: 11}, // After "m" in map value
+				Position:     Position{Line: 8, Character: 12}, // After "c" in map value
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "myVar"))
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "countFunc"))
+		assert.False(t, containsCompletionItemLabel(items, "countFuncNoReturnValue"))
+		assert.False(t, containsCompletionItemLabel(items, "countFuncMultiReturnValues"))
+	})
+
+	t.Run("XGoStyleMapLitInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func appNameFunc() string { return "myApp" }
+func appNameFuncNoReturnValue() {}
+func appNameFuncMultiReturnValues() (string, string) { return "app1", "app2" }
+
+func getConfig() map[string]string {
+	var appName = "myApp"
+	return {
+		"name": a
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 11}, // After "a" in map value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "appName"))
+		assert.True(t, containsCompletionItemLabel(items, "appNameFunc"))
+		assert.False(t, containsCompletionItemLabel(items, "appNameFuncNoReturnValue"))
+		assert.False(t, containsCompletionItemLabel(items, "appNameFuncMultiReturnValues"))
+	})
+
+	t.Run("XGoStyleNestedMapLitInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getNestedData() map[string]map[string]int {
+	var total int = 100
+	return {
+		"stats": {
+			"count": t
+		}
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 13}, // After "t" in nested map value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "total"))
+	})
+
+	t.Run("MapLitInMultiReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getResult() (map[string]int, error) {
+	var result int = 42
+	return {
+		"value": r
+	}, nil
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 12}, // After "r" in map value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "result"))
+	})
+
+	t.Run("TypedStructLitInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Person struct {
+	Name string
+	Age  int
+}
+
+func getPerson() Person {
+	var myName = "Alice"
+	var myAge = 25
+	return Person{
+		Name: m
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 9}, // After "m" in struct field value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "myName"))
+		assert.True(t, containsCompletionItemLabel(items, "myAge"))
+	})
+
+	t.Run("PointerStructLitInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Config struct {
+	Host string
+	Port int
+}
+
+func getConfig() *Config {
+	var defaultHost = "localhost"
+	var defaultPort = 8080
+	return &Config{
+		Host: d
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 9}, // After "d" in struct field value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "defaultHost"))
+		assert.True(t, containsCompletionItemLabel(items, "defaultPort"))
+	})
+
+	t.Run("FuncLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var myCallback = func(x int) int {
+		var result = x * 2
+		return r
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 10}, // After "r" in return statement
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "result"))
+	})
+
+	t.Run("FuncLiteralAsArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func process(fn func(int) int) {
+	echo fn(10)
+}
+
+onStart => {
+	var multiplier = 3
+	process func(x int) int {
+		var product = x * multiplier
+		return p
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 10}, // After "p" in return statement
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "product"))
+		assert.False(t, containsCompletionItemLabel(items, "process"))
+	})
+
+	t.Run("SliceLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var first = 10
+	var second = 20
+	var nums = []int{
+		f
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 3}, // After "f" in slice literal
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "first"))
+	})
+
+	t.Run("SliceLiteralInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getNumbers() []int {
+	var num1 = 100
+	var num2 = 200
+	return []int{
+		n
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 3}, // After "n" in slice literal
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "num1"))
+		assert.True(t, containsCompletionItemLabel(items, "num2"))
+	})
+
+	t.Run("XGoStyleSliceLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func printSlice(s []string) {
+	echo s
+}
+
+onStart => {
+	var item1 = "hello"
+	var item2 = "world"
+	printSlice [
+		i
+	]
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 3}, // After "i" in slice literal
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "item1"))
+		assert.True(t, containsCompletionItemLabel(items, "item2"))
+	})
+
+	t.Run("XGoStyleSliceLiteralInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getItems() []string {
+	var item1 = "hello"
+	var item2 = "world"
+	return [
+		i
+	]
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 3}, // After "i" in slice literal
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "item1"))
+		assert.True(t, containsCompletionItemLabel(items, "item2"))
+	})
+
+	t.Run("NestedSliceLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func processMatrix(m [][]int) {
+	echo m
+}
+
+onStart => {
+	var value = 42
+	processMatrix [][]int{
+		[]int{v},
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 9}, // After "v" in nested slice
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "value"))
+	})
+
+	t.Run("ArrayLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var element1 = "a"
+	var element2 = "b"
+	var arr = [3]string{
+		e
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 3}, // After "e" in array literal
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "element1"))
+		assert.True(t, containsCompletionItemLabel(items, "element2"))
+	})
+
+	t.Run("FuncLiteralInReturn", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getHandler() func(int) int {
+	var factor = 5
+	return func(x int) int {
+		var result = x * factor
+		return r
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 10}, // After "r" in inner return
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "result"))
 	})
 }
 
