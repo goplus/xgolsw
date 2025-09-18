@@ -132,17 +132,25 @@ func (ctx *completionContext) analyze() {
 				continue
 			}
 
-			// In XGo, map literals can be passed directly to functions without
+			// In XGo, map literals can be passed directly to funcs without
 			// explicit type declaration, e.g., `println {"foo": value}`.
 			// When the cursor is inside such a map literal, we should provide
 			// general completions (including variables) rather than restricting
 			// to the expected parameter type.
 			shouldSetCallContext := ctx.kind == completionKindUnknown
 
-			// Check if cursor is inside a composite literal argument where we want
-			// general completions.
+			// Check if cursor is inside a composite literal or slice literal argument
+			// where we want general completions.
 			if shouldSetCallContext {
 				for _, arg := range node.Args {
+					// Check for SliceLit (XGo-style slice literals)
+					if sl, ok := arg.(*xgoast.SliceLit); ok {
+						if sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
+							shouldSetCallContext = false
+							break
+						}
+					}
+
 					comp, ok := arg.(*xgoast.CompositeLit)
 					if !ok {
 						continue
@@ -154,11 +162,17 @@ func (ctx *completionContext) analyze() {
 							break
 						}
 
+						// Don't set call context for slice or array literals.
+						if ctx.isSliceOrArrayLiteral(comp) {
+							shouldSetCallContext = false
+							break
+						}
+
 						// Also don't set call context if we're in a struct literal
 						// field value position.
 						for _, elt := range comp.Elts {
 							if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
-								if kv.Colon < ctx.pos && ctx.pos <= kv.Value.End() {
+								if kv.Colon < ctx.pos {
 									shouldSetCallContext = false
 									break
 								}
@@ -175,6 +189,14 @@ func (ctx *completionContext) analyze() {
 				ctx.kind = completionKindCall
 				ctx.enclosingNode = node
 			}
+		case *xgoast.FuncLit:
+			// Skip FuncLit, as we want general completion inside function literals
+			// to allow access to all variables and identifiers.
+			continue
+		case *xgoast.SliceLit:
+			// Skip SliceLit, as XGo-style slice literals should allow general completion
+			// to access all variables and identifiers.
+			continue
 		case *xgoast.CompositeLit:
 			tv, ok := ctx.typeInfo.Types[node]
 			if !ok {
@@ -191,6 +213,15 @@ func (ctx *completionContext) analyze() {
 			// Skip map literals, as they should use general completion to allow
 			// variable suggestions inside the literal.
 			if isMapType(typ) {
+				continue
+			}
+
+			// Skip slice and array literals, as they should also use general completion
+			// to allow variable suggestions inside the literal.
+			if _, ok := typ.Underlying().(*types.Slice); ok {
+				continue
+			}
+			if _, ok := typ.Underlying().(*types.Array); ok {
 				continue
 			}
 
@@ -260,10 +291,90 @@ func (ctx *completionContext) analyze() {
 			if results.Len() == 0 {
 				continue
 			}
-			ctx.kind = completionKindReturn
-			ctx.returnIndex = ctx.findReturnValueIndex(node)
-			if ctx.returnIndex >= 0 && ctx.returnIndex < results.Len() {
-				ctx.expectedTypes = []types.Type{results.At(ctx.returnIndex).Type()}
+
+			// Check if cursor is inside a composite literal (map or struct) in the
+			// return statement. If the cursor is in a value position, we should allow
+			// general completion instead of restricting to return type completion.
+			shouldSetReturnContext := true
+			var mapValueExpectedType types.Type
+			for j, result := range node.Results {
+				// Check for CompositeLit directly or within UnaryExpr (e.g., &Struct{}).
+				var comp *xgoast.CompositeLit
+				var sliceLit *xgoast.SliceLit
+				switch expr := result.(type) {
+				case *xgoast.CompositeLit:
+					comp = expr
+				case *xgoast.SliceLit:
+					// Handle XGo-style slice literal [...].
+					sliceLit = expr
+				case *xgoast.UnaryExpr:
+					// Handle &Struct{...} case.
+					if c, ok := expr.X.(*xgoast.CompositeLit); ok {
+						comp = c
+					}
+				}
+
+				// Handle XGo-style slice literal.
+				if sliceLit != nil && sliceLit.Pos() <= ctx.pos && ctx.pos <= sliceLit.End() {
+					// For XGo-style slice literals, allow general completions.
+					ctx.itemSet.setDisallowVoidFuncs(true)
+					shouldSetReturnContext = false
+					break
+				}
+
+				if comp != nil && comp.Pos() <= ctx.pos && ctx.pos <= comp.End() {
+					// Check if we're in a value position inside a composite literal.
+					// This applies to maps, slices, and arrays.
+					if valueExpr := ctx.valueExprAtPos(comp); valueExpr != nil {
+						var expected types.Type
+						if j < results.Len() {
+							expected = results.At(j).Type()
+						}
+						if ctx.isMapLiteral(comp) {
+							if elemType := ctx.expectedMapElementTypeAtPos(comp, expected); elemType != nil {
+								mapValueExpectedType = elemType
+							}
+							ctx.itemSet.setDisallowVoidFuncs(true)
+						}
+						// Also handle slices and arrays in value position.
+						if ctx.isSliceOrArrayLiteral(comp) {
+							ctx.itemSet.setDisallowVoidFuncs(true)
+						}
+						shouldSetReturnContext = false
+						break
+					}
+					if ctx.isSliceOrArrayLiteral(comp) {
+						shouldSetReturnContext = false
+						break
+					}
+				}
+			}
+
+			if mapValueExpectedType == nil {
+				if idx := ctx.findReturnValueIndex(node); idx >= 0 && idx < results.Len() {
+					if mapType, ok := xgoutil.DerefType(results.At(idx).Type()).Underlying().(*types.Map); ok {
+						mapValueExpectedType = mapType.Elem()
+					}
+				}
+			}
+			if mapValueExpectedType == nil {
+				for result := range results.Variables() {
+					if mapType, ok := xgoutil.DerefType(result.Type()).Underlying().(*types.Map); ok {
+						mapValueExpectedType = mapType.Elem()
+						break
+					}
+				}
+			}
+			if mapValueExpectedType != nil {
+				ctx.expectedTypes = []types.Type{mapValueExpectedType}
+			}
+
+			if shouldSetReturnContext {
+				ctx.kind = completionKindReturn
+				ctx.returnIndex = ctx.findReturnValueIndex(node)
+				if ctx.returnIndex >= 0 && ctx.returnIndex < results.Len() {
+					ctx.expectedTypes = []types.Type{results.At(ctx.returnIndex).Type()}
+				}
 			}
 		case *xgoast.GoStmt:
 			ctx.kind = completionKindCall
@@ -485,6 +596,47 @@ func isMapType(typ types.Type) bool {
 	return isMap
 }
 
+// isSliceOrArrayLiteral reports whether the given [xgoast.CompositeLit]
+// represents a slice or array literal.
+//
+// In XGo, slice literals can be written without explicit type declaration when
+// passed as function arguments, e.g., `printSlice [1, 2, 3]`.
+func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) bool {
+	// Check if we have type information.
+	if tv, ok := ctx.typeInfo.Types[comp]; ok {
+		typ := tv.Type.Underlying()
+		_, isSlice := typ.(*types.Slice)
+		_, isArray := typ.(*types.Array)
+		return isSlice || isArray
+	}
+
+	// Try to get type information from the Type field if available.
+	if comp.Type != nil {
+		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok {
+			typ := tv.Type.Underlying()
+			_, isSlice := typ.(*types.Slice)
+			_, isArray := typ.(*types.Array)
+			return isSlice || isArray
+		}
+	}
+
+	// No type info available. In XGo, slice literals without key-value pairs
+	// could be slice literals (e.g., [1, 2, 3]).
+	// If all elements are NOT key-value pairs, it might be a slice.
+	if len(comp.Elts) > 0 {
+		for _, elt := range comp.Elts {
+			if _, isKV := elt.(*xgoast.KeyValueExpr); isKV {
+				// Has key-value pairs, so it's not a slice
+				return false
+			}
+		}
+		// No key-value pairs, could be a slice literal
+		return true
+	}
+
+	return false
+}
+
 // isMapLiteral reports whether the given [xgoast.CompositeLit] represents a map
 // literal.
 //
@@ -520,22 +672,154 @@ func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
 	return false
 }
 
+// mapLiteralElementType returns the element type for the given map literal.
+func (ctx *completionContext) mapLiteralElementType(comp *xgoast.CompositeLit) types.Type {
+	if comp == nil {
+		return nil
+	}
+
+	if tv, ok := ctx.typeInfo.Types[comp]; ok && tv.Type != nil {
+		if mapType, ok := xgoutil.DerefType(tv.Type).Underlying().(*types.Map); ok {
+			return mapType.Elem()
+		}
+	}
+
+	if comp.Type != nil {
+		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok && tv.Type != nil {
+			if mapType, ok := xgoutil.DerefType(tv.Type).Underlying().(*types.Map); ok {
+				return mapType.Elem()
+			}
+		}
+	}
+
+	return nil
+}
+
+// valueExprAtPos returns the expression for the value located at the current
+// position within the given composite literal, handling nested literals.
+func (ctx *completionContext) valueExprAtPos(comp *xgoast.CompositeLit) xgoast.Expr {
+	for _, elt := range comp.Elts {
+		// Handle KeyValueExpr for maps and structs.
+		if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+			if kv.Value == nil {
+				continue
+			}
+			if ctx.pos < kv.Value.Pos() || ctx.pos > kv.Value.End()+1 {
+				continue
+			}
+
+			if innerComp, ok := kv.Value.(*xgoast.CompositeLit); ok {
+				if inner := ctx.valueExprAtPos(innerComp); inner != nil {
+					return inner
+				}
+			}
+			return kv.Value
+		}
+
+		// Handle direct expressions for slices and arrays.
+		if ctx.pos >= elt.Pos() && ctx.pos <= elt.End()+1 {
+			if innerComp, ok := elt.(*xgoast.CompositeLit); ok {
+				if inner := ctx.valueExprAtPos(innerComp); inner != nil {
+					return inner
+				}
+			}
+			return elt
+		}
+	}
+	return nil
+}
+
+// expectedMapElementTypeAtPos returns the map element type for the current
+// position if it is within a map literal, handling nested map literals.
+func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.CompositeLit, expected types.Type) types.Type {
+	if comp == nil || ctx.pos < comp.Pos() || ctx.pos > comp.End() {
+		return nil
+	}
+
+	var mapType types.Type
+	if expected != nil {
+		mapType = expected
+	} else if typ := ctx.typeInfo.TypeOf(comp); typ != nil && typ != types.Typ[types.Invalid] {
+		mapType = typ
+	}
+
+	for _, elt := range comp.Elts {
+		kv, ok := elt.(*xgoast.KeyValueExpr)
+		if !ok || kv.Value == nil {
+			continue
+		}
+		if ctx.pos < kv.Value.Pos() || ctx.pos > kv.Value.End()+1 {
+			continue
+		}
+
+		if typ := ctx.typeInfo.TypeOf(kv.Value); typ != nil && typ != types.Typ[types.Invalid] {
+			if mapTyp, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
+				return mapTyp.Elem()
+			}
+			return typ
+		}
+
+		if innerComp, ok := kv.Value.(*xgoast.CompositeLit); ok {
+			var innerExpected types.Type
+			if mapType != nil {
+				if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+					innerExpected = mapTyp.Elem()
+				}
+			}
+			if innerExpected == nil {
+				if typ := ctx.typeInfo.TypeOf(kv.Value); typ != nil && typ != types.Typ[types.Invalid] {
+					innerExpected = typ
+				}
+			}
+			if innerType := ctx.expectedMapElementTypeAtPos(innerComp, innerExpected); innerType != nil {
+				return innerType
+			}
+		}
+
+		if mapType != nil {
+			if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+				return mapTyp.Elem()
+			}
+		}
+		if ctx.isMapLiteral(comp) {
+			return ctx.mapLiteralElementType(comp)
+		}
+		return nil
+	}
+
+	if mapType != nil {
+		if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+			return mapTyp.Elem()
+		}
+	}
+	if ctx.isMapLiteral(comp) && len(comp.Elts) == 0 {
+		return ctx.mapLiteralElementType(comp)
+	}
+	return nil
+}
+
 // enclosingFunction gets the function signature containing the current position.
 func (ctx *completionContext) enclosingFunction(path []xgoast.Node) *types.Signature {
 	for _, node := range path {
-		funcDecl, ok := node.(*xgoast.FuncDecl)
-		if !ok {
-			continue
+		switch n := node.(type) {
+		case *xgoast.FuncDecl:
+			obj := ctx.typeInfo.ObjectOf(n.Name)
+			if obj == nil {
+				continue
+			}
+			fun, ok := obj.(*types.Func)
+			if !ok {
+				continue
+			}
+			return fun.Type().(*types.Signature)
+		case *xgoast.FuncLit:
+			// For function literals, get the type from the type info directly.
+			if tv, ok := ctx.typeInfo.Types[n]; ok {
+				if sig, ok := tv.Type.(*types.Signature); ok {
+					return sig
+				}
+			}
 		}
-		obj := ctx.typeInfo.ObjectOf(funcDecl.Name)
-		if obj == nil {
-			continue
-		}
-		fun, ok := obj.(*types.Func)
-		if !ok {
-			continue
-		}
-		return fun.Type().(*types.Signature)
 	}
 	return nil
 }
@@ -871,6 +1155,13 @@ func (ctx *completionContext) collectDecl() error {
 
 // collectReturn collects return value completions.
 func (ctx *completionContext) collectReturn() error {
+	ctx.itemSet.setSupportedKinds(
+		VariableCompletion,
+		ConstantCompletion,
+		FunctionCompletion,
+		KeywordCompletion,
+		TextCompletion,
+	)
 	return ctx.collectGeneral()
 }
 
@@ -1125,6 +1416,7 @@ type completionItemSet struct {
 	seenSpxDefs                   map[string]struct{}
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ types.Type) bool
+	disallowVoidFuncs             bool
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
@@ -1133,6 +1425,11 @@ func newCompletionItemSet() *completionItemSet {
 		items:       []CompletionItem{},
 		seenSpxDefs: make(map[string]struct{}),
 	}
+}
+
+// setDisallowVoidFuncs toggles whether zero-result funcs are filtered out.
+func (s *completionItemSet) setDisallowVoidFuncs(disallow bool) {
+	s.disallowVoidFuncs = disallow
 }
 
 // setSupportedKinds sets the supported kinds for the completion items.
@@ -1178,6 +1475,11 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 // addSpxDefs adds spx definitions to the set.
 func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 	for _, spxDef := range spxDefs {
+		if s.disallowVoidFuncs && spxDef.CompletionItemKind == FunctionCompletion {
+			if sig, ok := spxDef.TypeHint.(*types.Signature); ok && sig.Results().Len() == 0 {
+				continue
+			}
+		}
 		if s.isCompatibleWithExpectedTypes != nil && !s.isCompatibleWithExpectedTypes(spxDef.TypeHint) {
 			continue
 		}

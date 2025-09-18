@@ -53,6 +53,25 @@ func IsTypesCompatible(got, want types.Type) bool {
 		gotCh, ok := got.(*types.Chan)
 		return ok && types.Identical(want.Elem(), gotCh.Elem()) &&
 			(want.Dir() == types.SendRecv || want.Dir() == gotCh.Dir())
+	case *types.Signature:
+		gotSig, ok := got.(*types.Signature)
+		if !ok {
+			return false
+		}
+		if want.Results().Len() != gotSig.Results().Len() {
+			return false
+		}
+		if want.Results().Len() == 0 {
+			return true
+		}
+		return IsTypesCompatible(gotSig.Results().At(0).Type(), want.Results().At(0).Type())
+	}
+
+	if gotSig, ok := got.(*types.Signature); ok {
+		if gotSig.Results().Len() != 1 {
+			return false
+		}
+		return IsTypesCompatible(gotSig.Results().At(0).Type(), want)
 	}
 
 	if _, ok := got.(*types.Named); ok {

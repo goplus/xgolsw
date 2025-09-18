@@ -128,6 +128,7 @@ func TestIsTypesCompatible(t *testing.T) {
 		// Non-slice to slice.
 		assert.False(t, IsTypesCompatible(types.Typ[types.Int], intSlice))
 	})
+
 	t.Run("ChannelTypes", func(t *testing.T) {
 		intChanSendRecv := types.NewChan(types.SendRecv, types.Typ[types.Int])
 		intChanSend := types.NewChan(types.SendOnly, types.Typ[types.Int])
@@ -156,6 +157,39 @@ func TestIsTypesCompatible(t *testing.T) {
 
 		// Non-channel to channel.
 		assert.False(t, IsTypesCompatible(types.Typ[types.Int], intChanSendRecv))
+	})
+
+	t.Run("SignatureTypes", func(t *testing.T) {
+		noResultWant := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(), false)
+		noResultGot := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(), false)
+		assert.True(t, IsTypesCompatible(noResultGot, noResultWant))
+
+		intResultVar := types.NewVar(0, nil, "", types.Typ[types.Int])
+		intResultSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(intResultVar), false)
+		otherIntResultSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(0, nil, "", types.Typ[types.Int])), false)
+		assert.True(t, IsTypesCompatible(otherIntResultSig, intResultSig))
+
+		stringResultSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(0, nil, "", types.Typ[types.String])), false)
+		assert.False(t, IsTypesCompatible(otherIntResultSig, stringResultSig))
+
+		twoResultsSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(
+			types.NewVar(0, nil, "", types.Typ[types.Int]),
+			types.NewVar(0, nil, "", types.Typ[types.Int]),
+		), false)
+		assert.False(t, IsTypesCompatible(twoResultsSig, intResultSig))
+
+		ptrToInt := types.NewPointer(types.Typ[types.Int])
+		ptrResultSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(0, nil, "", ptrToInt)), false)
+		ptrWantSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(0, nil, "", ptrToInt)), false)
+		assert.True(t, IsTypesCompatible(ptrResultSig, ptrWantSig))
+
+		ptrToString := types.NewPointer(types.Typ[types.String])
+		ptrStringSig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(0, nil, "", ptrToString)), false)
+		assert.False(t, IsTypesCompatible(ptrResultSig, ptrStringSig))
+
+		assert.True(t, IsTypesCompatible(otherIntResultSig, types.Typ[types.Int]))
+		assert.False(t, IsTypesCompatible(twoResultsSig, types.Typ[types.Int]))
+		assert.False(t, IsTypesCompatible(stringResultSig, types.Typ[types.Int]))
 	})
 
 	t.Run("NamedTypes", func(t *testing.T) {
