@@ -47,7 +47,7 @@ MySprite.turn Left
 MySprite.setCostume "costume1"
 Game.onClick => {}
 onClick => {}
-follow "MySprite"
+Camera.follow "MySprite"
 run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
@@ -317,15 +317,15 @@ onTouchStart "MySprite", => {}
 		mainSpxFollowHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 37, Character: 0},
+				Position:     Position{Line: 37, Character: 8},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxFollowHover)
 		assert.Contains(t, mainSpxFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Game.follow#1"`)
 		assert.Equal(t, Range{
-			Start: Position{Line: 37, Character: 0},
-			End:   Position{Line: 37, Character: 6},
+			Start: Position{Line: 37, Character: 7},
+			End:   Position{Line: 37, Character: 13},
 		}, mainSpxFollowHover.Range)
 
 		mySpriteOnClickFuncHover, err := s.textDocumentHover(&HoverParams{
