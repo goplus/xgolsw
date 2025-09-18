@@ -1,24 +1,23 @@
-xgolsw
-========
+# xgolsw
 
-[![Build Status](https://github.com/goplus/xgolsw/actions/workflows/go.yml/badge.svg)](https://github.com/goplus/xgolsw/actions/workflows/go.yml)
+[![Test](https://github.com/goplus/xgolsw/actions/workflows/test.yaml/badge.svg)](https://github.com/goplus/xgolsw/actions/workflows/test.yaml)
+[![codecov](https://codecov.io/gh/goplus/xgolsw/branch/main/graph/badge.svg)](https://codecov.io/gh/goplus/xgolsw)
 [![Go Report Card](https://goreportcard.com/badge/github.com/goplus/xgolsw)](https://goreportcard.com/report/github.com/goplus/xgolsw)
-[![GitHub release](https://img.shields.io/github/v/tag/goplus/xgolsw.svg?label=release)](https://github.com/goplus/xgolsw/releases)
-[![Coverage Status](https://codecov.io/gh/goplus/xgolsw/branch/main/graph/badge.svg)](https://codecov.io/gh/goplus/xgolsw)
-[![GoDoc](https://pkg.go.dev/badge/github.com/goplus/xgolsw.svg)](https://pkg.go.dev/github.com/goplus/xgolsw)
+[![Go Reference](https://pkg.go.dev/badge/github.com/goplus/xgolsw.svg)](https://pkg.go.dev/github.com/goplus/xgolsw)
 
 A lightweight XGo language server that runs in the browser using WebAssembly.
 
-This project follows the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/)
+This project follows the
+[Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/)
 using [JSON-RPC 2.0](https://www.jsonrpc.org/specification) for message exchange. However, unlike traditional LSP
 implementations that require a network transport layer, this project operates directly in the browser's memory space
 through its API interfaces.
 
 ## Difference between [`xgols`](https://github.com/goplus/xgols) and `xgolsw`
 
-* `xgols` runs locally, while `xgolsw` runs in the browser using WebAssembly.
-* `xgols` supports a workspace (multiple projects), while `xgolsw` supports a single project.
-* `xgols` supports mixed programming of Go and XGo, while `xgolsw` only supports a pure XGo project.
+- `xgols` runs locally, while `xgolsw` runs in the browser using WebAssembly.
+- `xgols` supports a workspace (multiple projects), while `xgolsw` supports a single project.
+- `xgols` supports mixed programming of Go and XGo, while `xgolsw` only supports a pure XGo project.
 
 ## Building from source
 
@@ -31,12 +30,13 @@ through its API interfaces.
 2. Build the project:
 
   ```bash
-  GOOS=js GOARCH=wasm go build -trimpath -o spxls.wasm
+  GOOS=js GOARCH=wasm go build -trimpath -o xgolsw.wasm
   ```
 
 ## Usage
 
-This project is a standard Go WebAssembly module. You can use it like any other Go WASM modules in your web applications.
+This project is a standard Go WebAssembly module. You can use it like any other Go WebAssembly modules in your web
+applications.
 
 For detailed API references, please check the [index.d.ts](index.d.ts) file.
 
