@@ -7,7 +7,7 @@ tool github.com/goplus/xgolsw/cmd/pkgdatagen
 require (
 	github.com/goplus/gogen v1.19.2
 	github.com/goplus/mod v0.17.1
-	github.com/goplus/spx/v2 v2.0.0-pre.10
+	github.com/goplus/spx/v2 v2.0.0-pre.13
 	github.com/goplus/xgo v0.0.0-20250826104338-05cc4b01eeed
 	github.com/qiniu/x v1.15.1
 	github.com/stretchr/testify v1.11.1
