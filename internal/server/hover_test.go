@@ -314,19 +314,19 @@ onTouchStart "MySprite", => {}
 			},
 		}, mainSpxOnClickHover)
 
-		mainSpxFollowHover, err := s.textDocumentHover(&HoverParams{
+		mainSpxCameraFollowHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 				Position:     Position{Line: 37, Character: 8},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, mainSpxFollowHover)
-		assert.Contains(t, mainSpxFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Game.follow#1"`)
+		require.NotNil(t, mainSpxCameraFollowHover)
+		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Game.follow#1"`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 37, Character: 7},
 			End:   Position{Line: 37, Character: 13},
-		}, mainSpxFollowHover.Range)
+		}, mainSpxCameraFollowHover.Range)
 
 		mySpriteOnClickFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
