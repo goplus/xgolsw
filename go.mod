@@ -8,13 +8,13 @@ require (
 	github.com/goplus/gogen v1.19.2
 	github.com/goplus/mod v0.17.1
 	github.com/goplus/spx/v2 v2.0.0-pre.13
-	github.com/goplus/xgo v0.0.0-20250826104338-05cc4b01eeed
+	github.com/goplus/xgo v1.5.1
 	github.com/qiniu/x v1.15.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.28.0
 	golang.org/x/sync v0.17.0
 	golang.org/x/text v0.29.0
-	golang.org/x/tools v0.36.0
+	golang.org/x/tools v0.37.0
 )
 
 require (
