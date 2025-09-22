@@ -40,10 +40,19 @@ func InnermostScopeAt(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.
 	WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
 		scope = typeInfo.Scopes[node]
 		if scope == nil {
-			// NOTE: If we have a FuncDecl but no direct scope, try to get the
-			// scope from its FuncType (function parameter/local variable scope).
-			if funcDecl, ok := node.(*ast.FuncDecl); ok {
-				scope = typeInfo.Scopes[funcDecl.Type]
+			// NOTE: For function declarations and literals without
+			// a direct scope, try to get the scope from their type
+			// or body.
+			switch n := node.(type) {
+			case *ast.FuncDecl:
+				// Try FuncType for function parameter/local variable scope.
+				scope = typeInfo.Scopes[n.Type]
+			case *ast.FuncLit:
+				// Try FuncType first, then Body for anonymous functions.
+				scope = typeInfo.Scopes[n.Type]
+				if scope == nil {
+					scope = typeInfo.Scopes[n.Body]
+				}
 			}
 		}
 		return scope == nil // Stop at the first non-nil scope.
