@@ -204,6 +204,36 @@ func TestIsTypesCompatible(t *testing.T) {
 
 		// Named type to underlying type.
 		assert.False(t, IsTypesCompatible(namedInt1, types.Typ[types.Int]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.Int], namedInt1))
+	})
+
+	t.Run("TypeConversions", func(t *testing.T) {
+		// Named types are convertible to their underlying types.
+		userIDType := types.NewNamed(types.NewTypeName(0, nil, "UserID", nil), types.Typ[types.Int], nil)
+		orderIDType := types.NewNamed(types.NewTypeName(0, nil, "OrderID", nil), types.Typ[types.Int], nil)
+
+		// Named int types are NOT compatible with int (need conversion).
+		assert.False(t, IsTypesCompatible(userIDType, types.Typ[types.Int]))
+		assert.False(t, IsTypesCompatible(orderIDType, types.Typ[types.Int]))
+
+		// Named string type is NOT compatible with string.
+		namedString := types.NewNamed(types.NewTypeName(0, nil, "MyString", nil), types.Typ[types.String], nil)
+		assert.False(t, IsTypesCompatible(namedString, types.Typ[types.String]))
+
+		// But int to string conversions are excluded (impractical).
+		assert.False(t, IsTypesCompatible(types.Typ[types.Int], types.Typ[types.String]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.String], types.Typ[types.Int]))
+
+		// Bool conversions are excluded.
+		assert.False(t, IsTypesCompatible(types.Typ[types.Bool], types.Typ[types.Int]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.Int], types.Typ[types.Bool]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.Bool], types.Typ[types.String]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.String], types.Typ[types.Bool]))
+
+		// Numeric conversions within same category are NOT compatible (need conversion).
+		assert.False(t, IsTypesCompatible(types.Typ[types.Int32], types.Typ[types.Int64]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.Float32], types.Typ[types.Float64]))
+		assert.False(t, IsTypesCompatible(types.Typ[types.Int], types.Typ[types.Float64]))
 	})
 
 	t.Run("IncompatibleTypes", func(t *testing.T) {
@@ -215,5 +245,63 @@ func TestIsTypesCompatible(t *testing.T) {
 		intSlice := types.NewSlice(types.Typ[types.Int])
 		stringPtr := types.NewPointer(types.Typ[types.String])
 		assert.False(t, IsTypesCompatible(intSlice, stringPtr))
+	})
+}
+
+func TestIsTypesConvertible(t *testing.T) {
+	t.Run("AllowedConversions", func(t *testing.T) {
+		// Named types to underlying types.
+		namedInt := types.NewNamed(types.NewTypeName(0, nil, "MyInt", nil), types.Typ[types.Int], nil)
+		assert.True(t, IsTypesConvertible(namedInt, types.Typ[types.Int]))
+		assert.True(t, IsTypesConvertible(types.Typ[types.Int], namedInt))
+
+		// Numeric conversions within same category.
+		assert.True(t, IsTypesConvertible(types.Typ[types.Int32], types.Typ[types.Int64]))
+		assert.True(t, IsTypesConvertible(types.Typ[types.Int], types.Typ[types.Int32]))
+		assert.True(t, IsTypesConvertible(types.Typ[types.Float32], types.Typ[types.Float64]))
+
+		// Numeric conversions between int and float.
+		assert.True(t, IsTypesConvertible(types.Typ[types.Int], types.Typ[types.Float64]))
+		assert.True(t, IsTypesConvertible(types.Typ[types.Float32], types.Typ[types.Int]))
+
+		// Untyped constants.
+		assert.True(t, IsTypesConvertible(types.Typ[types.UntypedInt], types.Typ[types.Int]))
+		assert.True(t, IsTypesConvertible(types.Typ[types.UntypedFloat], types.Typ[types.Float64]))
+	})
+
+	t.Run("ExcludedConversions", func(t *testing.T) {
+		// Numeric to string conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.Int], types.Typ[types.String]))
+		assert.False(t, IsTypesConvertible(types.Typ[types.Int32], types.Typ[types.String]))
+		assert.False(t, IsTypesConvertible(types.Typ[types.Float64], types.Typ[types.String]))
+
+		// String to numeric conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.String], types.Typ[types.Int]))
+		assert.False(t, IsTypesConvertible(types.Typ[types.String], types.Typ[types.Float64]))
+
+		// Bool to numeric conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.Bool], types.Typ[types.Int]))
+		assert.False(t, IsTypesConvertible(types.Typ[types.Bool], types.Typ[types.Float64]))
+
+		// Numeric to bool conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.Int], types.Typ[types.Bool]))
+		assert.False(t, IsTypesConvertible(types.Typ[types.Float64], types.Typ[types.Bool]))
+
+		// Bool to string conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.Bool], types.Typ[types.String]))
+
+		// String to bool conversions.
+		assert.False(t, IsTypesConvertible(types.Typ[types.String], types.Typ[types.Bool]))
+	})
+
+	t.Run("NonConvertibleTypes", func(t *testing.T) {
+		// Types that are not convertible at all.
+		intSlice := types.NewSlice(types.Typ[types.Int])
+		stringSlice := types.NewSlice(types.Typ[types.String])
+		assert.False(t, IsTypesConvertible(intSlice, stringSlice))
+
+		structType1 := types.NewStruct([]*types.Var{types.NewField(0, nil, "a", types.Typ[types.Int], false)}, []string{})
+		structType2 := types.NewStruct([]*types.Var{types.NewField(0, nil, "b", types.Typ[types.String], false)}, []string{})
+		assert.False(t, IsTypesConvertible(structType1, structType2))
 	})
 }

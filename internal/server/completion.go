@@ -111,8 +111,10 @@ type completionContext struct {
 	switchTag          xgoast.Expr
 	returnIndex        int
 
-	inStringLit       bool
-	inSpxEventHandler bool
+	inStringLit             bool
+	inSpxEventHandler       bool
+	valueExpression         bool
+	expectedFuncResultCount int
 }
 
 // analyze analyzes the completion context to determine the kind of completion needed.
@@ -188,6 +190,7 @@ func (ctx *completionContext) analyze() {
 			if shouldSetCallContext {
 				ctx.kind = completionKindCall
 				ctx.enclosingNode = node
+				ctx.valueExpression = true
 			}
 		case *xgoast.FuncLit:
 			// Skip FuncLit, as we want general completion inside function literals
@@ -213,15 +216,24 @@ func (ctx *completionContext) analyze() {
 			// Skip map literals, as they should use general completion to allow
 			// variable suggestions inside the literal.
 			if isMapType(typ) {
+				if ctx.valueExprAtPos(node) != nil {
+					ctx.valueExpression = true
+				}
 				continue
 			}
 
 			// Skip slice and array literals, as they should also use general completion
 			// to allow variable suggestions inside the literal.
 			if _, ok := typ.Underlying().(*types.Slice); ok {
+				if ctx.valueExprAtPos(node) != nil {
+					ctx.valueExpression = true
+				}
 				continue
 			}
 			if _, ok := typ.Underlying().(*types.Array); ok {
+				if ctx.valueExprAtPos(node) != nil {
+					ctx.valueExpression = true
+				}
 				continue
 			}
 
@@ -249,6 +261,7 @@ func (ctx *completionContext) analyze() {
 
 			if inFieldValue {
 				// Don't set struct literal context for field values.
+				ctx.valueExpression = true
 				continue
 			}
 
@@ -270,6 +283,7 @@ func (ctx *completionContext) analyze() {
 						continue
 					}
 					ctx.kind = completionKindAssignOrDefine
+					ctx.valueExpression = true
 					if tv, ok := ctx.typeInfo.Types[node.Lhs[j]]; ok {
 						ctx.expectedTypes = []types.Type{tv.Type}
 					}
@@ -277,6 +291,24 @@ func (ctx *completionContext) analyze() {
 						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
+						}
+					}
+
+					if len(node.Lhs) > 1 && len(node.Rhs) == 1 {
+						ctx.expectedFuncResultCount = len(node.Lhs)
+						resultVars := make([]*types.Var, 0, len(node.Lhs))
+						hasAllTypes := true
+						for _, lhsExpr := range node.Lhs {
+							tv, ok := ctx.typeInfo.Types[lhsExpr]
+							if !ok || tv.Type == nil {
+								hasAllTypes = false
+								break
+							}
+							resultVars = append(resultVars, types.NewVar(lhsExpr.Pos(), ctx.typeInfo.Pkg, "", tv.Type))
+						}
+						if hasAllTypes {
+							sig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(resultVars...), false)
+							ctx.expectedTypes = append(ctx.expectedTypes, sig)
 						}
 					}
 					break
@@ -319,6 +351,7 @@ func (ctx *completionContext) analyze() {
 					// For XGo-style slice literals, allow general completions.
 					ctx.itemSet.setDisallowVoidFuncs(true)
 					shouldSetReturnContext = false
+					ctx.valueExpression = true
 					break
 				}
 
@@ -341,10 +374,12 @@ func (ctx *completionContext) analyze() {
 							ctx.itemSet.setDisallowVoidFuncs(true)
 						}
 						shouldSetReturnContext = false
+						ctx.valueExpression = true
 						break
 					}
 					if ctx.isSliceOrArrayLiteral(comp) {
 						shouldSetReturnContext = false
+						ctx.valueExpression = true
 						break
 					}
 				}
@@ -367,10 +402,12 @@ func (ctx *completionContext) analyze() {
 			}
 			if mapValueExpectedType != nil {
 				ctx.expectedTypes = []types.Type{mapValueExpectedType}
+				ctx.valueExpression = true
 			}
 
 			if shouldSetReturnContext {
 				ctx.kind = completionKindReturn
+				ctx.valueExpression = true
 				ctx.returnIndex = ctx.findReturnValueIndex(node)
 				if ctx.returnIndex >= 0 && ctx.returnIndex < results.Len() {
 					ctx.expectedTypes = []types.Type{results.At(ctx.returnIndex).Type()}
@@ -379,9 +416,11 @@ func (ctx *completionContext) analyze() {
 		case *xgoast.GoStmt:
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
+			ctx.valueExpression = true
 		case *xgoast.DeferStmt:
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
+			ctx.valueExpression = true
 		case *xgoast.SwitchStmt:
 			ctx.kind = completionKindSwitchCase
 			ctx.switchTag = node.Tag
@@ -898,10 +937,17 @@ func (ctx *completionContext) collectGeneral() error {
 			VariableCompletion,
 			ConstantCompletion,
 			FunctionCompletion, // TODO: Add return type compatibility check for FunctionCompletion.
+			FieldCompletion,
+			MethodCompletion,
 			ClassCompletion,
 			InterfaceCompletion,
 			StructCompletion,
+			KeywordCompletion,
+			TextCompletion,
 		)
+	}
+	if ctx.expectedFuncResultCount > 0 {
+		ctx.itemSet.setExpectedFuncResultCount(ctx.expectedFuncResultCount)
 	}
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
 
@@ -914,8 +960,10 @@ func (ctx *completionContext) collectGeneral() error {
 			if !xgoutil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if defIdent := ctx.typeInfo.ObjToDef[obj]; defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
-				continue
+			if !ctx.valueExpression {
+				if defIdent := ctx.typeInfo.ObjToDef[obj]; defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+					continue
+				}
 			}
 
 			ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(obj, "")...)
@@ -1090,12 +1138,11 @@ func (ctx *completionContext) collectCall() error {
 	}
 	tv, ok := ctx.typeInfo.Types[callExpr.Fun]
 	if !ok {
-		return nil
+		return ctx.collectGeneral()
 	}
 	sig, ok := tv.Type.(*types.Signature)
 	if !ok {
-		// TODO: Handle invalid type with no signature, like `println`.
-		return nil
+		return ctx.collectGeneral()
 	}
 	argIndex := ctx.getCurrentArgIndex(callExpr)
 	if argIndex < 0 {
@@ -1155,13 +1202,6 @@ func (ctx *completionContext) collectDecl() error {
 
 // collectReturn collects return value completions.
 func (ctx *completionContext) collectReturn() error {
-	ctx.itemSet.setSupportedKinds(
-		VariableCompletion,
-		ConstantCompletion,
-		FunctionCompletion,
-		KeywordCompletion,
-		TextCompletion,
-	)
 	return ctx.collectGeneral()
 }
 
@@ -1417,6 +1457,8 @@ type completionItemSet struct {
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ types.Type) bool
 	disallowVoidFuncs             bool
+	expectedFuncResultCount       int
+	expectedTypes                 []types.Type
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
@@ -1444,16 +1486,32 @@ func (s *completionItemSet) setSupportedKinds(kinds ...CompletionItemKind) {
 	}
 }
 
+// setExpectedFuncResultCount limits function-like items to signatures with the given result count.
+func (s *completionItemSet) setExpectedFuncResultCount(count int) {
+	if count <= 0 {
+		return
+	}
+	s.expectedFuncResultCount = count
+}
+
 // setExpectedTypes sets the expected types for the completion items.
 func (s *completionItemSet) setExpectedTypes(expectedTypes []types.Type) {
 	if len(expectedTypes) == 0 {
 		return
 	}
 
+	s.expectedTypes = expectedTypes
 	s.isCompatibleWithExpectedTypes = func(typ types.Type) bool {
 		for _, expectedType := range expectedTypes {
-			if expectedType != types.Typ[types.Invalid] && xgoutil.IsTypesCompatible(typ, expectedType) {
-				return true
+			if expectedType != types.Typ[types.Invalid] {
+				// First check direct compatibility.
+				if xgoutil.IsTypesCompatible(typ, expectedType) {
+					return true
+				}
+				// Then check if convertible (allows showing more options).
+				if xgoutil.IsTypesConvertible(typ, expectedType) {
+					return true
+				}
 			}
 		}
 		return false
@@ -1475,13 +1533,37 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 // addSpxDefs adds spx definitions to the set.
 func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 	for _, spxDef := range spxDefs {
+		if s.expectedFuncResultCount > 0 {
+			if sig, ok := spxDef.TypeHint.(*types.Signature); ok {
+				resultCount := sig.Results().Len()
+				// Exclude multi-return functions with mismatched count.
+				// Single-return functions are allowed to fall through for further type checks.
+				if resultCount > 1 && resultCount != s.expectedFuncResultCount {
+					continue
+				}
+			}
+		}
 		if s.disallowVoidFuncs && spxDef.CompletionItemKind == FunctionCompletion {
 			if sig, ok := spxDef.TypeHint.(*types.Signature); ok && sig.Results().Len() == 0 {
 				continue
 			}
 		}
-		if s.isCompatibleWithExpectedTypes != nil && !s.isCompatibleWithExpectedTypes(spxDef.TypeHint) {
-			continue
+		if s.isCompatibleWithExpectedTypes != nil {
+			typeToCompare := spxDef.TypeHint
+			if sig, ok := typeToCompare.(*types.Signature); ok {
+				switch sig.Results().Len() {
+				case 0:
+					// Void functions are not compatible with any expected type.
+					continue
+				case 1:
+					// For single-return functions, check the return type's compatibility.
+					typeToCompare = sig.Results().At(0).Type()
+				}
+			}
+
+			if !s.isCompatibleWithExpectedTypes(typeToCompare) {
+				continue
+			}
 		}
 
 		spxDefIDKey := spxDef.ID.String()

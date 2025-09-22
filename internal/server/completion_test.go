@@ -1222,7 +1222,55 @@ func getName() string {
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "str"))
-		assert.False(t, containsCompletionItemLabel(items, "string"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("SimpleAssign", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var str string = "myName"
+	str = s
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 8}, // After "s" in assignment
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("SimpleCallArg", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var str string = "myName"
+	println(s)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 10}, // After "s" in call argument
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
 	})
 
 	t.Run("TypedMapLitInReturn", func(t *testing.T) {
@@ -1652,6 +1700,329 @@ func getHandler() func(int) int {
 		require.NotNil(t, items)
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionItemLabel(items, "result"))
+	})
+
+	t.Run("VarDeclWithValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var str string = "test"
+	var x string = s
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 17}, // After "s" in var declaration with value
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("ConstDeclWithValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var str string = "test"
+	const x = s
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 12}, // After "s" in const declaration
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("ShortVarDecl", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var str string = "test"
+	x := s
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 7}, // After "s" in short var decl
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "str"))
+		assert.True(t, containsCompletionItemLabel(items, "string"))
+	})
+
+	t.Run("MultipleReceiverAssignment", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getTwoValues() (string, int) { return "hello", 42 }
+func getSingleValue() string { return "world" }
+func getThreeValues() (string, int, bool) { return "test", 123, true }
+
+onStart => {
+	var x string
+	var y int
+	x, y = g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 9}, // After "g" in assignment
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getTwoValues"), "Should suggest function returning (string, int)")
+		assert.True(t, containsCompletionItemLabel(items, "getSingleValue"), "Should suggest single value functions for flexible use")
+		assert.False(t, containsCompletionItemLabel(items, "getThreeValues"), "Should not suggest function returning three values")
+	})
+
+	t.Run("MultipleReceiverShortVarDecl", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getTwoInts() (int, int) { return 1, 2 }
+func getTwoStrings() (string, string) { return "a", "b" }
+func getSingleInt() int { return 42 }
+
+onStart => {
+	x, y := g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 6, Character: 10}, // After "g" in short var decl
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getTwoInts"), "Should suggest functions returning two values (int, int)")
+		assert.True(t, containsCompletionItemLabel(items, "getTwoStrings"), "Should suggest functions returning two values (string, string)")
+		assert.True(t, containsCompletionItemLabel(items, "getSingleInt"), "Should suggest single value functions for flexible use")
+	})
+
+	t.Run("MultipleExpressionAssignment", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getInt() int { return 1 }
+func getString() string { return "hello" }
+func getTwoInts() (int, int) { return 1, 2 }
+
+onStart => {
+	var x int
+	var y int
+	x, y = getInt(), g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 19}, // After "g" in second expression
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getInt"), "Should suggest function returning int for second position")
+		assert.False(t, containsCompletionItemLabel(items, "getString"), "Should not suggest function returning string")
+		assert.False(t, containsCompletionItemLabel(items, "getTwoInts"), "Should not suggest function returning multiple values")
+	})
+
+	t.Run("MultipleReceiverWithError", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+import "errors"
+
+func getTwoValuesWithError() (string, error) { return "hello", nil }
+func getSingleValueWithError() error { return nil }
+func getThreeValues() (string, int, error) { return "test", 123, nil }
+
+onStart => {
+	var s string
+	var err error
+	s, err = g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 11}, // After "g" in assignment
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getTwoValuesWithError"), "Should suggest function returning (string, error)")
+		assert.False(t, containsCompletionItemLabel(items, "getSingleValueWithError"), "Should not suggest single value function with incompatible type")
+		assert.False(t, containsCompletionItemLabel(items, "getThreeValues"), "Should not suggest function returning three values")
+	})
+
+	t.Run("NestedMultipleReceiverAssignment", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getTwoBools() (bool, bool) { return true, false }
+func getSingleBool() bool { return true }
+
+onStart => {
+	if x, y := g; x && y {
+		// Inside if statement with short var decl
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 13}, // After "g" in if statement init
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getTwoBools"), "Should suggest function returning two bools")
+		assert.True(t, containsCompletionItemLabel(items, "getSingleBool"), "Should suggest single value functions for flexible use")
+	})
+
+	t.Run("TypeConversion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type UserID int
+type OrderID int
+
+func getUserID() UserID { return 123 }
+func getOrderID() OrderID { return 456 }
+func getInt() int { return 789 }
+
+onStart => {
+	var id int = g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 15}, // After "g"
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "getInt"), "Should show exact type match")
+		assert.True(t, containsCompletionItemLabel(items, "getUserID"), "Should show convertible type UserID")
+		assert.True(t, containsCompletionItemLabel(items, "getOrderID"), "Should show convertible type OrderID")
+	})
+
+	t.Run("TypeConversionExclusion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getPort() int { return 8080 }
+func getHost() string { return "localhost" }
+
+onStart => {
+	var port int = g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 17}, // After "g" in int assignment
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, containsCompletionItemLabel(items, "getPort"), "Should show int function")
+		assert.False(t, containsCompletionItemLabel(items, "getHost"), "Should not suggest string→int conversion")
+	})
+
+	t.Run("SelfReferenceInValueExpression", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var counter int = 10
+	counter = counter + c
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 22}, // After "c"
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, containsCompletionItemLabel(items, "counter"), "Should show counter in value expression")
+	})
+
+	t.Run("CombinedSingleReturns", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func getX() int { return 1 }
+func getY() int { return 2 }
+func getPair() (int, int) { return 1, 2 }
+
+onStart => {
+	var x, y int
+	x, y = g
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 9}, // After "g"
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, containsCompletionItemLabel(items, "getPair"), "Should show function with matching return count")
+		assert.True(t, containsCompletionItemLabel(items, "getX"), "Should show single return for flexible use")
+		assert.True(t, containsCompletionItemLabel(items, "getY"), "Should show single return for flexible use")
 	})
 }
 
