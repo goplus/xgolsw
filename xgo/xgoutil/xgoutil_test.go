@@ -509,6 +509,393 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 	})
 }
 
+func TestEnclosingFuncSignature(t *testing.T) {
+	t.Run("FuncDecl", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() string {
+	return "ok"
+}
+`)
+		require.NoError(t, err)
+
+		pkg := types.NewPackage("main", "main")
+		sig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(token.NoPos, pkg, "", types.Typ[types.String])), false)
+		fun := types.NewFunc(token.NoPos, pkg, "foo", sig)
+
+		nameIdent := findIdent(astFile, "foo")
+		require.NotNil(t, nameIdent)
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{nameIdent: fun}, nil)
+
+		var ret *ast.ReturnStmt
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if r, ok := n.(*ast.ReturnStmt); ok {
+				ret = r
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+		require.NotEmpty(t, ret.Results)
+
+		path, _ := PathEnclosingInterval(astFile, ret.Results[0].Pos(), ret.Results[0].End())
+		result := EnclosingFuncSignature(typeInfo, path)
+		require.NotNil(t, result)
+		assert.Equal(t, sig, result)
+	})
+
+	t.Run("FuncLit", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func outer() {
+	var fn = func() (int, error) {
+		return 1, nil
+	}
+	_ = fn
+}
+`)
+		require.NoError(t, err)
+
+		pkg := types.NewPackage("main", "main")
+		errorObj := types.Universe.Lookup("error")
+		require.NotNil(t, errorObj)
+		retTuple := types.NewTuple(
+			types.NewVar(token.NoPos, pkg, "", types.Typ[types.Int]),
+			types.NewVar(token.NoPos, pkg, "", errorObj.Type()),
+		)
+		sig := types.NewSignatureType(nil, nil, nil, nil, retTuple, false)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		var (
+			ret *ast.ReturnStmt
+			lit *ast.FuncLit
+		)
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if r, ok := n.(*ast.ReturnStmt); ok {
+				ret = r
+			}
+			if l, ok := n.(*ast.FuncLit); ok {
+				lit = l
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+		require.NotNil(t, lit)
+		typeInfo.Types[lit] = types.TypeAndValue{Type: sig}
+
+		basic := ret.Results[0]
+		path, _ := PathEnclosingInterval(astFile, basic.Pos(), basic.End())
+		result := EnclosingFuncSignature(typeInfo, path)
+		require.NotNil(t, result)
+		assert.Equal(t, sig, result)
+	})
+
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", "func foo() {}")
+		require.NoError(t, err)
+		path, _ := PathEnclosingInterval(astFile, astFile.Pos(), astFile.End())
+		assert.Nil(t, EnclosingFuncSignature(nil, path))
+	})
+}
+
+func TestEnclosingNode(t *testing.T) {
+	t.Run("ReturnStatement", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() {
+	if true {
+		return "ok"
+	}
+}
+`)
+		require.NoError(t, err)
+
+		var lit ast.Expr
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if bl, ok := n.(*ast.BasicLit); ok {
+				lit = bl
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, lit)
+
+		path, _ := PathEnclosingInterval(astFile, lit.Pos(), lit.End())
+		ret := EnclosingNode[*ast.ReturnStmt](path)
+		require.NotNil(t, ret)
+		assert.Contains(t, ret.Results, lit)
+	})
+
+	t.Run("FunctionDeclaration", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func outer() {
+	x := 42
+	println(x)
+}
+`)
+		require.NoError(t, err)
+
+		var xIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "x" {
+				xIdent = ident
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, xIdent)
+
+		path, _ := PathEnclosingInterval(astFile, xIdent.Pos(), xIdent.End())
+		funcDecl := EnclosingNode[*ast.FuncDecl](path)
+		require.NotNil(t, funcDecl)
+		assert.Equal(t, "outer", funcDecl.Name.Name)
+	})
+
+	t.Run("IfStatement", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func test() {
+	if x := 10; x > 5 {
+		println(x)
+	}
+}
+`)
+		require.NoError(t, err)
+
+		var printlnCall *ast.CallExpr
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "println" {
+					printlnCall = call
+					return false
+				}
+			}
+			return true
+		})
+		require.NotNil(t, printlnCall)
+
+		path, _ := PathEnclosingInterval(astFile, printlnCall.Pos(), printlnCall.End())
+		ifStmt := EnclosingNode[*ast.IfStmt](path)
+		require.NotNil(t, ifStmt)
+		assert.NotNil(t, ifStmt.Init)
+	})
+
+	t.Run("BlockStatement", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func test() {
+	{
+		x := 1
+	}
+}
+`)
+		require.NoError(t, err)
+
+		var xIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "x" {
+				xIdent = ident
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, xIdent)
+
+		path, _ := PathEnclosingInterval(astFile, xIdent.Pos(), xIdent.End())
+		block := EnclosingNode[*ast.BlockStmt](path)
+		require.NotNil(t, block)
+		assert.Len(t, block.List, 1)
+	})
+
+	t.Run("FunctionLiteral", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func test() {
+	f := func() {
+		return 42
+	}
+	_ = f
+}
+`)
+		require.NoError(t, err)
+
+		var lit *ast.BasicLit
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if bl, ok := n.(*ast.BasicLit); ok && bl.Value == "42" {
+				lit = bl
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, lit)
+
+		path, _ := PathEnclosingInterval(astFile, lit.Pos(), lit.End())
+		funcLit := EnclosingNode[*ast.FuncLit](path)
+		require.NotNil(t, funcLit)
+		assert.NotNil(t, funcLit.Body)
+	})
+
+	t.Run("ForStatement", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func test() {
+	for i := 0; i < 10; i++ {
+		println(i)
+	}
+}
+`)
+		require.NoError(t, err)
+
+		var printlnCall *ast.CallExpr
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "println" {
+					printlnCall = call
+					return false
+				}
+			}
+			return true
+		})
+		require.NotNil(t, printlnCall)
+
+		path, _ := PathEnclosingInterval(astFile, printlnCall.Pos(), printlnCall.End())
+		forStmt := EnclosingNode[*ast.ForStmt](path)
+		require.NotNil(t, forStmt)
+		assert.NotNil(t, forStmt.Init)
+		assert.NotNil(t, forStmt.Cond)
+		assert.NotNil(t, forStmt.Post)
+	})
+
+	t.Run("SwitchStatement", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func test(x int) {
+	switch x {
+	case 1:
+		println("one")
+	case 2:
+		println("two")
+	}
+}
+`)
+		require.NoError(t, err)
+
+		var lit *ast.BasicLit
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if bl, ok := n.(*ast.BasicLit); ok && bl.Value == `"one"` {
+				lit = bl
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, lit)
+
+		path, _ := PathEnclosingInterval(astFile, lit.Pos(), lit.End())
+		switchStmt := EnclosingNode[*ast.SwitchStmt](path)
+		require.NotNil(t, switchStmt)
+		assert.NotNil(t, switchStmt.Tag)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `var x = 1`)
+		require.NoError(t, err)
+
+		path, _ := PathEnclosingInterval(astFile, astFile.Pos(), astFile.End())
+		// Look for a return statement in a file without any functions
+		ret := EnclosingNode[*ast.ReturnStmt](path)
+		assert.Nil(t, ret)
+	})
+
+	t.Run("EmptyPath", func(t *testing.T) {
+		var emptyPath []ast.Node
+		ret := EnclosingNode[*ast.ReturnStmt](emptyPath)
+		assert.Nil(t, ret)
+	})
+
+	t.Run("NilPath", func(t *testing.T) {
+		ret := EnclosingNode[*ast.ReturnStmt](nil)
+		assert.Nil(t, ret)
+	})
+}
+
+func TestEnclosingReturnStmt(t *testing.T) {
+	_, astFile, err := newTestFile("main.xgo", `
+func foo() string {
+	return "ok"
+}
+`)
+	require.NoError(t, err)
+
+	var lit ast.Expr
+	ast.Inspect(astFile, func(n ast.Node) bool {
+		if bl, ok := n.(*ast.BasicLit); ok {
+			lit = bl
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, lit)
+
+	path, _ := PathEnclosingInterval(astFile, lit.Pos(), lit.End())
+	ret := EnclosingReturnStmt(path)
+	require.NotNil(t, ret)
+	assert.Contains(t, ret.Results, lit)
+}
+
+func TestReturnValueIndex(t *testing.T) {
+	t.Run("ExactMatch", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() (string, string) {
+	return "left", "right"
+}
+`)
+		require.NoError(t, err)
+
+		var ret *ast.ReturnStmt
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if r, ok := n.(*ast.ReturnStmt); ok {
+				ret = r
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+
+		assert.Equal(t, 0, ReturnValueIndex(ret, ret.Results[0]))
+		assert.Equal(t, 1, ReturnValueIndex(ret, ret.Results[1]))
+		assert.Equal(t, -1, ReturnValueIndex(nil, ret.Results[0]))
+		assert.Equal(t, -1, ReturnValueIndex(ret, nil))
+	})
+
+	t.Run("ContainedExpr", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() (string, string) {
+	return ("left"), ("right")
+}
+`)
+		require.NoError(t, err)
+
+		var (
+			ret      *ast.ReturnStmt
+			leftLit  *ast.BasicLit
+			rightLit *ast.BasicLit
+		)
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.ReturnStmt:
+				ret = node
+			case *ast.BasicLit:
+				switch node.Value {
+				case `"left"`:
+					leftLit = node
+				case `"right"`:
+					rightLit = node
+				}
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+		require.NotNil(t, leftLit)
+		require.NotNil(t, rightLit)
+
+		assert.Equal(t, 0, ReturnValueIndex(ret, leftLit))
+		assert.Equal(t, 1, ReturnValueIndex(ret, rightLit))
+	})
+}
+
 func TestToLowerCamelCase(t *testing.T) {
 	t.Run("EmptyString", func(t *testing.T) {
 		assert.Equal(t, "", ToLowerCamelCase(""))

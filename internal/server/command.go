@@ -762,14 +762,10 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		return SpxInputTypeUnknown
 	}
 
-	switch typ {
-	case GetSpxBackdropNameType(),
-		GetSpxSoundNameType(),
-		GetSpxSpriteNameType(),
-		GetSpxSpriteCostumeNameType(),
-		GetSpxSpriteAnimationNameType(),
-		GetSpxWidgetNameType():
+	if IsSpxResourceNameType(typ) {
 		return SpxInputTypeResourceName
+	}
+	switch typ {
 	case GetSpxDirectionType():
 		return SpxInputTypeDirection
 	case GetSpxLayerActionType():
