@@ -80,3 +80,40 @@ func IsTypesCompatible(got, want types.Type) bool {
 
 	return false
 }
+
+// IsTypesConvertible reports whether a type can be explicitly converted to another.
+func IsTypesConvertible(from, to types.Type) bool {
+	if from == nil || to == nil {
+		return false
+	}
+
+	if !types.ConvertibleTo(from, to) {
+		return false
+	}
+
+	fromUnderlying := from.Underlying()
+	toUnderlying := to.Underlying()
+
+	fromBasic, fromIsBasic := fromUnderlying.(*types.Basic)
+	toBasic, toIsBasic := toUnderlying.(*types.Basic)
+
+	if fromIsBasic && toIsBasic {
+		// Exclude numeric to string conversions.
+		if (fromBasic.Info()&types.IsNumeric) != 0 && toBasic.Kind() == types.String {
+			return false
+		}
+		// Exclude string to numeric conversions.
+		if fromBasic.Kind() == types.String && (toBasic.Info()&types.IsNumeric) != 0 {
+			return false
+		}
+		// Exclude bool to numeric or string conversions.
+		if fromBasic.Kind() == types.Bool && toBasic.Kind() != types.Bool {
+			return false
+		}
+		// Exclude numeric or string to bool conversions.
+		if fromBasic.Kind() != types.Bool && toBasic.Kind() == types.Bool {
+			return false
+		}
+	}
+	return true
+}
