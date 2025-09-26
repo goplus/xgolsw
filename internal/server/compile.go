@@ -649,7 +649,19 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 		switch expr := expr.(type) {
 		case *xgoast.BasicLit:
 			if expr.Kind == xgotoken.STRING {
-				s.inspectSpxResourceRefForTypeAtExpr(result, expr, xgoutil.DerefType(tv.Type), nil)
+				if returnType := s.resolveReturnTypeForExpr(result, expr); returnType != nil {
+					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
+						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
+						if spxFileBaseName == "main.spx" {
+							return nil
+						}
+						spriteName := strings.TrimSuffix(spxFileBaseName, ".spx")
+						return result.spxResourceSet.Sprite(spriteName)
+					})
+					s.inspectSpxResourceRefForTypeAtExpr(result, expr, returnType, getSpriteContext)
+				} else {
+					s.inspectSpxResourceRefForTypeAtExpr(result, expr, xgoutil.DerefType(tv.Type), nil)
+				}
 			}
 		case *xgoast.Ident:
 			typ := xgoutil.DerefType(tv.Type)
@@ -753,6 +765,43 @@ func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *x
 		return false
 	})
 	return resolvedExpr
+}
+
+// resolveReturnTypeForExpr resolves the function return type for an expression
+// when it appears in a return statement.
+func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr xgoast.Expr) types.Type {
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
+
+	astPkg, _ := result.proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, expr)
+	if astFile == nil {
+		return nil
+	}
+
+	path, _ := xgoutil.PathEnclosingInterval(astFile, expr.Pos(), expr.End())
+	stmt := xgoutil.EnclosingReturnStmt(path)
+	if stmt == nil {
+		return nil
+	}
+
+	idx := xgoutil.ReturnValueIndex(stmt, expr)
+	if idx < 0 {
+		return nil
+	}
+
+	sig := xgoutil.EnclosingFuncSignature(typeInfo, path)
+	if sig == nil || idx >= sig.Results().Len() {
+		return nil
+	}
+
+	typ := xgoutil.DerefType(sig.Results().At(idx).Type())
+	if IsSpxResourceNameType(typ) {
+		return typ
+	}
+	return nil
 }
 
 // resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.

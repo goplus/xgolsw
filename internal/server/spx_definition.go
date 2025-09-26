@@ -989,15 +989,23 @@ func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
 		if slice, ok := paramType.(*types.Slice); ok {
 			paramType = slice.Elem()
 		}
-		switch paramType {
-		case GetSpxBackdropNameType(),
-			GetSpxSpriteNameType(),
-			GetSpxSpriteCostumeNameType(),
-			GetSpxSpriteAnimationNameType(),
-			GetSpxSoundNameType(),
-			GetSpxWidgetNameType():
+		if IsSpxResourceNameType(paramType) {
 			return true
 		}
+	}
+	return false
+}
+
+// IsSpxResourceNameType reports whether the given type is a spx resource name type.
+func IsSpxResourceNameType(typ types.Type) bool {
+	switch typ {
+	case GetSpxBackdropNameType(),
+		GetSpxSpriteNameType(),
+		GetSpxSpriteCostumeNameType(),
+		GetSpxSpriteAnimationNameType(),
+		GetSpxSoundNameType(),
+		GetSpxWidgetNameType():
+		return true
 	}
 	return false
 }

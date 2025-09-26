@@ -83,6 +83,80 @@ func WalkPathEnclosingInterval(root *ast.File, start, end token.Pos, backward bo
 	}
 }
 
+// EnclosingFuncSignature returns the function signature enclosing the AST path.
+// It searches from the innermost node outward and supports both function
+// declarations and literals. It returns nil if not found.
+func EnclosingFuncSignature(typeInfo *xgotypes.Info, path []ast.Node) *types.Signature {
+	if typeInfo == nil {
+		return nil
+	}
+	for _, node := range slices.Backward(path) {
+		switch node := node.(type) {
+		case *ast.FuncLit:
+			if tv, ok := typeInfo.Types[node]; ok {
+				if sig, ok := tv.Type.(*types.Signature); ok {
+					return sig
+				}
+			}
+		case *ast.FuncDecl:
+			obj := typeInfo.ObjectOf(node.Name)
+			if obj == nil {
+				continue
+			}
+			fun, ok := obj.(*types.Func)
+			if !ok {
+				continue
+			}
+			sig, ok := fun.Type().(*types.Signature)
+			if ok {
+				return sig
+			}
+		}
+	}
+	return nil
+}
+
+// EnclosingNode returns the nearest enclosing node of type T in the given AST
+// path. It searches from the innermost node outward and returns the zero value
+// of T if not found.
+func EnclosingNode[T ast.Node](path []ast.Node) T {
+	for _, node := range slices.Backward(path) {
+		if node, ok := node.(T); ok {
+			return node
+		}
+	}
+	var zero T
+	return zero
+}
+
+// EnclosingReturnStmt returns the nearest enclosing return statement in the
+// given AST path. It returns nil if not found.
+func EnclosingReturnStmt(path []ast.Node) *ast.ReturnStmt {
+	return EnclosingNode[*ast.ReturnStmt](path)
+}
+
+// ReturnValueIndex returns the index of target within the provided return
+// statement. If the exact node is not present, it falls back to locating the
+// expression by source range containment. It returns -1 if not found.
+func ReturnValueIndex(stmt *ast.ReturnStmt, target ast.Expr) int {
+	if stmt == nil || target == nil {
+		return -1
+	}
+	for i, expr := range stmt.Results {
+		if expr == nil {
+			continue
+		}
+		if expr == target {
+			return i
+		}
+		if target.Pos().IsValid() && target.End().IsValid() &&
+			target.Pos() >= expr.Pos() && target.End() <= expr.End() {
+			return i
+		}
+	}
+	return -1
+}
+
 // ToLowerCamelCase converts the first character of a Go identifier to lowercase.
 func ToLowerCamelCase(s string) string {
 	if s == "" {
