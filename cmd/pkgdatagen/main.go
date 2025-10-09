@@ -27,6 +27,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -154,10 +155,15 @@ var stdPkgPaths = []string{
 // generate generates the package data file containing the exported symbols of
 // the given packages.
 func generate(pkgPaths []string, outputFile string) error {
+	buildCtx := build.Default
+	buildCtx.GOOS = "js"
+	buildCtx.GOARCH = "wasm"
+	buildCtx.CgoEnabled = false
+
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	for _, pkgPath := range pkgPaths {
-		buildPkg, err := build.Import(pkgPath, "", build.ImportComment)
+		buildPkg, err := buildCtx.Import(pkgPath, "", build.ImportComment)
 		if err != nil {
 			continue
 		}
@@ -275,7 +281,16 @@ func generate(pkgPaths []string, outputFile string) error {
 				return fmt.Errorf("failed to write optimized package export data: %w", err)
 			}
 
-			astPkgs, err := parser.ParseDir(token.NewFileSet(), buildPkg.Dir, nil, parser.ParseComments)
+			allowedFiles := make(map[string]bool, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
+			for _, file := range buildPkg.GoFiles {
+				allowedFiles[file] = true
+			}
+			for _, file := range buildPkg.CgoFiles {
+				allowedFiles[file] = true
+			}
+			fileFilter := func(info fs.FileInfo) bool { return allowedFiles[info.Name()] }
+
+			astPkgs, err := parser.ParseDir(token.NewFileSet(), buildPkg.Dir, fileFilter, parser.ParseComments)
 			if err != nil {
 				return fmt.Errorf("failed to parse package: %w", err)
 			}
