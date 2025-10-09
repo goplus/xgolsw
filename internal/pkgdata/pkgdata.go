@@ -16,7 +16,7 @@ import (
 	"github.com/goplus/xgolsw/pkgdoc"
 )
 
-//go:generate go tool pkgdatagen
+//go:generate sh -c "GOTOOLCHAIN=\"go$(go list -m -f '{{.GoVersion}}')\" go tool pkgdatagen"
 
 var (
 	//go:embed pkgdata.zip
