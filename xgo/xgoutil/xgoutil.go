@@ -93,8 +93,8 @@ func EnclosingFuncSignature(typeInfo *xgotypes.Info, path []ast.Node) *types.Sig
 	for _, node := range slices.Backward(path) {
 		switch node := node.(type) {
 		case *ast.FuncLit:
-			if tv, ok := typeInfo.Types[node]; ok {
-				if sig, ok := tv.Type.(*types.Signature); ok {
+			if typ := typeInfo.TypeOf(node); IsValidType(typ) {
+				if sig, ok := typ.(*types.Signature); ok {
 					return sig
 				}
 			}

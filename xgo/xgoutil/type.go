@@ -28,6 +28,11 @@ func DerefType(t types.Type) types.Type {
 	return t
 }
 
+// IsValidType reports whether typ is non-nil and not the invalid type sentinel.
+func IsValidType(typ types.Type) bool {
+	return typ != nil && typ != types.Typ[types.Invalid]
+}
+
 // IsTypesCompatible reports whether two types are compatible.
 func IsTypesCompatible(got, want types.Type) bool {
 	if got == nil || want == nil {

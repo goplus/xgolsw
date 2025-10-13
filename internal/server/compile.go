@@ -811,11 +811,11 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 		return nil
 	}
 
-	funcTV, ok := typeInfo.Types[callExpr.Fun]
-	if !ok {
+	funcType := typeInfo.TypeOf(callExpr.Fun)
+	if !xgoutil.IsValidType(funcType) {
 		return nil
 	}
-	funcSig, ok := funcTV.Type.(*types.Signature)
+	funcSig, ok := funcType.(*types.Signature)
 	if !ok {
 		return nil
 	}
