@@ -70,6 +70,33 @@ func TestDerefType(t *testing.T) {
 	})
 }
 
+func TestIsValidType(t *testing.T) {
+	t.Run("NilType", func(t *testing.T) {
+		assert.False(t, IsValidType(nil))
+	})
+
+	t.Run("InvalidTypeSentinel", func(t *testing.T) {
+		assert.False(t, IsValidType(types.Typ[types.Invalid]))
+	})
+
+	t.Run("NamedType", func(t *testing.T) {
+		named := types.NewNamed(types.NewTypeName(0, nil, "MyInt", nil), types.Typ[types.Int], nil)
+		assert.True(t, IsValidType(named))
+	})
+
+	t.Run("BasicTypes", func(t *testing.T) {
+		assert.True(t, IsValidType(types.Typ[types.Int]))
+		assert.True(t, IsValidType(types.Typ[types.String]))
+		assert.True(t, IsValidType(types.Typ[types.Bool]))
+	})
+
+	t.Run("CompositeTypes", func(t *testing.T) {
+		assert.True(t, IsValidType(types.NewSlice(types.Typ[types.String])))
+		assert.True(t, IsValidType(types.NewPointer(types.Typ[types.Int])))
+		assert.True(t, IsValidType(types.NewStruct(nil, nil)))
+	})
+}
+
 func TestIsTypesCompatible(t *testing.T) {
 	t.Run("NilTypes", func(t *testing.T) {
 		assert.False(t, IsTypesCompatible(nil, nil))

@@ -200,6 +200,24 @@ import "f
 		assert.True(t, containsCompletionItemLabel(items, "fmt"))
 	})
 
+	t.Run("IncompleteMapLiteralInCall", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+println {"key": }
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 15},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+	})
+
 	t.Run("InImportGroupStringLit", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

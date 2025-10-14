@@ -130,7 +130,7 @@ func (ctx *completionContext) analyze() {
 				ctx.selectorExpr = node
 			}
 		case *xgoast.CallExpr:
-			if _, ok := ctx.typeInfo.Types[node.Fun]; !ok {
+			if typ := ctx.typeInfo.TypeOf(node.Fun); !xgoutil.IsValidType(typ) {
 				continue
 			}
 
@@ -201,17 +201,17 @@ func (ctx *completionContext) analyze() {
 			// to access all variables and identifiers.
 			continue
 		case *xgoast.CompositeLit:
-			tv, ok := ctx.typeInfo.Types[node]
-			if !ok {
+			typ := ctx.typeInfo.TypeOf(node)
+			if !xgoutil.IsValidType(typ) {
 				// Try to get type from the CompositeLit.Type field.
 				if node.Type != nil {
-					tv, ok = ctx.typeInfo.Types[node.Type]
+					typ = ctx.typeInfo.TypeOf(node.Type)
 				}
-				if !ok {
+				if !xgoutil.IsValidType(typ) {
 					continue
 				}
 			}
-			typ := xgoutil.DerefType(tv.Type)
+			typ = xgoutil.DerefType(typ)
 
 			// Skip map literals, as they should use general completion to allow
 			// variable suggestions inside the literal.
@@ -284,8 +284,8 @@ func (ctx *completionContext) analyze() {
 					}
 					ctx.kind = completionKindAssignOrDefine
 					ctx.valueExpression = true
-					if tv, ok := ctx.typeInfo.Types[node.Lhs[j]]; ok {
-						ctx.expectedTypes = []types.Type{tv.Type}
+					if typ := ctx.typeInfo.TypeOf(node.Lhs[j]); xgoutil.IsValidType(typ) {
+						ctx.expectedTypes = []types.Type{typ}
 					}
 					if ident, ok := node.Lhs[j].(*xgoast.Ident); ok {
 						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
@@ -299,12 +299,12 @@ func (ctx *completionContext) analyze() {
 						resultVars := make([]*types.Var, 0, len(node.Lhs))
 						hasAllTypes := true
 						for _, lhsExpr := range node.Lhs {
-							tv, ok := ctx.typeInfo.Types[lhsExpr]
-							if !ok || tv.Type == nil {
+							typ := ctx.typeInfo.TypeOf(lhsExpr)
+							if !xgoutil.IsValidType(typ) {
 								hasAllTypes = false
 								break
 							}
-							resultVars = append(resultVars, types.NewVar(lhsExpr.Pos(), ctx.typeInfo.Pkg, "", tv.Type))
+							resultVars = append(resultVars, types.NewVar(lhsExpr.Pos(), ctx.typeInfo.Pkg, "", typ))
 						}
 						if hasAllTypes {
 							sig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(resultVars...), false)
@@ -437,7 +437,7 @@ func (ctx *completionContext) analyze() {
 						continue
 					}
 					ctx.kind = completionKindDecl
-					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); typ != nil && typ != types.Typ[types.Invalid] {
+					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); xgoutil.IsValidType(typ) {
 						ctx.expectedTypes = []types.Type{typ}
 					}
 					ctx.assignTargets = valueSpec.Names
@@ -631,6 +631,9 @@ func (ctx *completionContext) isAfterNumberLiteral() bool {
 
 // isMapType reports whether the given type is a map type.
 func isMapType(typ types.Type) bool {
+	if !xgoutil.IsValidType(typ) {
+		return false
+	}
 	_, isMap := typ.Underlying().(*types.Map)
 	return isMap
 }
@@ -642,19 +645,19 @@ func isMapType(typ types.Type) bool {
 // passed as function arguments, e.g., `printSlice [1, 2, 3]`.
 func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) bool {
 	// Check if we have type information.
-	if tv, ok := ctx.typeInfo.Types[comp]; ok {
-		typ := tv.Type.Underlying()
-		_, isSlice := typ.(*types.Slice)
-		_, isArray := typ.(*types.Array)
+	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
+		underlying := typ.Underlying()
+		_, isSlice := underlying.(*types.Slice)
+		_, isArray := underlying.(*types.Array)
 		return isSlice || isArray
 	}
 
 	// Try to get type information from the Type field if available.
 	if comp.Type != nil {
-		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok {
-			typ := tv.Type.Underlying()
-			_, isSlice := typ.(*types.Slice)
-			_, isArray := typ.(*types.Array)
+		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
+			underlying := typ.Underlying()
+			_, isSlice := underlying.(*types.Slice)
+			_, isArray := underlying.(*types.Array)
 			return isSlice || isArray
 		}
 	}
@@ -683,14 +686,14 @@ func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) b
 // passed as function arguments, e.g., `println {"key": value}`.
 func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
 	// Check if we have type information.
-	if tv, ok := ctx.typeInfo.Types[comp]; ok {
-		return isMapType(tv.Type)
+	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
+		return isMapType(typ)
 	}
 
 	// Try to get type information from the Type field if available.
 	if comp.Type != nil {
-		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok {
-			return isMapType(tv.Type)
+		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
+			return isMapType(typ)
 		}
 
 		// If we have an explicit type but no type info, it's likely not a map.
@@ -717,15 +720,15 @@ func (ctx *completionContext) mapLiteralElementType(comp *xgoast.CompositeLit) t
 		return nil
 	}
 
-	if tv, ok := ctx.typeInfo.Types[comp]; ok && tv.Type != nil {
-		if mapType, ok := xgoutil.DerefType(tv.Type).Underlying().(*types.Map); ok {
+	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
+		if mapType, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
 			return mapType.Elem()
 		}
 	}
 
 	if comp.Type != nil {
-		if tv, ok := ctx.typeInfo.Types[comp.Type]; ok && tv.Type != nil {
-			if mapType, ok := xgoutil.DerefType(tv.Type).Underlying().(*types.Map); ok {
+		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
+			if mapType, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
 				return mapType.Elem()
 			}
 		}
@@ -778,7 +781,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 	var mapType types.Type
 	if expected != nil {
 		mapType = expected
-	} else if typ := ctx.typeInfo.TypeOf(comp); typ != nil && typ != types.Typ[types.Invalid] {
+	} else if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
 		mapType = typ
 	}
 
@@ -791,7 +794,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 			continue
 		}
 
-		if typ := ctx.typeInfo.TypeOf(kv.Value); typ != nil && typ != types.Typ[types.Invalid] {
+		if typ := ctx.typeInfo.TypeOf(kv.Value); xgoutil.IsValidType(typ) {
 			if mapTyp, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
 				return mapTyp.Elem()
 			}
@@ -806,7 +809,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 				}
 			}
 			if innerExpected == nil {
-				if typ := ctx.typeInfo.TypeOf(kv.Value); typ != nil && typ != types.Typ[types.Invalid] {
+				if typ := ctx.typeInfo.TypeOf(kv.Value); xgoutil.IsValidType(typ) {
 					innerExpected = typ
 				}
 			}
@@ -853,8 +856,8 @@ func (ctx *completionContext) enclosingFunction(path []xgoast.Node) *types.Signa
 			return fun.Type().(*types.Signature)
 		case *xgoast.FuncLit:
 			// For function literals, get the type from the type info directly.
-			if tv, ok := ctx.typeInfo.Types[n]; ok {
-				if sig, ok := tv.Type.(*types.Signature); ok {
+			if typ := ctx.typeInfo.TypeOf(n); xgoutil.IsValidType(typ) {
+				if sig, ok := typ.(*types.Signature); ok {
 					return sig
 				}
 			}
@@ -1078,11 +1081,11 @@ func (ctx *completionContext) collectDot() error {
 		}
 	}
 
-	tv, ok := ctx.typeInfo.Types[ctx.selectorExpr.X]
-	if !ok {
+	typ := ctx.typeInfo.TypeOf(ctx.selectorExpr.X)
+	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
-	typ := xgoutil.DerefType(tv.Type)
+	typ = xgoutil.DerefType(typ)
 	named, ok := typ.(*types.Named)
 	if ok && IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
 		typ = GetSpxSpriteImplType()
@@ -1136,11 +1139,11 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
-	tv, ok := ctx.typeInfo.Types[callExpr.Fun]
-	if !ok {
+	typ := ctx.typeInfo.TypeOf(callExpr.Fun)
+	if !xgoutil.IsValidType(typ) {
 		return ctx.collectGeneral()
 	}
-	sig, ok := tv.Type.(*types.Signature)
+	sig, ok := typ.(*types.Signature)
 	if !ok {
 		return ctx.collectGeneral()
 	}
@@ -1207,7 +1210,7 @@ func (ctx *completionContext) collectReturn() error {
 
 // collectTypeSpecific collects type-specific completions.
 func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
-	if typ == nil || typ == types.Typ[types.Invalid] {
+	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
 
@@ -1370,11 +1373,11 @@ func (ctx *completionContext) collectSwitchCase() error {
 		return nil
 	}
 
-	tv, ok := ctx.typeInfo.Types[ctx.switchTag]
-	if !ok {
+	typ := ctx.typeInfo.TypeOf(ctx.switchTag)
+	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
-	named, ok := tv.Type.(*types.Named)
+	named, ok := typ.(*types.Named)
 	if !ok {
 		return nil
 	}
@@ -1399,7 +1402,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 			continue
 		}
 
-		if types.Identical(c.Type(), tv.Type) {
+		if types.Identical(c.Type(), typ) {
 			ctx.itemSet.addSpxDefs(GetSpxDefinitionForConst(c, pkgDoc))
 		}
 	}
@@ -1503,7 +1506,7 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []types.Type) {
 	s.expectedTypes = expectedTypes
 	s.isCompatibleWithExpectedTypes = func(typ types.Type) bool {
 		for _, expectedType := range expectedTypes {
-			if expectedType != types.Typ[types.Invalid] {
+			if xgoutil.IsValidType(expectedType) {
 				// First check direct compatibility.
 				if xgoutil.IsTypesCompatible(typ, expectedType) {
 					return true
