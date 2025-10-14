@@ -10,10 +10,6 @@ import (
 func newTestFileMap() map[string][]byte {
 	return map[string][]byte{
 		"main.spx": []byte(`
-var (
-	MyAircraft MyAircraft
-	Bullet     Bullet
-)
 run "assets", {Title: "Bullet (by XGo)"}
 `),
 		"MyAircraft.spx": []byte(`
@@ -72,7 +68,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 		fileMap["main.spx"] = []byte(`
 // Invalid syntax, missing closing parenthesis
 var (
-	MyAircraft MyAircraft
+	Foobar string
 `)
 		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
 		params := &DocumentDiagnosticParams{
@@ -91,16 +87,16 @@ var (
 			Severity: SeverityError,
 			Message:  "expected ')', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 22},
-				End:   Position{Line: 3, Character: 22},
+				Start: Position{Line: 3, Character: 14},
+				End:   Position{Line: 3, Character: 14},
 			},
 		})
 		assert.Contains(t, fullReport.Items, Diagnostic{
 			Severity: SeverityError,
 			Message:  "expected ';', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 22},
-				End:   Position{Line: 3, Character: 22},
+				Start: Position{Line: 3, Character: 14},
+				End:   Position{Line: 3, Character: 14},
 			},
 		})
 	})
@@ -228,7 +224,7 @@ func TestServerWorkspaceDiagnostic(t *testing.T) {
 			"main.spx": []byte(`
 // Invalid syntax, missing closing parenthesis
 var (
-	MyAircraft MyAircraft
+	Foobar string
 `),
 			"MyAircraft.spx":                       []byte(`var x int`),
 			"assets/index.json":                    []byte(`{}`),
@@ -248,16 +244,16 @@ var (
 					Severity: SeverityError,
 					Message:  "expected ')', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 22},
-						End:   Position{Line: 3, Character: 22},
+						Start: Position{Line: 3, Character: 14},
+						End:   Position{Line: 3, Character: 14},
 					},
 				})
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  "expected ';', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 22},
-						End:   Position{Line: 3, Character: 22},
+						Start: Position{Line: 3, Character: 14},
+						End:   Position{Line: 3, Character: 14},
 					},
 				})
 			} else {
