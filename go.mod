@@ -7,14 +7,14 @@ tool github.com/goplus/xgolsw/cmd/pkgdatagen
 require (
 	github.com/goplus/gogen v1.19.5
 	github.com/goplus/mod v0.17.1
-	github.com/goplus/spx/v2 v2.0.0-pre.22
+	github.com/goplus/spx/v2 v2.0.0-pre.27
 	github.com/goplus/xgo v1.5.2
 	github.com/qiniu/x v1.15.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.29.0
 	golang.org/x/sync v0.17.0
 	golang.org/x/text v0.30.0
-	golang.org/x/tools v0.37.0
+	golang.org/x/tools v0.38.0
 )
 
 require (
