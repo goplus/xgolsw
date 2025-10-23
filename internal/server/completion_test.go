@@ -2042,6 +2042,47 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(items, "getX"), "Should show single return for flexible use")
 		assert.True(t, containsCompletionItemLabel(items, "getY"), "Should show single return for flexible use")
 	})
+
+	t.Run("SpriteInterfaceEmbedding", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyInterface interface {
+	Sprite
+	methodOne()
+}
+
+onStart => {
+	var iface MyInterface = MySprite
+	iface.on
+}
+`),
+			"MySprite.spx": []byte(`
+func methodOne() {}
+onStart => {}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 9}, // After "n"
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, containsCompletionItemLabel(items, "onClick"))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("github.com/goplus/spx/v2"),
+			Name:    ToPtr("Sprite.onClick"),
+		}))
+		assert.True(t, containsCompletionItemLabel(items, "methodOne"))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("MyInterface.methodOne"),
+		}))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {
