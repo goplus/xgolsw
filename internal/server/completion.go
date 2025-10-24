@@ -1092,23 +1092,74 @@ func (ctx *completionContext) collectDot() error {
 	}
 
 	if iface, ok := typ.Underlying().(*types.Interface); ok {
-		for method := range iface.Methods() {
-			if !xgoutil.IsExportedOrInMainPkg(method) {
-				continue
-			}
-
-			var recvTypeName string
-			if named != nil && xgoutil.IsInMainPkg(named.Obj()) {
-				recvTypeName = named.Obj().Name()
-			}
-
-			spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
-			ctx.itemSet.addSpxDefs(spxDef)
-		}
+		ctx.collectInterfaceMethodCompletions(iface, named, nil)
 	} else if named, ok := typ.(*types.Named); ok && xgoutil.IsNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
 	}
 	return nil
+}
+
+// collectInterfaceMethodCompletions collects completion items for the provided
+// interface type and all of its embedded interfaces. The selectorNamed tracks
+// the named interface whose methods should determine the completion definition
+// name. The visited prevents infinite recursion for cyclic embeddings.
+func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Interface, selectorNamed *types.Named, visited map[*types.Interface]struct{}) {
+	if iface == nil {
+		return
+	}
+	if visited == nil {
+		visited = make(map[*types.Interface]struct{})
+	}
+	if _, ok := visited[iface]; ok {
+		return
+	}
+	visited[iface] = struct{}{}
+
+	for method := range iface.ExplicitMethods() {
+		if !xgoutil.IsExportedOrInMainPkg(method) {
+			continue
+		}
+
+		recvTypeName := ""
+		if selectorNamed != nil {
+			selectorObj := selectorNamed.Obj()
+			if !xgoutil.IsInMainPkg(selectorObj) || xgoutil.IsInMainPkg(method) {
+				recvTypeName = selectorObj.Name()
+			}
+		}
+
+		spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
+		ctx.itemSet.addSpxDefs(spxDef)
+	}
+
+	for embedded := range iface.EmbeddedTypes() {
+		var (
+			named          *types.Named
+			ifaceToRecurse *types.Interface
+		)
+
+		switch t := embedded.(type) {
+		case *types.Named:
+			named = t
+			ifaceToRecurse, _ = t.Underlying().(*types.Interface)
+		case *types.Interface:
+			ctx.collectInterfaceMethodCompletions(t, selectorNamed, visited)
+			continue
+		case *types.Pointer:
+			if n, ok := t.Elem().(*types.Named); ok {
+				named = n
+				ifaceToRecurse, _ = n.Underlying().(*types.Interface)
+			}
+		}
+
+		if ifaceToRecurse != nil {
+			nextSelector := selectorNamed
+			if named != nil && (nextSelector == nil || (xgoutil.IsInMainPkg(nextSelector.Obj()) && !xgoutil.IsInMainPkg(named.Obj()))) {
+				nextSelector = named
+			}
+			ctx.collectInterfaceMethodCompletions(ifaceToRecurse, nextSelector, visited)
+		}
+	}
 }
 
 // collectPackageMembers collects members of a package.
