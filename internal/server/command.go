@@ -898,7 +898,7 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *xgoast.BasicLi
 			if spxResourceRef.Node == lit {
 				input.Type = SpxInputTypeResourceName
 				input.Value = spxResourceRef.ID.URI()
-				accept.ResourceContext = ToPtr(spxResourceRef.ID.ContextURI())
+				accept.ResourceContext = ToPtr(XGoResourceContextURI(spxResourceRef.ID.ContextURI()))
 				break
 			}
 		}
@@ -982,13 +982,13 @@ func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, d
 			if spxSpriteResource == nil {
 				return nil
 			}
-			accept.ResourceContext = ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
+			accept.ResourceContext = ToPtr(FormatSpriteCostumeResourceContextURI(spxSpriteResource.Name))
 		case GetSpxSpriteAnimationNameType():
 			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
-			accept.ResourceContext = ToPtr(FormatSpxSpriteAnimationResourceContextURI(spxSpriteResource.Name))
+			accept.ResourceContext = ToPtr(FormatSpriteAnimationResourceContextURI(spxSpriteResource.Name))
 		case GetSpxWidgetNameType():
 			accept.ResourceContext = ToPtr(SpxWidgetResourceContextURI)
 		default:
@@ -1239,7 +1239,9 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 		} else if spxFile != "main.spx" {
 			spxSpriteName = strings.TrimSuffix(spxFile, ".spx")
 		}
-		spxSpriteResource = result.spxResourceSet.sprites[spxSpriteName]
+		if result.spxResourceSet != nil {
+			spxSpriteResource = result.spxResourceSet.Sprite(spxSpriteName)
+		}
 		return false
 	})
 	return spxSpriteResource
