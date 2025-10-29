@@ -1274,9 +1274,8 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 	var spxResourceIDs []SpxResourceID
 	switch typ {
 	case GetSpxBackdropNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.backdrops))
-		for spxBackdropName := range ctx.result.spxResourceSet.backdrops {
-			spxResourceIDs = append(spxResourceIDs, SpxBackdropResourceID{spxBackdropName})
+		for _, spxBackdrop := range ctx.result.spxResourceSet.Backdrops() {
+			spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxBackdrop.ID))
 		}
 	case GetSpxSpriteType(), GetSpxSpriteImplType():
 		for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
@@ -1285,39 +1284,36 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 			}
 		}
 	case GetSpxSpriteNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sprites))
-		for spxSpriteName := range ctx.result.spxResourceSet.sprites {
-			spxResourceIDs = append(spxResourceIDs, SpxSpriteResourceID{spxSpriteName})
+		for _, spxSprite := range ctx.result.spxResourceSet.Sprites() {
+			spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxSprite.ID))
 		}
 	case GetSpxSpriteCostumeNameType():
 		expectedSpxSprite := ctx.getSpxSpriteResource()
-		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
+		for _, spxSprite := range ctx.result.spxResourceSet.Sprites() {
 			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
 				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.NormalCostumes))
 				for _, spxSpriteCostume := range spxSprite.NormalCostumes {
-					spxResourceIDs = append(spxResourceIDs, SpxSpriteCostumeResourceID{spxSprite.Name, spxSpriteCostume.Name})
+					spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxSpriteCostume.ID))
 				}
 			}
 		}
 	case GetSpxSpriteAnimationNameType():
 		expectedSpxSprite := ctx.getSpxSpriteResource()
-		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
+		for _, spxSprite := range ctx.result.spxResourceSet.Sprites() {
 			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
 				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.Animations))
 				for _, spxSpriteAnimation := range spxSprite.Animations {
-					spxResourceIDs = append(spxResourceIDs, SpxSpriteAnimationResourceID{spxSprite.Name, spxSpriteAnimation.Name})
+					spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxSpriteAnimation.ID))
 				}
 			}
 		}
 	case GetSpxSoundNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sounds))
-		for spxSoundName := range ctx.result.spxResourceSet.sounds {
-			spxResourceIDs = append(spxResourceIDs, SpxSoundResourceID{spxSoundName})
+		for _, spxSound := range ctx.result.spxResourceSet.Sounds() {
+			spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxSound.ID))
 		}
 	case GetSpxWidgetNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.widgets))
-		for spxWidgetName := range ctx.result.spxResourceSet.widgets {
-			spxResourceIDs = append(spxResourceIDs, SpxWidgetResourceID{spxWidgetName})
+		for _, spxWidget := range ctx.result.spxResourceSet.Widgets() {
+			spxResourceIDs = append(spxResourceIDs, wrapSpxResourceID(spxWidget.ID))
 		}
 	}
 	for _, spxResourceID := range spxResourceIDs {
@@ -1352,7 +1348,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 		if ctx.spxFile == "main.spx" {
 			return nil
 		}
-		return ctx.result.spxResourceSet.sprites[strings.TrimSuffix(ctx.spxFile, ".spx")]
+		return ctx.result.spxResourceSet.Sprite(strings.TrimSuffix(ctx.spxFile, ".spx"))
 	}
 
 	ident, ok := sel.X.(*xgoast.Ident)
@@ -1369,10 +1365,10 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	}
 
 	if named == GetSpxSpriteType() {
-		return ctx.result.spxResourceSet.sprites[ident.Name]
+		return ctx.result.spxResourceSet.Sprite(ident.Name)
 	}
 	if ctx.result.hasSpxSpriteType(named) {
-		return ctx.result.spxResourceSet.sprites[obj.Name()]
+		return ctx.result.spxResourceSet.Sprite(obj.Name())
 	}
 	return nil
 }
