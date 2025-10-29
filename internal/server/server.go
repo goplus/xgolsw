@@ -17,6 +17,7 @@ import (
 	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
+	"github.com/goplus/xgolsw/internal/classfile"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -45,6 +46,7 @@ type Scheduler interface {
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
 	workspaceRootURI DocumentURI
+	classProject     *classfile.Project
 	workspaceRootFS  *xgo.Project
 	replier          MessageReplier
 	analyzers        []*analysis.Analyzer
@@ -55,13 +57,32 @@ type Server struct {
 }
 
 func (s *Server) getProj() *xgo.Project {
+	if s.classProject != nil {
+		return s.classProject.Underlying()
+	}
 	return s.workspaceRootFS
 }
 
 func (s *Server) getProjWithFile() *xgo.Project {
-	proj := s.workspaceRootFS
+	proj := s.getProj()
 	proj.UpdateFiles(s.fileMapGetter())
 	return proj
+}
+
+func (s *Server) getClassProject() *classfile.Project {
+	if s.classProject != nil {
+		return s.classProject
+	}
+	if s.workspaceRootFS == nil {
+		return nil
+	}
+	classProj, err := classfile.NewProject(s.workspaceRootFS)
+	if err != nil {
+		panic(fmt.Errorf("failed to create classfile project: %w", err))
+	}
+	classProj.SetAnalyzers(s.analyzers)
+	s.classProject = classProj
+	return classProj
 }
 
 // New creates a new Server instance.
@@ -73,12 +94,19 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 	proj.PkgPath = "main"
 	proj.Mod = mod
 	proj.Importer = internal.Importer
+	classProj, err := classfile.NewProject(proj)
+	if err != nil {
+		panic(fmt.Errorf("failed to create classfile project: %w", err))
+	}
+	analyzers := initAnalyzers(true)
+	classProj.SetAnalyzers(analyzers)
 	return &Server{
 		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
+		classProject:     classProj,
 		workspaceRootFS:  proj,
 		replier:          replier,
-		analyzers:        initAnalyzers(true),
+		analyzers:        analyzers,
 		fileMapGetter:    fileMapGetter,
 		scheduler:        scheduler,
 		language:         i18n.LanguageEN, // Default to English until initialize is called

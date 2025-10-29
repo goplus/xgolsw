@@ -3,8 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"html/template"
 	"net/url"
 
 	"github.com/goplus/xgolsw/protocol"
@@ -180,21 +178,6 @@ type SpxResourceIdentifier struct {
 	// The spx resource's URI.
 	URI SpxResourceURI `json:"uri"`
 }
-
-// SpxResourceURI represents a URI string for an spx resource.
-type SpxResourceURI string
-
-// HTML returns the HTML representation of the spx resource URI.
-func (u SpxResourceURI) HTML() string {
-	return fmt.Sprintf("<resource-preview resource=%q />\n", template.HTMLEscapeString(string(u)))
-}
-
-// SpxResourceContextURI represents a URI for resource context.
-// Examples:
-// - `spx://resources/sprites`
-// - `spx://resources/sounds`
-// - `spx://resources/sprites/<sName>/costumes`
-type SpxResourceContextURI string
 
 // SpxGetDefinitionsParams represents parameters to get definitions at a
 // specific position in a document.
