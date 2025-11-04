@@ -33,7 +33,6 @@ type SpxResourceRefKind string
 
 const (
 	SpxResourceRefKindStringLiteral        SpxResourceRefKind = "stringLiteral"
-	SpxResourceRefKindAutoBinding          SpxResourceRefKind = "autoBinding"
 	SpxResourceRefKindAutoBindingReference SpxResourceRefKind = "autoBindingReference"
 	SpxResourceRefKindConstantReference    SpxResourceRefKind = "constantReference"
 )
