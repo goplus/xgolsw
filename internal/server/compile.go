@@ -1,27 +1,27 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"go/types"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/goplus/gogen"
 	xgoast "github.com/goplus/xgo/ast"
 	xgoscanner "github.com/goplus/xgo/scanner"
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
+	"github.com/goplus/xgolsw/internal/classfile"
+	classfilespx "github.com/goplus/xgolsw/internal/classfile/spx"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
-	"github.com/qiniu/x/errors"
 )
 
 // errNoMainSpxFile is the error returned when no valid main.spx file is found
@@ -40,14 +40,10 @@ type compileResult struct {
 	spxSpriteTypes map[types.Type]struct{}
 
 	// spxResourceSet is the set of spx resources.
-	spxResourceSet SpxResourceSet
+	spxResourceSet *SpxResourceSet
 
 	// spxResourceRefs stores spx resource references.
 	spxResourceRefs []SpxResourceRef
-
-	// seenSpxResourceRefs stores already seen spx resource references to avoid
-	// duplicates.
-	seenSpxResourceRefs map[SpxResourceRef]struct{}
 
 	// spxSpriteResourceAutoBindings stores spx sprite resource auto-bindings.
 	spxSpriteResourceAutoBindings map[types.Object]struct{}
@@ -291,27 +287,6 @@ func (r *compileResult) hasSpxSpriteType(typ types.Type) bool {
 	return ok
 }
 
-// hasSpxSpriteResourceAutoBinding reports whether the given object is an spx
-// resource auto-binding.
-func (r *compileResult) hasSpxSpriteResourceAutoBinding(obj types.Object) bool {
-	_, ok := r.spxSpriteResourceAutoBindings[obj]
-	return ok
-}
-
-// addSpxResourceRef adds an spx resource reference to the compile result.
-func (r *compileResult) addSpxResourceRef(ref SpxResourceRef) {
-	if r.seenSpxResourceRefs == nil {
-		r.seenSpxResourceRefs = make(map[SpxResourceRef]struct{})
-	}
-
-	if _, ok := r.seenSpxResourceRefs[ref]; ok {
-		return
-	}
-	r.seenSpxResourceRefs[ref] = struct{}{}
-
-	r.spxResourceRefs = append(r.spxResourceRefs, ref)
-}
-
 // addDiagnostics adds diagnostics to the compile result.
 func (r *compileResult) addDiagnostics(documentURI DocumentURI, diags ...Diagnostic) {
 	if r.seenDiagnostics == nil {
@@ -338,22 +313,28 @@ func (r *compileResult) addDiagnostics(documentURI DocumentURI, diags ...Diagnos
 	}
 }
 
-// compile compiles spx source files and returns compile result. It uses cached
-// result if available.
+// compile compiles spx source files and returns compile result.
 func (s *Server) compile() (*compileResult, error) {
-	// NOTE(xsw): don't create a snapshot
-	snapshot := s.workspaceRootFS // .Snapshot()
+	classProj := s.getClassProject()
+	if classProj == nil {
+		return nil, fmt.Errorf("class project not initialized")
+	}
 
-	// TODO(wyvern): remove this once we have a better way to update files.
-	snapshot.UpdateFiles(s.fileMapGetter())
-	return s.compileAt(snapshot)
+	proj := classProj.Underlying()
+	proj.UpdateFiles(s.fileMapGetter())
+
+	snapshot, err := classProj.Snapshot(classfilespx.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build classfile snapshot: %w", err)
+	}
+	return s.compileWithSnapshot(classProj, snapshot)
 }
 
-// compileAt compiles spx source files at the given snapshot and returns the
-// compile result.
-func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
+// compileWithSnapshot compiles spx source files using the provided classfile snapshot.
+func (s *Server) compileWithSnapshot(classProj *classfile.Project, snapshot *classfile.Snapshot) (*compileResult, error) {
+	proj := classProj.Underlying()
 	var spxFiles []string
-	for file := range snapshot.Files() {
+	for file := range proj.Files() {
 		if path.Ext(file) == ".spx" {
 			spxFiles = append(spxFiles, file)
 		}
@@ -362,19 +343,18 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		return nil, errNoMainSpxFile
 	}
 
-	result := newCompileResult(snapshot)
+	result := newCompileResult(proj)
 	for _, spxFile := range spxFiles {
 		documentURI := s.toDocumentURI(spxFile)
 		result.diagnostics[documentURI] = []Diagnostic{}
 
-		astFile, err := snapshot.ASTFile(spxFile)
+		astFile, err := proj.ASTFile(spxFile)
 		if err != nil {
 			var (
 				errorList xgoscanner.ErrorList
 				codeError *gogen.CodeError
 			)
-			if errors.As(err, &errorList) && astFile.Pos().IsValid() {
-				// Handle parse errors.
+			if errors.As(err, &errorList) && astFile != nil && astFile.Pos().IsValid() {
 				for _, e := range errorList {
 					result.addDiagnostics(documentURI, Diagnostic{
 						Severity: SeverityError,
@@ -383,14 +363,12 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 					})
 				}
 			} else if errors.As(err, &codeError) {
-				// Handle code generation errors.
 				result.addDiagnostics(documentURI, Diagnostic{
 					Severity: SeverityError,
 					Range:    RangeForPosEnd(result.proj, codeError.Pos, codeError.End),
 					Message:  codeError.Error(),
 				})
 			} else {
-				// Handle unknown errors (including recovered panics).
 				result.addDiagnostics(documentURI, Diagnostic{
 					Severity: SeverityError,
 					Message:  s.translate(fmt.Sprintf("failed to parse spx file: %v", err)),
@@ -408,11 +386,87 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			})
 			continue
 		}
-
-		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
+		if path.Base(spxFile) == "main.spx" {
 			result.mainSpxFile = spxFile
 		}
 	}
+	if mainAny, ok := snapshot.Resources.Get(classfilespx.MainFileKey); ok {
+		if mainFile, ok := mainAny.(string); ok {
+			result.mainSpxFile = mainFile
+		}
+	}
+
+	fallbackFile := result.mainSpxFile
+	if fallbackFile == "" && len(spxFiles) > 0 {
+		fallbackFile = spxFiles[0]
+	}
+	for _, diag := range snapshot.Diagnostics {
+		if !diag.Pos.IsValid() {
+			continue
+		}
+		filename := fallbackFile
+		var (
+			rangeSet            bool
+			startLine, startCol int
+			endLine, endCol     int
+		)
+		if diag.Fset != nil {
+			startPos := diag.Fset.Position(diag.Pos)
+			if startPos.Filename != "" {
+				filename = startPos.Filename
+			}
+			endPos := startPos
+			if diag.End.IsValid() {
+				endPos = diag.Fset.Position(diag.End)
+			}
+			startLine = startPos.Line
+			if startLine < 1 {
+				startLine = 1
+			}
+			startCol = startPos.Column
+			if startCol < 1 {
+				startCol = 1
+			}
+			endLine = endPos.Line
+			if endLine < 1 {
+				endLine = startLine
+			}
+			endCol = endPos.Column
+			if endCol < 1 {
+				endCol = startCol
+			}
+			rangeSet = true
+		}
+		if !rangeSet {
+			continue
+		}
+		if filename == "" {
+			continue
+		}
+		documentURI := s.toDocumentURI(filename)
+		if existing, ok := result.diagnostics[documentURI]; ok {
+			skip := false
+			for _, existingDiag := range existing {
+				if existingDiag.Message == diag.Msg {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+		}
+		diagnostic := Diagnostic{
+			Severity: SeverityError,
+			Message:  diag.Msg,
+			Range: Range{
+				Start: Position{Line: uint32(startLine - 1), Character: uint32(startCol - 1)},
+				End:   Position{Line: uint32(endLine - 1), Character: uint32(endCol - 1)},
+			},
+		}
+		result.addDiagnostics(documentURI, diagnostic)
+	}
+
 	if result.mainSpxFile == "" {
 		if len(result.diagnostics) == 0 {
 			return nil, errNoMainSpxFile
@@ -420,55 +474,41 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		return result, nil
 	}
 
-	handleErr := func(err error) {
-		if typeErr, ok := err.(typesutil.Error); ok {
-			if !typeErr.Pos.IsValid() {
-				panic(fmt.Sprintf("unexpected nopos error: %s", typeErr.Msg))
-			}
-			position := typeErr.Fset.Position(typeErr.Pos)
-			documentURI := s.toDocumentURI(position.Filename)
-			result.addDiagnostics(documentURI, Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForPosEnd(result.proj, typeErr.Pos, typeErr.End),
-				Message:  typeErr.Msg,
-			})
+	if setAny, ok := snapshot.Resources.Get(classfilespx.ResourceSetKey); ok {
+		if set, ok := setAny.(*classfilespx.ResourceSet); ok && set != nil {
+			result.spxResourceSet = set
 		}
 	}
-
-	typeInfo, err := snapshot.TypeInfo()
-	if err != nil {
-		switch err := err.(type) {
-		case errors.List:
-			for _, e := range err {
-				handleErr(e)
-			}
-		default:
-			handleErr(err)
-		}
-	}
-	pkg := typeInfo.Pkg
-
-	for file := range snapshot.Files() {
-		if file == "main.spx" {
-			// Skip the main.spx file, as it is not a sprite file.
-			continue
-		}
-		if path.Ext(file) != ".spx" {
-			continue
-		}
-
-		spriteName := strings.TrimSuffix(path.Base(file), ".spx")
-		obj := pkg.Scope().Lookup(spriteName)
-		if obj != nil {
-			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
-			if ok {
-				result.spxSpriteTypes[named] = struct{}{}
+	if refsAny, ok := snapshot.Resources.Get(classfilespx.ResourceRefsKey); ok {
+		if refs, ok := refsAny.([]*classfilespx.ResourceRef); ok {
+			result.spxResourceRefs = result.spxResourceRefs[:0]
+			for _, ref := range refs {
+				if ref == nil {
+					continue
+				}
+				result.spxResourceRefs = append(result.spxResourceRefs, *ref)
 			}
 		}
 	}
 
-	s.inspectForSpxResourceSet(snapshot, result)
-	s.inspectForSpxResourceRefs(result)
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo != nil {
+		if pkg := typeInfo.Pkg; pkg != nil {
+			for file := range proj.Files() {
+				if file == "main.spx" || path.Ext(file) != ".spx" {
+					continue
+				}
+				spriteName := strings.TrimSuffix(path.Base(file), ".spx")
+				if obj := pkg.Scope().Lookup(spriteName); obj != nil {
+					if named, ok := xgoutil.DerefType(obj.Type()).(*types.Named); ok {
+						result.spxSpriteTypes[named] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	s.inspectForAutoBindingSpxResources(result)
 	s.inspectDiagnosticsAnalyzers(result)
 
 	return result, nil
@@ -493,57 +533,6 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 		astFile = astPkg.Files[spxFile]
 	}
 	return
-}
-
-// inspectForSpxResourceSet inspects for spx resource set in main.spx.
-func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compileResult) {
-	mainASTFile, _ := result.proj.ASTFile(result.mainSpxFile)
-	typeInfo, _ := snapshot.TypeInfo()
-	if typeInfo == nil {
-		return
-	}
-
-	var spxResourceRootDir string
-	for expr, tv := range typeInfo.Types {
-		if expr == nil || !expr.Pos().IsValid() || expr.Pos() < mainASTFile.Pos() || expr.End() > mainASTFile.End() {
-			continue
-		}
-
-		callExpr, ok := expr.(*xgoast.CallExpr)
-		if !ok || len(callExpr.Args) == 0 || tv.Type != GetSpxGoptGameRunFunc().Type() {
-			continue
-		}
-		firstArg := callExpr.Args[0]
-		firstArgTV, ok := typeInfo.Types[firstArg]
-		if !ok {
-			continue
-		}
-
-		if types.AssignableTo(firstArgTV.Type, types.Typ[types.String]) {
-			spxResourceRootDir, _ = xgoutil.StringLitOrConstValue(firstArg, firstArgTV)
-		} else {
-			documentURI := s.toDocumentURI(result.mainSpxFile)
-			result.addDiagnostics(documentURI, Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForNode(result.proj, firstArg),
-				Message:  s.translate("first argument of run must be a string literal or constant"),
-			})
-		}
-		break
-	}
-	if spxResourceRootDir == "" {
-		spxResourceRootDir = "assets"
-	}
-	spxResourceSet, err := NewSpxResourceSet(snapshot, spxResourceRootDir)
-	if err != nil {
-		documentURI := s.toDocumentURI(result.mainSpxFile)
-		result.addDiagnostics(documentURI, Diagnostic{
-			Severity: SeverityError,
-			Message:  s.translate(fmt.Sprintf("failed to create spx resource set: %v", err)),
-		})
-		return
-	}
-	result.spxResourceSet = *spxResourceSet
 }
 
 // inspectDiagnosticsAnalyzers runs registered analyzers on each spx source file
@@ -606,100 +595,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	}
 }
 
-// inspectForSpxResourceRefs inspects for spx resource references in the code.
-func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
-	s.inspectForAutoBindingSpxResources(result)
-
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return
-	}
-
-	// Check all identifier definitions.
-	for ident, obj := range typeInfo.Defs {
-		if ident == nil || !ident.Pos().IsValid() || ident.Implicit() || obj == nil {
-			continue
-		}
-
-		switch obj.(type) {
-		case *types.Const, *types.Var:
-			if ident.Obj == nil {
-				break
-			}
-			valueSpec, ok := ident.Obj.Decl.(*xgoast.ValueSpec)
-			if !ok {
-				break
-			}
-			idx := slices.Index(valueSpec.Names, ident)
-			if idx < 0 || idx >= len(valueSpec.Values) {
-				break
-			}
-			expr := valueSpec.Values[idx]
-
-			s.inspectSpxResourceRefForTypeAtExpr(result, expr, xgoutil.DerefType(obj.Type()), nil)
-		}
-	}
-
-	// Check all type-checked expressions.
-	for expr, tv := range typeInfo.Types {
-		if expr == nil || !expr.Pos().IsValid() || tv.IsType() || tv.Type == nil {
-			continue
-		}
-
-		switch expr := expr.(type) {
-		case *xgoast.BasicLit:
-			if expr.Kind == xgotoken.STRING {
-				if returnType := s.resolveReturnTypeForExpr(result, expr); returnType != nil {
-					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
-						if spxFileBaseName == "main.spx" {
-							return nil
-						}
-						spriteName := strings.TrimSuffix(spxFileBaseName, ".spx")
-						return result.spxResourceSet.Sprite(spriteName)
-					})
-					s.inspectSpxResourceRefForTypeAtExpr(result, expr, returnType, getSpriteContext)
-				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, expr, xgoutil.DerefType(tv.Type), nil)
-				}
-			}
-		case *xgoast.Ident:
-			typ := xgoutil.DerefType(tv.Type)
-			switch typ {
-			case GetSpxBackdropNameType(),
-				GetSpxSpriteNameType(),
-				GetSpxSoundNameType(),
-				GetSpxWidgetNameType():
-				s.inspectSpxResourceRefForTypeAtExpr(result, s.resolveIdentifierToAssignedExpr(result, expr), typ, nil)
-			}
-		case *xgoast.CallExpr:
-			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
-				continue
-			}
-
-			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
-			})
-			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
-				param := params.At(paramIndex)
-				paramType := xgoutil.DerefType(param.Type())
-
-				if sliceLit, ok := arg.(*xgoast.SliceLit); ok {
-					for _, elt := range sliceLit.Elts {
-						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
-					}
-				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, arg, paramType, getSpriteContext)
-				}
-				return true
-			})
-		}
-	}
-}
-
-// inspectForAutoBindingSpxResources inspects for auto-binding spx resources and
-// their references.
+// inspectForAutoBindingSpxResources inspects for auto-binding spx resources.
 func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
@@ -727,268 +623,5 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 			result.spxSpriteResourceAutoBindings[member] = struct{}{}
 		}
 		return true
-	})
-	for ident, obj := range typeInfo.Uses {
-		if result.hasSpxSpriteResourceAutoBinding(obj) && !ident.Implicit() {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteResourceID{SpriteName: obj.Name()},
-				Kind: SpxResourceRefKindAutoBindingReference,
-				Node: ident,
-			})
-		}
-	}
-}
-
-// resolveIdentifierToAssignedExpr resolves an identifier to its assigned
-// expression by looking for assignment statements in the AST.
-func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *xgoast.Ident) xgoast.Expr {
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, ident)
-	if astFile == nil {
-		return ident
-	}
-
-	var resolvedExpr xgoast.Expr = ident
-	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), false, func(node xgoast.Node) bool {
-		assignStmt, ok := node.(*xgoast.AssignStmt)
-		if !ok {
-			return true
-		}
-
-		idx := slices.IndexFunc(assignStmt.Lhs, func(lhs xgoast.Expr) bool {
-			return lhs == ident
-		})
-		if idx < 0 || idx >= len(assignStmt.Rhs) {
-			return true
-		}
-		resolvedExpr = assignStmt.Rhs[idx]
-		return false
-	})
-	return resolvedExpr
-}
-
-// resolveReturnTypeForExpr resolves the function return type for an expression
-// when it appears in a return statement.
-func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr xgoast.Expr) types.Type {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, expr)
-	if astFile == nil {
-		return nil
-	}
-
-	path, _ := xgoutil.PathEnclosingInterval(astFile, expr.Pos(), expr.End())
-	stmt := xgoutil.EnclosingReturnStmt(path)
-	if stmt == nil {
-		return nil
-	}
-
-	idx := xgoutil.ReturnValueIndex(stmt, expr)
-	if idx < 0 {
-		return nil
-	}
-
-	sig := xgoutil.EnclosingFuncSignature(typeInfo, path)
-	if sig == nil || idx >= sig.Results().Len() {
-		return nil
-	}
-
-	typ := xgoutil.DerefType(sig.Results().At(idx).Type())
-	if IsSpxResourceNameType(typ) {
-		return typ
-	}
-	return nil
-}
-
-// resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.
-func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) *SpxSpriteResource {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-
-	funcType := typeInfo.TypeOf(callExpr.Fun)
-	if !xgoutil.IsValidType(funcType) {
-		return nil
-	}
-	funcSig, ok := funcType.(*types.Signature)
-	if !ok {
-		return nil
-	}
-	funcSigRecv := funcSig.Recv()
-	if funcSigRecv == nil {
-		return nil
-	}
-	switch xgoutil.DerefType(funcSigRecv.Type()) {
-	case GetSpxSpriteType(), GetSpxSpriteImplType():
-	default:
-		return nil
-	}
-
-	switch fun := callExpr.Fun.(type) {
-	case *xgoast.Ident:
-		spxSpriteName := strings.TrimSuffix(path.Base(xgoutil.NodeFilename(result.proj.Fset, callExpr)), ".spx")
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	case *xgoast.SelectorExpr:
-		ident, ok := fun.X.(*xgoast.Ident)
-		if !ok {
-			return nil
-		}
-		obj := typeInfo.ObjectOf(ident)
-		if obj == nil {
-			return nil
-		}
-		if !result.hasSpxSpriteResourceAutoBinding(obj) {
-			return nil
-		}
-
-		spxSpriteName := obj.Name()
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	default:
-		return nil
-	}
-}
-
-// inspectSpxResourceRefForTypeAtExpr inspects an spx resource reference for a
-// given type at an expression.
-func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr xgoast.Expr, typ types.Type, getSpriteContext func() *SpxSpriteResource) {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return
-	}
-	exprTV := typeInfo.Types[expr]
-
-	spxResourceName, ok := xgoutil.StringLitOrConstValue(expr, exprTV)
-	if !ok {
-		return
-	}
-	spxResourceRefKind := SpxResourceRefKindStringLiteral
-	if _, ok := expr.(*xgoast.Ident); ok {
-		spxResourceRefKind = SpxResourceRefKindConstantReference
-	}
-
-	switch typ {
-	case GetSpxBackdropNameType():
-		const resourceType = "backdrop"
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, resourceType)
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxBackdropResourceID{BackdropName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if result.spxResourceSet.Backdrop(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, resourceType, spxResourceName, "")
-			}
-		}
-	case GetSpxSpriteNameType():
-		const resourceType = "sprite"
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, resourceType)
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteResourceID{SpriteName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if result.spxResourceSet.Sprite(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, resourceType, spxResourceName, "")
-			}
-		}
-	case GetSpxSpriteCostumeNameType():
-		spriteContext := getSpriteContext()
-		if spriteContext == nil {
-			break
-		}
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, "sprite costume")
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteCostumeResourceID{SpriteName: spriteContext.Name, CostumeName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if spriteContext.Costume(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, "costume", spxResourceName, spriteContext.Name)
-			}
-		}
-	case GetSpxSpriteAnimationNameType():
-		spriteContext := getSpriteContext()
-		if spriteContext == nil {
-			break
-		}
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, "sprite animation")
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSpriteAnimationResourceID{SpriteName: spriteContext.Name, AnimationName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if spriteContext.Animation(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, "animation", spxResourceName, spriteContext.Name)
-			}
-		}
-	case GetSpxSoundNameType():
-		const resourceType = "sound"
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, resourceType)
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxSoundResourceID{SoundName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if result.spxResourceSet.Sound(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, resourceType, spxResourceName, "")
-			}
-		}
-	case GetSpxWidgetNameType():
-		const resourceType = "widget"
-
-		if spxResourceName == "" {
-			s.addEmptySpxResourceNameDiagnostic(result, expr, resourceType)
-		} else {
-			result.addSpxResourceRef(SpxResourceRef{
-				ID:   SpxWidgetResourceID{WidgetName: spxResourceName},
-				Kind: spxResourceRefKind,
-				Node: expr,
-			})
-			if result.spxResourceSet.Widget(spxResourceName) == nil {
-				s.addSpxResourceNotFoundDiagnostic(result, expr, resourceType, spxResourceName, "")
-			}
-		}
-	}
-}
-
-// addEmptySpxResourceNameDiagnostic adds a diagnostic for empty spx resource name.
-func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr xgoast.Expr, resourceType string) {
-	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
-		Severity: SeverityError,
-		Range:    RangeForNode(result.proj, expr),
-		Message:  s.translate(fmt.Sprintf("%s resource name cannot be empty", resourceType)),
-	})
-}
-
-// addSpxResourceNotFoundDiagnostic adds a diagnostic for spx resource not found.
-func (s *Server) addSpxResourceNotFoundDiagnostic(result *compileResult, expr xgoast.Expr, resourceType, resourceName, contextSpriteName string) {
-	message := fmt.Sprintf("%s resource %q not found", resourceType, resourceName)
-	if contextSpriteName != "" {
-		message = fmt.Sprintf("%s in sprite %q", message, contextSpriteName)
-	}
-	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
-		Severity: SeverityError,
-		Range:    RangeForNode(result.proj, expr),
-		Message:  s.translate(message),
 	})
 }

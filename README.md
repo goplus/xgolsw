@@ -499,11 +499,10 @@ interface SpxResourceRefDocumentLinkData {
  * The kind of the spx resource reference.
  *
  * - stringLiteral: String literal as a resource-reference, e.g., `play "explosion"`
- * - autoBinding: Auto-binding variable as a resource-reference, e.g., `var explosion Sound`
  * - autoBindingReference: Reference for auto-binding variable as a resource-reference, e.g., `play explosion`
  * - constantReference: Reference for constant as a resource-reference, e.g., `play EXPLOSION` (`EXPLOSION` is a constant)
  */
-type SpxResourceRefKind = 'stringLiteral' | 'autoBinding' | 'autoBindingReference' | 'constantReference'
+type SpxResourceRefKind = 'stringLiteral' | 'autoBindingReference' | 'constantReference'
 ```
 
 ### Completion item data types
