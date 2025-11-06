@@ -84,8 +84,10 @@ For detailed API references, please check the [index.d.ts](index.d.ts) file.
 
 ### Resource renaming
 
-The `spx.renameResources` command enables renaming of resources referenced by string literals (e.g., `play "explosion"`)
+The `xgo.renameResources` command enables renaming of resources referenced by string literals (e.g., `play "explosion"`)
 across the workspace.
+
+> Compatibility: the server continues to accept the legacy `spx.renameResources` identifier.
 
 *Request:*
 
@@ -98,20 +100,20 @@ interface ExecuteCommandParams {
   /**
    * The identifier of the actual command handler.
    */
-  command: 'spx.renameResources'
+  command: 'xgo.renameResources'
 
   /**
    * Arguments that the command should be invoked with.
    */
-  arguments: SpxRenameResourceParams[]
+  arguments: XGoRenameResourceParams[]
 }
 ```
 
 ```typescript
 /**
- * Parameters to rename an spx resource in the workspace.
+ * Parameters to rename a resource in the workspace.
  */
-interface SpxRenameResourceParams {
+interface XGoRenameResourceParams {
   /**
    * The spx resource.
    */
@@ -161,8 +163,11 @@ with no changes (no change was required).
 
 ### Input slots lookup
 
-The `spx.getInputSlots` command retrieves all modifiable items (input slots) in a document, which can be used to
+The `xgo.getInputSlots` command retrieves all modifiable items (input slots) in a document, which can be used to
 provide UI controls for assisting users with code modifications.
+
+> Compatibility: the server continues to accept the legacy `spx.getInputSlots` identifier.
+> Legacy type names prefixed with `Spx` are exported as aliases to their `XGo` counterparts for compatibility.
 
 *Request:*
 
@@ -175,12 +180,12 @@ interface ExecuteCommandParams {
   /**
    * The identifier of the actual command handler.
    */
-  command: 'spx.getInputSlots'
+  command: 'xgo.getInputSlots'
 
   /**
    * Arguments that the command should be invoked with.
    */
-  arguments: [SpxGetInputSlotsParams]
+  arguments: [XGoGetInputSlotsParams]
 }
 ```
 
@@ -188,7 +193,7 @@ interface ExecuteCommandParams {
 /**
  * Parameters to get input slots in a document.
  */
-interface SpxGetInputSlotsParams {
+interface XGoGetInputSlotsParams {
   /**
    * The text document identifier.
    */
@@ -198,7 +203,7 @@ interface SpxGetInputSlotsParams {
 
 *Response:*
 
-- result: `SpxInputSlot[]` | `null` describing the input slots found in the document. `null` indicates no input slots
+- result: `XGoInputSlot[]` | `null` describing the input slots found in the document. `null` indicates no input slots
   were found.
 - error: code and message set in case when input slots could not be retrieved for any reason.
 
@@ -206,23 +211,23 @@ interface SpxGetInputSlotsParams {
 /**
  * Represents a modifiable item in the code.
  */
-interface SpxInputSlot {
+interface XGoInputSlot {
   /**
    * Kind of the slot.
    * - Value: Modifiable values that can be replaced with different values.
    * - Address: Modifiable operation objects that can be replaced with user-defined objects.
    */
-  kind: SpxInputSlotKind
+  kind: XGoInputSlotKind
 
   /**
    * Info describing what inputs are accepted by the slot.
    */
-  accept: SpxInputSlotAccept
+  accept: XGoInputSlotAccept
 
   /**
    * Current input in the slot.
    */
-  input: SpxInput
+  input: XGoInput
 
   /**
    * Names for available user-predefined identifiers.
@@ -240,7 +245,7 @@ interface SpxInputSlot {
 /**
  * The kind of input slot.
  */
-enum SpxInputSlotKind {
+enum XGoInputSlotKind {
   /**
    * The slot accepts value, which may be an in-place value or a predefined identifier.
    * For example: `123` in `println 123`.
@@ -259,7 +264,7 @@ enum SpxInputSlotKind {
 /**
  * Info about what inputs are accepted by a slot.
  */
-type SpxInputSlotAccept =
+type XGoInputSlotAccept =
   | {
       /**
        * Input type accepted by the slot.
@@ -422,13 +427,13 @@ type SpxResourceContextURI = string
 /**
  * Represents the current input in a slot.
  */
-type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
+type XGoInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
   | {
       /**
        * In-place value
        * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
        */
-      kind: SpxInputKind.InPlace
+      kind: XGoInputKind.InPlace
 
       /**
        * Type of the input.
@@ -445,7 +450,7 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
        * (Reference to) user predefined identifier
        * For example: var `costume1`, const `name2`, field `num3`
        */
-      kind: SpxInputKind.Predefined
+      kind: XGoInputKind.Predefined
 
       /**
        * Type of the input.
@@ -463,7 +468,7 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
 /**
  * The kind of input.
  */
-enum SpxInputKind {
+enum XGoInputKind {
   /**
    * In-place value
    * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
@@ -484,9 +489,9 @@ enum SpxInputKind {
 
 ```typescript
 /**
- * The data of an spx resource reference DocumentLink.
+ * The data of an XGo resource reference DocumentLink.
  */
-interface SpxResourceRefDocumentLinkData {
+interface XGoResourceRefDocumentLinkData {
   /**
    * The kind of the spx resource reference.
    */
@@ -511,11 +516,11 @@ type SpxResourceRefKind = 'stringLiteral' | 'autoBindingReference' | 'constantRe
 /**
  * The data of a completion item.
  */
-interface CompletionItemData {
+interface XGoCompletionItemData {
   /**
    * The corresponding definition of the completion item.
    */
-  definition?: SpxDefinitionIdentifier
+  definition?: XGoDefinitionIdentifier
 }
 ```
 
@@ -523,7 +528,7 @@ interface CompletionItemData {
 /**
  * The identifier of a definition.
  */
-interface SpxDefinitionIdentifier {
+interface XGoDefinitionIdentifier {
   /**
    * Full name of source package.
    * If not provided, it's assumed to be kind-statement.
