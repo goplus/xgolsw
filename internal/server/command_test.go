@@ -64,6 +64,14 @@ onStart => {
 				shouldExist bool
 			}{
 				{
+					name:        "String",
+					value:       "Hello",
+					acceptType:  SpxInputTypeString,
+					inputType:   SpxInputTypeString,
+					inputKind:   SpxInputKindInPlace,
+					shouldExist: true,
+				},
+				{
 					name:        "Integer",
 					value:       int64(5),
 					acceptType:  SpxInputTypeInteger,
@@ -72,10 +80,10 @@ onStart => {
 					shouldExist: true,
 				},
 				{
-					name:        "String",
-					value:       "Hello",
-					acceptType:  SpxInputTypeString,
-					inputType:   SpxInputTypeString,
+					name:        "Boolean",
+					value:       true,
+					acceptType:  SpxInputTypeBoolean,
+					inputType:   SpxInputTypeBoolean,
 					inputKind:   SpxInputKindInPlace,
 					shouldExist: true,
 				},
@@ -100,14 +108,6 @@ onStart => {
 					value:       "Forward",
 					acceptType:  SpxInputTypeDirAction,
 					inputType:   SpxInputTypeDirAction,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "Boolean",
-					value:       true,
-					acceptType:  SpxInputTypeBoolean,
-					inputType:   SpxInputTypeBoolean,
 					inputKind:   SpxInputKindInPlace,
 					shouldExist: true,
 				},
@@ -414,6 +414,12 @@ onStart => {
 			wantInputType  SpxInputType
 		}{
 			{
+				name:           "String",
+				value:          "text",
+				wantAcceptType: SpxInputTypeUnknown,
+				wantInputType:  SpxInputTypeString,
+			},
+			{
 				name:           "Integer",
 				value:          int64(42),
 				wantAcceptType: SpxInputTypeUnknown,
@@ -426,10 +432,10 @@ onStart => {
 				wantInputType:  SpxInputTypeDecimal,
 			},
 			{
-				name:           "String",
-				value:          "text",
-				wantAcceptType: SpxInputTypeUnknown,
-				wantInputType:  SpxInputTypeString,
+				name:           "Boolean",
+				value:          true,
+				wantAcceptType: SpxInputTypeBoolean,
+				wantInputType:  SpxInputTypeBoolean,
 			},
 			{
 				name:           "RotationStyle",
@@ -448,12 +454,6 @@ onStart => {
 				value:          SpxResourceURI("spx://resources/sprites/OtherSprite"),
 				wantAcceptType: SpxInputTypeResourceName,
 				wantInputType:  SpxInputTypeResourceName,
-			},
-			{
-				name:           "Boolean",
-				value:          true,
-				wantAcceptType: SpxInputTypeBoolean,
-				wantInputType:  SpxInputTypeBoolean,
 			},
 			{
 				name:           "BinaryExprResult",
@@ -843,6 +843,14 @@ onStart => {
 		wantValue      any
 	}{
 		{
+			name:           "String",
+			litPosition:    Position{Line: 11, Character: 13},
+			wantAcceptType: SpxInputTypeString,
+			wantInputType:  SpxInputTypeString,
+			wantInputKind:  SpxInputKindInPlace,
+			wantValue:      "Hello, world!",
+		},
+		{
 			name:           "Integer",
 			litPosition:    Position{Line: 3, Character: 7},
 			wantAcceptType: SpxInputTypeInteger,
@@ -873,14 +881,6 @@ onStart => {
 			wantInputType:  SpxInputTypeDecimal,
 			wantInputKind:  SpxInputKindInPlace,
 			wantValue:      150.0, // 1.5e2 = 150
-		},
-		{
-			name:           "String",
-			litPosition:    Position{Line: 11, Character: 13},
-			wantAcceptType: SpxInputTypeString,
-			wantInputType:  SpxInputTypeString,
-			wantInputKind:  SpxInputKindInPlace,
-			wantValue:      "Hello, world!",
 		},
 		{
 			name:           "SpxResourceString",
@@ -1324,8 +1324,8 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 			typ  types.Type
 			want SpxInputType
 		}{
-			{"Bool", types.Typ[types.Bool], SpxInputTypeBoolean},
-			{"UntypedBool", types.Typ[types.UntypedBool], SpxInputTypeBoolean},
+			{"String", types.Typ[types.String], SpxInputTypeString},
+			{"UntypedString", types.Typ[types.UntypedString], SpxInputTypeString},
 
 			{"Int", types.Typ[types.Int], SpxInputTypeInteger},
 			{"Int8", types.Typ[types.Int8], SpxInputTypeInteger},
@@ -1343,8 +1343,8 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 			{"Float64", types.Typ[types.Float64], SpxInputTypeDecimal},
 			{"UntypedFloat", types.Typ[types.UntypedFloat], SpxInputTypeDecimal},
 
-			{"String", types.Typ[types.String], SpxInputTypeString},
-			{"UntypedString", types.Typ[types.UntypedString], SpxInputTypeString},
+			{"Bool", types.Typ[types.Bool], SpxInputTypeBoolean},
+			{"UntypedBool", types.Typ[types.UntypedBool], SpxInputTypeBoolean},
 
 			{"Complex64", types.Typ[types.Complex64], SpxInputTypeUnknown},
 			{"Complex128", types.Typ[types.Complex128], SpxInputTypeUnknown},

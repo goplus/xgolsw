@@ -15,8 +15,8 @@ import (
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// Spxls implements a lightweight XGo language server for spx that runs in the
-// browser using WebAssembly.
+// Spxls implements a lightweight XGo language server that runs in the browser
+// using WebAssembly.
 type Spxls struct {
 	messageReplier js.Value
 	server         *server.Server
@@ -190,6 +190,7 @@ func ConvertJSFilesToMap(files js.Value) map[string]*xgo.File {
 }
 
 func main() {
+	js.Global().Set("NewXGoLanguageServer", JSFuncOfWithError(NewSpxls))
 	js.Global().Set("NewSpxls", JSFuncOfWithError(NewSpxls))
 	js.Global().Set("SetCustomPkgdataZip", JSFuncOfWithError(SetCustomPkgdataZip))
 	js.Global().Set("SetClassfileAutoImportedPackages", JSFuncOfWithError(SetClassfileAutoImportedPackages))
