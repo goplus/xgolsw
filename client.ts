@@ -1,10 +1,10 @@
-import { type Files, type NotificationMessage, type RequestMessage, type ResponseMessage, type ResponseError as ResponseErrorObj, type Spxls } from '.'
+import { type Files, type NotificationMessage, type RequestMessage, type ResponseMessage, type ResponseError as ResponseErrorObj, type XGoLanguageServer } from '.'
 
 /**
- * Client wrapper for the spxls.
+ * Language client wrapper for the XGo language server.
  */
-export class Spxlc {
-  private ls: Spxls
+export class XGoLanguageClient {
+  private ls: XGoLanguageServer
   private nextRequestId: number = 1
   private pendingRequests = new Map<number, {
     resolve: (response: any) => void
@@ -17,7 +17,8 @@ export class Spxlc {
    * @param filesProvider Function that provides access to workspace files.
    */
   constructor(filesProvider: () => Files) {
-    const ls = NewSpxls(filesProvider, this.handleMessage.bind(this))
+    const factory = typeof NewXGoLanguageServer === 'function' ? NewXGoLanguageServer : NewSpxls
+    const ls = factory(filesProvider, this.handleMessage.bind(this))
     if (ls instanceof Error) throw ls
     this.ls = ls
   }
@@ -134,6 +135,13 @@ export class Spxlc {
   dispose(): void {
     this.pendingRequests.clear()
     this.notificationHandlers.clear()
+  }
+}
+
+/** @deprecated Use {@link XGoLanguageClient}. */
+export class Spxlc extends XGoLanguageClient {
+  constructor(filesProvider: () => Files) {
+    super(filesProvider)
   }
 }
 

@@ -404,7 +404,28 @@ fmt.Println("Hello, World!")
 			name:   "Workspace/ExecuteCommand",
 			method: "workspace/executeCommand",
 			params: ExecuteCommandParams{
-				Command: "spx.renameResource",
+				Command: CommandXGoRenameResources,
+				Arguments: func() []json.RawMessage {
+					arg := map[string]any{
+						"resource": map[string]any{
+							"uri": "spx://resources/sprites/sprite1",
+						},
+						"newName": "sprite2",
+					}
+					data, _ := json.Marshal(arg)
+					return []json.RawMessage{data}
+				}(),
+			},
+			files: map[string][]byte{
+				"main.spx": []byte("var x = 100\necho x"),
+			},
+			msgNum: 2,
+		},
+		{
+			name:   "Workspace/ExecuteCommandLegacy",
+			method: "workspace/executeCommand",
+			params: ExecuteCommandParams{
+				Command: CommandSpxRenameResources,
 				Arguments: func() []json.RawMessage {
 					arg := map[string]any{
 						"resource": map[string]any{

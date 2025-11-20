@@ -166,9 +166,9 @@ func toURI(s string) *URI {
 	return &u
 }
 
-// SpxRenameResourceParams represents parameters to rename an spx resource in
-// the workspace.
-type SpxRenameResourceParams struct {
+// XGoRenameResourceParams represents parameters to rename an XGo resource in
+// the workspace. The bundled spx DSL emits spx-specific resource identifiers.
+type XGoRenameResourceParams struct {
 	// The spx resource.
 	Resource SpxResourceIdentifier `json:"resource"`
 	// The new name of the spx resource.
@@ -196,15 +196,15 @@ func (u SpxResourceURI) HTML() string {
 // - `spx://resources/sprites/<sName>/costumes`
 type SpxResourceContextURI string
 
-// SpxGetDefinitionsParams represents parameters to get definitions at a
+// XGoGetDefinitionsParams represents parameters to get definitions at a
 // specific position in a document.
-type SpxGetDefinitionsParams struct {
+type XGoGetDefinitionsParams struct {
 	// The text document position params.
 	protocol.TextDocumentPositionParams
 }
 
-// SpxDefinitionIdentifier identifies an spx definition.
-type SpxDefinitionIdentifier struct {
+// XGoDefinitionIdentifier identifies an XGo definition.
+type XGoDefinitionIdentifier struct {
 	// Full name of source package.
 	// If not provided, it's assumed to be kind-statement.
 	// If `main`, it's the current user package.
@@ -228,7 +228,7 @@ type SpxDefinitionIdentifier struct {
 }
 
 // String implements [fmt.Stringer].
-func (id SpxDefinitionIdentifier) String() string {
+func (id XGoDefinitionIdentifier) String() string {
 	s := "xgo:"
 	if id.Package != nil {
 		s += *id.Package
@@ -242,36 +242,43 @@ func (id SpxDefinitionIdentifier) String() string {
 	return s
 }
 
-// SpxGetInputSlotsParams represents parameters to get input slots for a
+// XGoGetInputSlotsParams represents parameters to get input slots for a
 // specific document.
-type SpxGetInputSlotsParams struct {
+type XGoGetInputSlotsParams struct {
 	// The text document indentifier.
 	TextDocument protocol.TextDocumentIdentifier `json:"textDocument"`
 }
 
-// SpxInputSlot represents a modifiable item in the code.
-type SpxInputSlot struct {
-	Kind            SpxInputSlotKind   `json:"kind"`
-	Accept          SpxInputSlotAccept `json:"accept"`
-	Input           SpxInput           `json:"input"`
+// XGoInputSlot represents a modifiable item in the code.
+type XGoInputSlot struct {
+	Kind            XGoInputSlotKind   `json:"kind"`
+	Accept          XGoInputSlotAccept `json:"accept"`
+	Input           XGoInput           `json:"input"`
 	PredefinedNames []string           `json:"predefinedNames"`
 	Range           Range              `json:"range"`
 }
 
-// SpxInputSlotKind represents the kind of input slot.
-type SpxInputSlotKind string
+// XGoInputSlotKind represents the kind of input slot.
+type XGoInputSlotKind string
 
-// SpxInputSlotKind constants.
+// XGoInputSlotKind constants.
 const (
-	// SpxInputSlotKindValue slot accepts value, which may be an in-place value or a predefined identifier.
-	SpxInputSlotKindValue SpxInputSlotKind = "value"
+	// XGoInputSlotKindValue slot accepts value, which may be an in-place value or a predefined identifier.
+	XGoInputSlotKindValue XGoInputSlotKind = "value"
 
-	// SpxInputSlotKindAddress slot accepts address, which must be a predefined identifier.
-	SpxInputSlotKindAddress SpxInputSlotKind = "address"
+	// XGoInputSlotKindAddress slot accepts address, which must be a predefined identifier.
+	XGoInputSlotKindAddress XGoInputSlotKind = "address"
 )
 
-// SpxInputSlotAccept represents info about what inputs are accepted by a slot.
-type SpxInputSlotAccept struct {
+const (
+	// Deprecated: use XGoInputSlotKindValue.
+	SpxInputSlotKindValue = XGoInputSlotKindValue
+	// Deprecated: use XGoInputSlotKindAddress.
+	SpxInputSlotKindAddress = XGoInputSlotKindAddress
+)
+
+// XGoInputSlotAccept represents info about what inputs are accepted by a slot.
+type XGoInputSlotAccept struct {
 	// Type of input accepted by the slot.
 	Type SpxInputType `json:"type"`
 
@@ -317,35 +324,75 @@ type SpxColorInputValue struct {
 	Args        []float64                       `json:"args"`
 }
 
-// SpxInput represents the current input in a slot.
-type SpxInput struct {
-	Kind  SpxInputKind `json:"kind"`
+// XGoInput represents the current input in a slot.
+type XGoInput struct {
+	Kind  XGoInputKind `json:"kind"`
 	Type  SpxInputType `json:"type"`
 	Value any          `json:"value,omitempty"` // For InPlace kind
 	Name  string       `json:"name,omitempty"`  // For Predefined kind
 }
 
-// SpxInputKind represents the kind of input.
-type SpxInputKind string
+// XGoInputKind represents the kind of input.
+type XGoInputKind string
 
-// SpxInputKind constants.
+// XGoInputKind constants.
 const (
-	// SpxInputKindInPlace in-place value like "hello world", 123, true, etc.
-	SpxInputKindInPlace SpxInputKind = "in-place"
+	// XGoInputKindInPlace in-place value like "hello world", 123, true, etc.
+	XGoInputKindInPlace XGoInputKind = "in-place"
 
-	// SpxInputKindPredefined reference to user predefined identifier.
-	SpxInputKindPredefined SpxInputKind = "predefined"
+	// XGoInputKindPredefined reference to user predefined identifier.
+	XGoInputKindPredefined XGoInputKind = "predefined"
 )
 
-// SpxResourceRefDocumentLinkData represents data for an spx resource reference
+const (
+	// Deprecated: use XGoInputKindInPlace.
+	SpxInputKindInPlace = XGoInputKindInPlace
+	// Deprecated: use XGoInputKindPredefined.
+	SpxInputKindPredefined = XGoInputKindPredefined
+)
+
+// XGoResourceRefDocumentLinkData represents data for an XGo resource reference
 // document link.
-type SpxResourceRefDocumentLinkData struct {
+type XGoResourceRefDocumentLinkData struct {
 	// The kind of the spx resource reference.
 	Kind SpxResourceRefKind `json:"kind"`
 }
 
-// CompletionItemData represents data in a completion item.
-type CompletionItemData struct {
+// XGoCompletionItemData represents data in a completion item.
+type XGoCompletionItemData struct {
 	// The corresponding definition of the completion item.
-	Definition *SpxDefinitionIdentifier `json:"definition,omitempty"`
+	Definition *XGoDefinitionIdentifier `json:"definition,omitempty"`
 }
+
+// Deprecated: use XGoRenameResourceParams.
+type SpxRenameResourceParams = XGoRenameResourceParams
+
+// Deprecated: use XGoGetDefinitionsParams.
+type SpxGetDefinitionsParams = XGoGetDefinitionsParams
+
+// Deprecated: use XGoDefinitionIdentifier.
+type SpxDefinitionIdentifier = XGoDefinitionIdentifier
+
+// Deprecated: use XGoGetInputSlotsParams.
+type SpxGetInputSlotsParams = XGoGetInputSlotsParams
+
+// Deprecated: use XGoInputSlot.
+type SpxInputSlot = XGoInputSlot
+
+// Deprecated: use XGoInputSlotKind.
+type SpxInputSlotKind = XGoInputSlotKind
+
+// Deprecated: use XGoInputSlotAccept.
+type SpxInputSlotAccept = XGoInputSlotAccept
+
+// Deprecated: use XGoInput.
+type SpxInput = XGoInput
+
+// Deprecated: use XGoInputKind.
+type SpxInputKind = XGoInputKind
+
+// Deprecated: use XGoResourceRefDocumentLinkData.
+type SpxResourceRefDocumentLinkData = XGoResourceRefDocumentLinkData
+
+// Deprecated: use XGoCompletionItemData.
+type CompletionItemData = XGoCompletionItemData
