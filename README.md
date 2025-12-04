@@ -82,43 +82,42 @@ For detailed API references, please check the [index.d.ts](index.d.ts) file.
 
 ## Predefined commands
 
-### Resource renaming
+### XGo resource renaming
 
-The `spx.renameResources` command enables renaming of resources referenced by string literals (e.g., `play "explosion"`)
-across the workspace.
+The `xgo.renameResources` command enables renaming of XGo resources referenced by string literals (e.g.,
+`play "explosion"`) across the workspace.
 
 *Request:*
 
 - method: [`workspace/executeCommand`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand)
-- params: [`ExecuteCommandParams`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#executeCommandParams)
-defined as follows:
+- params: `XGoRenameResourcesExecuteCommandParams` defined as follows:
 
 ```typescript
-interface ExecuteCommandParams {
+type XGoRenameResourcesExecuteCommandParams = Omit<ExecuteCommandParams, 'command' | 'arguments'> & {
   /**
    * The identifier of the actual command handler.
    */
-  command: 'spx.renameResources'
+  command: 'xgo.renameResources'
 
   /**
    * Arguments that the command should be invoked with.
    */
-  arguments: SpxRenameResourceParams[]
+  arguments: XGoRenameResourceParams[]
 }
 ```
 
 ```typescript
 /**
- * Parameters to rename an spx resource in the workspace.
+ * Parameters to rename an XGo resource in the workspace.
  */
-interface SpxRenameResourceParams {
+interface XGoRenameResourceParams {
   /**
-   * The spx resource.
+   * The XGo resource to rename.
    */
-  resource: SpxResourceIdentifier
+  resource: XGoResourceIdentifier
 
   /**
-   * The new name of the spx resource.
+   * The new name of the XGo resource.
    */
   newName: string
 }
@@ -126,21 +125,21 @@ interface SpxRenameResourceParams {
 
 ```typescript
 /**
- * The spx resource's identifier.
+ * The XGo resource's identifier.
  */
-interface SpxResourceIdentifier {
+interface XGoResourceIdentifier {
   /**
-   * The spx resource's URI.
+   * The XGo resource's URI.
    */
-  uri: SpxResourceUri
+  uri: XGoResourceUri
 }
 ```
 
 ```typescript
 /**
- * The spx resource's URI.
+ * The XGo resource's URI.
  *
- * @example
+ * For example:
  * - `spx://resources/sounds/MySound`
  * - `spx://resources/sprites/MySprite`
  * - `spx://resources/sprites/MySprite/costumes/MyCostume`
@@ -148,7 +147,7 @@ interface SpxResourceIdentifier {
  * - `spx://resources/backdrops/MyBackdrop`
  * - `spx://resources/widgets/MyWidget`
  */
-type SpxResourceUri = string
+type XGoResourceUri = string
 ```
 
 *Response:*
@@ -157,40 +156,39 @@ type SpxResourceUri = string
   | `null` describing the modification to the workspace. `null` should be treated the same as
   [`WorkspaceEdit`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspaceEdit)
 with no changes (no change was required).
-- error: code and message set in case when rename could not be performed for any reason.
+- error: code and message set when the rename operation cannot be performed for any reason.
 
-### Input slots lookup
+### XGo input slots lookup
 
-The `spx.getInputSlots` command retrieves all modifiable items (input slots) in a document, which can be used to
+The `xgo.getInputSlots` command retrieves all modifiable items (XGo input slots) in a document, which can be used to
 provide UI controls for assisting users with code modifications.
 
 *Request:*
 
 - method: [`workspace/executeCommand`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand)
-- params: [`ExecuteCommandParams`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#executeCommandParams)
-defined as follows:
+- params: `XGoGetInputSlotsExecuteCommandParams` defined as follows:
 
 ```typescript
-interface ExecuteCommandParams {
+type XGoGetInputSlotsExecuteCommandParams = Omit<ExecuteCommandParams, 'command' | 'arguments'> & {
   /**
    * The identifier of the actual command handler.
    */
-  command: 'spx.getInputSlots'
+  command: 'xgo.getInputSlots'
 
   /**
    * Arguments that the command should be invoked with.
    */
-  arguments: [SpxGetInputSlotsParams]
+  arguments: [XGoGetInputSlotsParams]
 }
 ```
 
 ```typescript
 /**
- * Parameters to get input slots in a document.
+ * Parameters to retrieve XGo input slots in a document.
  */
-interface SpxGetInputSlotsParams {
+interface XGoGetInputSlotsParams {
   /**
-   * The text document identifier.
+   * The text document.
    */
   textDocument: TextDocumentIdentifier
 }
@@ -198,58 +196,62 @@ interface SpxGetInputSlotsParams {
 
 *Response:*
 
-- result: `SpxInputSlot[]` | `null` describing the input slots found in the document. `null` indicates no input slots
-  were found.
-- error: code and message set in case when input slots could not be retrieved for any reason.
+- result: `XGoInputSlot[]` | `null` describing the XGo input slots found in the document. `null` indicates no XGo input
+  slots were found.
+- error: code and message set when XGo input slots cannot be retrieved for any reason.
 
 ```typescript
 /**
- * Represents a modifiable item in the code.
+ * The XGo input slot for a modifiable item in code.
  */
-interface SpxInputSlot {
+interface XGoInputSlot {
   /**
-   * Kind of the slot.
-   * - Value: Modifiable values that can be replaced with different values.
-   * - Address: Modifiable operation objects that can be replaced with user-defined objects.
-   */
-  kind: SpxInputSlotKind
-
-  /**
-   * Info describing what inputs are accepted by the slot.
-   */
-  accept: SpxInputSlotAccept
-
-  /**
-   * Current input in the slot.
-   */
-  input: SpxInput
-
-  /**
-   * Names for available user-predefined identifiers.
-   */
-  predefinedNames: string[]
-
-  /**
-   * Range in code for the slot.
+   * The document range of the XGo input slot.
    */
   range: Range
+
+  /**
+   * The kind of the XGo input slot.
+   */
+  kind: XGoInputSlotKind
+
+  /**
+   * The accepted inputs for the XGo input slot.
+   */
+  accept: XGoInputSlotAccept
+
+  /**
+   * The current input in the XGo input slot.
+   */
+  input: XGoInput
+
+  /**
+   * The available user-predefined identifiers.
+   */
+  predefinedNames: string[]
 }
 ```
 
 ```typescript
 /**
- * The kind of input slot.
+ * The kinds of XGo input slots.
  */
-enum SpxInputSlotKind {
+enum XGoInputSlotKind {
   /**
-   * The slot accepts value, which may be an in-place value or a predefined identifier.
-   * For example: `123` in `println 123`.
+   * The slot accepts a value, which may be an in-place value or a predefined identifier.
+   *
+   * For example:
+   * - `123` in `println 123`
+   * - `name` in `println name`
    */
   Value = 'value',
 
   /**
-   * The slot accepts address, which must be a predefined identifier.
-   * For example: `x` in `x = 123`.
+   * The slot accepts an address, which must be a predefined identifier.
+   *
+   * For example:
+   * - `x` in `x = 123`
+   * - `y` in `x = y`
    */
   Address = 'address'
 }
@@ -257,37 +259,38 @@ enum SpxInputSlotKind {
 
 ```typescript
 /**
- * Info about what inputs are accepted by a slot.
+ * The accepted input for an XGo input slot.
  */
-type SpxInputSlotAccept =
+type XGoInputSlotAccept =
   | {
       /**
-       * Input type accepted by the slot.
+       * The input type accepted by the slot.
        */
       type:
-        | SpxInputType.Integer
-        | SpxInputType.Decimal
-        | SpxInputType.String
-        | SpxInputType.Boolean
-        | SpxInputType.SpxDirection
-        | SpxInputType.SpxLayerAction
-        | SpxInputType.SpxDirAction
-        | SpxInputType.SpxColor
-        | SpxInputType.SpxEffectKind
-        | SpxInputType.SpxKey
-        | SpxInputType.SpxSpecialObj
-        | SpxInputType.SpxRotationStyle
-        | SpxInputType.Unknown
+        | XGoInputType.String
+        | XGoInputType.Integer
+        | XGoInputType.Decimal
+        | XGoInputType.Boolean
+        | XGoInputType.Unknown
+        | XGoInputType.SpxDirection
+        | XGoInputType.SpxLayerAction
+        | XGoInputType.SpxDirAction
+        | XGoInputType.SpxColor
+        | XGoInputType.SpxEffectKind
+        | XGoInputType.SpxKey
+        | XGoInputType.SpxSpecialObj
+        | XGoInputType.SpxRotationStyle
     }
   | {
       /**
-       * Input type accepted by the slot.
+       * The input type accepted by the slot.
        */
-      type: SpxInputType.SpxResourceName
+      type: XGoInputType.SpxResourceName
+
       /**
-       * Resource context.
+       * The resource context for the resource name input type.
        */
-      resourceContext: SpxResourceContextURI
+      resourceContext: XGoResourceContextUri
     }
 ```
 
@@ -295,7 +298,12 @@ type SpxInputSlotAccept =
 /**
  * The type of input for a slot.
  */
-enum SpxInputType {
+enum XGoInputType {
+  /**
+   * String values.
+   */
+  String = 'string',
+
   /**
    * Integer number values.
    */
@@ -307,14 +315,14 @@ enum SpxInputType {
   Decimal = 'decimal',
 
   /**
-   * String values.
-   */
-  String = 'string',
-
-  /**
    * Boolean values.
    */
   Boolean = 'boolean',
+
+  /**
+   * Unknown type.
+   */
+  Unknown = 'unknown',
 
   /**
    * Resource name (`SpriteName`, `SoundName`, etc.) in spx.
@@ -359,76 +367,80 @@ enum SpxInputType {
   /**
    * Rotation style values in spx.
    */
-  SpxRotationStyle = 'spx-rotation-style',
-
-  /**
-   * Unknown type.
-   */
-  Unknown = 'unknown'
+  SpxRotationStyle = 'spx-rotation-style'
 }
 ```
 
 ```typescript
 /**
- * Name for color constructors.
+ * The names of color constructors.
  */
-type SpxInputTypeSpxColorConstructor = 'HSB' | 'HSBA'
+type XGoInputTypeSpxColorConstructor = 'HSB' | 'HSBA'
 ```
 
 ```typescript
 /**
- * Input value with type information.
+ * The input value with type information.
  */
-type SpxInputTypedValue =
-  | { type: SpxInputType.Integer; value: number }
-  | { type: SpxInputType.Decimal; value: number }
-  | { type: SpxInputType.String; value: string }
-  | { type: SpxInputType.Boolean; value: boolean }
-  | { type: SpxInputType.SpxResourceName; value: ResourceURI }
-  | { type: SpxInputType.SpxDirection; value: number }
-  | { type: SpxInputType.SpxLayerAction; value: string }
-  | { type: SpxInputType.SpxDirAction; value: string }
+type XGoInputTypedValue =
+  | { type: XGoInputType.String; value: string }
+  | { type: XGoInputType.Integer; value: number }
+  | { type: XGoInputType.Decimal; value: number }
+  | { type: XGoInputType.Boolean; value: boolean }
+  | { type: XGoInputType.Unknown; value: void }
+  | { type: XGoInputType.SpxResourceName; value: XGoResourceUri }
+  | { type: XGoInputType.SpxDirection; value: number }
+  | { type: XGoInputType.SpxLayerAction; value: string }
+  | { type: XGoInputType.SpxDirAction; value: string }
   | {
-      type: SpxInputType.SpxColor
+      type: XGoInputType.SpxColor
       value: {
         /**
          * Constructor for color.
          */
-        constructor: SpxInputTypeSpxColorConstructor
+        constructor: XGoInputTypeSpxColorConstructor
+
         /**
          * Arguments passed to the constructor.
          */
         args: number[]
       }
     }
-  | { type: SpxInputType.SpxEffectKind; value: string }
-  | { type: SpxInputType.SpxKey; value: string }
-  | { type: SpxInputType.SpxSpecialObj; value: string }
-  | { type: SpxInputType.SpxRotationStyle; value: string }
-  | { type: SpxInputType.Unknown; value: void }
+  | { type: XGoInputType.SpxEffectKind; value: string }
+  | { type: XGoInputType.SpxKey; value: string }
+  | { type: XGoInputType.SpxSpecialObj; value: string }
+  | { type: XGoInputType.SpxRotationStyle; value: string }
 ```
 
 ```typescript
 /**
- * URI of the resource context. Examples:
+ * The URI of the resource context.
+ *
+ * For example:
  * - `spx://resources/sprites`
  * - `spx://resources/sounds`
  * - `spx://resources/sprites/<sName>/costumes`
  */
-type SpxResourceContextURI = string
+type XGoResourceContextUri = string
 ```
 
 ```typescript
 /**
  * Represents the current input in a slot.
  */
-type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
+type XGoInput<T extends XGoInputTypedValue = XGoInputTypedValue> =
   | {
       /**
-       * In-place value
-       * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
+       * In-place value.
+       *
+       * For example:
+       * - `"hello world"`
+       * - `123`
+       * - `true`
+       * - spx `Left`
+       * - spx `HSB(0,0,0)`
        */
-      kind: SpxInputKind.InPlace
+      kind: XGoInputKind.InPlace
 
       /**
        * Type of the input.
@@ -442,10 +454,14 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
     }
   | {
       /**
-       * (Reference to) user predefined identifier
-       * For example: var `costume1`, const `name2`, field `num3`
+       * (Reference to) user predefined identifier.
+       *
+       * For example:
+       * - var `costume1`
+       * - const `name2`
+       * - field `num3`
        */
-      kind: SpxInputKind.Predefined
+      kind: XGoInputKind.Predefined
 
       /**
        * Type of the input.
@@ -463,17 +479,27 @@ type SpxInput<T extends SpxInputTypedValue = SpxInputTypedValue> =
 /**
  * The kind of input.
  */
-enum SpxInputKind {
-  /**
-   * In-place value
-   * For example: `"hello world"`, `123`, `true`, spx `Left`, spx `HSB(0,0,0)`
-   */
+enum XGoInputKind {
+ /**
+  * In-place value.
+  *
+   * For example:
+   * - `"hello world"`
+   * - `123`
+   * - `true`
+   * - spx `Left`
+   * - spx `HSB(0,0,0)`
+  */
   InPlace = 'in-place',
 
   /**
-   * (Reference to) user predefined identifier
-   * For example: var `costume1`, const `name2`, field `num3`
-   */
+   * (Reference to) user predefined identifier.
+   *
+   * For example:
+   * - var `costume1`
+   * - const `name2`
+   * - field `num3`
+  */
   Predefined = 'predefined'
 }
 ```
@@ -484,25 +510,25 @@ enum SpxInputKind {
 
 ```typescript
 /**
- * The data of an spx resource reference DocumentLink.
+ * The data of an XGo resource reference DocumentLink.
  */
-interface SpxResourceRefDocumentLinkData {
+interface XGoResourceRefDocumentLinkData {
   /**
-   * The kind of the spx resource reference.
+   * The kind of the XGo resource reference.
    */
-  kind: SpxResourceRefKind
+  kind: XGoResourceRefKind
 }
 ```
 
 ```typescript
 /**
- * The kind of the spx resource reference.
+ * The kind of the XGo resource reference.
  *
  * - stringLiteral: String literal as a resource-reference, e.g., `play "explosion"`
  * - autoBindingReference: Reference for auto-binding variable as a resource-reference, e.g., `play explosion`
  * - constantReference: Reference for constant as a resource-reference, e.g., `play EXPLOSION` (`EXPLOSION` is a constant)
  */
-type SpxResourceRefKind = 'stringLiteral' | 'autoBindingReference' | 'constantReference'
+type XGoResourceRefKind = 'stringLiteral' | 'autoBindingReference' | 'constantReference'
 ```
 
 ### Completion item data types
@@ -511,11 +537,11 @@ type SpxResourceRefKind = 'stringLiteral' | 'autoBindingReference' | 'constantRe
 /**
  * The data of a completion item.
  */
-interface CompletionItemData {
+interface XGoCompletionItemData {
   /**
    * The corresponding definition of the completion item.
    */
-  definition?: SpxDefinitionIdentifier
+  definition?: XGoDefinitionIdentifier
 }
 ```
 
@@ -523,12 +549,13 @@ interface CompletionItemData {
 /**
  * The identifier of a definition.
  */
-interface SpxDefinitionIdentifier {
+interface XGoDefinitionIdentifier {
   /**
    * Full name of source package.
    * If not provided, it's assumed to be kind-statement.
    * If `main`, it's the current user package.
-   * Examples:
+   *
+   * For example:
    * - `fmt`
    * - `github.com/goplus/spx/v2`
    * - `main`
@@ -538,7 +565,8 @@ interface SpxDefinitionIdentifier {
   /**
    * Exported name of the definition.
    * If not provided, it's assumed to be kind-package.
-   * Examples:
+   *
+   * For example:
    * - `Println`
    * - `Sprite`
    * - `Sprite.turn`

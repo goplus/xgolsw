@@ -3,7 +3,6 @@ package server
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"go/types"
 	"slices"
@@ -15,25 +14,32 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+const (
+	CommandXGoRenameResources = "xgo.renameResources"
+	CommandSpxRenameResources = "spx.renameResources"
+	CommandXGoGetInputSlots   = "xgo.getInputSlots"
+	CommandSpxGetInputSlots   = "spx.getInputSlots"
+)
+
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
 func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, error) {
 	switch params.Command {
-	case "spx.renameResources":
-		var cmdParams []SpxRenameResourceParams
+	case CommandXGoRenameResources, CommandSpxRenameResources:
+		var cmdParams []XGoRenameResourceParams
 		for _, arg := range params.Arguments {
-			var cmdParam SpxRenameResourceParams
+			var cmdParam XGoRenameResourceParams
 			if err := json.Unmarshal(arg, &cmdParam); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal command argument as SpxRenameResourceParams: %w", err)
+				return nil, fmt.Errorf("failed to unmarshal command argument as XGoRenameResourceParams: %w", err)
 			}
 			cmdParams = append(cmdParams, cmdParam)
 		}
 		return s.spxRenameResources(cmdParams)
-	case "spx.getInputSlots":
-		var cmdParams []SpxGetInputSlotsParams
+	case CommandXGoGetInputSlots, CommandSpxGetInputSlots:
+		var cmdParams []XGoGetInputSlotsParams
 		for _, arg := range params.Arguments {
-			var cmdParam SpxGetInputSlotsParams
+			var cmdParam XGoGetInputSlotsParams
 			if err := json.Unmarshal(arg, &cmdParam); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal command argument as SpxGetInputSlotsParams: %w", err)
+				return nil, fmt.Errorf("failed to unmarshal command argument as XGoGetInputSlotsParams: %w", err)
 			}
 			cmdParams = append(cmdParams, cmdParam)
 		}
@@ -43,7 +49,7 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 }
 
 // spxRenameResources renames spx resources in the workspace.
-func (s *Server) spxRenameResources(params []SpxRenameResourceParams) (*WorkspaceEdit, error) {
+func (s *Server) spxRenameResources(params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
 	result, err := s.compile()
 	if err != nil {
 		return nil, err
@@ -52,7 +58,7 @@ func (s *Server) spxRenameResources(params []SpxRenameResourceParams) (*Workspac
 }
 
 // spxRenameResourcesWithCompileResult renames spx resources in the workspace with the given compile result.
-func (s *Server) spxRenameResourcesWithCompileResult(result *compileResult, params []SpxRenameResourceParams) (*WorkspaceEdit, error) {
+func (s *Server) spxRenameResourcesWithCompileResult(result *compileResult, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
 	workspaceEdit := WorkspaceEdit{
 		Changes: make(map[DocumentURI][]TextEdit),
 	}
@@ -100,11 +106,11 @@ func (s *Server) spxRenameResourcesWithCompileResult(result *compileResult, para
 }
 
 // spxGetInputSlots gets input slots in a document.
-func (s *Server) spxGetInputSlots(params []SpxGetInputSlotsParams) ([]SpxInputSlot, error) {
+func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSlot, error) {
 	if l := len(params); l == 0 {
 		return nil, nil
 	} else if l > 1 {
-		return nil, errors.New("spx.getInputSlots only supports one document at a time")
+		return nil, fmt.Errorf("%s only supports one document at a time", CommandXGoGetInputSlots)
 	}
 	param := params[0]
 
@@ -120,16 +126,16 @@ func (s *Server) spxGetInputSlots(params []SpxGetInputSlotsParams) ([]SpxInputSl
 }
 
 // findInputSlots finds all input slots in the AST file.
-func findInputSlots(result *compileResult, astFile *xgoast.File) []SpxInputSlot {
+func findInputSlots(result *compileResult, astFile *xgoast.File) []XGoInputSlot {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
 
-	var inputSlots []SpxInputSlot
-	addInputSlots := func(slots ...SpxInputSlot) {
+	var inputSlots []XGoInputSlot
+	addInputSlots := func(slots ...XGoInputSlot) {
 		for _, slot := range slots {
-			if slices.ContainsFunc(inputSlots, func(existing SpxInputSlot) bool {
+			if slices.ContainsFunc(inputSlots, func(existing XGoInputSlot) bool {
 				return IsRangesOverlap(existing.Range, slot.Range)
 			}) {
 				continue
@@ -465,6 +471,13 @@ func checkAddressInputSlot(result *compileResult, expr xgoast.Expr) *SpxInputSlo
 func createValueInputSlotFromBasicLit(result *compileResult, lit *xgoast.BasicLit, declaredType types.Type) *SpxInputSlot {
 	input := SpxInput{Kind: SpxInputKindInPlace}
 	switch lit.Kind {
+	case xgotoken.STRING:
+		input.Type = SpxInputTypeString
+		v, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return nil
+		}
+		input.Value = v
 	case xgotoken.INT:
 		input.Type = SpxInputTypeInteger
 		v, err := strconv.ParseInt(lit.Value, 0, 64)
@@ -475,13 +488,6 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *xgoast.BasicLi
 	case xgotoken.FLOAT:
 		input.Type = SpxInputTypeDecimal
 		v, err := strconv.ParseFloat(lit.Value, 64)
-		if err != nil {
-			return nil
-		}
-		input.Value = v
-	case xgotoken.STRING:
-		input.Type = SpxInputTypeString
-		v, err := strconv.Unquote(lit.Value)
 		if err != nil {
 			return nil
 		}
@@ -748,16 +754,16 @@ func isSpxColorFunc(fun *types.Func) bool {
 func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 	if basicType, ok := typ.(*types.Basic); ok {
 		switch basicType.Kind() {
-		case types.Bool, types.UntypedBool:
-			return SpxInputTypeBoolean
+		case types.String, types.UntypedString:
+			return SpxInputTypeString
 		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
 			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64,
 			types.UntypedInt:
 			return SpxInputTypeInteger
 		case types.Float32, types.Float64, types.UntypedFloat:
 			return SpxInputTypeDecimal
-		case types.String, types.UntypedString:
-			return SpxInputTypeString
+		case types.Bool, types.UntypedBool:
+			return SpxInputTypeBoolean
 		}
 		return SpxInputTypeUnknown
 	}
