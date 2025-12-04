@@ -10,9 +10,6 @@ export interface XGoLanguageServer {
   handleMessage(message: RequestMessage | NotificationMessage): Error | null
 }
 
-/** @deprecated Use {@link XGoLanguageServer}. */
-export type Spxls = XGoLanguageServer
-
 declare global {
   /**
    * Creates a new instance of the XGo language server.
@@ -25,9 +22,6 @@ declare global {
    *                        handle these messages according to the LSP specification.
    */
   function NewXGoLanguageServer(filesProvider: () => Files, messageReplier: (message: ResponseMessage | NotificationMessage) => void): XGoLanguageServer | Error
-
-  /** @deprecated Use {@link NewXGoLanguageServer}. */
-  function NewSpxls(filesProvider: () => Files, messageReplier: (message: ResponseMessage | NotificationMessage) => void): XGoLanguageServer | Error
 
   /**
    * Sets custom package data that will be used with higher priority than the embedded package data.
