@@ -37,7 +37,12 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	if typeInfo == nil {
 		return nil, nil
 	}
+	astPkg, _ := proj.ASTPackage()
+
 	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
+	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+		return nil, nil
+	}
 
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsInMainPkg(obj) || !obj.Pos().IsValid() {

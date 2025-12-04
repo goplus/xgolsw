@@ -38,11 +38,15 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if typeInfo == nil {
 		return nil, nil
 	}
+	astPkg, _ := result.proj.ASTPackage()
 
 	// Add links for spx definitions.
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
 	addLinksForIdent := func(ident *xgoast.Ident) {
 		if ident.Implicit() || xgoutil.NodeFilename(result.proj.Fset, ident) != spxFile {
+			return
+		}
+		if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
 			return
 		}
 		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {

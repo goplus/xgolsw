@@ -88,6 +88,24 @@ this.run "assets", {Title: "My Game"}
 		require.Nil(t, def)
 	})
 
+	t.Run("BlankIdent", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const _ = 1
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		def, err := s.textDocumentDefinition(&DefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.Nil(t, def)
+	})
+
 	t.Run("InvalidPosition", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

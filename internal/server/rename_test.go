@@ -121,6 +121,33 @@ onClick => {
 		require.Contains(t, err.Error(), "failed to get file path from document URI")
 		require.Nil(t, range1)
 	})
+
+	t.Run("BlankIdent", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const _ = 1
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.Nil(t, range1)
+
+		workspaceEdit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Position:     Position{Line: 1, Character: 6},
+			NewName:      "x",
+		})
+		require.NoError(t, err)
+		require.Nil(t, workspaceEdit)
+	})
 }
 
 func TestServerTextDocumentRename(t *testing.T) {

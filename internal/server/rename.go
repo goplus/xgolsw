@@ -30,10 +30,13 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	if typeInfo == nil {
 		return nil, nil
 	}
+	astPkg, _ := proj.ASTPackage()
+
 	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
-	if ident == nil {
+	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
+
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
@@ -61,7 +64,13 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	if typeInfo == nil {
 		return nil, nil
 	}
+	astPkg, _ := result.proj.ASTPackage()
+
 	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
+	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+		return nil, nil
+	}
+
 	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
@@ -189,9 +198,14 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 			continue
 		}
 		if result.hasSpxSpriteType(tv.Type) && tv.Type.String() == "main."+id.SpriteName {
+			rng := RangeForNode(result.proj, expr)
+			if rng.Start == rng.End {
+				continue
+			}
+
 			documentURI := s.nodeDocumentURI(result.proj, expr)
 			textEdit := TextEdit{
-				Range:   RangeForNode(result.proj, expr),
+				Range:   rng,
 				NewText: newName,
 			}
 

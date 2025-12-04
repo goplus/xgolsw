@@ -497,6 +497,22 @@ func getMixedTypesMySprite() (int, SpriteCostumeName, string, SpriteAnimationNam
 		require.NoError(t, err)
 		require.Empty(t, links)
 	})
+
+	t.Run("BlankIdent", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const _ = 1
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.Empty(t, links)
+	})
 }
 
 func TestSortDocumentLinks(t *testing.T) {

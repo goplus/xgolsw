@@ -196,3 +196,71 @@ func TestIdentAtPosition(t *testing.T) {
 		assert.Nil(t, ident)
 	})
 }
+
+func TestIsBlankIdent(t *testing.T) {
+	assert.True(t, IsBlankIdent(&ast.Ident{Name: "_"}))
+	assert.False(t, IsBlankIdent(&ast.Ident{Name: "x"}))
+	assert.False(t, IsBlankIdent(nil))
+}
+
+func TestIsSyntheticThisIdent(t *testing.T) {
+	newBase := func(t *testing.T) (*token.FileSet, *ast.File, *ast.Package, *types.Package) {
+		fset, astFile, err := newTestFile("main.xgo", "package main")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+		pkg := types.NewPackage("main", "main")
+		return fset, astFile, astPkg, pkg
+	}
+
+	t.Run("Definition", func(t *testing.T) {
+		fset, astFile, astPkg, pkg := newBase(t)
+		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
+		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+
+		assert.True(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
+	})
+
+	t.Run("ReferenceToSynthetic", func(t *testing.T) {
+		fset, astFile, astPkg, pkg := newBase(t)
+		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
+		refIdent := &ast.Ident{NamePos: defIdent.Pos() + 10, Name: "this"}
+		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, map[*ast.Ident]types.Object{refIdent: obj})
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+
+		assert.True(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, refIdent))
+	})
+
+	t.Run("NonSyntheticName", func(t *testing.T) {
+		fset, astFile, astPkg, _ := newBase(t)
+		nonThis := &ast.Ident{NamePos: astFile.Pos(), Name: "foo"}
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, nonThis))
+	})
+
+	t.Run("NonSyntheticPosition", func(t *testing.T) {
+		fset, astFile, astPkg, pkg := newBase(t)
+		defIdent := &ast.Ident{NamePos: astFile.Pos() + 5, Name: "this"}
+		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+
+		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
+	})
+
+	t.Run("NilInputs", func(t *testing.T) {
+		fset, astFile, astPkg, pkg := newBase(t)
+		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
+		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+
+		assert.False(t, IsSyntheticThisIdent(nil, typeInfo, astPkg, defIdent))
+		assert.False(t, IsSyntheticThisIdent(fset, nil, astPkg, defIdent))
+		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, nil, defIdent))
+		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, nil))
+	})
+}
