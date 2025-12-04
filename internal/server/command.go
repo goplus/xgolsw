@@ -379,6 +379,7 @@ func collectPredefinedNames(result *compileResult, expr xgoast.Expr, declaredTyp
 			if obj == nil {
 				continue
 			}
+			defIdent := typeInfo.ObjToDef[obj]
 
 			if scope != innermostScope || obj.Pos() < expr.Pos() {
 				switch obj.(type) {
@@ -387,7 +388,7 @@ func collectPredefinedNames(result *compileResult, expr xgoast.Expr, declaredTyp
 				}
 			}
 
-			if astFile.IsClass && !obj.Pos().IsValid() && name == "this" {
+			if astFile.IsClass && xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, defIdent) {
 				objType := xgoutil.DerefType(obj.Type())
 				named, ok := objType.(*types.Named)
 				if !ok || !xgoutil.IsNamedStructType(named) {

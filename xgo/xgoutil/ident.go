@@ -91,3 +91,31 @@ func IdentAtPosition(fset *token.FileSet, typeInfo *xgotypes.Info, astFile *ast.
 	}
 	return bestIdent
 }
+
+// IsBlankIdent reports whether ident is the blank identifier "_".
+func IsBlankIdent(ident *ast.Ident) bool {
+	return ident != nil && ident.Name == "_"
+}
+
+// IsSyntheticThisIdent reports whether the identifier is the compiler-generated
+// receiver "this" that XGo inserts at the start of a classfile. It matches both
+// the defining identifier and any reference whose definition maps to that
+// synthetic receiver.
+func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, ident *ast.Ident) bool {
+	if fset == nil || typeInfo == nil || astPkg == nil || ident == nil || ident.Name != "this" {
+		return false
+	}
+
+	// Try to get the defining identifier for the object denoted by ident.
+	if obj := typeInfo.ObjectOf(ident); obj != nil {
+		if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil {
+			ident = defIdent
+		}
+	}
+
+	astFile := NodeASTFile(fset, astPkg, ident)
+	if astFile == nil {
+		return false
+	}
+	return ident.Pos() == astFile.Pos()
+}
