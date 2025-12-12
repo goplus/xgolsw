@@ -256,7 +256,6 @@ func TestDidOpen(t *testing.T) {
 			// Execute test
 			err := server.didOpen(tt.params)
 
-			time.Sleep(1 * time.Second)
 			// Verify results
 			if (err != nil) != tt.wantErr {
 				t.Errorf("didOpen() error = %v, wantErr %v", err, tt.wantErr)
