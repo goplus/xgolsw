@@ -16,19 +16,59 @@ import (
 
 type mockReplier struct {
 	mu       sync.Mutex
+	cond     *sync.Cond
 	messages []jsonrpc2.Message
+}
+
+func newMockReplier() *mockReplier {
+	m := &mockReplier{}
+	m.cond = sync.NewCond(&m.mu)
+	return m
 }
 
 func (m *mockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, msg)
+	m.cond.Broadcast()
 	return nil
 }
 
 func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	result := make([]jsonrpc2.Message, len(m.messages))
+	copy(result, m.messages)
+	return result
+}
+
+func (m *mockReplier) waitForMessages(count int, timeout time.Duration) []jsonrpc2.Message {
+	// For count=0, wait a short time to ensure no unexpected messages arrive
+	if count == 0 {
+		time.Sleep(10 * time.Millisecond)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		result := make([]jsonrpc2.Message, len(m.messages))
+		copy(result, m.messages)
+		return result
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	timedOut := false
+	timer := time.AfterFunc(timeout, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		timedOut = true
+		m.cond.Broadcast()
+	})
+	defer timer.Stop()
+
+	for len(m.messages) < count && !timedOut {
+		m.cond.Wait()
+	}
+
 	result := make([]jsonrpc2.Message, len(m.messages))
 	copy(result, m.messages)
 	return result
@@ -67,7 +107,7 @@ var x = 100
 echo x
 `),
 		}
-		replier := &mockReplier{}
+		replier := newMockReplier()
 		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
 
 		call1, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-1"), "$/cancelRequest", &CancelParams{ID: "test-request-1"})
@@ -89,12 +129,10 @@ echo x
 		err2 := s.cancelRequest(&CancelParams{ID: "test-request-2"})
 		require.NoError(t, err2)
 
-		time.Sleep(10 * time.Millisecond)
+		messages := replier.waitForMessages(2, 5*time.Second)
 
 		assert.False(t, request1Runned, "Function should not have been executed for cancelled request")
 		assert.False(t, request2Runned, "Function should not have been executed for cancelled request")
-
-		messages := replier.getMessages()
 		require.Len(t, messages, 2)
 
 		var response1, response2 *jsonrpc2.Response
@@ -446,7 +484,7 @@ fmt.Println("Hello, World!")
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			replier := &mockReplier{}
+			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
 
 			var params json.RawMessage
@@ -463,8 +501,7 @@ fmt.Println("Hello, World!")
 			err = server.HandleMessage(call)
 			require.NoError(t, err, "Failed to handle message")
 
-			time.Sleep(100 * time.Millisecond)
-			msgs := replier.getMessages()
+			msgs := replier.waitForMessages(tc.msgNum, 5*time.Second)
 			assert.Len(t, msgs, tc.msgNum,
 				"Method '%s': Expected %d messages, got %d",
 				tc.method, tc.msgNum, len(msgs))
@@ -577,7 +614,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			replier := &mockReplier{}
+			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
 
 			var params json.RawMessage
@@ -593,8 +630,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			err = server.HandleMessage(call)
 			require.NoError(t, err, "Failed to handle message")
 
-			time.Sleep(100 * time.Millisecond)
-			msgs := replier.getMessages()
+			msgs := replier.waitForMessages(tc.msgNum, 5*time.Second)
 			assert.Len(t, msgs, tc.msgNum,
 				"Method '%s': Expected %d messages, got %d",
 				tc.method, tc.msgNum, len(msgs))
