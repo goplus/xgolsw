@@ -601,8 +601,10 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			}
 		}
 
-		documentURI := s.toDocumentURI(spxFile)
-		result.addDiagnostics(documentURI, diagnostics...)
+		if len(diagnostics) > 0 {
+			documentURI := s.toDocumentURI(spxFile)
+			result.addDiagnostics(documentURI, diagnostics...)
+		}
 	}
 }
 
