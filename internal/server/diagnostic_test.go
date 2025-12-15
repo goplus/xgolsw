@@ -136,6 +136,36 @@ onStart => {
 		})
 	})
 
+	t.Run("MissingReturn", func(t *testing.T) {
+		fileMap := newTestFileMap()
+		fileMap["main.spx"] = []byte(`
+func getValue() int {
+	var x = 1
+	x++
+}
+`)
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		params := &DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		report, err := s.textDocumentDiagnostic(params)
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
+		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		require.Len(t, fullReport.Items, 1)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  "missing return",
+			Range: Range{
+				Start: Position{Line: 4, Character: 0},
+				End:   Position{Line: 4, Character: 1},
+			},
+		})
+	})
+
 	t.Run("NonSpxFile", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.xgo"] = []byte(`echo "Hello, XGo!"`)

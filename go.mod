@@ -5,7 +5,7 @@ go 1.24.0
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
-	github.com/goplus/gogen v1.19.6
+	github.com/goplus/gogen v1.19.7
 	github.com/goplus/mod v0.17.2
 	github.com/goplus/spx/v2 v2.0.0-pre.37
 	github.com/goplus/xgo v1.5.3

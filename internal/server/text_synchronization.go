@@ -219,8 +219,8 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 			// Handle code generation errors.
 			diagnostics = append(diagnostics, Diagnostic{
 				Severity: SeverityError,
-				Range:    RangeForPos(proj, codeError.Pos),
-				Message:  codeError.Error(),
+				Range:    RangeForPosEnd(proj, codeError.Pos, codeError.End),
+				Message:  codeError.Msg,
 			})
 		} else {
 			// Handle unknown errors (including recovered panics).

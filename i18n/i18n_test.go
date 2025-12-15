@@ -610,7 +610,18 @@ func extractErrorMessage(fullError string) string {
 	// We want to extract just the "actual error message" part
 	parts := strings.SplitN(fullError, ": ", 2)
 	if len(parts) >= 2 {
-		return parts[1]
+		msg := parts[1]
+		// Remove "missing return" errors that may appear on subsequent lines.
+		// These are additional errors reported by gogen but not part of the primary error.
+		lines := strings.Split(msg, "\n")
+		var result []string
+		for _, line := range lines {
+			if strings.HasSuffix(line, ": missing return") {
+				continue
+			}
+			result = append(result, line)
+		}
+		return strings.Join(result, "\n")
 	}
 	return fullError
 }

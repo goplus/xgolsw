@@ -3,8 +3,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/goplus/gogen v1.19.6 h1:NbWqC3WtBJQvwORPra6za0KRi01w4kAeAYMscZCt4j4=
-github.com/goplus/gogen v1.19.6/go.mod h1:owX2e1EyU5WD+Nm6oH2m/GXjLdlBYcwkLO4wN8HHXZI=
+github.com/goplus/gogen v1.19.7 h1:0i30on0GwtYIJ+D9/I5QujswBU+mnnmNewoRk/uRVkw=
+github.com/goplus/gogen v1.19.7/go.mod h1:owX2e1EyU5WD+Nm6oH2m/GXjLdlBYcwkLO4wN8HHXZI=
 github.com/goplus/mod v0.17.2 h1:7S4WQlgjw1EpYkJhToypDHgVve9JRJiN0gP3L2MeE7Y=
 github.com/goplus/mod v0.17.2/go.mod h1:/LyX3X45fuk1PINbNZCiAu0Eu85rTkU2Iz4PCYt/GdE=
 github.com/goplus/spbase v0.1.0 h1:JNZ0D/65DerYyv9/9IfrXHZZbd0WNK0jHiVvgCtZhwY=
