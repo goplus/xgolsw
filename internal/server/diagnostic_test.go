@@ -112,6 +112,7 @@ func calcPos() (posX float64, posY float64) {
 onStart => {
 	var x, y int
 	x, y = calcPos()
+	_, _ = x, y
 }
 `)
 		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
@@ -162,6 +163,35 @@ func getValue() int {
 			Range: Range{
 				Start: Position{Line: 4, Character: 0},
 				End:   Position{Line: 4, Character: 1},
+			},
+		})
+	})
+
+	t.Run("UnusedVariable", func(t *testing.T) {
+		fileMap := newTestFileMap()
+		fileMap["main.spx"] = []byte(`
+onStart => {
+	var unusedVar = 1
+}
+`)
+		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		params := &DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		report, err := s.textDocumentDiagnostic(params)
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
+		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		require.Len(t, fullReport.Items, 1)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  "unusedVar declared and not used",
+			Range: Range{
+				Start: Position{Line: 2, Character: 5},
+				End:   Position{Line: 2, Character: 14},
 			},
 		})
 	})

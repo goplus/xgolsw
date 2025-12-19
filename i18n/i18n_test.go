@@ -222,7 +222,7 @@ func TestCodeBasedErrorTranslation(t *testing.T) {
 		},
 		{
 			name: "No new variables in :=",
-			code: `a := 1; a := "Hi"`,
+			code: `a := 1; a := "Hi"; _ = a`,
 			expectEnError: `no new variables on left side of :=
 main.xgo:1:14: cannot use "Hi" (type untyped string) as type int in assignment`,
 			expectCnError: `:= 左侧没有新变量
@@ -248,13 +248,14 @@ main.xgo:1:14: 无法将 "Hi" (类型 untyped string) 用作类型 int 在 assig
 func main() {
 	x := 1
 	x = bar()
+	_ = x
 }`,
 			expectEnError: `assignment mismatch: 1 variables but bar returns 2 values`,
 			expectCnError: `赋值不匹配: 1 个变量但 bar 返回 2 个值`,
 		},
 		{
 			name:          "Assignment mismatch multiple values",
-			code:          `x := 1; x = 1, "Hi"`,
+			code:          `x := 1; x = 1, "Hi"; _ = x`,
 			expectEnError: `assignment mismatch: 1 variables but 2 values`,
 			expectCnError: `赋值不匹配: 1 个变量但有 2 个值`,
 		},
@@ -310,7 +311,7 @@ func main() {
 		// 5. Control Flow Errors
 		{
 			name:          "Range type assignment error",
-			code:          `a := 1; var b []string; for _, a = range b {}`,
+			code:          `a := 1; _ = a; var b []string; for _, a = range b {}`,
 			expectEnError: `cannot assign type string to a (type int) in range`,
 			expectCnError: `无法在 range 中将类型 string 赋值给 a (类型 int)`,
 		},
@@ -322,13 +323,13 @@ func main() {
 		},
 		{
 			name:          "Label not defined goto",
-			code:          `x := 1; goto foo`,
+			code:          `x := 1; goto foo; _ = x`,
 			expectEnError: `label foo is not defined`,
 			expectCnError: `标签 foo 未定义`,
 		},
 		{
 			name:          "Label not defined break",
-			code:          `x := 1; break foo`,
+			code:          `x := 1; break foo; _ = x`,
 			expectEnError: `label foo is not defined`,
 			expectCnError: `标签 foo 未定义`,
 		},
@@ -370,19 +371,19 @@ func main() {
 		},
 		{
 			name:          "Array literal bounds with index",
-			code:          `a := "Hi"; b := [10]int{9: 1, 3}`,
+			code:          `_ = [10]int{9: 1, 3}`,
 			expectEnError: `array index 10 out of bounds [0:10]`,
 			expectCnError: `数组索引 10 超出范围 [0:10]`,
 		},
 		{
 			name:          "Array literal bounds overflow",
-			code:          `a := "Hi"; b := [1]int{1, 2}`,
+			code:          `_ = [1]int{1, 2}`,
 			expectEnError: `array index 1 out of bounds [0:1]`,
 			expectCnError: `数组索引 1 超出范围 [0:1]`,
 		},
 		{
 			name:          "Array index with value out of bounds",
-			code:          `a := "Hi"; b := [10]int{12: 2}`,
+			code:          `_ = [10]int{12: 2}`,
 			expectEnError: `array index 12 (value 12) out of bounds [0:10]`,
 			expectCnError: `数组索引 12 (值 12) 超出范围 [0:10]`,
 		},
@@ -468,13 +469,13 @@ func main() {
 		// 7. Struct Errors
 		{
 			name:          "Struct too many values",
-			code:          `x := 1; a := struct{x int; y string}{1, "Hi", 2}`,
+			code:          `_ = struct{x int; y string}{1, "Hi", 2}`,
 			expectEnError: `too many values in struct{x int; y string}{...}`,
 			expectCnError: `struct{...} 中值的数量错误`,
 		},
 		{
 			name:          "Struct too few values",
-			code:          `x := 1; a := struct{x int; y string}{1}`,
+			code:          `_ = struct{x int; y string}{1}`,
 			expectEnError: `too few values in struct{x int; y string}{...}`,
 			expectCnError: `struct{...} 中值的数量错误`,
 		},

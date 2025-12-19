@@ -911,7 +911,7 @@ func TestGetDiagnostics(t *testing.T) {
 		},
 		{
 			name:           "type error",
-			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n}", // Type mismatch
+			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n\t_ = x\n}", // Type mismatch
 			path:           "/type_error.xgo",
 			wantDiagCount:  1,
 			wantSeverities: []protocol.DiagnosticSeverity{SeverityError},
@@ -927,7 +927,7 @@ func TestGetDiagnostics(t *testing.T) {
 		},
 		{
 			name:           "multiple type errors",
-			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n\tvar y bool = 42\n}",
+			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n\tvar y bool = 42\n\t_, _ = x, y\n}",
 			path:           "/multiple_errors.xgo",
 			wantDiagCount:  2,
 			wantSeverities: []protocol.DiagnosticSeverity{SeverityError},
