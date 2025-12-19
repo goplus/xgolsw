@@ -38,6 +38,8 @@ onStart => {
 
 	// Spx resource name.
 	MySprite.stepTo "OtherSprite"
+
+	_, _, _, _, _, _ = message, direction, layerAction, dirAction, myColor, otherColor
 }
 `),
 			"MySprite.spx":                          []byte(``),
@@ -281,7 +283,7 @@ var (
 
 	t.Run("EmptyParams", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`var a = 1`),
+			"main.spx": []byte(`var a = 1; _ = a`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
@@ -380,6 +382,8 @@ onStart => {
 	// Other commands
 	MySprite.turn MySprite.heading
 	getWidget Monitor, "myWidget"
+
+	_, _, _, _, _, _ = message, sum, isEqual, notTrue, myColor, calculateValue
 }
 `),
 		"MySprite.spx": []byte(`
@@ -601,6 +605,8 @@ onStart => {
 
 	// Other expressions.
 	arrayValue := []int{1, 2, 3}
+
+	_, _, _, _, _, _, _ = numValue, floatValue, strValue, dirValue, boolValue, colorValue, arrayValue
 }
 `),
 		"assets/index.json": []byte(`{}`),
@@ -736,6 +742,7 @@ onStart => {
 	varA = 10
 	println varA
 	otherVar := 20
+	_ = otherVar
 }
 `),
 		"assets/index.json": []byte(`{}`),
@@ -818,6 +825,8 @@ onStart => {
 	// String literals.
 	message := "Hello, world!"
 	MySprite.stepTo "OtherSprite"
+
+	_, _, _, _, _ = x, hexValue, y, scientific, message
 }
 `),
 		"MySprite.spx":                          []byte(``),
@@ -983,6 +992,8 @@ onStart => {
 
 	// Regular
 	myVar := regularVar
+
+	_, _ = boolVar, myVar
 }
 `),
 		"MySprite.spx":                       []byte(``),
@@ -1101,6 +1112,8 @@ onStart => {
 
 	// Logical not with boolean.
 	notBool := !true
+
+	_, _, _, _, _ = negInt, negFloat, posInt, complementInt, notBool
 }
 `),
 		"assets/index.json": []byte(`{}`),
@@ -1203,6 +1216,8 @@ onStart => {
 
 	// Non-color function calls.
 	println 1, 2, 3
+
+	_, _ = myColor1, myColor2
 }
 `),
 		"assets/index.json": []byte(`{}`),

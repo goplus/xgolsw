@@ -28,3 +28,5 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/goplus/gogen => github.com/aofei/fork.goplus.gogen v0.0.0-20251219084322-cf6404f77529
