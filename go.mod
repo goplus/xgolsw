@@ -6,10 +6,10 @@ tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
 	github.com/goplus/gogen v1.19.7
-	github.com/goplus/mod v0.17.2
-	github.com/goplus/spx/v2 v2.0.0-pre.38
+	github.com/goplus/mod v0.17.3
+	github.com/goplus/spx/v2 v2.0.0-pre.39
 	github.com/goplus/xgo v1.5.3
-	github.com/qiniu/x v1.15.2
+	github.com/qiniu/x v1.15.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.31.0
 	golang.org/x/sync v0.19.0
