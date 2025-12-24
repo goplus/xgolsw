@@ -147,6 +147,8 @@ var stdPkgPaths = []string{
 	"github.com/qiniu/x/xgo/ng",
 	"github.com/qiniu/x/stringutil",
 	"github.com/qiniu/x/stringslice",
+	// Required for XGo's ? error handling operator
+	"github.com/qiniu/x/errors",
 
 	"github.com/goplus/spx/v2",
 	"github.com/goplus/spx/v2/pkg/gdspx/pkg/engine",
