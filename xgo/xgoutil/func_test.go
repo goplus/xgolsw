@@ -26,11 +26,11 @@ import (
 
 func TestIsXgotMethodName(t *testing.T) {
 	t.Run("ValidXGotMethodName", func(t *testing.T) {
-		assert.True(t, IsXGotMethodName("Gopt_Type_Method"))
+		assert.True(t, IsXGotMethodName("XGot_Type_Method"))
 	})
 
 	t.Run("ValidXGotMethodNameWithUnderscore", func(t *testing.T) {
-		assert.True(t, IsXGotMethodName("Gopt_MyType_MyMethod"))
+		assert.True(t, IsXGotMethodName("XGot_MyType_MyMethod"))
 	})
 
 	t.Run("InvalidPrefix", func(t *testing.T) {
@@ -38,19 +38,19 @@ func TestIsXgotMethodName(t *testing.T) {
 	})
 
 	t.Run("InvalidXGoxPrefix", func(t *testing.T) {
-		assert.False(t, IsXGotMethodName("Gopx_Type_Method"))
+		assert.False(t, IsXGotMethodName("XGox_Type_Method"))
 	})
 
 	t.Run("NoUnderscore", func(t *testing.T) {
-		assert.False(t, IsXGotMethodName("GoptTypeMethod"))
+		assert.False(t, IsXGotMethodName("XGotTypeMethod"))
 	})
 
 	t.Run("OnlyPrefix", func(t *testing.T) {
-		assert.False(t, IsXGotMethodName("Gopt_"))
+		assert.False(t, IsXGotMethodName("XGot_"))
 	})
 
 	t.Run("OnlyPrefixAndType", func(t *testing.T) {
-		assert.False(t, IsXGotMethodName("Gopt_Type"))
+		assert.False(t, IsXGotMethodName("XGot_Type"))
 	})
 
 	t.Run("EmptyString", func(t *testing.T) {
@@ -60,21 +60,21 @@ func TestIsXgotMethodName(t *testing.T) {
 
 func TestSplitXGotMethodName(t *testing.T) {
 	t.Run("ValidXGotMethodName", func(t *testing.T) {
-		recvTypeName, methodName, ok := SplitXGotMethodName("Gopt_Type_Method", false)
+		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_Method", false)
 		assert.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
 		assert.Equal(t, "Method", methodName)
 	})
 
 	t.Run("ValidXGotMethodNameWithXGoxPrefix", func(t *testing.T) {
-		recvTypeName, methodName, ok := SplitXGotMethodName("Gopt_Type_Gopx_Method", false)
+		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_XGox_Method", false)
 		assert.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
-		assert.Equal(t, "Gopx_Method", methodName)
+		assert.Equal(t, "XGox_Method", methodName)
 	})
 
 	t.Run("ValidXGotMethodNameTrimXGox", func(t *testing.T) {
-		recvTypeName, methodName, ok := SplitXGotMethodName("Gopt_Type_Gopx_Method", true)
+		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_XGox_Method", true)
 		assert.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
 		assert.Equal(t, "Method", methodName)
@@ -86,17 +86,17 @@ func TestSplitXGotMethodName(t *testing.T) {
 	})
 
 	t.Run("NoUnderscore", func(t *testing.T) {
-		_, _, ok := SplitXGotMethodName("GoptTypeMethod", false)
+		_, _, ok := SplitXGotMethodName("XGotTypeMethod", false)
 		assert.False(t, ok)
 	})
 
 	t.Run("OnlyPrefix", func(t *testing.T) {
-		_, _, ok := SplitXGotMethodName("Gopt_", false)
+		_, _, ok := SplitXGotMethodName("XGot_", false)
 		assert.False(t, ok)
 	})
 
 	t.Run("OnlyPrefixAndType", func(t *testing.T) {
-		_, _, ok := SplitXGotMethodName("Gopt_Type", false)
+		_, _, ok := SplitXGotMethodName("XGot_Type", false)
 		assert.False(t, ok)
 	})
 
@@ -106,7 +106,7 @@ func TestSplitXGotMethodName(t *testing.T) {
 	})
 
 	t.Run("MultipleUnderscores", func(t *testing.T) {
-		recvTypeName, methodName, ok := SplitXGotMethodName("Gopt_MyType_My_Method", false)
+		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_MyType_My_Method", false)
 		assert.True(t, ok)
 		assert.Equal(t, "MyType", recvTypeName)
 		assert.Equal(t, "My_Method", methodName)
@@ -115,13 +115,13 @@ func TestSplitXGotMethodName(t *testing.T) {
 
 func TestSplitXGoxFuncName(t *testing.T) {
 	t.Run("ValidXGoxFuncName", func(t *testing.T) {
-		funcName, ok := SplitXGoxFuncName("Gopx_Method")
+		funcName, ok := SplitXGoxFuncName("XGox_Method")
 		assert.True(t, ok)
 		assert.Equal(t, "Method", funcName)
 	})
 
 	t.Run("ValidXGoxFuncNameWithUnderscores", func(t *testing.T) {
-		funcName, ok := SplitXGoxFuncName("Gopx_My_Method")
+		funcName, ok := SplitXGoxFuncName("XGox_My_Method")
 		assert.True(t, ok)
 		assert.Equal(t, "My_Method", funcName)
 	})
@@ -132,12 +132,12 @@ func TestSplitXGoxFuncName(t *testing.T) {
 	})
 
 	t.Run("InvalidXGotPrefix", func(t *testing.T) {
-		_, ok := SplitXGoxFuncName("Gopt_Method")
+		_, ok := SplitXGoxFuncName("XGot_Method")
 		assert.False(t, ok)
 	})
 
 	t.Run("OnlyPrefix", func(t *testing.T) {
-		funcName, ok := SplitXGoxFuncName("Gopx_")
+		funcName, ok := SplitXGoxFuncName("XGox_")
 		assert.True(t, ok)
 		assert.Equal(t, "", funcName)
 	})

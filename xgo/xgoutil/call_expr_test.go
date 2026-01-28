@@ -401,7 +401,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 	})
 
 	t.Run("CallExprWithXGoPackageXGotMethod", func(t *testing.T) {
-		ident := &ast.Ident{Name: "Gopt_Sprite_Move"}
+		ident := &ast.Ident{Name: "XGot_Sprite_Move"}
 		arg1 := &ast.Ident{Name: "arg1"}
 		expr := &ast.CallExpr{
 			Fun:  ident,
@@ -415,7 +415,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
 		params := types.NewTuple(recv, param1)
 		sig := types.NewSignatureType(recv, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "Gopt_Sprite_Move", sig)
+		fun := types.NewFunc(token.NoPos, pkg, "XGot_Sprite_Move", sig)
 
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
 			ident: fun,

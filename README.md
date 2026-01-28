@@ -30,7 +30,7 @@ through its API interfaces.
 2. Build the project:
 
   ```bash
-  GOOS=js GOARCH=wasm go build -trimpath -o xgolsw.wasm
+  GOOS=js GOARCH=wasm go build -trimpath -ldflags "-s -w" -o xgolsw.wasm
   ```
 
 ## Usage

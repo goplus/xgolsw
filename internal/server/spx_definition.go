@@ -532,10 +532,10 @@ var (
 		return spxPkg.Scope().Lookup("HSBA").(*types.Func)
 	})
 
-	// GetSpxGoptGameRunFunc returns the [spx.Gopt_Game_Run] type.
-	GetSpxGoptGameRunFunc = sync.OnceValue(func() *types.Func {
+	// GetSpxXGotGameRunFunc returns the [spx.XGot_Game_Run] type.
+	GetSpxXGotGameRunFunc = sync.OnceValue(func() *types.Func {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Gopt_Game_Run").(*types.Func)
+		return spxPkg.Scope().Lookup("XGot_Game_Run").(*types.Func)
 	})
 )
 
