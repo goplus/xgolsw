@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	XGotPrefix = "Gopt_" // XGo template method.
-	XGooPrefix = "Gopo_" // XGo overload function/method.
-	XGoxPrefix = "Gopx_" // XGo type as parameters function/method.
+	XGotPrefix = "XGot_" // XGo template method.
+	XGooPrefix = "XGoo_" // XGo overload function/method.
+	XGoxPrefix = "XGox_" // XGo type as parameters function/method.
 )
 
 // IsXGotMethodName reports whether the given name is an XGo template method name.

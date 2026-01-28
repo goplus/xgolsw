@@ -44,4 +44,4 @@ jobs:
         env:
           GOOS: js
           GOARCH: wasm
-        run: go build -v -trimpath -o bin/xgolsw.wasm
+        run: go build -v -trimpath -ldflags "-s -w" -o bin/xgolsw.wasm

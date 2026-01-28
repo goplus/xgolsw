@@ -510,7 +510,7 @@ func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compile
 		}
 
 		callExpr, ok := expr.(*xgoast.CallExpr)
-		if !ok || len(callExpr.Args) == 0 || tv.Type != GetSpxGoptGameRunFunc().Type() {
+		if !ok || len(callExpr.Args) == 0 || tv.Type != GetSpxXGotGameRunFunc().Type() {
 			continue
 		}
 		firstArg := callExpr.Args[0]
