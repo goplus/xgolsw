@@ -1408,7 +1408,6 @@ func getResult() (map[string]int, error) {
 	})
 
 	t.Run("TypedStructLitInReturn", func(t *testing.T) {
-		t.Skip("Skipped until https://github.com/goplus/xgo/issues/2577 is fixed")
 		m := map[string][]byte{
 			"main.spx": []byte(`
 type Person struct {
@@ -1441,7 +1440,6 @@ func getPerson() Person {
 	})
 
 	t.Run("PointerStructLitInReturn", func(t *testing.T) {
-		t.Skip("Skipped until https://github.com/goplus/xgo/issues/2577 is fixed")
 		m := map[string][]byte{
 			"main.spx": []byte(`
 type Config struct {
