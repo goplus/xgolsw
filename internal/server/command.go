@@ -19,6 +19,7 @@ const (
 	CommandSpxRenameResources = "spx.renameResources"
 	CommandXGoGetInputSlots   = "xgo.getInputSlots"
 	CommandSpxGetInputSlots   = "spx.getInputSlots"
+	CommandXGoGetProperty     = "xgo.getProperty"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
@@ -44,6 +45,15 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 			cmdParams = append(cmdParams, cmdParam)
 		}
 		return s.spxGetInputSlots(cmdParams)
+	case CommandXGoGetProperty:
+		var cmdParams XGoGetPropertyParams
+		if len(params.Arguments) != 1 {
+			return nil, fmt.Errorf("expected exactly one argument for command %s", CommandXGoGetProperty)
+		}
+		if err := json.Unmarshal(params.Arguments[0], &cmdParams); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal command argument as XGoGetPropertyParams: %w", err)
+		}
+		return s.xgoGetProperty(cmdParams)
 	}
 	return nil, fmt.Errorf("unknown command: %s", params.Command)
 }
@@ -123,6 +133,112 @@ func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	}
 
 	return findInputSlots(result, astFile), nil
+}
+
+// xgoGetProperty gets properties for a specific target (e.g., "Game" or a sprite name).
+// Returns a list of properties including:
+// 1. Direct fields (non-embedded) of the target type
+// 2. Methods with no input parameters and exactly one output parameter
+func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, error) {
+	result, err := s.compile()
+	if err != nil {
+		return nil, err
+	}
+
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, fmt.Errorf("no type information available")
+	}
+
+	pkg := typeInfo.Pkg
+	if pkg == nil {
+		return nil, fmt.Errorf("no package information available")
+	}
+
+	// Lookup the target object in the package scope
+	obj := pkg.Scope().Lookup(params.Target)
+	if obj == nil {
+		return nil, fmt.Errorf("target %q not found", params.Target)
+	}
+
+	// Get the type of the object
+	var namedType *types.Named
+	switch obj := obj.(type) {
+	case *types.TypeName:
+		// If it's a type name (e.g., "Game"), get its underlying type
+		if named, ok := obj.Type().(*types.Named); ok {
+			namedType = named
+		} else {
+			return nil, fmt.Errorf("target %q is not a named type", params.Target)
+		}
+	case *types.Var:
+		// If it's a variable (e.g., a sprite instance), get its type
+		if named, ok := xgoutil.DerefType(obj.Type()).(*types.Named); ok {
+			namedType = named
+		} else {
+			return nil, fmt.Errorf("target %q is not a named type", params.Target)
+		}
+	default:
+		return nil, fmt.Errorf("target %q is not a type or variable", params.Target)
+	}
+
+	// Get only direct fields and methods
+	var properties []XGoProperty
+
+	// Get underlying struct type
+	structType, ok := namedType.Underlying().(*types.Struct)
+	if !ok {
+		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
+	}
+
+	// Get package documentation
+	pkgDoc, _ := result.proj.PkgDoc()
+	selectorTypeName := namedType.Obj().Name()
+
+	// Add direct fields (non-embedded)
+	for i := 0; i < structType.NumFields(); i++ {
+		field := structType.Field(i)
+		if !field.Embedded() {
+			prop := XGoProperty{
+				Name: field.Name(),
+				Type: GetSimplifiedTypeString(field.Type()),
+				Kind: "field",
+			}
+			// Get documentation if available
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					prop.Doc = typeDoc.Fields[field.Name()]
+				}
+			}
+			properties = append(properties, prop)
+		}
+	}
+
+	// Add methods with no parameters and exactly one return value
+	for i := 0; i < namedType.NumMethods(); i++ {
+		method := namedType.Method(i)
+		sig, ok := method.Type().(*types.Signature)
+		if !ok {
+			continue
+		}
+		// Only include methods with no parameters and exactly one return value
+		if sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+			prop := XGoProperty{
+				Name: method.Name(),
+				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
+				Kind: "method",
+			}
+			// Get documentation if available
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					prop.Doc = typeDoc.Methods[method.Name()]
+				}
+			}
+			properties = append(properties, prop)
+		}
+	}
+
+	return properties, nil
 }
 
 // findInputSlots finds all input slots in the AST file.
