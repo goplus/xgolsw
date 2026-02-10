@@ -140,12 +140,8 @@ func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 // 1. Direct fields (non-embedded) of the target type
 // 2. Methods with no input parameters and exactly one output parameter
 func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, error) {
-	result, err := s.compile()
-	if err != nil {
-		return nil, err
-	}
-
-	typeInfo, _ := result.proj.TypeInfo()
+	proj := s.getProj()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, fmt.Errorf("no type information available")
 	}
@@ -192,7 +188,7 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 	}
 
 	// Get package documentation
-	pkgDoc, _ := result.proj.PkgDoc()
+	pkgDoc, _ := proj.PkgDoc()
 	selectorTypeName := namedType.Obj().Name()
 
 	// Add direct fields (non-embedded)
