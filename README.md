@@ -504,6 +504,74 @@ enum XGoInputKind {
 }
 ```
 
+### XGo property lookup
+
+The `xgo.getProperties` command retrieves properties (direct fields and auto-getter methods) for a target type or
+instance (for example, `Game` or a sprite name).
+
+*Request:*
+
+- method: [`workspace/executeCommand`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand)
+- params: `XGoGetPropertyExecuteCommandParams` defined as follows:
+
+```typescript
+type XGoGetPropertyExecuteCommandParams = Omit<ExecuteCommandParams, 'command' | 'arguments'> & {
+  /**
+   * The identifier of the actual command handler.
+   */
+  command: 'xgo.getProperties'
+
+  /**
+   * Arguments that the command should be invoked with.
+   */
+  arguments: [XGoGetPropertiesParams]
+}
+```
+
+```typescript
+/**
+ * Parameters to retrieve properties for a target.
+ */
+interface XGoGetPropertiesParams {
+  /**
+   * The target name, for example `Game` or a specific sprite name.
+   */
+  target: string
+}
+```
+
+*Response:*
+
+- result: `XGoProperty[]` describing the properties found. An empty array means no properties were found.
+- error: code and message set when properties cannot be retrieved for any reason.
+
+```typescript
+/**
+ * A property of a target type.
+ */
+interface XGoProperty {
+  /**
+   * The property name.
+   */
+  name: string
+
+  /**
+   * The property type as a string.
+   */
+  type: string
+
+  /**
+   * The kind of property.
+   */
+  kind: 'field' | 'method'
+
+  /**
+   * Optional documentation for the property.
+   */
+  doc?: string
+}
+```
+
 ## Other JSON structures
 
 ### Document link data types

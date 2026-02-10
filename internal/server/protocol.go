@@ -250,13 +250,20 @@ type XGoGetInputSlotsParams struct {
 	TextDocument protocol.TextDocumentIdentifier `json:"textDocument"`
 }
 
-// XGoGetPropertyParams holds parameters to get properties for a specific target.
-type XGoGetPropertyParams struct {
-	// The target name (e.g., "Game" or a specific sprite name).
+// XGoGetPropertiesParams holds parameters to get properties for a specific target.
+type XGoGetPropertiesParams struct {
+	// The target name (type or variable) to retrieve properties for (e.g., 'Game' type or a sprite variable name).
 	Target string `json:"target"`
 }
 
 // XGoProperty represents a property of a type (field or method).
+type XGoPropertyKind string
+
+const (
+	XGoPropertyKindField  XGoPropertyKind = "field"
+	XGoPropertyKindMethod XGoPropertyKind = "method"
+)
+
 type XGoProperty struct {
 	// The name of the property.
 	Name string `json:"name"`
@@ -264,8 +271,8 @@ type XGoProperty struct {
 	// The type of the property as a string.
 	Type string `json:"type"`
 
-	// The kind of property: "field" or "method".
-	Kind string `json:"kind"`
+	// The kind of property.
+	Kind XGoPropertyKind `json:"kind"`
 
 	// Optional documentation for the property.
 	Doc string `json:"doc,omitempty"`

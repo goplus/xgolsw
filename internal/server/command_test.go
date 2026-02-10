@@ -1693,3 +1693,307 @@ func findAddressInputSlot(inputSlots []SpxInputSlot, name string) *SpxInputSlot 
 	}
 	return nil
 }
+
+func TestServerXGoGetProperty(t *testing.T) {
+	t.Run("GameType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	score int
+	level int
+)
+
+func MainEntry() {
+	score = 100
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "Game"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// Check that we have basic fields
+		scoreField := findProperty(properties, "score", XGoPropertyKindField)
+		require.NotNil(t, scoreField, "score field should exist")
+		assert.Equal(t, "int", scoreField.Type)
+
+		levelField := findProperty(properties, "level", XGoPropertyKindField)
+		require.NotNil(t, levelField, "level field should exist")
+		assert.Equal(t, "int", levelField.Type)
+	})
+
+	t.Run("SpriteType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var MySprite Sprite
+
+func MainEntry() {
+}
+`),
+			"MySprite.spx": []byte(`
+var (
+	health int
+	speed float64
+)
+
+func GetDamage() int {
+	return 10
+}
+
+func onStart() {
+	health = 100
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "MySprite"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// Check fields
+		healthField := findProperty(properties, "health", XGoPropertyKindField)
+		require.NotNil(t, healthField, "health field should exist")
+		assert.Equal(t, "int", healthField.Type)
+
+		speedField := findProperty(properties, "speed", XGoPropertyKindField)
+		require.NotNil(t, speedField, "speed field should exist")
+		assert.Equal(t, "float64", speedField.Type)
+
+		// Check auto-getter methods (no params, one return value)
+		getDamageMethod := findProperty(properties, "getDamage", XGoPropertyKindMethod)
+		require.NotNil(t, getDamageMethod, "getDamage method should exist (as auto-getter)")
+		assert.Equal(t, "int", getDamageMethod.Type)
+	})
+
+	t.Run("FilterMainPackageFields", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Player struct {
+	name string
+}
+
+var (
+	player Player
+	score int
+)
+
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "Game"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// score should exist (basic type)
+		scoreField := findProperty(properties, "score", XGoPropertyKindField)
+		require.NotNil(t, scoreField, "score field should exist")
+		assert.Equal(t, "int", scoreField.Type)
+
+		// player should NOT exist (main.Player type)
+		playerField := findProperty(properties, "player", XGoPropertyKindField)
+		assert.Nil(t, playerField, "player field should be filtered out (main package type)")
+	})
+
+	t.Run("FilterXGoMethods", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	score int
+)
+
+func GetScore() int {
+	return score
+}
+
+func XGo_Init() {
+	// Internal method
+}
+
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "Game"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// GetScore should exist (auto-getter: no params, one return)
+		getScoreMethod := findProperty(properties, "getScore", XGoPropertyKindMethod)
+		if getScoreMethod != nil {
+			assert.Equal(t, "int", getScoreMethod.Type)
+		}
+
+		// XGo_Init should NOT exist (internal method)
+		xgoInitMethod := findProperty(properties, "xGo_Init", XGoPropertyKindMethod)
+		assert.Nil(t, xgoInitMethod, "XGo_Init method should be filtered out")
+	})
+
+	t.Run("TargetNotFound", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "NonExistent"}
+		properties, err := s.xgoGetProperties(params)
+		require.Error(t, err)
+		assert.Nil(t, properties)
+		assert.ErrorContains(t, err, "not found")
+	})
+
+	t.Run("TargetNotStructType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyInt int
+
+var value MyInt
+
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "MyInt"}
+		properties, err := s.xgoGetProperties(params)
+		require.Error(t, err)
+		assert.Nil(t, properties)
+		assert.ErrorContains(t, err, "not a struct type")
+	})
+
+	t.Run("BasicFieldsOnly", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var (
+	score int
+	name string
+)
+
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "Game"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// Should have at least the basic fields we defined
+		scoreField := findProperty(properties, "score", XGoPropertyKindField)
+		assert.NotNil(t, scoreField, "score field should exist")
+
+		nameField := findProperty(properties, "name", XGoPropertyKindField)
+		assert.NotNil(t, nameField, "name field should exist")
+	})
+
+	t.Run("MethodWithParams", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Counter struct {
+	count int
+}
+
+func (c *Counter) GetCount() int {
+	return c.count
+}
+
+func (c *Counter) AddCount(n int) {
+	c.count += n
+}
+
+func (c *Counter) Reset() {
+	c.count = 0
+}
+
+var counter Counter
+
+func MainEntry() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "Counter"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// GetCount should exist (no params, one return)
+		getCountMethod := findProperty(properties, "getCount", XGoPropertyKindMethod)
+		require.NotNil(t, getCountMethod, "getCount method should exist")
+		assert.Equal(t, "int", getCountMethod.Type)
+
+		// AddCount should NOT exist (has params)
+		addCountMethod := findProperty(properties, "addCount", XGoPropertyKindMethod)
+		assert.Nil(t, addCountMethod, "addCount method should not exist (has params)")
+
+		// Reset should NOT exist (no return value)
+		resetMethod := findProperty(properties, "reset", XGoPropertyKindMethod)
+		assert.Nil(t, resetMethod, "reset method should not exist (no return value)")
+	})
+
+	t.Run("SpriteVariable", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var MySprite Sprite
+
+func MainEntry() {
+}
+`),
+			"MySprite.spx": []byte(`
+var (
+	name string
+	hp int
+)
+
+func onStart() {
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := XGoGetPropertiesParams{Target: "MySprite"}
+		properties, err := s.xgoGetProperties(params)
+		require.NoError(t, err)
+		require.NotNil(t, properties)
+
+		// Check that properties of MySprite are returned
+		nameField := findProperty(properties, "name", XGoPropertyKindField)
+		require.NotNil(t, nameField, "name field should exist")
+		assert.Equal(t, "string", nameField.Type)
+
+		hpField := findProperty(properties, "hp", XGoPropertyKindField)
+		require.NotNil(t, hpField, "hp field should exist")
+		assert.Equal(t, "int", hpField.Type)
+	})
+}
+
+func findProperty(properties []XGoProperty, name string, kind XGoPropertyKind) *XGoProperty {
+	for i := range properties {
+		if properties[i].Name == name && properties[i].Kind == kind {
+			return &properties[i]
+		}
+	}
+	return nil
+}

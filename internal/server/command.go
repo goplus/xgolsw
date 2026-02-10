@@ -11,6 +11,7 @@ import (
 
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -19,7 +20,7 @@ const (
 	CommandSpxRenameResources = "spx.renameResources"
 	CommandXGoGetInputSlots   = "xgo.getInputSlots"
 	CommandSpxGetInputSlots   = "spx.getInputSlots"
-	CommandXGoGetProperty     = "xgo.getProperty"
+	CommandXGoGetProperties   = "xgo.getProperties"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
@@ -45,15 +46,15 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 			cmdParams = append(cmdParams, cmdParam)
 		}
 		return s.spxGetInputSlots(cmdParams)
-	case CommandXGoGetProperty:
-		var cmdParams XGoGetPropertyParams
+	case CommandXGoGetProperties:
+		var cmdParams XGoGetPropertiesParams
 		if len(params.Arguments) != 1 {
-			return nil, fmt.Errorf("expected exactly one argument for command %s", CommandXGoGetProperty)
+			return nil, fmt.Errorf("expected exactly one argument for command %s", CommandXGoGetProperties)
 		}
 		if err := json.Unmarshal(params.Arguments[0], &cmdParams); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal command argument as XGoGetPropertyParams: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal command argument as XGoGetPropertiesParams: %w", err)
 		}
-		return s.xgoGetProperty(cmdParams)
+		return s.xgoGetProperties(cmdParams)
 	}
 	return nil, fmt.Errorf("unknown command: %s", params.Command)
 }
@@ -135,11 +136,12 @@ func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	return findInputSlots(result, astFile), nil
 }
 
-// xgoGetProperty gets properties for a specific target (e.g., "Game" or a sprite name).
+// xgoGetProperties gets properties for a specific target (e.g., "Game" or a sprite name).
 // Returns a list of properties including:
-// 1. Direct fields (non-embedded) of the target type
-// 2. Methods with no input parameters and exactly one output parameter
-func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, error) {
+//  1. Direct fields (non-embedded) of the target type, including unexported fields
+//  2. Methods with no parameters (excluding receiver) and exactly one output parameter,
+//     including unexported methods
+func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty, error) {
 	proj := s.getProj()
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
@@ -162,14 +164,20 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 	switch obj := obj.(type) {
 	case *types.TypeName:
 		// If it's a type name (e.g., "Game"), get its underlying type
-		if named, ok := obj.Type().(*types.Named); ok {
+		// Unalias to handle type aliases (e.g., type MyGame = Game)
+		typ := types.Unalias(obj.Type())
+		typ = xgoutil.DerefType(typ)
+		if named, ok := typ.(*types.Named); ok {
 			namedType = named
 		} else {
 			return nil, fmt.Errorf("target %q is not a named type", params.Target)
 		}
 	case *types.Var:
 		// If it's a variable (e.g., a sprite instance), get its type
-		if named, ok := xgoutil.DerefType(obj.Type()).(*types.Named); ok {
+		// Unalias to handle type aliases
+		typ := types.Unalias(obj.Type())
+		typ = xgoutil.DerefType(typ)
+		if named, ok := typ.(*types.Named); ok {
 			namedType = named
 		} else {
 			return nil, fmt.Errorf("target %q is not a named type", params.Target)
@@ -189,6 +197,12 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 
 	// Get package documentation
 	pkgDoc, _ := proj.PkgDoc()
+	if !xgoutil.IsInMainPkg(namedType.Obj()) {
+		if pkg := namedType.Obj().Pkg(); pkg != nil {
+			pkgPath := xgoutil.PkgPath(pkg)
+			pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
+		}
+	}
 	selectorTypeName := namedType.Obj().Name()
 
 	// Add direct fields (non-embedded)
@@ -199,7 +213,7 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 			prop := XGoProperty{
 				Name: field.Name(),
 				Type: typeString,
-				Kind: "field",
+				Kind: XGoPropertyKindField,
 			}
 			// Get documentation if available
 			if pkgDoc != nil {
@@ -219,7 +233,7 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 			prop := XGoProperty{
 				Name: xgoutil.ToLowerCamelCase(method.Name()),
 				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
-				Kind: "method",
+				Kind: XGoPropertyKindMethod,
 			}
 			// Get documentation if available
 			if pkgDoc != nil {
