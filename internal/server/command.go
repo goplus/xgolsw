@@ -198,10 +198,11 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 	// Add direct fields (non-embedded)
 	for i := 0; i < structType.NumFields(); i++ {
 		field := structType.Field(i)
-		if !field.Embedded() {
+		if isPropertyField(field) {
+			typeString := GetSimplifiedTypeString(field.Type())
 			prop := XGoProperty{
 				Name: field.Name(),
-				Type: GetSimplifiedTypeString(field.Type()),
+				Type: typeString,
 				Kind: "field",
 			}
 			// Get documentation if available
@@ -217,14 +218,10 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 	// Add methods with no parameters and exactly one return value
 	for i := 0; i < namedType.NumMethods(); i++ {
 		method := namedType.Method(i)
-		sig, ok := method.Type().(*types.Signature)
-		if !ok {
-			continue
-		}
-		// Only include methods with no parameters and exactly one return value
-		if sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+		if isPropertyMethod(method) {
+			sig := method.Type().(*types.Signature)
 			prop := XGoProperty{
-				Name: method.Name(),
+				Name: xgoutil.ToLowerCamelCase(method.Name()),
 				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
 				Kind: "method",
 			}
@@ -239,6 +236,46 @@ func (s *Server) xgoGetProperty(params XGoGetPropertyParams) ([]XGoProperty, err
 	}
 
 	return properties, nil
+}
+
+// isPropertyField checks if a field should be included as a property.
+// Returns true if:
+// - The field is not embedded
+// - The field type is not from the main package (e.g., *main.Sprite)
+func isPropertyField(field *types.Var) bool {
+	if field.Embedded() {
+		return false
+	}
+
+	// Check if field type is from main package
+	fieldType := xgoutil.DerefType(field.Type())
+
+	// Check if it's a named type from main package
+	if named, ok := fieldType.(*types.Named); ok {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Name() == "main" {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isPropertyMethod checks if a method should be included as a property.
+// Returns true if:
+// - The method name does not start with "XGo_" (internal methods)
+// - The method has no parameters
+// - The method has exactly one return value
+func isPropertyMethod(method *types.Func) bool {
+	// Skip XGo_ methods (internal methods)
+	if strings.HasPrefix(method.Name(), "XGo_") {
+		return false
+	}
+	sig, ok := method.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+	// Only include methods with no parameters and exactly one return value
+	return sig.Params().Len() == 0 && sig.Results().Len() == 1
 }
 
 // findInputSlots finds all input slots in the AST file.
