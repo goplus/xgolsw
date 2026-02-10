@@ -5,10 +5,10 @@ go 1.24.0
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
-	github.com/goplus/gogen v1.20.9
+	github.com/goplus/gogen v1.20.10-0.20260209140413-7c92e31aa074
 	github.com/goplus/mod v0.19.1
 	github.com/goplus/spx/v2 v2.0.0-pre.45
-	github.com/goplus/xgo v1.6.3-0.20260206050105-ace8415bccc5
+	github.com/goplus/xgo v1.6.3-0.20260209143408-1ebc35766096
 	github.com/qiniu/x v1.16.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.33.0
