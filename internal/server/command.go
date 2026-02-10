@@ -11,7 +11,6 @@ import (
 
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -172,18 +171,8 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		} else {
 			return nil, fmt.Errorf("target %q is not a named type", params.Target)
 		}
-	case *types.Var:
-		// If it's a variable (e.g., a sprite instance), get its type
-		// Unalias to handle type aliases
-		typ := types.Unalias(obj.Type())
-		typ = xgoutil.DerefType(typ)
-		if named, ok := typ.(*types.Named); ok {
-			namedType = named
-		} else {
-			return nil, fmt.Errorf("target %q is not a named type", params.Target)
-		}
 	default:
-		return nil, fmt.Errorf("target %q is not a type or variable", params.Target)
+		return nil, fmt.Errorf("target %q is not a type", params.Target)
 	}
 
 	// Get only direct fields and methods
@@ -196,13 +185,11 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	}
 
 	// Get package documentation
+	// Note: We only get main package documentation here because xgoGetProperties
+	// only looks up targets in the main package scope (pkg.Scope().Lookup()).
+	// The namedType is guaranteed to be from the main package, so we don't need
+	// to check IsInMainPkg or fetch documentation from other packages.
 	pkgDoc, _ := proj.PkgDoc()
-	if !xgoutil.IsInMainPkg(namedType.Obj()) {
-		if pkg := namedType.Obj().Pkg(); pkg != nil {
-			pkgPath := xgoutil.PkgPath(pkg)
-			pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
-		}
-	}
 	selectorTypeName := namedType.Obj().Name()
 
 	// Add direct fields (non-embedded)
