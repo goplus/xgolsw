@@ -19,6 +19,7 @@ const (
 	CommandSpxRenameResources = "spx.renameResources"
 	CommandXGoGetInputSlots   = "xgo.getInputSlots"
 	CommandSpxGetInputSlots   = "spx.getInputSlots"
+	CommandXGoGetProperties   = "xgo.getProperties"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
@@ -44,6 +45,15 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 			cmdParams = append(cmdParams, cmdParam)
 		}
 		return s.spxGetInputSlots(cmdParams)
+	case CommandXGoGetProperties:
+		var cmdParams XGoGetPropertiesParams
+		if len(params.Arguments) != 1 {
+			return nil, fmt.Errorf("expected exactly one argument for command %s", CommandXGoGetProperties)
+		}
+		if err := json.Unmarshal(params.Arguments[0], &cmdParams); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal command argument as XGoGetPropertiesParams: %w", err)
+		}
+		return s.xgoGetProperties(cmdParams)
 	}
 	return nil, fmt.Errorf("unknown command: %s", params.Command)
 }
@@ -123,6 +133,144 @@ func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	}
 
 	return findInputSlots(result, astFile), nil
+}
+
+// xgoGetProperties gets properties for a specific target (e.g., "Game" or a sprite name).
+// Returns a list of properties including:
+//  1. Direct fields (non-embedded) of the target type, including unexported fields
+//  2. Methods with no parameters (excluding receiver) and exactly one output parameter,
+//     including unexported methods
+func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty, error) {
+	proj := s.getProj()
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, fmt.Errorf("no type information available")
+	}
+
+	pkg := typeInfo.Pkg
+	if pkg == nil {
+		return nil, fmt.Errorf("no package information available")
+	}
+
+	// Lookup the target object in the package scope
+	obj := pkg.Scope().Lookup(params.Target)
+	if obj == nil {
+		return nil, fmt.Errorf("target %q not found", params.Target)
+	}
+
+	// Get the type of the object
+	var namedType *types.Named
+	switch obj := obj.(type) {
+	case *types.TypeName:
+		// If it's a type name (e.g., "Game"), get its underlying type
+		// Unalias to handle type aliases (e.g., type MyGame = Game)
+		typ := types.Unalias(obj.Type())
+		typ = xgoutil.DerefType(typ)
+		if named, ok := typ.(*types.Named); ok {
+			namedType = named
+		} else {
+			return nil, fmt.Errorf("target %q is not a named type", params.Target)
+		}
+	default:
+		return nil, fmt.Errorf("target %q is not a type", params.Target)
+	}
+
+	// Get only direct fields and methods
+	properties := []XGoProperty{}
+
+	// Get underlying struct type
+	structType, ok := namedType.Underlying().(*types.Struct)
+	if !ok {
+		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
+	}
+
+	// Get package documentation
+	// Note: We only get main package documentation here because xgoGetProperties
+	// only looks up targets in the main package scope (pkg.Scope().Lookup()).
+	// The namedType is guaranteed to be from the main package, so we don't need
+	// to check IsInMainPkg or fetch documentation from other packages.
+	pkgDoc, _ := proj.PkgDoc()
+	selectorTypeName := namedType.Obj().Name()
+
+	// Add direct fields (non-embedded)
+	for field := range structType.Fields() {
+		if isPropertyField(field) {
+			typeString := GetSimplifiedTypeString(field.Type())
+			prop := XGoProperty{
+				Name: field.Name(),
+				Type: typeString,
+				Kind: XGoPropertyKindField,
+			}
+			// Get documentation if available
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					prop.Doc = typeDoc.Fields[field.Name()]
+				}
+			}
+			properties = append(properties, prop)
+		}
+	}
+
+	// Add methods with no parameters and exactly one return value
+	for method := range namedType.Methods() {
+		if isPropertyMethod(method) {
+			sig := method.Type().(*types.Signature)
+			prop := XGoProperty{
+				Name: xgoutil.ToLowerCamelCase(method.Name()),
+				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
+				Kind: XGoPropertyKindMethod,
+			}
+			// Get documentation if available
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					prop.Doc = typeDoc.Methods[method.Name()]
+				}
+			}
+			properties = append(properties, prop)
+		}
+	}
+
+	return properties, nil
+}
+
+// isPropertyField checks if a field should be included as a property.
+// Returns true if:
+// - The field is not embedded
+// - The field type is not from the main package (e.g., *main.Sprite)
+func isPropertyField(field *types.Var) bool {
+	if field.Embedded() {
+		return false
+	}
+
+	// Check if field type is from main package
+	fieldType := xgoutil.DerefType(field.Type())
+
+	// Check if it's a named type from main package
+	if named, ok := fieldType.(*types.Named); ok {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Name() == "main" {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isPropertyMethod checks if a method should be included as a property.
+// Returns true if:
+// - The method name does not start with "XGo_" (internal methods)
+// - The method has no parameters
+// - The method has exactly one return value
+func isPropertyMethod(method *types.Func) bool {
+	// Skip XGo_ methods (internal methods)
+	if strings.HasPrefix(method.Name(), "XGo_") {
+		return false
+	}
+	sig, ok := method.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+	// Only include methods with no parameters and exactly one return value
+	return sig.Params().Len() == 0 && sig.Results().Len() == 1
 }
 
 // findInputSlots finds all input slots in the AST file.
