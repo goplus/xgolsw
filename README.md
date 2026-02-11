@@ -512,10 +512,10 @@ instance (for example, `Game` or a sprite name).
 *Request:*
 
 - method: [`workspace/executeCommand`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand)
-- params: `XGoGetPropertyExecuteCommandParams` defined as follows:
+- params: `XGoGetPropertiesExecuteCommandParams` defined as follows:
 
 ```typescript
-type XGoGetPropertyExecuteCommandParams = Omit<ExecuteCommandParams, 'command' | 'arguments'> & {
+type XGoGetPropertiesExecuteCommandParams = Omit<ExecuteCommandParams, 'command' | 'arguments'> & {
   /**
    * The identifier of the actual command handler.
    */

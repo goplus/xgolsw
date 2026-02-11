@@ -176,7 +176,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	}
 
 	// Get only direct fields and methods
-	var properties []XGoProperty
+	properties := []XGoProperty{}
 
 	// Get underlying struct type
 	structType, ok := namedType.Underlying().(*types.Struct)
@@ -193,8 +193,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	selectorTypeName := namedType.Obj().Name()
 
 	// Add direct fields (non-embedded)
-	for i := 0; i < structType.NumFields(); i++ {
-		field := structType.Field(i)
+	for field := range structType.Fields() {
 		if isPropertyField(field) {
 			typeString := GetSimplifiedTypeString(field.Type())
 			prop := XGoProperty{
@@ -213,8 +212,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	}
 
 	// Add methods with no parameters and exactly one return value
-	for i := 0; i < namedType.NumMethods(); i++ {
-		method := namedType.Method(i)
+	for method := range namedType.Methods() {
 		if isPropertyMethod(method) {
 			sig := method.Type().(*types.Signature)
 			prop := XGoProperty{

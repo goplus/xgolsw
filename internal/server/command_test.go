@@ -1694,7 +1694,7 @@ func findAddressInputSlot(inputSlots []SpxInputSlot, name string) *SpxInputSlot 
 	return nil
 }
 
-func TestServerXGoGetProperty(t *testing.T) {
+func TestServerXGoGetProperties(t *testing.T) {
 	t.Run("GameType", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
