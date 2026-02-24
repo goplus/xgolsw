@@ -2070,4 +2070,86 @@ func onStart() {
 		require.NotNil(t, yField)
 		assert.True(t, isPropertyOfEnclosingType(yField), "y field should be a property")
 	})
+
+	t.Run("PropertyMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "Test"}
+`),
+			"MySprite.spx": []byte(`
+var (
+	x int
+)
+
+func Speed() float64 {
+	return 0
+}
+
+func Move(dx, dy int) {
+}
+
+func XGo_Internal() {
+}
+
+func onStart() {
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+
+		typeInfo, _ := result.proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		pkg := typeInfo.Pkg
+		require.NotNil(t, pkg)
+
+		// Find MySprite type
+		mySpriteObj := pkg.Scope().Lookup("MySprite")
+		require.NotNil(t, mySpriteObj)
+
+		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		// Test Speed method (should be property - no params, one return)
+		var speedMethod *types.Func
+		for method := range mySpriteType.Methods() {
+			if method.Name() == "Speed" {
+				speedMethod = method
+				break
+			}
+		}
+		require.NotNil(t, speedMethod)
+		assert.True(t, isPropertyOfEnclosingType(speedMethod), "Speed method should be a property")
+
+		// Test Move method (should NOT be property - has parameters)
+		var moveMethod *types.Func
+		for method := range mySpriteType.Methods() {
+			if method.Name() == "Move" {
+				moveMethod = method
+				break
+			}
+		}
+		require.NotNil(t, moveMethod)
+		assert.False(t, isPropertyOfEnclosingType(moveMethod), "Move method should not be a property (has parameters)")
+
+		// Test XGo_Internal method (should NOT be property - XGo_ prefix)
+		var internalMethod *types.Func
+		for method := range mySpriteType.Methods() {
+			if method.Name() == "XGo_Internal" {
+				internalMethod = method
+				break
+			}
+		}
+		require.NotNil(t, internalMethod)
+		assert.False(t, isPropertyOfEnclosingType(internalMethod), "XGo_Internal method should not be a property (XGo_ prefix)")
+	})
 }
