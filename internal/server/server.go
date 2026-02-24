@@ -331,20 +331,12 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
 // This allows clients to update any monitoring or tracking of the property.
 func (s *Server) notifyPropertyRenamed(obj types.Object, params *RenameParams) error {
-	// Find the enclosing type
-	namedType := findEnclosingType(obj)
-	if namedType == nil {
-		return fmt.Errorf("failed to find enclosing type for property")
-	}
-
 	notifParams := PropertyRenamedParams{
-		Type:    "propertyRenamed",
 		OldName: obj.Name(),
 		NewName: params.NewName,
 		TextDocument: TextDocumentIdentifier{
-			URI: params.TextDocument.URI,
+			URI: s.posDocumentURI(s.getProj(), obj.Pos()),
 		},
-		TypeName: namedType.Obj().Name(),
 	}
 
 	// Create notification

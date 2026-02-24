@@ -80,12 +80,6 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
 	}
 
-	// Check if the renamed object is a property and send notification if needed
-	if isPropertyOfEnclosingType(obj) {
-		// Send property renamed notification to the client
-		s.notifyPropertyRenamed(obj, params)
-	}
-
 	defLoc := s.locationForNode(result.proj, defIdent)
 
 	workspaceEdit := WorkspaceEdit{
@@ -103,6 +97,15 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 			Range:   refLoc.Range,
 			NewText: params.NewName,
 		})
+	}
+
+	// Check if the renamed object is a property and send notification if needed
+	if isPropertyOfEnclosingType(obj) {
+		// Send property renamed notification to the client
+		if err := s.notifyPropertyRenamed(obj, params); err != nil {
+			// log or handle notification failure
+			_ = err
+		}
 	}
 	return &workspaceEdit, nil
 }
