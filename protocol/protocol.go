@@ -9089,7 +9089,7 @@ func (t *Or_textDocument_declaration) UnmarshalJSON(x []byte) error {
 // This notification is sent when a property (field or method) is renamed, allowing clients
 // to update any monitoring or tracking of that property.
 type PropertyRenamedParams struct {
-	// The type of the property that was renamed (e.g., "Game", "SpriteName")
+	// The name of the type that contains the renamed property (e.g., "Game", "MySprite")
 	Target string `json:"target"`
 	// The old name of the property
 	OldName string `json:"oldName"`

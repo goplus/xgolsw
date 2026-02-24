@@ -589,6 +589,11 @@ The `textDocument/propertyRenamed` notification is sent from the server to the c
  */
 interface PropertyRenamedParams {
   /**
+   * The name of the type that contains the renamed property (e.g., "Game", "MySprite").
+   */
+  target: string
+
+  /**
    * The original name of the property before renaming.
    */
   oldName: string
