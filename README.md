@@ -572,6 +572,43 @@ interface XGoProperty {
 }
 ```
 
+## Custom notifications
+
+### Property renamed notification
+
+The `textDocument/propertyRenamed` notification is sent from the server to the client when a property (field or method) is renamed through the `textDocument/rename` request. This allows the client (IDE) to update any monitoring or tracking of that property.
+
+*Notification:*
+
+- method: `textDocument/propertyRenamed`
+- params: `PropertyRenamedParams` defined as follows:
+
+```typescript
+/**
+ * Parameters for the property renamed notification.
+ */
+interface PropertyRenamedParams {
+  /**
+   * The original name of the property before renaming.
+   */
+  oldName: string
+
+  /**
+   * The new name of the property after renaming.
+   */
+  newName: string
+
+  /**
+   * The text document where the property is defined.
+   */
+  textDocument: TextDocumentIdentifier
+}
+```
+
+This notification is sent after the workspace edit for the rename operation is successfully constructed. A property is defined as:
+- A direct (non-embedded) field that is not of a type from the main package
+- A method with no parameters and exactly one return value (the property name is converted to lowerCamelCase)
+
 ## Other JSON structures
 
 ### Document link data types
