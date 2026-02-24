@@ -637,3 +637,53 @@ func TestHandleMessage_Notification(t *testing.T) {
 		})
 	}
 }
+
+
+func TestNotifyPropertyRenamed(t *testing.T) {
+	t.Run("PropertyFieldRenamed", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var MySprite Sprite
+
+func MainEntry() {
+}
+`),
+			"MySprite.spx": []byte(`
+var (
+	x int
+	y int
+)
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+
+		replier := newMockReplier()
+		s := New(newProjectWithoutModTime(m), replier, fileMapGetter(m), &MockScheduler{})
+
+		// Perform rename on property field x
+		workspaceEdit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+			Position:     Position{Line: 2, Character: 1}, // Position on "x"
+			NewName:      "posX",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, workspaceEdit)
+
+		// Wait for messages and filter for property renamed notification
+		msgs := replier.waitForMessages(1, 1*time.Second)
+		require.Len(t, msgs, 1, "Expected 1 notification message")
+
+		notif, ok := msgs[0].(*jsonrpc2.Notification)
+		require.True(t, ok, "Message should be a notification")
+		assert.Equal(t, "textDocument/propertyRenamed", notif.Method())
+
+		var params PropertyRenamedParams
+		err = json.Unmarshal(notif.Params(), &params)
+		require.NoError(t, err)
+
+		assert.Equal(t, "x", params.OldName)
+		assert.Equal(t, "posX", params.NewName)
+		assert.Equal(t, DocumentURI("file:///MySprite.spx"), params.TextDocument.URI)
+	})
+}

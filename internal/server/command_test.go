@@ -1997,3 +1997,77 @@ func findProperty(properties []XGoProperty, name string, kind XGoPropertyKind) *
 	}
 	return nil
 }
+
+func TestIsPropertyOfEnclosingType(t *testing.T) {
+	t.Run("PropertyField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "Test"}
+`),
+			"MySprite.spx": []byte(`
+var (
+	x int
+	y int
+)
+
+func Speed() float64 {
+	return 0
+}
+
+func Move(dx, dy int) {
+}
+
+func onStart() {
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+
+		typeInfo, _ := result.proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		pkg := typeInfo.Pkg
+		require.NotNil(t, pkg)
+
+		// Find MySprite type
+		mySpriteObj := pkg.Scope().Lookup("MySprite")
+		require.NotNil(t, mySpriteObj)
+
+		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		structType, ok := mySpriteType.Underlying().(*types.Struct)
+		require.True(t, ok)
+
+		// Test field x (should be property)
+		var xField *types.Var
+		for f := range structType.Fields() {
+			if f.Name() == "x" {
+				xField = f
+				break
+			}
+		}
+		require.NotNil(t, xField)
+		assert.True(t, isPropertyOfEnclosingType(xField), "x field should be a property")
+
+		// Test field y (should also be property)
+		var yField *types.Var
+		for f := range structType.Fields() {
+			if f.Name() == "y" {
+				yField = f
+				break
+			}
+		}
+		require.NotNil(t, yField)
+		assert.True(t, isPropertyOfEnclosingType(yField), "y field should be a property")
+	})
+}
