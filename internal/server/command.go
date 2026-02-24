@@ -361,6 +361,8 @@ func findEnclosingTypeForMethod(method *types.Func) *types.Named {
 		return nil
 	}
 
+	// Note: According to go/types documentation, Func.Type() is always a *Signature.
+	// This check is defensive programming for potential internal errors.
 	sig, ok := method.Type().(*types.Signature)
 	if !ok {
 		return nil

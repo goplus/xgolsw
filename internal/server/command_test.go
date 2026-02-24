@@ -2400,4 +2400,267 @@ func onStart() {
 		enclosingType := findEnclosingType(nil)
 		assert.Nil(t, enclosingType, "findEnclosingType(nil) should return nil")
 	})
+
+	t.Run("EdgeCases", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "Test"}
+`),
+			"MySprite.spx": []byte(`
+var x int
+
+const MyConst = 42
+
+func helperFunction() {  // Free function in sprite file
+	println "helper"
+}
+
+func onStart() {
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+
+		typeInfo, _ := result.proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		pkg := typeInfo.Pkg
+		require.NotNil(t, pkg)
+
+		// Test with Const (not Var or Func)
+		constObj := pkg.Scope().Lookup("MyConst")
+		if constObj != nil {
+			_, ok := constObj.(*types.Const)
+			if ok {
+				// Test findEnclosingType with Const (not Var or Func)
+				enclosingType := findEnclosingType(constObj)
+				assert.Nil(t, enclosingType, "findEnclosingType for Const should return nil")
+			}
+		}
+
+		// Test with a free function (helper function without receiver)
+		helperFuncObj := pkg.Scope().Lookup("helperFunction")
+		if helperFuncObj != nil {
+			funcObj, ok := helperFuncObj.(*types.Func)
+			if ok {
+				// Check if it has a receiver
+				sig, ok := funcObj.Type().(*types.Signature)
+				if ok && sig.Recv() == nil {
+					// Test findEnclosingType with free function
+					enclosingType := findEnclosingType(funcObj)
+					assert.Nil(t, enclosingType, "findEnclosingType for free function should return nil")
+
+					// Test findEnclosingTypeForMethod directly with free function
+					enclosingType = findEnclosingTypeForMethod(funcObj)
+					assert.Nil(t, enclosingType, "findEnclosingTypeForMethod for free function should return nil")
+				}
+			}
+		}
+	})
+
+	t.Run("MethodWithNilReceiver", func(t *testing.T) {
+		// Test findEnclosingTypeForMethod with nil
+		enclosingType := findEnclosingTypeForMethod(nil)
+		assert.Nil(t, enclosingType, "findEnclosingTypeForMethod(nil) should return nil")
+	})
+
+	t.Run("FieldWithNilInput", func(t *testing.T) {
+		// Test findEnclosingTypeForField with nil
+		enclosingType := findEnclosingTypeForField(nil)
+		assert.Nil(t, enclosingType, "findEnclosingTypeForField(nil) should return nil")
+	})
+
+	t.Run("NilReceiver", func(t *testing.T) {
+		// Create a synthetic method with a non-named receiver type
+		// to trigger the "namedType, ok := recvType.(*types.Named); if !ok" path
+
+		pkg := types.NewPackage("test", "test")
+		// Create a signature with this receiver
+		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
+		// Create a Func with this signature
+		funcObj := types.NewFunc(0, pkg, "MethodOnBasicType", sig)
+
+		enclosingType := findEnclosingTypeForMethod(funcObj)
+		assert.Nil(t, enclosingType, "Method with non-Named receiver should return nil")
+	})
+
+	t.Run("SyntheticMethodWithPointerToBasicReceiver", func(t *testing.T) {
+		// Create a synthetic method with a pointer to basic type receiver
+		// Even after DerefType, it should still be a basic type, not Named
+
+		pkg := types.NewPackage("test", "test")
+		// Create a receiver with a pointer to basic type
+		recv := types.NewVar(0, pkg, "recv", types.NewPointer(types.Typ[types.String]))
+		// Create a signature with this receiver
+		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		// Create a Func with this signature
+		funcObj := types.NewFunc(0, pkg, "MethodOnPointerToBasic", sig)
+
+		enclosingType := findEnclosingTypeForMethod(funcObj)
+		assert.Nil(t, enclosingType, "Method with pointer to basic type receiver should return nil")
+	})
+
+	t.Run("SyntheticMethodWithInterfaceReceiver", func(t *testing.T) {
+		// Create a synthetic method with an interface receiver
+		// Interfaces are not *types.Named (though they can be underlying type of Named)
+
+		pkg := types.NewPackage("test", "test")
+		// Create an interface type directly (not as underlying of a Named type)
+		iface := types.NewInterfaceType(nil, nil).Complete()
+		// Create a receiver with this interface type
+		recv := types.NewVar(0, pkg, "recv", iface)
+		// Create a signature with this receiver
+		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		// Create a Func with this signature
+		funcObj := types.NewFunc(0, pkg, "MethodOnInterface", sig)
+
+		enclosingType := findEnclosingTypeForMethod(funcObj)
+		assert.Nil(t, enclosingType, "Method with interface receiver should return nil")
+	})
+
+	t.Run("SyntheticMethodWithStructReceiver", func(t *testing.T) {
+		// Create a synthetic method with a struct receiver (not a Named type)
+		// The struct itself is not Named, only *types.Named wrapping it would be
+
+		pkg := types.NewPackage("test", "test")
+		// Create a struct type directly (not wrapped in Named)
+		structType := types.NewStruct(nil, nil)
+		// Create a receiver with this struct type
+		recv := types.NewVar(0, pkg, "recv", structType)
+		// Create a signature with this receiver
+		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		// Create a Func with this signature
+		funcObj := types.NewFunc(0, pkg, "MethodOnStruct", sig)
+
+		enclosingType := findEnclosingTypeForMethod(funcObj)
+		assert.Nil(t, enclosingType, "Method with non-Named struct receiver should return nil")
+	})
+
+	t.Run("FieldSearchWithMixedScopeObjects", func(t *testing.T) {
+		// This test covers the continue branches in findEnclosingTypeForField
+		// by creating a package scope with various types of objects using the types package
+
+		pkg := types.NewPackage("test", "test")
+		scope := pkg.Scope()
+
+		// Create various objects in the scope to trigger different continue branches:
+
+		// 1. Add a Const (not a TypeName) - triggers line 328 continue
+		constObj := types.NewConst(0, pkg, "MyConst", types.Typ[types.Int], nil)
+		scope.Insert(constObj)
+
+		// 2. Add a Var (not a TypeName) - triggers line 328 continue
+		varObj := types.NewVar(0, pkg, "MyVar", types.Typ[types.String])
+		scope.Insert(varObj)
+
+		// 3. Add a Func (not a TypeName) - triggers line 328 continue
+		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
+		funcObj := types.NewFunc(0, pkg, "MyFunc", sig)
+		scope.Insert(funcObj)
+
+		// 4. Add a type alias (TypeName but Type is not Named) - triggers line 333 continue
+		// Note: Type aliases in go/types are represented as TypeName with underlying type
+		aliasObj := types.NewTypeName(0, pkg, "IntAlias", types.Typ[types.Int])
+		scope.Insert(aliasObj)
+
+		// 5. Add a named int type (Named but underlying is not Struct) - triggers line 338 continue
+		namedIntType := types.NewNamed(
+			types.NewTypeName(0, pkg, "MyInt", nil),
+			types.Typ[types.Int],
+			nil,
+		)
+		scope.Insert(namedIntType.Obj())
+
+		// 6. Add a named interface type (Named but underlying is Interface) - triggers line 338 continue
+		namedInterfaceType := types.NewNamed(
+			types.NewTypeName(0, pkg, "MyInterface", nil),
+			types.NewInterfaceType(nil, nil).Complete(),
+			nil,
+		)
+		scope.Insert(namedInterfaceType.Obj())
+
+		// 7. Finally, add a proper struct type with a field
+		structType := types.NewStruct([]*types.Var{
+			types.NewField(0, pkg, "x", types.Typ[types.Int], false),
+			types.NewField(0, pkg, "y", types.Typ[types.Int], false),
+		}, nil)
+		namedStructType := types.NewNamed(
+			types.NewTypeName(0, pkg, "MyStruct", nil),
+			structType,
+			nil,
+		)
+		scope.Insert(namedStructType.Obj())
+
+		// Get the field x
+		xField := structType.Field(0)
+
+		// Call findEnclosingTypeForField
+		// This will iterate through all objects in scope:
+		// - MyConst: Const, not TypeName → continue (line 328)
+		// - MyVar: Var, not TypeName → continue (line 328)
+		// - MyFunc: Func, not TypeName → continue (line 328)
+		// - IntAlias: TypeName, but type is Basic not Named → continue (line 333)
+		// - MyInt: Named, but underlying is Basic not Struct → continue (line 338)
+		// - MyInterface: Named, but underlying is Interface not Struct → continue (line 338)
+		// - MyStruct: Named and underlying is Struct → found!
+
+		enclosingType := findEnclosingTypeForField(xField)
+		require.NotNil(t, enclosingType, "Should find MyStruct as enclosing type")
+		assert.Equal(t, "test.MyStruct", enclosingType.String())
+	})
+
+	t.Run("FieldNotFoundInAnyStruct", func(t *testing.T) {
+		// Test the final "return nil" (line 353) when field is not found in any struct
+
+		pkg := types.NewPackage("test", "test")
+		scope := pkg.Scope()
+
+		// Create a struct with field x
+		structType1 := types.NewStruct([]*types.Var{
+			types.NewField(0, pkg, "x", types.Typ[types.Int], false),
+		}, nil)
+		namedStructType1 := types.NewNamed(
+			types.NewTypeName(0, pkg, "Struct1", nil),
+			structType1,
+			nil,
+		)
+		scope.Insert(namedStructType1.Obj())
+
+		// Create another struct with field y (not x)
+		structType2 := types.NewStruct([]*types.Var{
+			types.NewField(0, pkg, "y", types.Typ[types.Int], false),
+		}, nil)
+		namedStructType2 := types.NewNamed(
+			types.NewTypeName(0, pkg, "Struct2", nil),
+			structType2,
+			nil,
+		)
+		scope.Insert(namedStructType2.Obj())
+
+		// Create a field that doesn't belong to any struct in the package
+		orphanField := types.NewField(0, pkg, "orphan", types.Typ[types.String], false)
+
+		// Try to find enclosing type for orphan field
+		enclosingType := findEnclosingTypeForField(orphanField)
+		assert.Nil(t, enclosingType, "Orphan field should return nil (line 353)")
+	})
+
+	t.Run("FieldWithNilPackage", func(t *testing.T) {
+		// Test field.Pkg() == nil case (line 314-315)
+		// Create a field with nil package
+
+		fieldWithNilPkg := types.NewField(0, nil, "fieldWithNilPkg", types.Typ[types.Int], false)
+		assert.True(t, fieldWithNilPkg.IsField(), "Should be a field")
+		assert.Nil(t, fieldWithNilPkg.Pkg(), "Package should be nil")
+
+		// Try to find enclosing type for field with nil package
+		enclosingType := findEnclosingTypeForField(fieldWithNilPkg)
+		assert.Nil(t, enclosingType, "Field with nil package should return nil (line 315)")
+	})
 }
