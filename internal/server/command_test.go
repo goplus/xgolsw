@@ -2153,3 +2153,251 @@ func onStart() {
 		assert.False(t, isPropertyOfEnclosingType(internalMethod), "XGo_Internal method should not be a property (XGo_ prefix)")
 	})
 }
+
+func TestFindEnclosingType(t *testing.T) {
+	t.Run("FieldEnclosingType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "Test"}
+`),
+			"MySprite.spx": []byte(`
+var (
+	x int
+	y float64
+)
+
+func onStart() {
+}
+`),
+			"OtherSprite.spx": []byte(`
+var (
+	x string  // Same field name as MySprite, different type
+	z bool
+)
+
+func onStart() {
+}
+`),
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/MySprite/index.json":    []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+
+		typeInfo, _ := result.proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		pkg := typeInfo.Pkg
+		require.NotNil(t, pkg)
+
+		// Find MySprite type
+		mySpriteObj := pkg.Scope().Lookup("MySprite")
+		require.NotNil(t, mySpriteObj)
+
+		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		mySpriteStruct, ok := mySpriteType.Underlying().(*types.Struct)
+		require.True(t, ok)
+
+		// Find OtherSprite type
+		otherSpriteObj := pkg.Scope().Lookup("OtherSprite")
+		require.NotNil(t, otherSpriteObj)
+
+		otherSpriteTypeName, ok := otherSpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		otherSpriteType, ok := otherSpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		otherSpriteStruct, ok := otherSpriteType.Underlying().(*types.Struct)
+		require.True(t, ok)
+
+		// Test MySprite.x field
+		var mySpriteXField *types.Var
+		for f := range mySpriteStruct.Fields() {
+			if f.Name() == "x" {
+				mySpriteXField = f
+				break
+			}
+		}
+		require.NotNil(t, mySpriteXField)
+		enclosingType := findEnclosingType(mySpriteXField)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.x should return MySprite as enclosing type")
+
+		// Test MySprite.y field
+		var mySpriteYField *types.Var
+		for f := range mySpriteStruct.Fields() {
+			if f.Name() == "y" {
+				mySpriteYField = f
+				break
+			}
+		}
+		require.NotNil(t, mySpriteYField)
+		enclosingType = findEnclosingType(mySpriteYField)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.y should return MySprite as enclosing type")
+
+		// Test OtherSprite.x field (same name, different type)
+		var otherSpriteXField *types.Var
+		for f := range otherSpriteStruct.Fields() {
+			if f.Name() == "x" {
+				otherSpriteXField = f
+				break
+			}
+		}
+		require.NotNil(t, otherSpriteXField)
+		enclosingType = findEnclosingType(otherSpriteXField)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.OtherSprite", enclosingType.String(), "OtherSprite.x should return OtherSprite as enclosing type")
+
+		// Verify that MySprite.x and OtherSprite.x are different objects
+		assert.NotEqual(t, mySpriteXField, otherSpriteXField, "MySprite.x and OtherSprite.x should be different field objects")
+
+		// Test OtherSprite.z field
+		var otherSpriteZField *types.Var
+		for f := range otherSpriteStruct.Fields() {
+			if f.Name() == "z" {
+				otherSpriteZField = f
+				break
+			}
+		}
+		require.NotNil(t, otherSpriteZField)
+		enclosingType = findEnclosingType(otherSpriteZField)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.OtherSprite", enclosingType.String(), "OtherSprite.z should return OtherSprite as enclosing type")
+	})
+
+	t.Run("MethodEnclosingType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "Test"}
+`),
+			"MySprite.spx": []byte(`
+func Speed() float64 {
+	return 0
+}
+
+func Move(dx, dy int) {
+}
+
+func onStart() {
+}
+`),
+			"OtherSprite.spx": []byte(`
+func Speed() int {  // Same method name, different signature
+	return 1
+}
+
+func Jump() {
+}
+
+func onStart() {
+}
+`),
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/MySprite/index.json":    []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+
+		typeInfo, _ := result.proj.TypeInfo()
+		require.NotNil(t, typeInfo)
+
+		pkg := typeInfo.Pkg
+		require.NotNil(t, pkg)
+
+		// Find MySprite type
+		mySpriteObj := pkg.Scope().Lookup("MySprite")
+		require.NotNil(t, mySpriteObj)
+
+		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		// Find OtherSprite type
+		otherSpriteObj := pkg.Scope().Lookup("OtherSprite")
+		require.NotNil(t, otherSpriteObj)
+
+		otherSpriteTypeName, ok := otherSpriteObj.(*types.TypeName)
+		require.True(t, ok)
+
+		otherSpriteType, ok := otherSpriteTypeName.Type().(*types.Named)
+		require.True(t, ok)
+
+		// Test MySprite.Speed method
+		var mySpriteSpeedMethod *types.Func
+		for m := range mySpriteType.Methods() {
+			if m.Name() == "Speed" {
+				mySpriteSpeedMethod = m
+				break
+			}
+		}
+		require.NotNil(t, mySpriteSpeedMethod)
+		enclosingType := findEnclosingType(mySpriteSpeedMethod)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.Speed should return MySprite as enclosing type")
+
+		// Test MySprite.Move method
+		var mySpriteMoveMethod *types.Func
+		for m := range mySpriteType.Methods() {
+			if m.Name() == "Move" {
+				mySpriteMoveMethod = m
+				break
+			}
+		}
+		require.NotNil(t, mySpriteMoveMethod)
+		enclosingType = findEnclosingType(mySpriteMoveMethod)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.Move should return MySprite as enclosing type")
+
+		// Test OtherSprite.Speed method (same name, different type)
+		var otherSpriteSpeedMethod *types.Func
+		for m := range otherSpriteType.Methods() {
+			if m.Name() == "Speed" {
+				otherSpriteSpeedMethod = m
+				break
+			}
+		}
+		require.NotNil(t, otherSpriteSpeedMethod)
+		enclosingType = findEnclosingType(otherSpriteSpeedMethod)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.OtherSprite", enclosingType.String(), "OtherSprite.Speed should return OtherSprite as enclosing type")
+
+		// Verify that MySprite.Speed and OtherSprite.Speed are different objects
+		assert.NotEqual(t, mySpriteSpeedMethod, otherSpriteSpeedMethod, "MySprite.Speed and OtherSprite.Speed should be different method objects")
+
+		// Test OtherSprite.Jump method
+		var otherSpriteJumpMethod *types.Func
+		for m := range otherSpriteType.Methods() {
+			if m.Name() == "Jump" {
+				otherSpriteJumpMethod = m
+				break
+			}
+		}
+		require.NotNil(t, otherSpriteJumpMethod)
+		enclosingType = findEnclosingType(otherSpriteJumpMethod)
+		require.NotNil(t, enclosingType)
+		assert.Equal(t, "main.OtherSprite", enclosingType.String(), "OtherSprite.Jump should return OtherSprite as enclosing type")
+	})
+
+	t.Run("NilObject", func(t *testing.T) {
+		// Test with nil
+		enclosingType := findEnclosingType(nil)
+		assert.Nil(t, enclosingType, "findEnclosingType(nil) should return nil")
+	})
+}
