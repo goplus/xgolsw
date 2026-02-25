@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
@@ -216,7 +217,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		if isPropertyMethod(method) {
 			sig := method.Type().(*types.Signature)
 			prop := XGoProperty{
-				Name: xgoutil.ToLowerCamelCase(method.Name()),
+				Name: method.Name(),
 				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
 				Kind: XGoPropertyKindMethod,
 			}
@@ -258,11 +259,16 @@ func isPropertyField(field *types.Var) bool {
 // isPropertyMethod checks if a method should be included as a property.
 // Returns true if:
 // - The method name does not start with "XGo_" (internal methods)
+// - The method name starts with a lowercase letter
 // - The method has no parameters
 // - The method has exactly one return value
 func isPropertyMethod(method *types.Func) bool {
 	// Skip XGo_ methods (internal methods)
 	if strings.HasPrefix(method.Name(), "XGo_") {
+		return false
+	}
+	// Check if the method name starts with a lowercase letter
+	if method.Name() != "" && unicode.IsUpper(rune(method.Name()[0])) {
 		return false
 	}
 	sig, ok := method.Type().(*types.Signature)
