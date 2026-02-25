@@ -682,6 +682,7 @@ var (
 		err = json.Unmarshal(notif.Params(), &params)
 		require.NoError(t, err)
 
+		assert.Equal(t, "MySprite", params.Target)
 		assert.Equal(t, "x", params.OldName)
 		assert.Equal(t, "posX", params.NewName)
 		assert.Equal(t, DocumentURI("file:///MySprite.spx"), params.TextDocument.URI)
