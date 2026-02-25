@@ -1739,7 +1739,7 @@ var (
 	speed float64
 )
 
-func getDamage() int {
+func GetDamage() int {
 	return 10
 }
 
@@ -1912,7 +1912,7 @@ type Counter struct {
 	count int
 }
 
-func (c *Counter) getCount() int {
+func (c *Counter) GetCount() int {
 	return c.count
 }
 
@@ -2081,7 +2081,7 @@ var (
 	x int
 )
 
-func speed() float64 {
+func Speed() float64 {
 	return 0
 }
 
@@ -2119,16 +2119,16 @@ func onStart() {
 		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
 		require.True(t, ok)
 
-		// Test speed method (should be property - no params, one return)
+		// Test Speed method (should be property - no params, one return)
 		var speedMethod *types.Func
 		for method := range mySpriteType.Methods() {
-			if method.Name() == "speed" {
+			if method.Name() == "Speed" {
 				speedMethod = method
 				break
 			}
 		}
 		require.NotNil(t, speedMethod)
-		assert.True(t, isPropertyOfEnclosingType(speedMethod), "speed method should be a property")
+		assert.True(t, isPropertyOfEnclosingType(speedMethod), "Speed method should be a property")
 
 		// Test Move method (should NOT be property - has parameters)
 		var moveMethod *types.Func

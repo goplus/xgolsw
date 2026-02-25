@@ -217,7 +217,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		if isPropertyMethod(method) {
 			sig := method.Type().(*types.Signature)
 			prop := XGoProperty{
-				Name: method.Name(),
+				Name: xgoutil.ToLowerCamelCase(method.Name()),
 				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
 				Kind: XGoPropertyKindMethod,
 			}
@@ -268,7 +268,7 @@ func isPropertyMethod(method *types.Func) bool {
 		return false
 	}
 	// Check if the method name starts with a lowercase letter
-	if method.Name() != "" && unicode.IsUpper(rune(method.Name()[0])) {
+	if method.Name() != "" && unicode.IsLower(rune(method.Name()[0])) {
 		return false
 	}
 	sig, ok := method.Type().(*types.Signature)
