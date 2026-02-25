@@ -9085,4 +9085,18 @@ func (t *Or_textDocument_declaration) UnmarshalJSON(x []byte) error {
 	return &UnmarshalError{"unmarshal failed to match one of [Declaration []DeclarationLink]"}
 }
 
+// PropertyRenamedParams represents the parameters for the textDocument/propertyRenamed notification.
+// This notification is sent when a property (field or method) is renamed, allowing clients
+// to update any monitoring or tracking of that property.
+type PropertyRenamedParams struct {
+	// The name of the type that contains the renamed property (e.g., "Game", "MySprite")
+	Target string `json:"target"`
+	// The old name of the property
+	OldName string `json:"oldName"`
+	// The new name of the property
+	NewName string `json:"newName"`
+	// The document where the property was defined
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
 // -----------------------------------------------------------------------------

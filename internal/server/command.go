@@ -273,6 +273,136 @@ func isPropertyMethod(method *types.Func) bool {
 	return sig.Params().Len() == 0 && sig.Results().Len() == 1
 }
 
+// isPropertyOfEnclosingType checks if the given object is a property of its enclosing type.
+// This is useful for determining if a rename operation affects a property that may be
+// monitored by the IDE. Returns true if the object is a field or method that qualifies
+// as a property according to the same criteria used by xgoGetProperties.
+func isPropertyOfEnclosingType(obj types.Object) bool {
+	if obj == nil {
+		return false
+	}
+
+	// Check if the current object is a property (field or method)
+	switch obj := obj.(type) {
+	case *types.Var:
+		if obj.IsField() {
+			// Check if this field is a property
+			return isPropertyField(obj)
+		}
+	case *types.Func:
+		// Check if this method is a property
+		return isPropertyMethod(obj)
+	}
+
+	return false
+}
+
+// findEnclosingTypeForField finds the exact enclosing type for a given field.
+// This accurately identifies which struct type contains the field, avoiding ambiguity
+// when multiple types have fields with the same name.
+// Returns the enclosing *types.Named if found, nil otherwise.
+//
+// Performance note: This function has O(N_types × N_fields_per_type) complexity.
+// For better performance in hot paths, consider caching results or using alternative approaches.
+func findEnclosingTypeForField(field *types.Var) *types.Named {
+	if field == nil || !field.IsField() {
+		return nil
+	}
+
+	// Find the enclosing type by looking through all types in the package
+	pkg := field.Pkg()
+	if pkg == nil {
+		return nil
+	}
+
+	// Search for the type that contains this field by checking all named types in the package
+	// Note: types.Var for fields don't have a direct back-reference to their containing struct,
+	// so we need to search through package scope.
+	scope := pkg.Scope()
+	for _, name := range scope.Names() {
+		typeObj := scope.Lookup(name)
+		if typeObj == nil {
+			continue
+		}
+
+		typeName, ok := typeObj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+
+		namedType, ok := typeName.Type().(*types.Named)
+		if !ok {
+			continue
+		}
+
+		structType, ok := namedType.Underlying().(*types.Struct)
+		if !ok {
+			continue
+		}
+
+		// Check if this struct directly contains the field
+		// Use pointer equality for field comparison (most efficient)
+		numFields := structType.NumFields()
+		for i := 0; i < numFields; i++ {
+			if structType.Field(i) == field {
+				return namedType
+			}
+		}
+	}
+
+	return nil
+}
+
+// findEnclosingTypeForMethod finds the exact enclosing type for a given method.
+// This returns the receiver type of the method.
+// Returns the enclosing *types.Named if found, nil otherwise.
+func findEnclosingTypeForMethod(method *types.Func) *types.Named {
+	if method == nil {
+		return nil
+	}
+
+	// Note: According to go/types documentation, Func.Type() is always a *Signature.
+	// This check is defensive programming for potential internal errors.
+	sig, ok := method.Type().(*types.Signature)
+	if !ok {
+		return nil
+	}
+
+	recv := sig.Recv()
+	if recv == nil {
+		return nil
+	}
+
+	// Dereference pointer receiver if needed
+	recvType := xgoutil.DerefType(recv.Type())
+	namedType, ok := recvType.(*types.Named)
+	if !ok {
+		return nil
+	}
+
+	return namedType
+}
+
+// findEnclosingType finds the exact enclosing type for a given object.
+// Supports both fields and methods.
+// Returns the enclosing *types.Named if found, nil otherwise.
+func findEnclosingType(obj types.Object) *types.Named {
+	if obj == nil {
+		return nil
+	}
+
+	switch obj := obj.(type) {
+	case *types.Var:
+		if obj.IsField() {
+			return findEnclosingTypeForField(obj)
+		}
+	case *types.Func:
+		return findEnclosingTypeForMethod(obj)
+	}
+
+	return nil
+}
+
 // findInputSlots finds all input slots in the AST file.
 func findInputSlots(result *compileResult, astFile *xgoast.File) []XGoInputSlot {
 	typeInfo, _ := result.proj.TypeInfo()

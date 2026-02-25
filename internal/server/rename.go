@@ -98,6 +98,15 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 			NewText: params.NewName,
 		})
 	}
+
+	// Check if the renamed object is a property and send notification if needed
+	if isPropertyOfEnclosingType(obj) {
+		// Send property renamed notification to the client
+		if err := s.notifyPropertyRenamed(obj, params); err != nil {
+			// log or handle notification failure
+			_ = err
+		}
+	}
 	return &workspaceEdit, nil
 }
 
