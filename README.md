@@ -576,11 +576,11 @@ interface XGoProperty {
 
 ### Property renamed notification
 
-The `textDocument/propertyRenamed` notification is sent from the server to the client when a property (field or method) is renamed through the `textDocument/rename` request. This allows the client (IDE) to update any monitoring or tracking of that property.
+The `textDocument/xgo.propertyRenamed` notification is sent from the server to the client when a property (field or method) is renamed through the `textDocument/rename` request. This allows the client (IDE) to update any monitoring or tracking of that property.
 
 *Notification:*
 
-- method: `textDocument/propertyRenamed`
+- method: `textDocument/xgo.propertyRenamed`
 - params: `PropertyRenamedParams` defined as follows:
 
 ```typescript

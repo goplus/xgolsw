@@ -638,7 +638,6 @@ func TestHandleMessage_Notification(t *testing.T) {
 	}
 }
 
-
 func TestNotifyPropertyRenamed(t *testing.T) {
 	t.Run("PropertyFieldRenamed", func(t *testing.T) {
 		m := map[string][]byte{
@@ -676,7 +675,7 @@ var (
 
 		notif, ok := msgs[0].(*jsonrpc2.Notification)
 		require.True(t, ok, "Message should be a notification")
-		assert.Equal(t, "textDocument/propertyRenamed", notif.Method())
+		assert.Equal(t, "textDocument/xgo.propertyRenamed", notif.Method())
 
 		var params PropertyRenamedParams
 		err = json.Unmarshal(notif.Params(), &params)
