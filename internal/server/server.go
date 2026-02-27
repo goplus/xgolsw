@@ -346,7 +346,7 @@ func (s *Server) notifyPropertyRenamed(obj types.Object, params *RenameParams) e
 	}
 
 	// Create notification
-	notification, err := jsonrpc2.NewNotification("textDocument/propertyRenamed", notifParams)
+	notification, err := jsonrpc2.NewNotification("textDocument/xgo.propertyRenamed", notifParams)
 	if err != nil {
 		return fmt.Errorf("failed to create property renamed notification: %w", err)
 	}
