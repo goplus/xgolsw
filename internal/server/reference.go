@@ -123,9 +123,12 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 
 			for typ := range embedIface.EmbeddedTypes() {
 				if types.Identical(typ, current) {
-					method, index, _ := types.LookupFieldOrMethod(embedIface, false, typeName.Pkg(), methodName)
-					if method != nil && index != nil {
-						locations = append(locations, s.findReferenceLocations(result, method)...)
+					selection, ok := types.LookupSelection(embedIface, false, typeName.Pkg(), methodName)
+					if ok {
+						method, ok := selection.Obj().(*types.Func)
+						if ok {
+							locations = append(locations, s.findReferenceLocations(result, method)...)
+						}
 					}
 					find(embedIface)
 				}
@@ -156,8 +159,12 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 			return
 		}
 
-		method, index, _ := types.LookupFieldOrMethod(named, false, named.Obj().Pkg(), methodName)
-		if method == nil || index == nil {
+		selection, ok := types.LookupSelection(named, false, named.Obj().Pkg(), methodName)
+		if !ok {
+			return
+		}
+		method, ok := selection.Obj().(*types.Func)
+		if !ok {
 			return
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
@@ -189,8 +196,12 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 		}
 		seenIfaces[ifaceType] = true
 
-		method, index, _ := types.LookupFieldOrMethod(ifaceType, false, typeName.Pkg(), fn.Name())
-		if method == nil || index == nil {
+		selection, ok := types.LookupSelection(ifaceType, false, typeName.Pkg(), fn.Name())
+		if !ok {
+			return
+		}
+		method, ok := selection.Obj().(*types.Func)
+		if !ok {
 			return
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
@@ -254,10 +265,15 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 		if types.Identical(field.Type(), targetType) {
 			hasEmbed = true
 
-			method, _, _ := types.LookupFieldOrMethod(named, false, fn.Pkg(), fn.Name())
-			if method != nil {
-				locations = append(locations, s.findReferenceLocations(result, method)...)
+			selection, ok := types.LookupSelection(named, false, fn.Pkg(), fn.Name())
+			if !ok {
+				continue
 			}
+			method, ok := selection.Obj().(*types.Func)
+			if !ok {
+				continue
+			}
+			locations = append(locations, s.findReferenceLocations(result, method)...)
 		}
 
 		if fieldNamed, ok := field.Type().(*types.Named); ok {

@@ -36,7 +36,7 @@ func newTestFile(filename string, source any) (*token.FileSet, *ast.File, error)
 	fset := token.NewFileSet()
 	mode := parser.ParseComments
 	if path.Ext(filename) == ".gox" {
-		mode |= parser.ParseGoPlusClass
+		mode |= parser.ParseXGoClass
 	}
 	astFile, err := parser.ParseEntry(fset, filename, source, parser.Config{Mode: mode})
 	return fset, astFile, err

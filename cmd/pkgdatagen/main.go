@@ -27,10 +27,10 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"slices"
 
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -272,33 +272,37 @@ func generate(pkgPaths []string, outputFile string) error {
 				return fmt.Errorf("failed to create package export reader: %w", err)
 			}
 
-			fset := token.NewFileSet()
-			typesPkg, err := gcexportdata.Read(r, fset, make(map[string]*types.Package), pkgPath)
+			exportFSet := token.NewFileSet()
+			typesPkg, err := gcexportdata.Read(r, exportFSet, make(map[string]*types.Package), pkgPath)
 			if err != nil {
 				return fmt.Errorf("failed to read package export data: %w", err)
 			}
 			if zf, err := zw.Create(pkgPath + ".pkgexport"); err != nil {
 				return err
-			} else if err := gcexportdata.Write(zf, fset, typesPkg); err != nil {
+			} else if err := gcexportdata.Write(zf, exportFSet, typesPkg); err != nil {
 				return fmt.Errorf("failed to write optimized package export data: %w", err)
 			}
 
-			allowedFiles := make(map[string]bool, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
-			for _, file := range buildPkg.GoFiles {
-				allowedFiles[file] = true
+			parseFSet := token.NewFileSet()
+			astFiles := make(map[string]*ast.File, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
+			for _, fileName := range slices.Concat(buildPkg.GoFiles, buildPkg.CgoFiles) {
+				fullPath := filepath.Join(buildPkg.Dir, fileName)
+				astFile, err := parser.ParseFile(parseFSet, fullPath, nil, parser.ParseComments)
+				if err != nil {
+					return fmt.Errorf("failed to parse %q: %w", fileName, err)
+				}
+				if astFile.Name == nil || astFile.Name.Name != pkgName {
+					continue
+				}
+				astFiles[fullPath] = astFile
 			}
-			for _, file := range buildPkg.CgoFiles {
-				allowedFiles[file] = true
-			}
-			fileFilter := func(info fs.FileInfo) bool { return allowedFiles[info.Name()] }
-
-			astPkgs, err := parser.ParseDir(token.NewFileSet(), buildPkg.Dir, fileFilter, parser.ParseComments)
-			if err != nil {
-				return fmt.Errorf("failed to parse package: %w", err)
-			}
-			astPkg, ok := astPkgs[pkgName]
-			if !ok {
+			if len(astFiles) == 0 {
 				continue
+			}
+
+			astPkg := &ast.Package{
+				Files: astFiles,
+				Name:  pkgName,
 			}
 
 			pkgDoc = pkgdoc.NewGo(pkgPath, astPkg)

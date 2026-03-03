@@ -152,7 +152,8 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					tokenType = TypeType
 				}
 			case *types.Var:
-				if obj.IsField() {
+				switch obj.Kind() {
+				case types.FieldVar:
 					typeInfo, _ := result.proj.TypeInfo()
 					astPkg, _ := result.proj.ASTPackage()
 					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
@@ -160,14 +161,14 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					} else {
 						tokenType = PropertyType
 					}
-				} else if obj.Parent() != nil && obj.Parent().Parent() == nil {
+				case types.PackageVar:
 					defIdent := typeInfo.ObjToDef[obj]
 					if defIdent == node {
 						tokenType = ParameterType
 					} else {
 						tokenType = VariableType
 					}
-				} else {
+				default:
 					tokenType = VariableType
 				}
 			case *types.Const:

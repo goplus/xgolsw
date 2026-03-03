@@ -63,8 +63,8 @@ func listPkgs(zipData []byte) ([]string, error) {
 	}
 	pkgs := make([]string, 0, len(zr.File)/2)
 	for _, f := range zr.File {
-		if strings.HasSuffix(f.Name, pkgExportSuffix) {
-			pkgs = append(pkgs, strings.TrimSuffix(f.Name, pkgExportSuffix))
+		if pkg, ok := strings.CutSuffix(f.Name, pkgExportSuffix); ok {
+			pkgs = append(pkgs, pkg)
 		}
 	}
 	return pkgs, nil
