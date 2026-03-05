@@ -152,6 +152,12 @@ func TestParseSpxResourceURI(t *testing.T) {
 		assert.Equal(t, SpxBackdropResourceID{BackdropName: "背景"}, id)
 	})
 
+	t.Run("SoundASCII", func(t *testing.T) {
+		id, err := ParseSpxResourceURI("spx://resources/sounds/Sound1")
+		require.NoError(t, err)
+		assert.Equal(t, SpxSoundResourceID{SoundName: "Sound1"}, id)
+	})
+
 	t.Run("SoundEncoded", func(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/sounds/my%20sound")
 		require.NoError(t, err)
@@ -162,6 +168,12 @@ func TestParseSpxResourceURI(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/sounds/%E9%9F%B3%E6%95%88")
 		require.NoError(t, err)
 		assert.Equal(t, SpxSoundResourceID{SoundName: "音效"}, id)
+	})
+
+	t.Run("SpriteASCII", func(t *testing.T) {
+		id, err := ParseSpxResourceURI("spx://resources/sprites/Sprite1")
+		require.NoError(t, err)
+		assert.Equal(t, SpxSpriteResourceID{SpriteName: "Sprite1"}, id)
 	})
 
 	t.Run("SpriteEncoded", func(t *testing.T) {
@@ -176,6 +188,12 @@ func TestParseSpxResourceURI(t *testing.T) {
 		assert.Equal(t, SpxSpriteResourceID{SpriteName: "小猫"}, id)
 	})
 
+	t.Run("SpriteCostumeASCII", func(t *testing.T) {
+		id, err := ParseSpxResourceURI("spx://resources/sprites/Sprite1/costumes/costume1")
+		require.NoError(t, err)
+		assert.Equal(t, SpxSpriteCostumeResourceID{SpriteName: "Sprite1", CostumeName: "costume1"}, id)
+	})
+
 	t.Run("SpriteCostumeEncoded", func(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/sprites/my%20sprite/costumes/my%20costume")
 		require.NoError(t, err)
@@ -186,6 +204,12 @@ func TestParseSpxResourceURI(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/costumes/%E8%B7%91%E6%AD%A5")
 		require.NoError(t, err)
 		assert.Equal(t, SpxSpriteCostumeResourceID{SpriteName: "小猫", CostumeName: "跑步"}, id)
+	})
+
+	t.Run("SpriteAnimationASCII", func(t *testing.T) {
+		id, err := ParseSpxResourceURI("spx://resources/sprites/Sprite1/animations/anim1")
+		require.NoError(t, err)
+		assert.Equal(t, SpxSpriteAnimationResourceID{SpriteName: "Sprite1", AnimationName: "anim1"}, id)
 	})
 
 	t.Run("SpriteAnimationEncoded", func(t *testing.T) {
@@ -200,6 +224,12 @@ func TestParseSpxResourceURI(t *testing.T) {
 		assert.Equal(t, SpxSpriteAnimationResourceID{SpriteName: "小猫", AnimationName: "奔跑"}, id)
 	})
 
+	t.Run("WidgetASCII", func(t *testing.T) {
+		id, err := ParseSpxResourceURI("spx://resources/widgets/widget1")
+		require.NoError(t, err)
+		assert.Equal(t, SpxWidgetResourceID{WidgetName: "widget1"}, id)
+	})
+
 	t.Run("WidgetEncoded", func(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/widgets/my%20widget")
 		require.NoError(t, err)
@@ -210,6 +240,38 @@ func TestParseSpxResourceURI(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/widgets/%E5%88%86%E6%95%B0")
 		require.NoError(t, err)
 		assert.Equal(t, SpxWidgetResourceID{WidgetName: "分数"}, id)
+	})
+
+	t.Run("RoundTripBackdropASCII", func(t *testing.T) {
+		original := SpxBackdropResourceID{BackdropName: "backdrop1"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripBackdropNonASCII", func(t *testing.T) {
+		original := SpxBackdropResourceID{BackdropName: "背景"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripSoundWithSpaces", func(t *testing.T) {
+		original := SpxSoundResourceID{SoundName: "my sound"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripSoundNonASCII", func(t *testing.T) {
+		original := SpxSoundResourceID{SoundName: "音效"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
 	})
 
 	t.Run("RoundTripWithSpaces", func(t *testing.T) {
@@ -228,8 +290,48 @@ func TestParseSpxResourceURI(t *testing.T) {
 		assert.Equal(t, original, parsed)
 	})
 
+	t.Run("RoundTripCostumeWithSpaces", func(t *testing.T) {
+		original := SpxSpriteCostumeResourceID{SpriteName: "my sprite", CostumeName: "my costume"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
 	t.Run("RoundTripCostumeNonASCII", func(t *testing.T) {
 		original := SpxSpriteCostumeResourceID{SpriteName: "小猫", CostumeName: "跑步"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripAnimationWithSpaces", func(t *testing.T) {
+		original := SpxSpriteAnimationResourceID{SpriteName: "my sprite", AnimationName: "my anim"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripAnimationNonASCII", func(t *testing.T) {
+		original := SpxSpriteAnimationResourceID{SpriteName: "小猫", AnimationName: "奔跑"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripWidgetWithSpaces", func(t *testing.T) {
+		original := SpxWidgetResourceID{WidgetName: "my widget"}
+		uri := original.URI()
+		parsed, err := ParseSpxResourceURI(uri)
+		require.NoError(t, err)
+		assert.Equal(t, original, parsed)
+	})
+
+	t.Run("RoundTripWidgetNonASCII", func(t *testing.T) {
+		original := SpxWidgetResourceID{WidgetName: "分数"}
 		uri := original.URI()
 		parsed, err := ParseSpxResourceURI(uri)
 		require.NoError(t, err)
@@ -243,6 +345,31 @@ func TestParseSpxResourceURI(t *testing.T) {
 
 	t.Run("WrongScheme", func(t *testing.T) {
 		_, err := ParseSpxResourceURI("http://resources/sprites/Sprite1")
+		assert.Error(t, err)
+	})
+
+	t.Run("WrongHost", func(t *testing.T) {
+		_, err := ParseSpxResourceURI("spx://assets/sprites/Sprite1")
+		assert.Error(t, err)
+	})
+
+	t.Run("UnsupportedResourceType", func(t *testing.T) {
+		_, err := ParseSpxResourceURI("spx://resources/unknown/item1")
+		assert.Error(t, err)
+	})
+
+	t.Run("MissingResourceName", func(t *testing.T) {
+		_, err := ParseSpxResourceURI("spx://resources/backdrops")
+		assert.Error(t, err)
+	})
+
+	t.Run("MalformedSpriteCostumePath", func(t *testing.T) {
+		_, err := ParseSpxResourceURI("spx://resources/sprites/Sprite1/costumes")
+		assert.Error(t, err)
+	})
+
+	t.Run("MalformedSpriteAnimationPath", func(t *testing.T) {
+		_, err := ParseSpxResourceURI("spx://resources/sprites/Sprite1/animations")
 		assert.Error(t, err)
 	})
 }
