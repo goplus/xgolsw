@@ -168,12 +168,12 @@ func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
 
 // checkStructForField checks if a struct type contains the given field.
 func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.Package) string {
-	foundObj, indices, _ := types.LookupFieldOrMethod(named, false, fieldPkg, field.Name())
-	if foundObj == nil || len(indices) == 0 {
+	selection, ok := types.LookupSelection(named, false, fieldPkg, field.Name())
+	if !ok {
 		return ""
 	}
 
-	foundField, ok := foundObj.(*types.Var)
+	foundField, ok := selection.Obj().(*types.Var)
 	if !ok || foundField != field {
 		return ""
 	}

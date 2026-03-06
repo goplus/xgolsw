@@ -46,7 +46,7 @@ func buildASTFileCache(proj *Project, path string, file *File) (cache any, err e
 	}()
 	mode := parser.ParseComments | parser.AllErrors
 	if !strings.HasSuffix(path, ".xgo") && !strings.HasSuffix(path, ".gop") { // TODO(xsw): use xgomod
-		mode |= parser.ParseGoPlusClass
+		mode |= parser.ParseXGoClass
 	}
 	astFile, parserErr := parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
 		Mode: mode,
