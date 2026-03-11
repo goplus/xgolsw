@@ -195,6 +195,64 @@ func TestIdentAtPosition(t *testing.T) {
 		ident = IdentAtPosition(fset, typeInfo, astFile, pos)
 		assert.Nil(t, ident)
 	})
+
+	t.Run("SyntheticThisAtFileStartIsSkipped", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "package main")
+		require.NoError(t, err)
+
+		pkg := types.NewPackage("main", "main")
+		syntheticThis := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
+		obj := types.NewVar(syntheticThis.Pos(), pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{syntheticThis: obj}, nil)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: syntheticThis}
+
+		ident := IdentAtPosition(fset, typeInfo, astFile, token.Position{
+			Filename: "main.xgo",
+			Line:     1,
+			Column:   1,
+		})
+		assert.Nil(t, ident)
+	})
+
+	t.Run("NonSyntheticThisReference", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", `
+package main
+
+func f() {
+	this := 1
+	_ = this
+}
+`)
+		require.NoError(t, err)
+
+		var thisIdents []*ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			ident, ok := n.(*ast.Ident)
+			if !ok || ident.Name != "this" {
+				return true
+			}
+			thisIdents = append(thisIdents, ident)
+			return true
+		})
+		require.Len(t, thisIdents, 2)
+
+		pkg := types.NewPackage("main", "main")
+		obj := types.NewVar(token.NoPos, pkg, "this", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(
+			map[*ast.Ident]types.Object{
+				thisIdents[0]: obj,
+			},
+			map[*ast.Ident]types.Object{
+				thisIdents[1]: obj,
+			},
+		)
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: thisIdents[0]}
+
+		usePos := fset.Position(thisIdents[1].Pos())
+		ident := IdentAtPosition(fset, typeInfo, astFile, usePos)
+		require.NotNil(t, ident)
+		assert.Equal(t, thisIdents[1], ident)
+	})
 }
 
 func TestIsBlankIdent(t *testing.T) {
@@ -262,5 +320,41 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 		assert.False(t, IsSyntheticThisIdent(fset, nil, astPkg, defIdent))
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, nil, defIdent))
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, nil))
+	})
+}
+
+func TestIdentToDef(t *testing.T) {
+	t.Run("NilTypeInfo", func(t *testing.T) {
+		ident := &ast.Ident{Name: "x"}
+		assert.Nil(t, identToDef(nil, ident))
+	})
+
+	t.Run("NilIdent", func(t *testing.T) {
+		typeInfo := newTestTypeInfo(nil, nil)
+		assert.Nil(t, identToDef(typeInfo, nil))
+	})
+
+	t.Run("NoObject", func(t *testing.T) {
+		typeInfo := newTestTypeInfo(nil, nil)
+		ident := &ast.Ident{Name: "x"}
+		assert.Equal(t, ident, identToDef(typeInfo, ident))
+	})
+
+	t.Run("ObjectWithoutDefinition", func(t *testing.T) {
+		pkg := types.NewPackage("main", "main")
+		ident := &ast.Ident{Name: "x"}
+		obj := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{ident: obj})
+		assert.Equal(t, ident, identToDef(typeInfo, ident))
+	})
+
+	t.Run("ResolveDefinition", func(t *testing.T) {
+		pkg := types.NewPackage("main", "main")
+		defIdent := &ast.Ident{Name: "x"}
+		useIdent := &ast.Ident{Name: "x"}
+		obj := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, map[*ast.Ident]types.Object{useIdent: obj})
+		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		assert.Equal(t, defIdent, identToDef(typeInfo, useIdent))
 	})
 }
