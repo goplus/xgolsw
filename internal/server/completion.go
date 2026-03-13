@@ -1133,6 +1133,8 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Int
 	}
 
 	for embedded := range iface.EmbeddedTypes() {
+		embedded = types.Unalias(embedded)
+
 		var (
 			named          *types.Named
 			ifaceToRecurse *types.Interface
@@ -1146,9 +1148,13 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Int
 			ctx.collectInterfaceMethodCompletions(t, selectorNamed, visited)
 			continue
 		case *types.Pointer:
-			if n, ok := t.Elem().(*types.Named); ok {
+			elem := types.Unalias(t.Elem())
+			if n, ok := elem.(*types.Named); ok {
 				named = n
 				ifaceToRecurse, _ = n.Underlying().(*types.Interface)
+			} else if iface, ok := elem.(*types.Interface); ok {
+				ctx.collectInterfaceMethodCompletions(iface, selectorNamed, visited)
+				continue
 			}
 		}
 
