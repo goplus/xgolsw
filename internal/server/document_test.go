@@ -97,7 +97,7 @@ onStart => {
 				Start: Position{Line: 3, Character: 15},
 				End:   Position{Line: 3, Character: 20},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Game.Title"),
+			Target: toURI("xgo:github.com/goplus/spx/v2?Config.Title"),
 		})
 
 		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{

@@ -52,6 +52,12 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		}
 		return nil, nil
 	}
+	if ident.Name == "this" {
+		astPkg, _ := result.proj.ASTPackage()
+		if xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+			return nil, nil
+		}
+	}
 
 	spxDefs := result.spxDefinitionsForIdent(ident)
 	if spxDefs == nil {

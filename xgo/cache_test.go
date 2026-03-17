@@ -464,13 +464,11 @@ func TestProjectCache(t *testing.T) {
 		var wg sync.WaitGroup
 		results := make([]any, 10)
 		for i := range 10 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				data, err := proj.Cache(testCacheKind{})
 				assert.NoError(t, err)
 				results[i] = data
-			}()
+			})
 		}
 		wg.Wait()
 
@@ -786,13 +784,11 @@ func TestProjectFileCache(t *testing.T) {
 		var wg sync.WaitGroup
 		results := make([]any, 10)
 		for i := range 10 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				data, err := proj.FileCache(testCacheKind{}, "test.go")
 				assert.NoError(t, err)
 				results[i] = data
-			}()
+			})
 		}
 		wg.Wait()
 

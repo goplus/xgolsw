@@ -60,6 +60,15 @@ func IdentAtPosition(fset *token.FileSet, typeInfo *xgotypes.Info, astFile *ast.
 			return
 		}
 
+		// Skip synthetic receiver "this" at classfile start so a later
+		// iteration can resolve the user-visible symbol at the same position.
+		if ident.Name == "this" {
+			defIdent := identToDef(typeInfo, ident)
+			if defIdent != nil && defIdent.Pos() == astFile.Pos() && ident.Pos() == astFile.Pos() {
+				return
+			}
+		}
+
 		identPos := ident.Pos()
 		if identPos < linePos || identPos >= lineEnd {
 			return
@@ -106,16 +115,23 @@ func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *
 		return false
 	}
 
-	// Try to get the defining identifier for the object denoted by ident.
-	if obj := typeInfo.ObjectOf(ident); obj != nil {
-		if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil {
-			ident = defIdent
-		}
-	}
-
+	ident = identToDef(typeInfo, ident)
 	astFile := NodeASTFile(fset, astPkg, ident)
 	if astFile == nil {
 		return false
 	}
 	return ident.Pos() == astFile.Pos()
+}
+
+// identToDef returns the defining identifier for ident if available.
+func identToDef(typeInfo *xgotypes.Info, ident *ast.Ident) *ast.Ident {
+	if typeInfo == nil || ident == nil {
+		return nil
+	}
+	if obj := typeInfo.ObjectOf(ident); obj != nil {
+		if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil {
+			return defIdent
+		}
+	}
+	return ident
 }

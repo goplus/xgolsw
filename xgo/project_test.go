@@ -447,9 +447,7 @@ func TestProjectFiles(t *testing.T) {
 		// Test concurrent iteration over files.
 		var wg sync.WaitGroup
 		for range 50 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				count := 0
 				for path, file := range proj.Files() {
 					count++
@@ -457,7 +455,7 @@ func TestProjectFiles(t *testing.T) {
 					assert.Equal(t, []byte("package main"), file.Content)
 				}
 				assert.Equal(t, 3, count)
-			}()
+			})
 		}
 		wg.Wait()
 	})
@@ -536,13 +534,11 @@ func TestProjectFile(t *testing.T) {
 		// Test concurrent reads without locks.
 		var wg sync.WaitGroup
 		for range 100 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				f, ok := proj.File("test.go")
 				assert.True(t, ok)
 				assert.Equal(t, []byte("package test"), f.Content)
-			}()
+			})
 		}
 		wg.Wait()
 	})
@@ -1219,26 +1215,22 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// One goroutine continuously modifies files.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range 100 {
 				proj.PutFile(fmt.Sprintf("file%d.go", i), file("content"))
 				time.Sleep(time.Microsecond)
 			}
-		}()
+		})
 
 		// Another goroutine verifies original snapshot remains unchanged.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 1000 {
 				currentSnapshot := snapshot
 				assert.Len(t, *currentSnapshot, 1)
 				_, ok := (*currentSnapshot)["initial.go"]
 				assert.True(t, ok)
 			}
-		}()
+		})
 
 		wg.Wait()
 	})

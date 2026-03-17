@@ -11,7 +11,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
       - name: Download Go modules
         run: go mod download
       - name: Regenerate pkgdata.zip
@@ -37,7 +37,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.24.x
+          go-version: 1.25.x
       - name: Download Go modules
         run: go mod download
       - name: Build Go binary

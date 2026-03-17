@@ -603,6 +603,20 @@ type nonMainPkgSpxDefCacheForVarsKey struct {
 	selectorTypeName string
 }
 
+// spxMemberDefinitionPkgPath returns the package path used in definition IDs for
+// spx members. It prefers the public spx package when the member comes from an
+// internal implementation package but is surfaced through a public spx type.
+func spxMemberDefinitionPkgPath(pkg *types.Package, selectorTypeName string) string {
+	pkgPath := xgoutil.PkgPath(pkg)
+	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v2/internal/") {
+		return pkgPath
+	}
+	if GetSpxPkg().Scope().Lookup(selectorTypeName) != nil {
+		return xgoutil.PkgPath(GetSpxPkg())
+	}
+	return pkgPath
+}
+
 // GetSpxDefinitionForVar returns the spx definition for the provided variable.
 func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(v) {
@@ -657,7 +671,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		TypeHint: v.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(v.Pkg())),
+			Package: ToPtr(spxMemberDefinitionPkgPath(v.Pkg(), selectorTypeName)),
 			Name:    &idName,
 		},
 		Overview: overview.String(),
@@ -827,7 +841,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 		TypeHint: fun.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package:    ToPtr(xgoutil.PkgPath(fun.Pkg())),
+			Package:    ToPtr(spxMemberDefinitionPkgPath(fun.Pkg(), recvTypeName)),
 			Name:       &idName,
 			OverloadID: overloadID,
 		},
