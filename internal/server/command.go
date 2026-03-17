@@ -1056,6 +1056,7 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 	if IsSpxResourceNameType(typ) {
 		return SpxInputTypeResourceName
 	}
+
 	switch typ {
 	case GetSpxDirectionType():
 		return SpxInputTypeDirection

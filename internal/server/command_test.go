@@ -1386,6 +1386,8 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 			{"WidgetName", GetSpxWidgetNameType, SpxInputTypeResourceName},
 			{"SpecialDir", GetSpxDirectionType, SpxInputTypeDirection},
 			{"Key", GetSpxKeyType, SpxInputTypeKey},
+			{"MsgName", GetSpxMsgNameType, SpxInputTypeMsgName},
+			{"PropertyName", GetSpxPropertyNameType, SpxInputTypePropertyName},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				got := inferSpxInputTypeFromType(tt.typeGetter())

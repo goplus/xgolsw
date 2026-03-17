@@ -280,6 +280,8 @@ type XGoInputSlotAccept =
         | XGoInputType.SpxKey
         | XGoInputType.SpxSpecialObj
         | XGoInputType.SpxRotationStyle
+        | XGoInputType.SpxMsgName
+        | XGoInputType.SpxPropertyName
     }
   | {
       /**
@@ -367,7 +369,17 @@ enum XGoInputType {
   /**
    * Rotation style values in spx.
    */
-  SpxRotationStyle = 'spx-rotation-style'
+  SpxRotationStyle = 'spx-rotation-style',
+
+  /**
+   * Message name values in spx.
+   */
+  SpxMsgName = 'spx-msg-name',
+
+  /**
+   * Property name values in spx.
+   */
+  SpxPropertyName = 'spx-property-name'
 }
 ```
 
@@ -410,6 +422,8 @@ type XGoInputTypedValue =
   | { type: XGoInputType.SpxKey; value: string }
   | { type: XGoInputType.SpxSpecialObj; value: string }
   | { type: XGoInputType.SpxRotationStyle; value: string }
+  | { type: XGoInputType.SpxMsgName; value: string }
+  | { type: XGoInputType.SpxPropertyName; value: string }
 ```
 
 ```typescript
