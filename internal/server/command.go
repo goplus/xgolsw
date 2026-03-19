@@ -1056,6 +1056,7 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 	if IsSpxResourceNameType(typ) {
 		return SpxInputTypeResourceName
 	}
+
 	switch typ {
 	case GetSpxDirectionType():
 		return SpxInputTypeDirection
@@ -1071,6 +1072,8 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		return SpxInputTypeSpecialObj
 	case GetSpxRotationStyleType():
 		return SpxInputTypeRotationStyle
+	case GetSpxPropertyNameType():
+		return SpxInputTypePropertyName
 	}
 
 	// Fall back to the alias RHS when no direct basic or spx type match is found.
