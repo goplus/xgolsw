@@ -509,12 +509,6 @@ var (
 		return spxPkg.Scope().Lookup("RotationStyle").Type().(*types.Named)
 	})
 
-	// GetSpxMsgNameType returns the [spx.MsgName] type.
-	GetSpxMsgNameType = sync.OnceValue(func() *types.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("MsgName").Type().(*types.Alias)
-	})
-
 	// GetSpxPropertyNameType returns the [spx.PropertyName] type.
 	GetSpxPropertyNameType = sync.OnceValue(func() *types.Alias {
 		spxPkg := GetSpxPkg()

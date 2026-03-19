@@ -329,7 +329,6 @@ const (
 	XGoInputTypeSpxKey           XGoInputType = "spx-key"
 	XGoInputTypeSpxSpecialObj    XGoInputType = "spx-special-obj"
 	XGoInputTypeSpxRotationStyle XGoInputType = "spx-rotation-style"
-	XGoInputTypeSpxMsgName       XGoInputType = "spx-msg-name"
 	XGoInputTypeSpxPropertyName  XGoInputType = "spx-property-name"
 )
 
@@ -432,7 +431,6 @@ const (
 	SpxInputTypeKey           SpxInputType = XGoInputTypeSpxKey
 	SpxInputTypeSpecialObj    SpxInputType = XGoInputTypeSpxSpecialObj
 	SpxInputTypeRotationStyle SpxInputType = XGoInputTypeSpxRotationStyle
-	SpxInputTypeMsgName       SpxInputType = XGoInputTypeSpxMsgName
 	SpxInputTypePropertyName  SpxInputType = XGoInputTypeSpxPropertyName
 )
 
