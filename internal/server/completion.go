@@ -71,6 +71,7 @@ type completionKind int
 
 const (
 	completionKindUnknown completionKind = iota
+	completionKindDisabled
 	completionKindGeneral
 	completionKindComment
 	completionKindStringLit
@@ -120,6 +121,10 @@ type completionContext struct {
 // analyze analyzes the completion context to determine the kind of completion needed.
 func (ctx *completionContext) analyze() {
 	path, _ := xgoutil.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
+	if ctx.isInDisabledIdentifierContext(path) {
+		ctx.kind = completionKindDisabled
+		return
+	}
 	for i, node := range slices.Backward(path) {
 		switch node := node.(type) {
 		case *xgoast.ImportSpec:
@@ -472,6 +477,53 @@ func (ctx *completionContext) analyze() {
 	}
 
 	ctx.inSpxEventHandler = ctx.result.isInSpxEventHandler(ctx.pos)
+}
+
+// isInDisabledIdentifierContext reports whether the completion position is
+// inside an identifier context where completion should be suppressed.
+func (ctx *completionContext) isInDisabledIdentifierContext(path []xgoast.Node) bool {
+	ident := xgoutil.EnclosingNode[*xgoast.Ident](path)
+	if ident == nil {
+		return false
+	}
+
+	if ctx.astFile.HasPkgDecl() && ctx.astFile.Name == ident {
+		return true
+	}
+
+	if funcDecl := xgoutil.EnclosingNode[*xgoast.FuncDecl](path); funcDecl != nil && funcDecl.Name == ident {
+		return true
+	}
+
+	if overloadDecl := xgoutil.EnclosingNode[*xgoast.OverloadFuncDecl](path); overloadDecl != nil && overloadDecl.Name == ident {
+		return true
+	}
+
+	if importSpec := xgoutil.EnclosingNode[*xgoast.ImportSpec](path); importSpec != nil && importSpec.Name == ident {
+		return true
+	}
+
+	if typeSpec := xgoutil.EnclosingNode[*xgoast.TypeSpec](path); typeSpec != nil && typeSpec.Name == ident {
+		return true
+	}
+
+	if valueSpec := xgoutil.EnclosingNode[*xgoast.ValueSpec](path); valueSpec != nil {
+		for _, name := range valueSpec.Names {
+			if name == ident {
+				return true
+			}
+		}
+	}
+
+	if field := xgoutil.EnclosingNode[*xgoast.Field](path); field != nil && slices.Contains(field.Names, ident) {
+		return true
+	}
+
+	if labeledStmt := xgoutil.EnclosingNode[*xgoast.LabeledStmt](path); labeledStmt != nil && labeledStmt.Label == ident {
+		return true
+	}
+
+	return false
 }
 
 // isInComment reports whether the position of the current completion context
@@ -886,6 +938,8 @@ func (ctx *completionContext) findReturnValueIndex(ret *xgoast.ReturnStmt) int {
 // collect collects completion items based on the completion context kind.
 func (ctx *completionContext) collect() error {
 	switch ctx.kind {
+	case completionKindDisabled:
+		return nil
 	case completionKindComment,
 		completionKindStringLit:
 		return nil

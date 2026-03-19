@@ -200,6 +200,248 @@ import "f
 		assert.True(t, containsCompletionItemLabel(items, "fmt"))
 	})
 
+	t.Run("NoCompletionInFuncDeclName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func d
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInImportAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+import f "fmt"
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInTypeDeclName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Fo struct{}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInVarDeclName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var foo int
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInConstDeclName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const foo = 1
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInPackageName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`package main
+
+func test() {}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 0, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInFuncReceiverName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type T struct{}
+
+func (t T) test() {}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInFuncParamName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func test(foo int) {}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 11},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInFuncResultName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func test() (result int) { return 0 }
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 1, Character: 19},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInStructFieldName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type T struct {
+	field int
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 4},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInInterfaceMethodName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type T interface {
+	Run()
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionInLabelName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func test() {
+loop:
+	for {
+		break
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Empty(t, items)
+	})
+
 	t.Run("IncompleteMapLiteralInCall", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
