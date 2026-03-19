@@ -1073,7 +1073,8 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 	case GetSpxRotationStyleType():
 		return SpxInputTypeRotationStyle
 	case GetSpxMsgNameType():
-		return SpxInputTypeMsgName
+		// TODO(gui): switch to SpxInputTypeMsgName after the GUI solution is ready.
+		return SpxInputTypeString
 	case GetSpxPropertyNameType():
 		return SpxInputTypePropertyName
 	}
