@@ -37,6 +37,29 @@ func GetSimplifiedTypeString(typ types.Type) string {
 	})
 }
 
+// resolvedNamedType resolves aliases and pointer indirections until it reaches
+// a named type. It returns nil if typ does not resolve to a named type.
+func resolvedNamedType(typ types.Type) *types.Named {
+	seen := make(map[types.Type]struct{})
+	for typ != nil {
+		if _, ok := seen[typ]; ok {
+			return nil
+		}
+		seen[typ] = struct{}{}
+
+		typ = types.Unalias(typ)
+		switch t := typ.(type) {
+		case *types.Named:
+			return t
+		case *types.Pointer:
+			typ = t.Elem()
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
 // SelectorTypeNameForIdent returns the selector type name for the given
 // identifier. It returns empty string if no selector can be inferred.
 func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
