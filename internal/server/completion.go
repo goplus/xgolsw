@@ -237,10 +237,11 @@ func (ctx *completionContext) analyze() {
 				continue
 			}
 
-			named, ok := typ.(*types.Named)
-			if !ok {
+			named := resolvedNamedType(typ)
+			if named == nil {
 				continue
 			}
+			typ = named
 			st, ok := named.Underlying().(*types.Struct)
 			if !ok {
 				continue
@@ -1086,14 +1087,17 @@ func (ctx *completionContext) collectDot() error {
 		return nil
 	}
 	typ = xgoutil.DerefType(typ)
-	named, ok := typ.(*types.Named)
-	if ok && IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
-		typ = GetSpxSpriteImplType()
+	named := resolvedNamedType(typ)
+	if named != nil {
+		if IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
+			named = GetSpxSpriteImplType()
+		}
+		typ = named
 	}
 
 	if iface, ok := typ.Underlying().(*types.Interface); ok {
 		ctx.collectInterfaceMethodCompletions(iface, named, nil)
-	} else if named, ok := typ.(*types.Named); ok && xgoutil.IsNamedStructType(named) {
+	} else if named != nil && xgoutil.IsNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
 	}
 	return nil
@@ -1271,18 +1275,23 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		return nil
 	}
 
+	if named := resolvedNamedType(typ); named != nil {
+		switch named {
+		case GetSpxSpriteType(), GetSpxSpriteImplType():
+			for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
+				if spxSprite.Type() == named {
+					ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSprite, "Game")...)
+				}
+			}
+		}
+	}
+
 	var spxResourceIDs []SpxResourceID
-	switch typ {
+	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
 		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.backdrops))
 		for spxBackdropName := range ctx.result.spxResourceSet.backdrops {
 			spxResourceIDs = append(spxResourceIDs, SpxBackdropResourceID{spxBackdropName})
-		}
-	case GetSpxSpriteType(), GetSpxSpriteImplType():
-		for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
-			if spxSprite.Type() == typ {
-				ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSprite, "Game")...)
-			}
 		}
 	case GetSpxSpriteNameType():
 		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sprites))
@@ -1434,8 +1443,8 @@ func (ctx *completionContext) collectSwitchCase() error {
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
-	named, ok := typ.(*types.Named)
-	if !ok {
+	named := resolvedNamedType(typ)
+	if named == nil {
 		return nil
 	}
 	pkg := named.Obj().Pkg()

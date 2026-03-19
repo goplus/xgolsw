@@ -862,7 +862,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, d
 		accept.Type = inferSpxInputTypeFromType(declaredType)
 	}
 	if accept.Type == SpxInputTypeResourceName {
-		switch declaredType {
+		switch canonicalSpxResourceNameType(declaredType) {
 		case GetSpxBackdropNameType():
 			accept.ResourceContext = ToPtr(SpxBackdropResourceContextURI)
 		case GetSpxSoundNameType():
@@ -1077,6 +1077,14 @@ func inferSpxInputTypeFromType(typ types.Type) SpxInputType {
 		return SpxInputTypeString
 	case GetSpxPropertyNameType():
 		return SpxInputTypePropertyName
+	}
+
+	// Fall back to the alias RHS when no direct basic or spx type match is found.
+	if alias, ok := typ.(*types.Alias); ok {
+		rhs := alias.Rhs()
+		if rhs != nil && rhs != typ {
+			return inferSpxInputTypeFromType(rhs)
+		}
 	}
 	return SpxInputTypeUnknown
 }

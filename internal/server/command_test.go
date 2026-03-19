@@ -1081,6 +1081,50 @@ onStart => {
 			assert.NotEmpty(t, got.Range)
 		})
 	}
+
+	t.Run("AliasDeclaredType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const mySound = "MySound"
+
+onStart => {
+	play mySound
+}
+`),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sounds/MySound/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+		require.NotNil(t, astFile)
+
+		pos := PosAt(result.proj, astFile, Position{Line: 4, Character: 7})
+		require.True(t, pos.IsValid())
+
+		var ident *xgoast.Ident
+		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
+			if node, ok := node.(*xgoast.Ident); ok && node.Name == "mySound" {
+				ident = node
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, ident)
+
+		pkg := types.NewPackage("example.com/pkg", "pkg")
+		declaredType := types.NewAlias(types.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType())
+
+		got := createValueInputSlotFromIdent(result, ident, declaredType)
+		require.NotNil(t, got)
+		assert.Equal(t, SpxInputTypeResourceName, got.Accept.Type)
+		assert.Equal(t, ToPtr(SpxSoundResourceContextURI), got.Accept.ResourceContext)
+		assert.Equal(t, SpxInputKindPredefined, got.Input.Kind)
+		assert.Equal(t, SpxInputTypeString, got.Input.Type)
+		assert.Equal(t, "mySound", got.Input.Name)
+	})
 }
 
 func TestCreateValueInputSlotFromUnaryExpr(t *testing.T) {
@@ -1407,6 +1451,43 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				got := inferSpxInputTypeFromType(tt.typeGetter())
+				assert.Equal(t, tt.want, got)
+			})
+		}
+	})
+
+	t.Run("AliasFallback", func(t *testing.T) {
+		pkg := types.NewPackage("example.com/pkg", "pkg")
+		namedIntType := types.NewNamed(types.NewTypeName(0, pkg, "MyCount", nil), types.Typ[types.Int], nil)
+
+		for _, tt := range []struct {
+			name string
+			typ  types.Type
+			want SpxInputType
+		}{
+			{
+				name: "AliasToBasic",
+				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyInt", nil), types.Typ[types.Int]),
+				want: SpxInputTypeInteger,
+			},
+			{
+				name: "AliasToSpxResourceName",
+				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType()),
+				want: SpxInputTypeResourceName,
+			},
+			{
+				name: "AliasToSpxDirection",
+				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyDirection", nil), GetSpxDirectionType()),
+				want: SpxInputTypeDirection,
+			},
+			{
+				name: "AliasToNamedType",
+				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyCountAlias", nil), namedIntType),
+				want: SpxInputTypeUnknown,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				got := inferSpxInputTypeFromType(tt.typ)
 				assert.Equal(t, tt.want, got)
 			})
 		}

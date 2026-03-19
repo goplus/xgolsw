@@ -139,7 +139,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				tokenType = KeywordType
 				modifiers = append(modifiers, ModDefaultLibrary)
 			case *types.TypeName:
-				if named, ok := obj.Type().(*types.Named); ok {
+				if named := resolvedNamedType(obj.Type()); named != nil {
 					switch named.Underlying().(type) {
 					case *types.Struct:
 						tokenType = StructType

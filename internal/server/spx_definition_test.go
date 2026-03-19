@@ -112,6 +112,21 @@ func TestHasSpxResourceNameTypeParams(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "FunctionWithAliasToSoundNameParameter",
+			fun: func() *types.Func {
+				pkg := GetSpxPkg()
+				aliasType := types.NewAlias(
+					types.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
+					GetSpxSoundNameType(),
+				)
+				param := types.NewParam(token.NoPos, pkg, "sound", aliasType)
+				params := types.NewTuple(param)
+				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
+				return types.NewFunc(token.NoPos, pkg, "withAliasSound", sig)
+			},
+			want: true,
+		},
+		{
 			name: "FunctionWithPointerToBackdropNameParameter",
 			fun: func() *types.Func {
 				pkg := GetSpxPkg()
@@ -204,4 +219,62 @@ func TestHasSpxResourceNameTypeParamsCaching(t *testing.T) {
 		_, ok := nonMainPkgSpxResourceNameTypeFuncCache.Load(fun)
 		assert.False(t, ok)
 	})
+}
+
+func TestCanonicalSpxResourceNameType(t *testing.T) {
+	pkg := types.NewPackage("example.com/pkg", "pkg")
+	soundAlias := types.NewAlias(
+		types.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
+		GetSpxSoundNameType(),
+	)
+	soundAliasChain := types.NewAlias(
+		types.NewTypeName(token.NoPos, pkg, "MySoundNameChain", nil),
+		soundAlias,
+	)
+
+	for _, tt := range []struct {
+		name string
+		typ  types.Type
+		want types.Type
+	}{
+		{
+			name: "Nil",
+			typ:  nil,
+			want: nil,
+		},
+		{
+			name: "DirectBackdropName",
+			typ:  GetSpxBackdropNameType(),
+			want: GetSpxBackdropNameType(),
+		},
+		{
+			name: "AliasToSoundName",
+			typ:  soundAlias,
+			want: GetSpxSoundNameType(),
+		},
+		{
+			name: "AliasChainToSoundName",
+			typ:  soundAliasChain,
+			want: GetSpxSoundNameType(),
+		},
+		{
+			name: "BasicString",
+			typ:  types.Typ[types.String],
+			want: nil,
+		},
+		{
+			name: "AliasToBasicString",
+			typ:  types.NewAlias(types.NewTypeName(token.NoPos, pkg, "MyString", nil), types.Typ[types.String]),
+			want: nil,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := canonicalSpxResourceNameType(tt.typ)
+			if tt.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			assert.Same(t, tt.want, got)
+		})
+	}
 }

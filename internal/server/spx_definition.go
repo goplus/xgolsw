@@ -757,7 +757,7 @@ func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (d
 	}
 
 	completionKind := ClassCompletion
-	if named, ok := typeName.Type().(*types.Named); ok {
+	if named := resolvedNamedType(typeName.Type()); named != nil {
 		switch named.Underlying().(type) {
 		case *types.Interface:
 			completionKind = InterfaceCompletion
@@ -1022,16 +1022,46 @@ func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
 	return false
 }
 
+// canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
+// resource name type. It returns nil if typ does not represent one.
+func canonicalSpxResourceNameType(typ types.Type) types.Type {
+	seen := make(map[types.Type]struct{})
+	for typ != nil {
+		if _, ok := seen[typ]; ok {
+			return nil
+		}
+		seen[typ] = struct{}{}
+
+		switch typ {
+		case GetSpxBackdropNameType():
+			return GetSpxBackdropNameType()
+		case GetSpxSpriteNameType():
+			return GetSpxSpriteNameType()
+		case GetSpxSpriteCostumeNameType():
+			return GetSpxSpriteCostumeNameType()
+		case GetSpxSpriteAnimationNameType():
+			return GetSpxSpriteAnimationNameType()
+		case GetSpxSoundNameType():
+			return GetSpxSoundNameType()
+		case GetSpxWidgetNameType():
+			return GetSpxWidgetNameType()
+		}
+
+		alias, ok := typ.(*types.Alias)
+		if !ok {
+			return nil
+		}
+
+		rhs := alias.Rhs()
+		if rhs == nil || rhs == typ {
+			return nil
+		}
+		typ = rhs
+	}
+	return nil
+}
+
 // IsSpxResourceNameType reports whether the given type is a spx resource name type.
 func IsSpxResourceNameType(typ types.Type) bool {
-	switch typ {
-	case GetSpxBackdropNameType(),
-		GetSpxSpriteNameType(),
-		GetSpxSpriteCostumeNameType(),
-		GetSpxSpriteAnimationNameType(),
-		GetSpxSoundNameType(),
-		GetSpxWidgetNameType():
-		return true
-	}
-	return false
+	return canonicalSpxResourceNameType(typ) != nil
 }
