@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"go/token"
 	"go/types"
 
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -85,12 +86,16 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	}
 
 	objType := xgoutil.DerefType(obj.Type())
-	named, ok := objType.(*types.Named)
-	if !ok {
+	var objPos token.Pos
+	switch objType := objType.(type) {
+	case *types.Named:
+		objPos = objType.Obj().Pos()
+	case *types.Alias:
+		objPos = objType.Obj().Pos()
+	default:
 		return nil, nil
 	}
 
-	objPos := named.Obj().Pos()
 	if xgoutil.PosTokenFile(proj.Fset, objPos) == nil {
 		return nil, nil
 	}

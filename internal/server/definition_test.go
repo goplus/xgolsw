@@ -227,6 +227,34 @@ var x MyType
 		}, def)
 	})
 
+	t.Run("AliasType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MyType struct{}
+type MyAlias = MyType
+var x MyAlias
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 4},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, def)
+		require.IsType(t, Location{}, def)
+		assert.Equal(t, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 2, Character: 5},
+				End:   Position{Line: 2, Character: 5},
+			},
+		}, def)
+	})
+
 	t.Run("SpriteType", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

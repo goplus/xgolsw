@@ -365,6 +365,34 @@ run "assets", {Title: "My Game"}
 		assert.True(t, containsCompletionItemLabel(items, "MySprite"))
 	})
 
+	t.Run("VarDeclAndAssignWithAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type MySpriteName = SpriteName
+
+onStart => {
+	var x MySpriteName = "m"
+}
+run "assets", {Title: "My Game"}
+`),
+			"MySprite.spx":                       []byte(``),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 24},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "MySprite"))
+	})
+
 	t.Run("SpxSoundResourceStringLit", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -627,6 +655,45 @@ onStart => {}
 		}))
 	})
 
+	t.Run("MainPackageInterfaceMethodWithAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Runner interface {
+	Run()
+}
+
+type RunnerAlias = Runner
+
+type MyRunner struct {}
+func (r *MyRunner) Run() {}
+
+onStart => {
+	var r RunnerAlias = new(MyRunner)
+	r.
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 12, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("Runner.Run"),
+		}))
+		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("MyRunner.Run"),
+		}))
+	})
+
 	t.Run("NonMainPackageInterfaceMethod", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -703,6 +770,80 @@ onStart => {
 				return true
 			}
 			return false
+		}))
+	})
+
+	t.Run("MainPackageStructLiteralFieldWithAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Point struct {
+	X int
+	Y int
+}
+
+type PointAlias = Point
+
+onStart => {
+	p := PointAlias{}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 17},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			itemData, ok := item.Data.(*CompletionItemData)
+			if ok && itemData.Definition.String() == "xgo:main?Point.X" {
+				assert.Equal(t, "X: ${1:}", item.InsertText)
+				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				return true
+			}
+			return false
+		}))
+	})
+
+	t.Run("MainPackageStructDotWithPointerAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Point struct {
+	X int
+	Y int
+}
+
+type PointPtrAlias = *Point
+
+onStart => {
+	var p PointPtrAlias = new(Point)
+	p.
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("Point.X"),
+		}))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("Point.Y"),
 		}))
 	})
 
