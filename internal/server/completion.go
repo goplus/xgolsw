@@ -1343,7 +1343,12 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 	// Handle spx.PropertyName type - provide property name completions.
 	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
 		if target := ctx.getPropertyTarget(); target != "" {
-			ctx.collectPropertyNames(target)
+			if target == "Game" {
+				ctx.collectPropertyNames(target)
+			} else {
+				ctx.collectPropertyNames("Game")
+				ctx.collectPropertyNames(target)
+			}
 		}
 		return nil
 	}
