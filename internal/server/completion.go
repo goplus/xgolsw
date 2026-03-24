@@ -1343,12 +1343,7 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 	// Handle spx.PropertyName type - provide property name completions.
 	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
 		if target := ctx.getPropertyTarget(); target != "" {
-			if target == "Game" {
-				ctx.collectPropertyNames(target)
-			} else {
-				ctx.collectPropertyNames("Game")
-				ctx.collectPropertyNames(target)
-			}
+			ctx.collectPropertyNames(target)
 		}
 		return nil
 	}
@@ -1499,63 +1494,105 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 	if !ok {
 		return
 	}
+
+	pkgDoc, _ := ctx.proj.PkgDoc()
+	ctx.collectPropertyNamesFromNamedType(namedType, pkgDoc, make(map[*types.Named]bool), make(map[string]bool))
+}
+
+// collectPropertyNamesFromNamedType recursively collects property name
+// completion items from the given named type, traversing embedded fields.
+// Outer (less deeply nested) properties take priority over embedded ones when
+// names conflict. visited prevents infinite recursion for cyclic embeddings,
+// and seenNames tracks already-added property names.
+func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
+	if visited[namedType] {
+		return
+	}
+	visited[namedType] = true
+
 	structType, ok := namedType.Underlying().(*types.Struct)
 	if !ok {
 		return
 	}
 
-	pkgDoc, _ := ctx.proj.PkgDoc()
 	selectorTypeName := namedType.Obj().Name()
 
+	// First pass: collect direct (non-embedded) fields so outer-scope names
+	// are registered before recursing into embedded types.
 	for field := range structType.Fields() {
-		if isPropertyField(field) {
-			name := field.Name()
-			insertText := name
-			if !ctx.inStringLit {
-				insertText = strconv.Quote(name)
-			}
-			item := CompletionItem{
-				Label:            insertText,
-				Kind:             FieldCompletion,
-				InsertText:       insertText,
-				InsertTextFormat: ToPtr(PlainTextTextFormat),
-			}
-			if pkgDoc != nil {
-				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-					if doc := typeDoc.Fields[name]; doc != "" {
-						item.Documentation = &Or_CompletionItem_documentation{
-							Value: MarkupContent{Kind: Markdown, Value: doc},
-						}
+		if field.Embedded() {
+			continue
+		}
+		if !isPropertyField(field) {
+			continue
+		}
+		name := field.Name()
+		if seenNames[name] {
+			continue
+		}
+		seenNames[name] = true
+		insertText := name
+		if !ctx.inStringLit {
+			insertText = strconv.Quote(name)
+		}
+		item := CompletionItem{
+			Label:            insertText,
+			Kind:             FieldCompletion,
+			InsertText:       insertText,
+			InsertTextFormat: ToPtr(PlainTextTextFormat),
+		}
+		if pkgDoc != nil {
+			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+				if doc := typeDoc.Fields[name]; doc != "" {
+					item.Documentation = &Or_CompletionItem_documentation{
+						Value: MarkupContent{Kind: Markdown, Value: doc},
 					}
 				}
 			}
-			ctx.itemSet.add(item)
 		}
+		ctx.itemSet.add(item)
 	}
 
+	// Collect methods defined directly on this type.
 	for method := range namedType.Methods() {
-		if isPropertyMethod(method) {
-			name := xgoutil.ToLowerCamelCase(method.Name())
-			insertText := name
-			if !ctx.inStringLit {
-				insertText = strconv.Quote(name)
-			}
-			item := CompletionItem{
-				Label:            insertText,
-				Kind:             MethodCompletion,
-				InsertText:       insertText,
-				InsertTextFormat: ToPtr(PlainTextTextFormat),
-			}
-			if pkgDoc != nil {
-				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-					if doc := typeDoc.Methods[method.Name()]; doc != "" {
-						item.Documentation = &Or_CompletionItem_documentation{
-							Value: MarkupContent{Kind: Markdown, Value: doc},
-						}
+		if !isPropertyMethod(method) {
+			continue
+		}
+		name := xgoutil.ToLowerCamelCase(method.Name())
+		if seenNames[name] {
+			continue
+		}
+		seenNames[name] = true
+		insertText := name
+		if !ctx.inStringLit {
+			insertText = strconv.Quote(name)
+		}
+		item := CompletionItem{
+			Label:            insertText,
+			Kind:             MethodCompletion,
+			InsertText:       insertText,
+			InsertTextFormat: ToPtr(PlainTextTextFormat),
+		}
+		if pkgDoc != nil {
+			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+				if doc := typeDoc.Methods[method.Name()]; doc != "" {
+					item.Documentation = &Or_CompletionItem_documentation{
+						Value: MarkupContent{Kind: Markdown, Value: doc},
 					}
 				}
 			}
-			ctx.itemSet.add(item)
+		}
+		ctx.itemSet.add(item)
+	}
+
+	// Second pass: recurse into embedded fields.
+	for field := range structType.Fields() {
+		if !field.Embedded() {
+			continue
+		}
+		embeddedType := xgoutil.DerefType(field.Type())
+		if embNamed, ok := embeddedType.(*types.Named); ok {
+			ctx.collectPropertyNamesFromNamedType(embNamed, pkgDoc, visited, seenNames)
 		}
 	}
 }

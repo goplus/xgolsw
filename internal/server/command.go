@@ -12,6 +12,7 @@ import (
 
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -22,6 +23,11 @@ const (
 	CommandSpxGetInputSlots   = "spx.getInputSlots"
 	CommandXGoGetProperties   = "xgo.getProperties"
 )
+
+var xgoPropertyKindPriority = map[XGoPropertyKind]int{
+	XGoPropertyKindField:  0,
+	XGoPropertyKindMethod: 1,
+}
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
 func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, error) {
@@ -176,84 +182,139 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		return nil, fmt.Errorf("target %q is not a type", params.Target)
 	}
 
-	// Get only direct fields and methods
-	properties := []XGoProperty{}
-
 	// Get underlying struct type
-	structType, ok := namedType.Underlying().(*types.Struct)
-	if !ok {
+	if _, ok := namedType.Underlying().(*types.Struct); !ok {
 		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
 	}
 
-	// Get package documentation
-	// Note: We only get main package documentation here because xgoGetProperties
-	// only looks up targets in the main package scope (pkg.Scope().Lookup()).
-	// The namedType is guaranteed to be from the main package, so we don't need
-	// to check IsInMainPkg or fetch documentation from other packages.
+	// Get package documentation for the main package.
 	pkgDoc, _ := proj.PkgDoc()
-	selectorTypeName := namedType.Obj().Name()
 
-	// Add direct fields (non-embedded)
-	for field := range structType.Fields() {
-		if isPropertyField(field) {
-			typeString := GetSimplifiedTypeString(field.Type())
-			prop := XGoProperty{
-				Name: field.Name(),
-				Type: typeString,
-				Kind: XGoPropertyKindField,
-			}
-			// Get documentation if available
-			if pkgDoc != nil {
-				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-					prop.Doc = typeDoc.Fields[field.Name()]
-				}
-			}
-			properties = append(properties, prop)
-		}
-	}
+	properties := []XGoProperty{}
+	seenNames := make(map[string]bool)
+	collectPropertiesFromNamedType(namedType, pkgDoc, make(map[*types.Named]bool), seenNames, &properties)
 
-	// Add methods with no parameters and exactly one return value
-	for method := range namedType.Methods() {
-		if isPropertyMethod(method) {
-			sig := method.Type().(*types.Signature)
-			prop := XGoProperty{
-				Name: xgoutil.ToLowerCamelCase(method.Name()),
-				Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
-				Kind: XGoPropertyKindMethod,
-			}
-			// Get documentation if available
-			if pkgDoc != nil {
-				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-					prop.Doc = typeDoc.Methods[method.Name()]
-				}
-			}
-			properties = append(properties, prop)
+	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
+		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
+			return p1 - p2
 		}
-	}
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	return properties, nil
+}
+
+// collectPropertiesFromNamedType recursively collects properties from a named
+// type, traversing embedded fields to include their properties as well. The
+// outermost (less deeply nested) properties take priority over embedded ones
+// when names conflict. visited prevents infinite recursion for cyclic
+// embeddings, and seenNames tracks already-collected property names.
+func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
+	if visited[namedType] {
+		return
+	}
+	visited[namedType] = true
+
+	structType, ok := namedType.Underlying().(*types.Struct)
+	if !ok {
+		return
+	}
+
+	selectorTypeName := namedType.Obj().Name()
+	// pkgDoc only covers the main package; for types from external packages the
+	// type entry simply won't be found, so documentation will be empty.
+
+	// First pass: collect direct (non-embedded) fields so that outer-scope
+	// names are registered before recursing into embedded types.
+	for field := range structType.Fields() {
+		if field.Embedded() {
+			continue
+		}
+		if !isPropertyField(field) {
+			continue
+		}
+		if seenNames[field.Name()] {
+			continue
+		}
+		seenNames[field.Name()] = true
+		prop := XGoProperty{
+			Name: field.Name(),
+			Type: GetSimplifiedTypeString(field.Type()),
+			Kind: XGoPropertyKindField,
+		}
+		if pkgDoc != nil {
+			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+				prop.Doc = typeDoc.Fields[field.Name()]
+			}
+		}
+		*properties = append(*properties, prop)
+	}
+
+	// Collect methods defined directly on this type.
+	for method := range namedType.Methods() {
+		if !isPropertyMethod(method) {
+			continue
+		}
+		propName := xgoutil.ToLowerCamelCase(method.Name())
+		if seenNames[propName] {
+			continue
+		}
+		seenNames[propName] = true
+		sig := method.Type().(*types.Signature)
+		prop := XGoProperty{
+			Name: propName,
+			Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
+			Kind: XGoPropertyKindMethod,
+		}
+		if pkgDoc != nil {
+			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+				prop.Doc = typeDoc.Methods[method.Name()]
+			}
+		}
+		*properties = append(*properties, prop)
+	}
+
+	// Second pass: recurse into embedded fields.
+	for field := range structType.Fields() {
+		if !field.Embedded() {
+			continue
+		}
+		embeddedType := xgoutil.DerefType(field.Type())
+		if embNamed, ok := embeddedType.(*types.Named); ok {
+			collectPropertiesFromNamedType(embNamed, pkgDoc, visited, seenNames, properties)
+		}
+	}
 }
 
 // isPropertyField checks if a field should be included as a property.
 // Returns true if:
 // - The field is not embedded
-// - The field type is not from the main package (e.g., *main.Sprite)
+// - The field type is a basic type (int, float64, string, etc.), spx.Value, or spx.List
 func isPropertyField(field *types.Var) bool {
 	if field.Embedded() {
 		return false
 	}
 
-	// Check if field type is from main package
 	fieldType := xgoutil.DerefType(field.Type())
 
-	// Check if it's a named type from main package
-	if named, ok := fieldType.(*types.Named); ok {
-		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Name() == "main" {
-			return false
+	// Allow basic types (int, float64, string, bool, etc.)
+	if _, ok := fieldType.(*types.Basic); ok {
+		if field.Pkg().Name() == "main" {
+			return true
 		}
 	}
 
-	return true
+	// Allow spx.Value and spx.List
+	if named, ok := fieldType.(*types.Named); ok {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == "github.com/goplus/spx/v2" {
+			name := named.Obj().Name()
+			if name == "Value" || name == "List" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // isPropertyMethod checks if a method should be included as a property.
@@ -276,7 +337,24 @@ func isPropertyMethod(method *types.Func) bool {
 		return false
 	}
 	// Only include methods with no parameters and exactly one return value
-	return sig.Params().Len() == 0 && sig.Results().Len() == 1
+	if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+		return false
+	}
+
+	// The return type must be a basic type, spx.Value, or spx.List
+	retType := xgoutil.DerefType(sig.Results().At(0).Type())
+	if _, ok := retType.(*types.Basic); ok {
+		return true
+	}
+	if named, ok := retType.(*types.Named); ok {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == "github.com/goplus/spx/v2" {
+			name := named.Obj().Name()
+			if name == "Value" || name == "List" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isPropertyOfEnclosingType checks if the given object is a property of its enclosing type.
