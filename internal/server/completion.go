@@ -1535,22 +1535,14 @@ func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(name)
 		}
-		item := CompletionItem{
-			Label:            insertText,
-			Kind:             FieldCompletion,
-			InsertText:       insertText,
-			InsertTextFormat: ToPtr(PlainTextTextFormat),
-		}
-		if pkgDoc != nil {
-			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-				if doc := typeDoc.Fields[name]; doc != "" {
-					item.Documentation = &Or_CompletionItem_documentation{
-						Value: MarkupContent{Kind: Markdown, Value: doc},
-					}
-				}
-			}
-		}
-		ctx.itemSet.add(item)
+		def := GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
+		// TypeHint is the field's value type; nil it out so addSpxDefs does not
+		// filter property-name items by expected type compatibility.
+		def.TypeHint = nil
+		def.CompletionItemLabel = insertText
+		def.CompletionItemInsertText = insertText
+		def.CompletionItemInsertTextFormat = PlainTextTextFormat
+		ctx.itemSet.addSpxDefs(def)
 	}
 
 	// Collect methods defined directly on this type.
@@ -1567,22 +1559,13 @@ func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(name)
 		}
-		item := CompletionItem{
-			Label:            insertText,
-			Kind:             MethodCompletion,
-			InsertText:       insertText,
-			InsertTextFormat: ToPtr(PlainTextTextFormat),
-		}
-		if pkgDoc != nil {
-			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-				if doc := typeDoc.Methods[method.Name()]; doc != "" {
-					item.Documentation = &Or_CompletionItem_documentation{
-						Value: MarkupContent{Kind: Markdown, Value: doc},
-					}
-				}
-			}
-		}
-		ctx.itemSet.add(item)
+		def := GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
+		// Same reason as above: nil TypeHint to skip type-compatibility filtering.
+		def.TypeHint = nil
+		def.CompletionItemLabel = insertText
+		def.CompletionItemInsertText = insertText
+		def.CompletionItemInsertTextFormat = PlainTextTextFormat
+		ctx.itemSet.addSpxDefs(def)
 	}
 
 	// Second pass: recurse into embedded fields.

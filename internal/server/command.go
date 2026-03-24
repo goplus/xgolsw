@@ -237,15 +237,13 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 			continue
 		}
 		seenNames[field.Name()] = true
+		spxDef := GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
 		prop := XGoProperty{
-			Name: field.Name(),
-			Type: GetSimplifiedTypeString(field.Type()),
-			Kind: XGoPropertyKindField,
-		}
-		if pkgDoc != nil {
-			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-				prop.Doc = typeDoc.Fields[field.Name()]
-			}
+			Name:       field.Name(),
+			Type:       GetSimplifiedTypeString(field.Type()),
+			Kind:       XGoPropertyKindField,
+			Doc:        spxDef.Detail,
+			Definition: spxDef.ID,
 		}
 		*properties = append(*properties, prop)
 	}
@@ -261,15 +259,13 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 		}
 		seenNames[propName] = true
 		sig := method.Type().(*types.Signature)
+		spxDef := GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
 		prop := XGoProperty{
-			Name: propName,
-			Type: GetSimplifiedTypeString(sig.Results().At(0).Type()),
-			Kind: XGoPropertyKindMethod,
-		}
-		if pkgDoc != nil {
-			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-				prop.Doc = typeDoc.Methods[method.Name()]
-			}
+			Name:       propName,
+			Type:       GetSimplifiedTypeString(sig.Results().At(0).Type()),
+			Kind:       XGoPropertyKindMethod,
+			Doc:        spxDef.Detail,
+			Definition: spxDef.ID,
 		}
 		*properties = append(*properties, prop)
 	}

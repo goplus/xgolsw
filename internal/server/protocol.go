@@ -277,6 +277,9 @@ type XGoProperty struct {
 
 	// Optional documentation for the property.
 	Doc string `json:"doc,omitempty"`
+
+	// The definition identifier for this property.
+	Definition XGoDefinitionIdentifier `json:"definition"`
 }
 
 // XGoInputSlot describes a modifiable item in code.
