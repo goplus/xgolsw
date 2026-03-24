@@ -1340,6 +1340,14 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		}
 	}
 
+	// Handle spx.PropertyName type - provide property name completions.
+	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
+		if target := ctx.getPropertyTarget(); target != "" {
+			ctx.collectPropertyNames(target)
+		}
+		return nil
+	}
+
 	var spxResourceIDs []SpxResourceID
 	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
@@ -1438,6 +1446,113 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 		return ctx.result.spxResourceSet.sprites[obj.Name()]
 	}
 	return nil
+}
+
+// getPropertyTarget returns the target type name for property name completions.
+// It looks at the enclosing call expression's receiver type (if any) and falls
+// back to the current file's type.
+func (ctx *completionContext) getPropertyTarget() string {
+	if ctx.kind == completionKindCall {
+		if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
+			if sel, ok := callExpr.Fun.(*xgoast.SelectorExpr); ok {
+				if ident, ok := sel.X.(*xgoast.Ident); ok {
+					if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
+						if named, ok := xgoutil.DerefType(obj.Type()).(*types.Named); ok {
+							if xgoutil.IsInMainPkg(named.Obj()) {
+								return named.Obj().Name()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	// For implicit receiver calls, derive target from the current file's type.
+	if ctx.spxFile == "" {
+		return ""
+	}
+	if ctx.spxFile == ctx.result.mainSpxFile {
+		return "Game"
+	}
+	return strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")
+}
+
+// collectPropertyNames collects property name completion items for the given target type.
+func (ctx *completionContext) collectPropertyNames(target string) {
+	pkgScope := ctx.typeInfo.Pkg.Scope()
+	obj := pkgScope.Lookup(target)
+	if obj == nil {
+		return
+	}
+	typeName, ok := obj.(*types.TypeName)
+	if !ok {
+		return
+	}
+	typ := types.Unalias(typeName.Type())
+	typ = xgoutil.DerefType(typ)
+	namedType, ok := typ.(*types.Named)
+	if !ok {
+		return
+	}
+	structType, ok := namedType.Underlying().(*types.Struct)
+	if !ok {
+		return
+	}
+
+	pkgDoc, _ := ctx.proj.PkgDoc()
+	selectorTypeName := namedType.Obj().Name()
+
+	for field := range structType.Fields() {
+		if isPropertyField(field) {
+			name := field.Name()
+			insertText := name
+			if !ctx.inStringLit {
+				insertText = strconv.Quote(name)
+			}
+			item := CompletionItem{
+				Label:            insertText,
+				Kind:             FieldCompletion,
+				InsertText:       insertText,
+				InsertTextFormat: ToPtr(PlainTextTextFormat),
+			}
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					if doc := typeDoc.Fields[name]; doc != "" {
+						item.Documentation = &Or_CompletionItem_documentation{
+							Value: MarkupContent{Kind: Markdown, Value: doc},
+						}
+					}
+				}
+			}
+			ctx.itemSet.add(item)
+		}
+	}
+
+	for method := range namedType.Methods() {
+		if isPropertyMethod(method) {
+			name := xgoutil.ToLowerCamelCase(method.Name())
+			insertText := name
+			if !ctx.inStringLit {
+				insertText = strconv.Quote(name)
+			}
+			item := CompletionItem{
+				Label:            insertText,
+				Kind:             MethodCompletion,
+				InsertText:       insertText,
+				InsertTextFormat: ToPtr(PlainTextTextFormat),
+			}
+			if pkgDoc != nil {
+				if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+					if doc := typeDoc.Methods[method.Name()]; doc != "" {
+						item.Documentation = &Or_CompletionItem_documentation{
+							Value: MarkupContent{Kind: Markdown, Value: doc},
+						}
+					}
+				}
+			}
+			ctx.itemSet.add(item)
+		}
+	}
 }
 
 // collectStructLit collects struct literal completions.
