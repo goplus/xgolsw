@@ -1457,7 +1457,9 @@ func (ctx *completionContext) getPropertyTarget() string {
 			if sel, ok := callExpr.Fun.(*xgoast.SelectorExpr); ok {
 				if ident, ok := sel.X.(*xgoast.Ident); ok {
 					if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-						if named, ok := xgoutil.DerefType(obj.Type()).(*types.Named); ok {
+						typ := types.Unalias(obj.Type())
+						typ = xgoutil.DerefType(typ)
+						if named, ok := typ.(*types.Named); ok {
 							if xgoutil.IsInMainPkg(named.Obj()) {
 								return named.Obj().Name()
 							}

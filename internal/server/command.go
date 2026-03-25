@@ -235,10 +235,15 @@ func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited 
 
 	selectorTypeName := namedType.Obj().Name()
 
-	// First pass: collect direct (non-embedded) fields so outer-scope names
-	// are registered before recursing into embedded types.
+	// Single pass over fields: yield direct property fields and collect
+	// embedded types for later recursion, so each field is visited only once.
+	var embeddedTypes []*types.Named
 	for field := range structType.Fields() {
 		if field.Embedded() {
+			embeddedType := types.Unalias(xgoutil.DerefType(field.Type()))
+			if embNamed, ok := embeddedType.(*types.Named); ok {
+				embeddedTypes = append(embeddedTypes, embNamed)
+			}
 			continue
 		}
 		if !isPropertyField(field) {
@@ -276,15 +281,9 @@ func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited 
 		})
 	}
 
-	// Second pass: recurse into embedded fields.
-	for field := range structType.Fields() {
-		if !field.Embedded() {
-			continue
-		}
-		embeddedType := xgoutil.DerefType(field.Type())
-		if embNamed, ok := embeddedType.(*types.Named); ok {
-			walkPropertyMembers(embNamed, pkgDoc, visited, seenNames, onMember)
-		}
+	// Recurse into embedded types collected during the field pass.
+	for _, embNamed := range embeddedTypes {
+		walkPropertyMembers(embNamed, pkgDoc, visited, seenNames, onMember)
 	}
 }
 
@@ -311,18 +310,18 @@ func isPropertyField(field *types.Var) bool {
 		return false
 	}
 
-	fieldType := xgoutil.DerefType(field.Type())
+	fieldType := types.Unalias(xgoutil.DerefType(field.Type()))
 
 	// Allow basic types (int, float64, string, bool, etc.)
 	if _, ok := fieldType.(*types.Basic); ok {
-		if field.Pkg().Name() == "main" {
+		if pkg := field.Pkg(); pkg != nil && pkg.Name() == "main" {
 			return true
 		}
 	}
 
 	// Allow spx.Value and spx.List
 	if named, ok := fieldType.(*types.Named); ok {
-		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == "github.com/goplus/spx/v2" {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == SpxPkgPath {
 			name := named.Obj().Name()
 			if name == "Value" || name == "List" {
 				return true
@@ -335,10 +334,12 @@ func isPropertyField(field *types.Var) bool {
 
 // isPropertyMethod checks if a method should be included as a property.
 // Returns true if:
-// - The method name does not start with "XGo_" (internal methods)
-// - The method name starts with an uppercase letter
-// - The method has no parameters
-// - The method has exactly one return value
+//   - The method name does not start with "XGo_" (internal methods)
+//   - The method name starts with an uppercase letter
+//   - The method has no parameters
+//   - The method has exactly one return value
+//   - The return type is a basic type (int, float64, string, etc.), or a named
+//     type from github.com/goplus/spx/v2 named "Value" or "List"
 func isPropertyMethod(method *types.Func) bool {
 	// Skip XGo_ methods (internal methods)
 	if strings.HasPrefix(method.Name(), "XGo_") {
@@ -358,12 +359,12 @@ func isPropertyMethod(method *types.Func) bool {
 	}
 
 	// The return type must be a basic type, spx.Value, or spx.List
-	retType := xgoutil.DerefType(sig.Results().At(0).Type())
+	retType := types.Unalias(xgoutil.DerefType(sig.Results().At(0).Type()))
 	if _, ok := retType.(*types.Basic); ok {
 		return true
 	}
 	if named, ok := retType.(*types.Named); ok {
-		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == "github.com/goplus/spx/v2" {
+		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == SpxPkgPath {
 			name := named.Obj().Name()
 			if name == "Value" || name == "List" {
 				return true
