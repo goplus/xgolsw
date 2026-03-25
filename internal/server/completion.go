@@ -1499,85 +1499,23 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 	ctx.collectPropertyNamesFromNamedType(namedType, pkgDoc, make(map[*types.Named]bool), make(map[string]bool))
 }
 
-// collectPropertyNamesFromNamedType recursively collects property name
-// completion items from the given named type, traversing embedded fields.
-// Outer (less deeply nested) properties take priority over embedded ones when
-// names conflict. visited prevents infinite recursion for cyclic embeddings,
-// and seenNames tracks already-added property names.
+// collectPropertyNamesFromNamedType collects property name completion items
+// from the given named type (including embedded types) using walkPropertyMembers.
 func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
-	if visited[namedType] {
-		return
-	}
-	visited[namedType] = true
-
-	structType, ok := namedType.Underlying().(*types.Struct)
-	if !ok {
-		return
-	}
-
-	selectorTypeName := namedType.Obj().Name()
-
-	// First pass: collect direct (non-embedded) fields so outer-scope names
-	// are registered before recursing into embedded types.
-	for field := range structType.Fields() {
-		if field.Embedded() {
-			continue
-		}
-		if !isPropertyField(field) {
-			continue
-		}
-		name := field.Name()
-		if seenNames[name] {
-			continue
-		}
-		seenNames[name] = true
-		insertText := name
+	walkPropertyMembers(namedType, pkgDoc, visited, seenNames, func(m propertyMember) {
+		insertText := m.Name
 		if !ctx.inStringLit {
-			insertText = strconv.Quote(name)
+			insertText = strconv.Quote(m.Name)
 		}
-		def := GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
-		// TypeHint is the field's value type; nil it out so addSpxDefs does not
-		// filter property-name items by expected type compatibility.
+		def := m.SpxDef
+		// TypeHint must be nil so addSpxDefs does not filter property-name
+		// items by expected type compatibility.
 		def.TypeHint = nil
 		def.CompletionItemLabel = insertText
 		def.CompletionItemInsertText = insertText
 		def.CompletionItemInsertTextFormat = PlainTextTextFormat
 		ctx.itemSet.addSpxDefs(def)
-	}
-
-	// Collect methods defined directly on this type.
-	for method := range namedType.Methods() {
-		if !isPropertyMethod(method) {
-			continue
-		}
-		name := xgoutil.ToLowerCamelCase(method.Name())
-		if seenNames[name] {
-			continue
-		}
-		seenNames[name] = true
-		insertText := name
-		if !ctx.inStringLit {
-			insertText = strconv.Quote(name)
-		}
-		def := GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
-		// Same reason as above: nil TypeHint to skip type-compatibility filtering.
-		def.TypeHint = nil
-		def.CompletionItemLabel = insertText
-		def.CompletionItemInsertText = insertText
-		def.CompletionItemInsertTextFormat = PlainTextTextFormat
-		ctx.itemSet.addSpxDefs(def)
-	}
-
-	// Second pass: recurse into embedded fields.
-	for field := range structType.Fields() {
-		if !field.Embedded() {
-			continue
-		}
-		embeddedType := xgoutil.DerefType(field.Type())
-		if embNamed, ok := embeddedType.(*types.Named); ok {
-			ctx.collectPropertyNamesFromNamedType(embNamed, pkgDoc, visited, seenNames)
-		}
-	}
+	})
 }
 
 // collectStructLit collects struct literal completions.

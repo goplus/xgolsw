@@ -204,12 +204,25 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	return properties, nil
 }
 
-// collectPropertiesFromNamedType recursively collects properties from a named
-// type, traversing embedded fields to include their properties as well. The
-// outermost (less deeply nested) properties take priority over embedded ones
-// when names conflict. visited prevents infinite recursion for cyclic
-// embeddings, and seenNames tracks already-collected property names.
-func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
+// propertyMember holds the resolved information for a single property member
+// (field or method) discovered during a type traversal.
+type propertyMember struct {
+	// Name is the property name (lowerCamelCase for methods, original for fields).
+	Name string
+	// Type is the property's value type.
+	Type types.Type
+	// Kind indicates whether the property comes from a field or a method.
+	Kind XGoPropertyKind
+	// SpxDef is the full spx definition for the member.
+	SpxDef SpxDefinition
+}
+
+// walkPropertyMembers recursively walks namedType and its embedded types,
+// calling onMember for each property field or property method in depth-first,
+// outer-scope-first order. Outer (less deeply nested) members shadow embedded
+// ones with the same name. visited prevents infinite recursion for cyclic
+// embeddings; seenNames tracks already-yielded property names.
+func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
 	if visited[namedType] {
 		return
 	}
@@ -221,11 +234,9 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 	}
 
 	selectorTypeName := namedType.Obj().Name()
-	// pkgDoc only covers the main package; for types from external packages the
-	// type entry simply won't be found, so documentation will be empty.
 
-	// First pass: collect direct (non-embedded) fields so that outer-scope
-	// names are registered before recursing into embedded types.
+	// First pass: collect direct (non-embedded) fields so outer-scope names
+	// are registered before recursing into embedded types.
 	for field := range structType.Fields() {
 		if field.Embedded() {
 			continue
@@ -233,19 +244,17 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 		if !isPropertyField(field) {
 			continue
 		}
-		if seenNames[field.Name()] {
+		name := field.Name()
+		if seenNames[name] {
 			continue
 		}
-		seenNames[field.Name()] = true
-		spxDef := GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
-		prop := XGoProperty{
-			Name:       field.Name(),
-			Type:       GetSimplifiedTypeString(field.Type()),
-			Kind:       XGoPropertyKindField,
-			Doc:        spxDef.Detail,
-			Definition: spxDef.ID,
-		}
-		*properties = append(*properties, prop)
+		seenNames[name] = true
+		onMember(propertyMember{
+			Name:   name,
+			Type:   field.Type(),
+			Kind:   XGoPropertyKindField,
+			SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc),
+		})
 	}
 
 	// Collect methods defined directly on this type.
@@ -253,21 +262,18 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 		if !isPropertyMethod(method) {
 			continue
 		}
-		propName := xgoutil.ToLowerCamelCase(method.Name())
-		if seenNames[propName] {
+		name := xgoutil.ToLowerCamelCase(method.Name())
+		if seenNames[name] {
 			continue
 		}
-		seenNames[propName] = true
+		seenNames[name] = true
 		sig := method.Type().(*types.Signature)
-		spxDef := GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
-		prop := XGoProperty{
-			Name:       propName,
-			Type:       GetSimplifiedTypeString(sig.Results().At(0).Type()),
-			Kind:       XGoPropertyKindMethod,
-			Doc:        spxDef.Detail,
-			Definition: spxDef.ID,
-		}
-		*properties = append(*properties, prop)
+		onMember(propertyMember{
+			Name:   name,
+			Type:   sig.Results().At(0).Type(),
+			Kind:   XGoPropertyKindMethod,
+			SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc),
+		})
 	}
 
 	// Second pass: recurse into embedded fields.
@@ -277,9 +283,23 @@ func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDo
 		}
 		embeddedType := xgoutil.DerefType(field.Type())
 		if embNamed, ok := embeddedType.(*types.Named); ok {
-			collectPropertiesFromNamedType(embNamed, pkgDoc, visited, seenNames, properties)
+			walkPropertyMembers(embNamed, pkgDoc, visited, seenNames, onMember)
 		}
 	}
+}
+
+// collectPropertiesFromNamedType recursively collects properties from a named
+// type into properties, using walkPropertyMembers for the traversal.
+func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
+	walkPropertyMembers(namedType, pkgDoc, visited, seenNames, func(m propertyMember) {
+		*properties = append(*properties, XGoProperty{
+			Name:       m.Name,
+			Type:       GetSimplifiedTypeString(m.Type),
+			Kind:       m.Kind,
+			Doc:        m.SpxDef.Detail,
+			Definition: m.SpxDef.ID,
+		})
+	})
 }
 
 // isPropertyField checks if a field should be included as a property.
