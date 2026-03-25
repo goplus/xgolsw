@@ -2466,6 +2466,165 @@ onStart => {}
 			Name:    ToPtr("MyInterface.methodOne"),
 		}))
 	})
+
+	t.Run("PropertyNameCompletionInMainSpx", func(t *testing.T) {
+		// showVar in main.spx → getPropertyTarget returns "Game"
+		// → collectPropertyNames("Game") → property methods from embedded spx.Game appear
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var score int
+run "assets", {Title: "My Game"}
+onStart => {
+	showVar(x)
+}
+`),
+			"MySprite.spx":                       []byte(`onStart => {}`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 10}, // inside 'x' arg of showVar
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		// score is declared in main.spx and becomes a Game field.
+		assert.True(t, containsCompletionItemLabel(items, `"score"`))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("Game.score"),
+		}))
+		// Property method from embedded spx.Game.
+		assert.True(t, containsCompletionItemLabel(items, `"volume"`))
+	})
+
+	t.Run("PropertyNameCompletionInSpriteSpx", func(t *testing.T) {
+		// showVar in MySprite.spx → getPropertyTarget returns "MySprite" (not "Game").
+		// hp is a field of MySprite, so its appearance confirms the correct target is used.
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "My Game"}
+`),
+			"MySprite.spx": []byte(`
+var hp int
+
+onStart => {
+	showVar(x)
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+				// Line 4: "\tshowVar(x)" — tab(0)+showVar(1-7)+(8)+x(9)
+				Position: Position{Line: 4, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		// hp is a direct field of MySprite — confirms target is "MySprite", not "Game".
+		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
+	})
+
+	t.Run("PropertyNameCompletionExplicitReceiver", func(t *testing.T) {
+		// MySprite.showVar(x) in main.spx → getPropertyTarget returns "MySprite"
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "My Game"}
+onStart => {
+	MySprite.showVar(x)
+}
+`),
+			"MySprite.spx": []byte(`
+var hp int
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				// Line 3: "\tMySprite.showVar(x)" — tab(0)+MySprite(1-8)+.(9)+showVar(10-16)+(17)+x(18)
+				Position: Position{Line: 3, Character: 19},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("main"),
+			Name:    ToPtr("MySprite.hp"),
+		}))
+	})
+
+	t.Run("PropertyNameCompletionEmbeddedMethod", func(t *testing.T) {
+		// SpriteImpl is embedded in MySprite; its property methods should appear.
+		m := map[string][]byte{
+			"main.spx": []byte(`
+run "assets", {Title: "My Game"}
+`),
+			"MySprite.spx": []byte(`
+var hp int
+
+showVar(
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+				Position:     Position{Line: 3, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		// Direct field of MySprite.
+		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
+		// Property method from embedded spx.SpriteImpl (e.g. "xpos" → "Xpos").
+		assert.True(t, containsCompletionItemLabel(items, `"xpos"`))
+		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+			Package: ToPtr("github.com/goplus/spx/v2"),
+			Name:    ToPtr("Sprite.xpos"),
+		}))
+	})
+
+	t.Run("PropertyNameCompletionInsideStringLit", func(t *testing.T) {
+		// When cursor is inside a string literal, insert text should NOT be quoted.
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var score int
+
+showVar("s
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		// Inside string literal: label/insertText is unquoted.
+		assert.True(t, containsCompletionItemLabel(items, "score"))
+		assert.False(t, containsCompletionItemLabel(items, `"score"`))
+	})
 }
 
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {
