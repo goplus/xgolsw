@@ -631,21 +631,21 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 	}
 
 	var overview strings.Builder
-	if !v.IsField() || forceVar {
-		overview.WriteString("var ")
-	} else {
-		overview.WriteString("field ")
-	}
+	overview.WriteString(varOverviewPrefix(v, forceVar))
+	overview.WriteString(" ")
 	overview.WriteString(v.Name())
 	overview.WriteString(" ")
 	overview.WriteString(GetSimplifiedTypeString(v.Type()))
 
 	var detail string
 	if pkgDoc != nil {
-		if selectorTypeName == "" {
+		switch {
+		case selectorTypeName != "" && (v.IsField() || forceVar):
+			if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+				detail = typeDoc.Fields[v.Name()]
+			}
+		case varKind(v) == types.PackageVar:
 			detail = pkgDoc.Vars[v.Name()]
-		} else if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-			detail = typeDoc.Fields[v.Name()]
 		}
 	}
 
@@ -658,7 +658,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		idName = selectorTypeDisplayName + "." + idName
 	}
 	completionItemKind := VariableCompletion
-	if strings.HasPrefix(overview.String(), "field ") {
+	if v.IsField() && !forceVar {
 		completionItemKind = FieldCompletion
 	}
 	def = SpxDefinition{

@@ -2738,7 +2738,7 @@ func onStart() {
 		// Create a field with nil package
 
 		fieldWithNilPkg := types.NewField(0, nil, "fieldWithNilPkg", types.Typ[types.Int], false)
-		assert.True(t, fieldWithNilPkg.IsField(), "Should be a field")
+		assert.Equal(t, types.FieldVar, fieldWithNilPkg.Kind(), "Should be a field var")
 		assert.Nil(t, fieldWithNilPkg.Pkg(), "Package should be nil")
 
 		// Try to find enclosing type for field with nil package

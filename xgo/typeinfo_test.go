@@ -185,4 +185,37 @@ func getCounter() int {
 		assert.Equal(t, ErrUnknownCacheKind, err)
 		assert.Nil(t, typeInfo)
 	})
+
+	t.Run("VarKinds", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{
+			"main.xgo": {
+				Content: []byte(`
+type T struct{}
+
+func (r T) M(x int) (y int) {
+	z := x
+	return z
+}
+`),
+			},
+		}, FeatAll)
+
+		typeInfo, err := proj.TypeInfo()
+		require.NoError(t, err)
+		require.NotNil(t, typeInfo)
+
+		kinds := make(map[string]types.VarKind)
+		for ident, obj := range typeInfo.Defs {
+			v, ok := obj.(*types.Var)
+			if !ok {
+				continue
+			}
+			kinds[ident.Name] = v.Kind()
+		}
+
+		assert.Equal(t, types.RecvVar, kinds["r"])
+		assert.Equal(t, types.ParamVar, kinds["x"])
+		assert.Equal(t, types.ResultVar, kinds["y"])
+		assert.Equal(t, types.LocalVar, kinds["z"])
+	})
 }
