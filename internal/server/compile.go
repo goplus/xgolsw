@@ -575,9 +575,12 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	}
 	for spxFile, astFile := range astPkg.Files {
 		var diagnostics []Diagnostic
+		pkgDoc, _ := proj.PkgDoc()
+		spxFile := spxFile // capture for closures
 		pass := &protocol.Pass{
 			Fset:      fset,
 			Files:     []*xgoast.File{astFile},
+			Pkg:       typeInfo.Pkg,
 			TypesInfo: typeInfo,
 			Report: func(d protocol.Diagnostic) {
 				diagnostics = append(diagnostics, Diagnostic{
@@ -588,6 +591,20 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			},
 			ResultOf: map[*protocol.Analyzer]any{
 				inspect.Analyzer: inspector.New([]*xgoast.File{astFile}),
+			},
+			IsPropertyNameType: func(typ types.Type) bool {
+				return typ == GetSpxPropertyNameType()
+			},
+			GetPropertyNamesForCall: func(call *xgoast.CallExpr) []string {
+				named := PropertyTargetNamedTypeForCall(typeInfo, call, spxFile, result.mainSpxFile)
+				if named == nil {
+					return nil
+				}
+				var names []string
+				walkPropertyMembers(named, pkgDoc, make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
+					names = append(names, m.Name)
+				})
+				return names
 			},
 		}
 

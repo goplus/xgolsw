@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/appends"
+	"github.com/goplus/xgolsw/internal/analysis/passes/propertyname"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 )
 
@@ -77,6 +78,8 @@ func init() {
 	analyzers := []*Analyzer{
 		// The traditional vet suite:
 		{analyzer: appends.Analyzer},
+		// propertyname checks:
+		{analyzer: propertyname.Analyzer},
 	}
 	for _, analyzer := range analyzers {
 		DefaultAnalyzers[analyzer.analyzer.Name] = analyzer

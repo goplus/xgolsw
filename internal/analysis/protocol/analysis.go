@@ -111,6 +111,19 @@ type Pass struct {
 	// analysis's ResultType.
 	ResultOf map[*Analyzer]interface{}
 
+	// IsPropertyNameType, if non-nil, reports whether the given type is a
+	// property name type (i.e., a type whose string value must be a valid
+	// property name). This is provided by the driver and keeps analyzers
+	// decoupled from spx-specific knowledge.
+	IsPropertyNameType func(typ types.Type) bool
+
+	// GetPropertyNamesForCall, if non-nil, returns the set of valid property
+	// names for the receiver of the given call expression. The driver is
+	// responsible for resolving the target type from the explicit selector
+	// receiver (if any) or from the current file's implicit receiver type.
+	// Returns nil when the target cannot be determined.
+	GetPropertyNamesForCall func(call *ast.CallExpr) []string
+
 	// ReadFile returns the contents of the named file.
 	//
 	// The only valid file names are the elements of OtherFiles
