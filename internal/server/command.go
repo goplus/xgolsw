@@ -12,6 +12,7 @@ import (
 
 	xgoast "github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -187,12 +188,11 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
 	}
 
-	// Get package documentation for the main package.
-	pkgDoc, _ := proj.PkgDoc()
+	mainPkgDoc, _ := proj.PkgDoc()
 
 	properties := []XGoProperty{}
 	seenNames := make(map[string]bool)
-	collectPropertiesFromNamedType(namedType, pkgDoc, make(map[*types.Named]bool), seenNames, &properties)
+	collectPropertiesFromNamedType(namedType, mainPkgDoc, make(map[*types.Named]bool), seenNames, &properties)
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -222,7 +222,7 @@ type propertyMember struct {
 // outer-scope-first order. Outer (less deeply nested) members shadow embedded
 // ones with the same name. visited prevents infinite recursion for cyclic
 // embeddings; seenNames tracks already-yielded property names.
-func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
+func walkPropertyMembers(namedType *types.Named, pkgDocFor func(*types.Package) *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
 	if visited[namedType] {
 		return
 	}
@@ -258,7 +258,7 @@ func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited 
 			Name:   name,
 			Type:   field.Type(),
 			Kind:   XGoPropertyKindField,
-			SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc),
+			SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDocFor(field.Pkg())),
 		})
 	}
 
@@ -277,20 +277,33 @@ func walkPropertyMembers(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited 
 			Name:   name,
 			Type:   sig.Results().At(0).Type(),
 			Kind:   XGoPropertyKindMethod,
-			SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc),
+			SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDocFor(method.Pkg())),
 		})
 	}
 
 	// Recurse into embedded types collected during the field pass.
 	for _, embNamed := range embeddedTypes {
-		walkPropertyMembers(embNamed, pkgDoc, visited, seenNames, onMember)
+		walkPropertyMembers(embNamed, pkgDocFor, visited, seenNames, onMember)
+	}
+}
+
+// makePkgDocFor returns a function that resolves the [pkgdoc.PkgDoc] for a
+// given package, using mainPkgDoc for the main package and pre-built package
+// data for all others.
+func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc) func(*types.Package) *pkgdoc.PkgDoc {
+	return func(pkg *types.Package) *pkgdoc.PkgDoc {
+		if xgoutil.IsMainPkg(pkg) {
+			return mainPkgDoc
+		}
+		doc, _ := pkgdata.GetPkgDoc(xgoutil.PkgPath(pkg))
+		return doc
 	}
 }
 
 // collectPropertiesFromNamedType recursively collects properties from a named
 // type into properties, using walkPropertyMembers for the traversal.
-func collectPropertiesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
-	walkPropertyMembers(namedType, pkgDoc, visited, seenNames, func(m propertyMember) {
+func collectPropertiesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
+	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
 		*properties = append(*properties, XGoProperty{
 			Name:       m.Name,
 			Type:       GetSimplifiedTypeString(m.Type),

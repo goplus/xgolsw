@@ -1497,14 +1497,14 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 		return
 	}
 
-	pkgDoc, _ := ctx.proj.PkgDoc()
-	ctx.collectPropertyNamesFromNamedType(namedType, pkgDoc, make(map[*types.Named]bool), make(map[string]bool))
+	mainPkgDoc, _ := ctx.proj.PkgDoc()
+	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc, make(map[*types.Named]bool), make(map[string]bool))
 }
 
 // collectPropertyNamesFromNamedType collects property name completion items
 // from the given named type (including embedded types) using walkPropertyMembers.
-func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, pkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
-	walkPropertyMembers(namedType, pkgDoc, visited, seenNames, func(m propertyMember) {
+func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
+	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
 		insertText := m.Name
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(m.Name)

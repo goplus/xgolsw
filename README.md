@@ -513,8 +513,13 @@ enum XGoInputKind {
 
 ### XGo property lookup
 
-The `xgo.getProperties` command retrieves properties (direct fields and auto-getter methods) for a target type or
-instance (for example, `Game` or a sprite name).
+The `xgo.getProperties` command retrieves properties for a target type (for example, `Game` or a sprite name).
+Properties include:
+- Direct fields of basic types (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (non-embedded only)
+- Auto-getter methods: exported, no parameters, exactly one return value of a basic type, `spx.Value`, or `spx.List`
+
+Properties from embedded types are included recursively; outer-scope members shadow embedded ones with the same name.
+Fields are listed before methods; within each group, names are sorted alphabetically.
 
 *Request:*
 
@@ -576,6 +581,11 @@ interface XGoProperty {
    * Optional documentation for the property.
    */
   doc?: string
+
+  /**
+   * The definition identifier for this property.
+   */
+  definition: XGoDefinitionIdentifier
 }
 ```
 
