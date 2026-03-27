@@ -108,6 +108,7 @@ const (
 	KeywordCompletion   = protocol.KeywordCompletion
 	FieldCompletion     = protocol.FieldCompletion
 	MethodCompletion    = protocol.MethodCompletion
+	PropertyCompletion  = protocol.PropertyCompletion
 	FunctionCompletion  = protocol.FunctionCompletion
 	ModuleCompletion    = protocol.ModuleCompletion
 
@@ -277,6 +278,9 @@ type XGoProperty struct {
 
 	// Optional documentation for the property.
 	Doc string `json:"doc,omitempty"`
+
+	// The definition identifier for this property.
+	Definition XGoDefinitionIdentifier `json:"definition"`
 }
 
 // XGoInputSlot describes a modifiable item in code.

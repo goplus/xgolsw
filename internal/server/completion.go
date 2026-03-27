@@ -1340,6 +1340,14 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		}
 	}
 
+	// Handle spx.PropertyName type - provide property name completions.
+	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
+		if target := ctx.getPropertyTarget(); target != "" {
+			ctx.collectPropertyNames(target)
+		}
+		return nil
+	}
+
 	var spxResourceIDs []SpxResourceID
 	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
@@ -1438,6 +1446,81 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 		return ctx.result.spxResourceSet.sprites[obj.Name()]
 	}
 	return nil
+}
+
+// getPropertyTarget returns the target type name for property name completions.
+// It looks at the enclosing call expression's receiver type (if any) and falls
+// back to the current file's type.
+func (ctx *completionContext) getPropertyTarget() string {
+	if ctx.kind == completionKindCall {
+		if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
+			if sel, ok := callExpr.Fun.(*xgoast.SelectorExpr); ok {
+				if ident, ok := sel.X.(*xgoast.Ident); ok {
+					if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
+						typ := types.Unalias(obj.Type())
+						typ = xgoutil.DerefType(typ)
+						if named, ok := typ.(*types.Named); ok {
+							if xgoutil.IsInMainPkg(named.Obj()) {
+								return named.Obj().Name()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	// For implicit receiver calls, derive target from the current file's type.
+	if ctx.spxFile == "" {
+		return ""
+	}
+	if ctx.spxFile == ctx.result.mainSpxFile {
+		return "Game"
+	}
+	return strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")
+}
+
+// collectPropertyNames collects property name completion items for the given target type.
+func (ctx *completionContext) collectPropertyNames(target string) {
+	pkgScope := ctx.typeInfo.Pkg.Scope()
+	obj := pkgScope.Lookup(target)
+	if obj == nil {
+		return
+	}
+	typeName, ok := obj.(*types.TypeName)
+	if !ok {
+		return
+	}
+	typ := types.Unalias(typeName.Type())
+	typ = xgoutil.DerefType(typ)
+	namedType, ok := typ.(*types.Named)
+	if !ok {
+		return
+	}
+
+	mainPkgDoc, _ := ctx.proj.PkgDoc()
+	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc, make(map[*types.Named]bool), make(map[string]bool))
+}
+
+// collectPropertyNamesFromNamedType collects property name completion items
+// from the given named type (including embedded types) using walkPropertyMembers.
+func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
+	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
+		insertText := m.Name
+		if !ctx.inStringLit {
+			insertText = strconv.Quote(m.Name)
+		}
+		def := m.SpxDef
+		// TypeHint must be nil so addSpxDefs does not filter property-name
+		// items by expected type compatibility.
+		def.TypeHint = nil
+		// Regardless of whether the property is backed by a field or a method,
+		// it is presented as a property to the user.
+		def.CompletionItemKind = PropertyCompletion
+		def.CompletionItemLabel = insertText
+		def.CompletionItemInsertText = insertText
+		def.CompletionItemInsertTextFormat = PlainTextTextFormat
+		ctx.itemSet.addSpxDefs(def)
+	})
 }
 
 // collectStructLit collects struct literal completions.
@@ -1553,13 +1636,14 @@ func (ctx *completionContext) collectSelect() error {
 var completionItemKindPriority = map[CompletionItemKind]int{
 	VariableCompletion:  1,
 	FieldCompletion:     2,
-	MethodCompletion:    3,
-	FunctionCompletion:  4,
-	ConstantCompletion:  5,
-	ClassCompletion:     6,
-	InterfaceCompletion: 7,
-	ModuleCompletion:    8,
-	KeywordCompletion:   9,
+	PropertyCompletion:  3,
+	MethodCompletion:    4,
+	FunctionCompletion:  5,
+	ConstantCompletion:  6,
+	ClassCompletion:     7,
+	InterfaceCompletion: 8,
+	ModuleCompletion:    9,
+	KeywordCompletion:   10,
 }
 
 // sortedItems returns the sorted items.
