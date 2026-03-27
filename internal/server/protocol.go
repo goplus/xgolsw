@@ -108,6 +108,7 @@ const (
 	KeywordCompletion   = protocol.KeywordCompletion
 	FieldCompletion     = protocol.FieldCompletion
 	MethodCompletion    = protocol.MethodCompletion
+	PropertyCompletion  = protocol.PropertyCompletion
 	FunctionCompletion  = protocol.FunctionCompletion
 	ModuleCompletion    = protocol.ModuleCompletion
 

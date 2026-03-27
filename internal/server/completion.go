@@ -1513,6 +1513,9 @@ func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types
 		// TypeHint must be nil so addSpxDefs does not filter property-name
 		// items by expected type compatibility.
 		def.TypeHint = nil
+		// Regardless of whether the property is backed by a field or a method,
+		// it is presented as a property to the user.
+		def.CompletionItemKind = PropertyCompletion
 		def.CompletionItemLabel = insertText
 		def.CompletionItemInsertText = insertText
 		def.CompletionItemInsertTextFormat = PlainTextTextFormat
@@ -1633,13 +1636,14 @@ func (ctx *completionContext) collectSelect() error {
 var completionItemKindPriority = map[CompletionItemKind]int{
 	VariableCompletion:  1,
 	FieldCompletion:     2,
-	MethodCompletion:    3,
-	FunctionCompletion:  4,
-	ConstantCompletion:  5,
-	ClassCompletion:     6,
-	InterfaceCompletion: 7,
-	ModuleCompletion:    8,
-	KeywordCompletion:   9,
+	PropertyCompletion:  3,
+	MethodCompletion:    4,
+	FunctionCompletion:  5,
+	ConstantCompletion:  6,
+	ClassCompletion:     7,
+	InterfaceCompletion: 8,
+	ModuleCompletion:    9,
+	KeywordCompletion:   10,
 }
 
 // sortedItems returns the sorted items.

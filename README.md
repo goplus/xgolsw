@@ -629,7 +629,7 @@ interface PropertyRenamedParams {
 
 This notification is sent after the workspace edit for the rename operation is successfully constructed. A property is defined as:
 - A direct (non-embedded) field that is not of a type from the main package
-- A method with no parameters and exactly one return value (the property name is converted to lowerCamelCase)
+- A method with no parameters and exactly one return value of a basic type (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (the property name is converted to lowerCamelCase)
 
 ## Other JSON structures
 
