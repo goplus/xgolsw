@@ -513,8 +513,13 @@ enum XGoInputKind {
 
 ### XGo property lookup
 
-The `xgo.getProperties` command retrieves properties (direct fields and auto-getter methods) for a target type or
-instance (for example, `Game` or a sprite name).
+The `xgo.getProperties` command retrieves properties for a target type (for example, `Game` or a sprite name).
+Properties include:
+- Direct fields of basic types (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (non-embedded only)
+- Auto-getter methods: exported, no parameters, exactly one return value of a basic type, `spx.Value`, or `spx.List`
+
+Properties from embedded types are included recursively; outer-scope members shadow embedded ones with the same name.
+Fields are listed before methods; within each group, names are sorted alphabetically.
 
 *Request:*
 
@@ -576,6 +581,11 @@ interface XGoProperty {
    * Optional documentation for the property.
    */
   doc?: string
+
+  /**
+   * The definition identifier for this property.
+   */
+  definition: XGoDefinitionIdentifier
 }
 ```
 
@@ -618,8 +628,8 @@ interface PropertyRenamedParams {
 ```
 
 This notification is sent after the workspace edit for the rename operation is successfully constructed. A property is defined as:
-- A direct (non-embedded) field that is not of a type from the main package
-- A method with no parameters and exactly one return value (the property name is converted to lowerCamelCase)
+- A field (direct or embedded) of basic types (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` that is not of a type from the main package
+- A method with no parameters and exactly one return value of a basic type (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (the property name is converted to lowerCamelCase)
 
 ## Other JSON structures
 
