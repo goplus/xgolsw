@@ -13,5 +13,4 @@
 // a typo or stale property name.
 //
 //	showVar("nonexistent")
-
 package propertyname

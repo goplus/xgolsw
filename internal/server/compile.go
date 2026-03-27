@@ -601,7 +601,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 					return nil
 				}
 				var names []string
-				walkPropertyMembers(named, pkgDoc, make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
+				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
 					names = append(names, m.Name)
 				})
 				return names
