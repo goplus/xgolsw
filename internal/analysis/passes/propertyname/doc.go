@@ -5,9 +5,10 @@
 //
 // propertyname: check that PropertyName arguments refer to existing properties
 //
-// This checker reports calls where a PropertyName string-literal argument does
-// not match any property of the effective receiver type (the type inferred from
-// the enclosing file or an explicit selector expression).
+// This checker reports calls where a PropertyName string-literal or
+// string-constant argument does not match any property of the effective
+// receiver type (the type inferred from the enclosing file or an explicit
+// selector expression).
 //
 // Such calls would silently do nothing at runtime and almost always indicate
 // a typo or stale property name.

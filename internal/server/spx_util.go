@@ -210,23 +210,27 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 }
 
 // PropertyTargetNamedTypeForCall resolves the *types.Named that owns the
-// properties being addressed by a call expression. It checks the explicit
-// selector receiver first (X.Method(...)), then falls back to deducing the
-// target from the current file name (implicit receiver).
+// properties being addressed by a call expression.
+//
+// Resolution rules:
+//   - If call.Fun is a SelectorExpr (e.g. x.Method(...) or getObj().Method(...)),
+//     the receiver type is read from typeInfo.Types[sel.X]. Returns nil when the
+//     receiver type cannot be resolved or is not a named type. No implicit-receiver
+//     fallback is attempted.
+//   - If call.Fun is a bare identifier (implicit receiver), the target type is
+//     deduced from the file name: "main.spx" maps to "Game"; any other
+//     "TypeName.spx" maps to "TypeName".
 //
 // spxFile is the file containing the call expression (e.g. "MySprite.spx").
-// mainSpxFile is the main entry file (e.g. "main.spx"); when spxFile equals
-// mainSpxFile the target is the "Game" type.
+// mainSpxFile is the main entry file (e.g. "main.spx").
 //
 // Returns nil when the target cannot be determined.
 func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallExpr, spxFile, mainSpxFile string) *types.Named {
 	if sel, ok := call.Fun.(*xgoast.SelectorExpr); ok {
-		if ident, ok := sel.X.(*xgoast.Ident); ok {
-			if obj := typeInfo.Uses[ident]; obj != nil {
-				typ := types.Unalias(xgoutil.DerefType(obj.Type()))
-				if named, ok := typ.(*types.Named); ok {
-					return named
-				}
+		if tv, ok := typeInfo.Types[sel.X]; ok && tv.Type != nil {
+			typ := types.Unalias(xgoutil.DerefType(tv.Type))
+			if named, ok := typ.(*types.Named); ok {
+				return named
 			}
 		}
 		return nil

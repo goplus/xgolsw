@@ -169,6 +169,54 @@ func run() {
 			},
 			wantDiag: false,
 		},
+		{
+			name: "nil return from GetPropertyNamesForCall skips validation",
+			src: `
+package test
+
+type PropertyName string
+
+func showVar(name PropertyName) {}
+
+func run() {
+	showVar("unknown")
+}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ types.Type) bool {
+					named, ok := types.Unalias(typ).(*types.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return nil // target type unknown: skip validation
+				},
+			},
+			wantDiag: false,
+		},
+		{
+			name: "empty return from GetPropertyNamesForCall reports all properties unknown",
+			src: `
+package test
+
+type PropertyName string
+
+func showVar(name PropertyName) {}
+
+func run() {
+	showVar("x")
+}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ types.Type) bool {
+					named, ok := types.Unalias(typ).(*types.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return []string{} // target type known but has no properties
+				},
+			},
+			wantDiag: true,
+		},
 	}
 
 	for _, tt := range tests {

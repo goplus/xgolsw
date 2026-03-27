@@ -36,6 +36,15 @@ func run(pass *protocol.Pass) (any, error) {
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
 		call := n.(*ast.CallExpr)
 
+		validNames := pass.GetPropertyNamesForCall(call)
+		if validNames == nil {
+			return
+		}
+		validNamesSet := make(map[string]struct{}, len(validNames))
+		for _, name := range validNames {
+			validNamesSet[name] = struct{}{}
+		}
+
 		xgoutil.WalkCallExprArgs(pass.TypesInfo, call,
 			func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 				param := params.At(paramIndex)
@@ -50,14 +59,9 @@ func run(pass *protocol.Pass) (any, error) {
 					return true
 				}
 
-				validNames := pass.GetPropertyNamesForCall(call)
-				for _, name := range validNames {
-					if name == propName {
-						return true
-					}
+				if _, ok := validNamesSet[propName]; !ok {
+					pass.ReportRangef(arg, "unknown property %q", propName)
 				}
-
-				pass.ReportRangef(arg, "unknown property %q", propName)
 				return true
 			})
 	})
