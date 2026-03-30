@@ -576,7 +576,6 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	pkgDoc, _ := proj.PkgDoc()
 	for spxFile, astFile := range astPkg.Files {
 		var diagnostics []Diagnostic
-		spxFile := spxFile // capture for closures
 		// propertyNamesCached / propertyNamesCache together memoize
 		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
 		// because a cached nil (unknown target → skip validation) must be
