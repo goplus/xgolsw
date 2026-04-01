@@ -4,6 +4,9 @@ import (
 	"go/types"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
@@ -43,9 +46,7 @@ _ = append(s, 1)
 			// Create file set and parse source
 			fset := token.NewFileSet()
 			f, err := parser.ParseFile(fset, "test.xgo", tt.src, parser.ParseComments)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			info := &xgotypes.Info{
 				Info: typesutil.Info{
@@ -65,9 +66,7 @@ _ = append(s, 1)
 				&info.Info,
 			)
 
-			if err := checker.Files(nil, []*ast.File{f}); err != nil {
-				t.Log("type checking error:", err)
-			}
+			_ = checker.Files(nil, []*ast.File{f}) // xgo snippets without package declaration may fail type checking
 
 			var diagnostics []protocol.Diagnostic
 			// Create pass
@@ -85,17 +84,9 @@ _ = append(s, 1)
 
 			// Run analyzer
 			_, err = Analyzer.Run(pass)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
-			for _, diagnostic := range diagnostics {
-				t.Logf("got diagnostic: %v", diagnostic)
-			}
-			hasDiag := len(diagnostics) > 0
-			if hasDiag != tt.wantDiag {
-				t.Errorf("got diagnostic = %v, want %v", hasDiag, tt.wantDiag)
-			}
+			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
 		})
 	}
 }

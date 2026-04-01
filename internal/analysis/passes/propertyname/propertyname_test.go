@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
@@ -111,7 +112,7 @@ type PropertyName string
 
 func showVar(name PropertyName) {}
 
-var prop = "unknown"
+var prop PropertyName = "unknown"
 
 func run() {
 	showVar(prop)
@@ -234,9 +235,7 @@ func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCal
 
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "test.xgo", src, parser.ParseComments)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	info := &xgotypes.Info{
 		Info: typesutil.Info{
@@ -255,9 +254,7 @@ func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCal
 		nil,
 		&info.Info,
 	)
-	if err := checker.Files(nil, []*ast.File{f}); err != nil {
-		t.Log("type checking error:", err)
-	}
+	require.NoError(t, checker.Files(nil, []*ast.File{f}))
 
 	var diagnostics []protocol.Diagnostic
 	pass := &protocol.Pass{
@@ -275,9 +272,7 @@ func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCal
 	}
 
 	_, err = Analyzer.Run(pass)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	return diagnostics
 }
