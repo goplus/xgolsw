@@ -228,10 +228,7 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallExpr, spxFile, mainSpxFile string) *types.Named {
 	if sel, ok := call.Fun.(*xgoast.SelectorExpr); ok {
 		if tv, ok := typeInfo.Types[sel.X]; ok && tv.Type != nil {
-			typ := types.Unalias(xgoutil.DerefType(tv.Type))
-			if named, ok := typ.(*types.Named); ok {
-				return named
-			}
+			return resolvedNamedType(tv.Type)
 		}
 		return nil
 	}
@@ -254,11 +251,7 @@ func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallEx
 	if !ok {
 		return nil
 	}
-	named, ok := types.Unalias(xgoutil.DerefType(tn.Type())).(*types.Named)
-	if !ok {
-		return nil
-	}
-	return named
+	return resolvedNamedType(tn.Type())
 }
 
 // searchAllDefsForField is a fallback method that searches all type definitions.

@@ -597,9 +597,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			ResultOf: map[*protocol.Analyzer]any{
 				inspect.Analyzer: inspector.New([]*xgoast.File{astFile}),
 			},
-			IsPropertyNameType: func(typ types.Type) bool {
-				return typ == GetSpxPropertyNameType()
-			},
+			IsPropertyNameType: IsSpxPropertyNameType,
 			GetPropertyNamesForCall: func(call *xgoast.CallExpr) []string {
 				if _, ok := propertyNamesCached[call]; ok {
 					return propertyNamesCache[call]

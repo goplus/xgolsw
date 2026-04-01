@@ -4,6 +4,8 @@ import (
 	"go/types"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
@@ -222,10 +224,7 @@ func run() {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			diagnostics := runPropertynameAnalyzer(t, tt.src, tt.callbacks)
-			hasDiag := len(diagnostics) > 0
-			if hasDiag != tt.wantDiag {
-				t.Fatalf("got diagnostic = %v, want %v", hasDiag, tt.wantDiag)
-			}
+			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
 		})
 	}
 }
