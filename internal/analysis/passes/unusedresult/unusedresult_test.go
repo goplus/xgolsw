@@ -13,6 +13,8 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnusedresult(t *testing.T) {
@@ -77,9 +79,7 @@ fmt.Println("hello")
 		t.Run(tt.name, func(t *testing.T) {
 			fset := token.NewFileSet()
 			f, err := parser.ParseFile(fset, "test.xgo", tt.src, parser.ParseComments)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			info := &xgotypes.Info{
 				Info: typesutil.Info{
@@ -121,16 +121,116 @@ fmt.Println("hello")
 			}
 
 			_, err = Analyzer.Run(pass)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			for _, d := range diagnostics {
 				t.Logf("got diagnostic: %v", d)
 			}
-			if hasDiag := len(diagnostics) > 0; hasDiag != tt.wantDiag {
-				t.Errorf("got diagnostic = %v, want %v", hasDiag, tt.wantDiag)
-			}
+			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
 		})
 	}
+}
+
+func runUnusedresult(t *testing.T, src string) []protocol.Diagnostic {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.xgo", src, parser.ParseComments)
+	require.NoError(t, err)
+
+	info := &xgotypes.Info{
+		Info: typesutil.Info{
+			Types:      make(map[ast.Expr]types.TypeAndValue),
+			Defs:       make(map[*ast.Ident]types.Object),
+			Uses:       make(map[*ast.Ident]types.Object),
+			Selections: make(map[*ast.SelectorExpr]*types.Selection),
+		},
+	}
+	checker := typesutil.NewChecker(
+		&types.Config{Error: func(error) {}, Importer: internalpkg.Importer},
+		&typesutil.Config{Fset: fset, Types: types.NewPackage("test", "test")},
+		nil, &info.Info,
+	)
+	if err := checker.Files(nil, []*ast.File{f}); err != nil {
+		t.Log("type checking error:", err)
+	}
+
+	var diagnostics []protocol.Diagnostic
+	pass := &protocol.Pass{
+		Fset:      fset,
+		Files:     []*ast.File{f},
+		TypesInfo: info,
+		Report:    func(d protocol.Diagnostic) { diagnostics = append(diagnostics, d) },
+		ResultOf:  map[*protocol.Analyzer]any{inspect.Analyzer: inspector.New([]*ast.File{f})},
+	}
+	_, err = Analyzer.Run(pass)
+	require.NoError(t, err)
+	return diagnostics
+}
+
+func TestUnusedresultExtra(t *testing.T) {
+	// Error() method result not used (mustUseStringMethods)
+	t.Run("unused Error() result", func(t *testing.T) {
+		diags := runUnusedresult(t, `
+import "errors"
+var err = errors.New("oops")
+err.Error()
+`)
+		assert.NotEmpty(t, diags)
+	})
+
+	// String() method result not used
+	t.Run("unused String() result", func(t *testing.T) {
+		diags := runUnusedresult(t, `
+import "fmt"
+var s fmt.Stringer
+s.String()
+`)
+		assert.NotEmpty(t, diags)
+	})
+
+	// Used Error() result — no diagnostic
+	t.Run("used Error() result", func(t *testing.T) {
+		diags := runUnusedresult(t, `
+import "errors"
+var err = errors.New("oops")
+msg := err.Error()
+_ = msg
+`)
+		assert.Empty(t, diags)
+	})
+
+	// fmt.Sprint unused
+	t.Run("unused fmt.Sprint", func(t *testing.T) {
+		diags := runUnusedresult(t, `
+import "fmt"
+fmt.Sprint("x")
+`)
+		assert.NotEmpty(t, diags)
+	})
+
+	// fmt.Sprintln unused
+	t.Run("unused fmt.Sprintln", func(t *testing.T) {
+		diags := runUnusedresult(t, `
+import "fmt"
+fmt.Sprintln("x")
+`)
+		assert.NotEmpty(t, diags)
+	})
+}
+
+func TestStringSetFlag(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		var ss stringSetFlag
+		assert.Equal(t, "", ss.String())
+	})
+
+	t.Run("single item", func(t *testing.T) {
+		ss := stringSetFlag{"foo": true}
+		assert.Equal(t, "foo", ss.String())
+	})
+
+	t.Run("multiple items sorted", func(t *testing.T) {
+		ss := stringSetFlag{"banana": true, "apple": true, "cherry": true}
+		assert.Equal(t, "apple,banana,cherry", ss.String())
+	})
 }

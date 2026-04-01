@@ -12,6 +12,8 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBools(t *testing.T) {
@@ -74,9 +76,7 @@ _ = x == 1 && x == 2
 		t.Run(tt.name, func(t *testing.T) {
 			fset := token.NewFileSet()
 			f, err := parser.ParseFile(fset, "test.xgo", tt.src, parser.ParseComments)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			info := &xgotypes.Info{
 				Info: typesutil.Info{
@@ -114,16 +114,12 @@ _ = x == 1 && x == 2
 			}
 
 			_, err = Analyzer.Run(pass)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			for _, d := range diagnostics {
 				t.Logf("got diagnostic: %v", d)
 			}
-			if hasDiag := len(diagnostics) > 0; hasDiag != tt.wantDiag {
-				t.Errorf("got diagnostic = %v, want %v", hasDiag, tt.wantDiag)
-			}
+			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
 		})
 	}
 }
