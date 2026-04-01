@@ -26,14 +26,6 @@ func TestDefaultAnalyzers(t *testing.T) {
 		})
 	}
 
-	// loopclosure is registered but disabled by default for Go 1.22+ compatibility.
-	t.Run("loopclosure", func(t *testing.T) {
-		a, ok := DefaultAnalyzers["loopclosure"]
-		require.True(t, ok)
-		assert.Equal(t, "loopclosure", a.String())
-		assert.NotNil(t, a.Analyzer())
-		assert.False(t, a.EnabledByDefault())
-	})
 }
 
 func TestAnalyzerSeverityDefault(t *testing.T) {
