@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/appends"
+<<<<<<< HEAD
 	"github.com/goplus/xgolsw/internal/analysis/passes/assign"
 	"github.com/goplus/xgolsw/internal/analysis/passes/bools"
 	"github.com/goplus/xgolsw/internal/analysis/passes/loopclosure"
@@ -9,6 +10,9 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/stringintconv"
 	"github.com/goplus/xgolsw/internal/analysis/passes/unreachable"
 	"github.com/goplus/xgolsw/internal/analysis/passes/unusedresult"
+=======
+	"github.com/goplus/xgolsw/internal/analysis/passes/propertyname"
+>>>>>>> main
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 )
 
@@ -91,6 +95,8 @@ func init() {
 		{analyzer: bools.Analyzer},
 		{analyzer: loopclosure.Analyzer},
 		{analyzer: stringintconv.Analyzer},
+		// propertyname checks:
+		{analyzer: propertyname.Analyzer},
 	}
 	for _, analyzer := range analyzers {
 		DefaultAnalyzers[analyzer.analyzer.Name] = analyzer

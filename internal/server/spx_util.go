@@ -4,6 +4,7 @@ import (
 	"go/types"
 	"path"
 	"regexp"
+	"strings"
 
 	xgoast "github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
@@ -206,6 +207,51 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 		return "Sprite"
 	}
 	return typeName
+}
+
+// PropertyTargetNamedTypeForCall resolves the *types.Named that owns the
+// properties being addressed by a call expression.
+//
+// Resolution rules:
+//   - If call.Fun is a SelectorExpr (e.g. x.Method(...) or getObj().Method(...)),
+//     the receiver type is read from typeInfo.Types[sel.X]. Returns nil when the
+//     receiver type cannot be resolved or is not a named type. No implicit-receiver
+//     fallback is attempted.
+//   - If call.Fun is a bare identifier (implicit receiver), the target type is
+//     deduced from the file name: "main.spx" maps to "Game"; any other
+//     "TypeName.spx" maps to "TypeName".
+//
+// spxFile is the file containing the call expression (e.g. "MySprite.spx").
+// mainSpxFile is the main entry file (e.g. "main.spx").
+//
+// Returns nil when the target cannot be determined.
+func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallExpr, spxFile, mainSpxFile string) *types.Named {
+	if sel, ok := call.Fun.(*xgoast.SelectorExpr); ok {
+		if tv, ok := typeInfo.Types[sel.X]; ok && tv.Type != nil {
+			return resolvedNamedType(tv.Type)
+		}
+		return nil
+	}
+	// Implicit receiver: derive target from the file name.
+	var typeName string
+	switch path.Base(spxFile) {
+	case path.Base(mainSpxFile):
+		typeName = "Game"
+	default:
+		typeName = strings.TrimSuffix(path.Base(spxFile), ".spx")
+	}
+	if typeName == "" {
+		return nil
+	}
+	obj := typeInfo.Pkg.Scope().Lookup(typeName)
+	if obj == nil {
+		return nil
+	}
+	tn, ok := obj.(*types.TypeName)
+	if !ok {
+		return nil
+	}
+	return resolvedNamedType(tn.Type())
 }
 
 // searchAllDefsForField is a fallback method that searches all type definitions.

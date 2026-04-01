@@ -1059,3 +1059,30 @@ func canonicalSpxResourceNameType(typ types.Type) types.Type {
 func IsSpxResourceNameType(typ types.Type) bool {
 	return canonicalSpxResourceNameType(typ) != nil
 }
+
+// IsSpxPropertyNameType reports whether the given type is or is an alias of
+// [spx.PropertyName], resolving alias chains before comparing.
+func IsSpxPropertyNameType(typ types.Type) bool {
+	seen := make(map[types.Type]struct{})
+	for typ != nil {
+		if _, ok := seen[typ]; ok {
+			return false
+		}
+		seen[typ] = struct{}{}
+
+		if typ == GetSpxPropertyNameType() {
+			return true
+		}
+
+		alias, ok := typ.(*types.Alias)
+		if !ok {
+			return false
+		}
+		rhs := alias.Rhs()
+		if rhs == nil || rhs == typ {
+			return false
+		}
+		typ = rhs
+	}
+	return false
+}

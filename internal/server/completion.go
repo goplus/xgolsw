@@ -1454,19 +1454,15 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 func (ctx *completionContext) getPropertyTarget() string {
 	if ctx.kind == completionKindCall {
 		if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
-			if sel, ok := callExpr.Fun.(*xgoast.SelectorExpr); ok {
-				if ident, ok := sel.X.(*xgoast.Ident); ok {
-					if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-						typ := types.Unalias(obj.Type())
-						typ = xgoutil.DerefType(typ)
-						if named, ok := typ.(*types.Named); ok {
-							if xgoutil.IsInMainPkg(named.Obj()) {
-								return named.Obj().Name()
-							}
-						}
-					}
+			named := PropertyTargetNamedTypeForCall(ctx.typeInfo, callExpr, ctx.spxFile, ctx.result.mainSpxFile)
+			if named != nil {
+				// For explicit-receiver calls, only consider main-package types.
+				if _, hasSel := callExpr.Fun.(*xgoast.SelectorExpr); hasSel && !xgoutil.IsInMainPkg(named.Obj()) {
+					return ""
 				}
+				return named.Obj().Name()
 			}
+			return ""
 		}
 	}
 	// For implicit receiver calls, derive target from the current file's type.
