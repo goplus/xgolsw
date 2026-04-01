@@ -2,17 +2,14 @@ package analysis
 
 import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/appends"
-<<<<<<< HEAD
 	"github.com/goplus/xgolsw/internal/analysis/passes/assign"
 	"github.com/goplus/xgolsw/internal/analysis/passes/bools"
 	"github.com/goplus/xgolsw/internal/analysis/passes/loopclosure"
 	"github.com/goplus/xgolsw/internal/analysis/passes/printf"
+	"github.com/goplus/xgolsw/internal/analysis/passes/propertyname"
 	"github.com/goplus/xgolsw/internal/analysis/passes/stringintconv"
 	"github.com/goplus/xgolsw/internal/analysis/passes/unreachable"
 	"github.com/goplus/xgolsw/internal/analysis/passes/unusedresult"
-=======
-	"github.com/goplus/xgolsw/internal/analysis/passes/propertyname"
->>>>>>> main
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 )
 
