@@ -3,8 +3,6 @@ package unusedresult
 import (
 	_ "embed"
 	"go/types"
-	"sort"
-	"strings"
 
 	"github.com/goplus/xgo/ast"
 	xgotoken "github.com/goplus/xgo/token"
@@ -94,16 +92,4 @@ func run(pass *protocol.Pass) (any, error) {
 		}
 	})
 	return nil, nil
-}
-
-// For the -funcs flag (stub, not connected to flags in this simplified version).
-type stringSetFlag map[string]bool
-
-func (ss stringSetFlag) String() string {
-	var items []string
-	for item := range ss {
-		items = append(items, item)
-	}
-	sort.Strings(items)
-	return strings.Join(items, ",")
 }

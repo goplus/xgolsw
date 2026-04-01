@@ -217,20 +217,3 @@ fmt.Sprintln("x")
 		assert.NotEmpty(t, diags)
 	})
 }
-
-func TestStringSetFlag(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		var ss stringSetFlag
-		assert.Equal(t, "", ss.String())
-	})
-
-	t.Run("single item", func(t *testing.T) {
-		ss := stringSetFlag{"foo": true}
-		assert.Equal(t, "foo", ss.String())
-	})
-
-	t.Run("multiple items sorted", func(t *testing.T) {
-		ss := stringSetFlag{"banana": true, "apple": true, "cherry": true}
-		assert.Equal(t, "apple,banana,cherry", ss.String())
-	})
-}
