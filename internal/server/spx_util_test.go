@@ -5,6 +5,8 @@ import (
 	"go/types"
 	"testing"
 
+	xgoast "github.com/goplus/xgo/ast"
+	xgotypes "github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -80,6 +82,165 @@ func TestResolvedNamedType(t *testing.T) {
 				return
 			}
 			assert.Same(t, tt.want, got)
+		})
+	}
+}
+
+func TestPropertyTargetNamedTypeForCall(t *testing.T) {
+	newNamed := func(pkg *types.Package, name string) *types.Named {
+		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, name, nil), types.NewStruct(nil, nil), nil)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		build      func() (*xgotypes.Info, *xgoast.CallExpr, string, string)
+		wantName   string
+		wantResult bool
+	}{
+		{
+			name: "SelectorReceiverNamed",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				sprite := newNamed(pkg, "Sprite")
+
+				recvIdent := &xgoast.Ident{Name: "sprite"}
+				info := &xgotypes.Info{Pkg: pkg}
+				info.Types = map[xgoast.Expr]types.TypeAndValue{
+					recvIdent: {Type: sprite},
+				}
+
+				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				return info, call, "Sprite.spx", "main.spx"
+			},
+			wantName:   "Sprite",
+			wantResult: true,
+		},
+		{
+			name: "SelectorReceiverPointer",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				sprite := newNamed(pkg, "Sprite")
+
+				recvIdent := &xgoast.Ident{Name: "sprite"}
+				info := &xgotypes.Info{Pkg: pkg}
+				info.Types = map[xgoast.Expr]types.TypeAndValue{
+					recvIdent: {Type: types.NewPointer(sprite)},
+				}
+
+				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				return info, call, "Sprite.spx", "main.spx"
+			},
+			wantName:   "Sprite",
+			wantResult: true,
+		},
+		{
+			name: "SelectorReceiverCallExpr",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				sprite := newNamed(pkg, "Sprite")
+
+				getSprite := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "getSprite"}}
+				info := &xgotypes.Info{Pkg: pkg}
+				info.Types = map[xgoast.Expr]types.TypeAndValue{
+					getSprite: {Type: sprite},
+				}
+
+				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: getSprite, Sel: &xgoast.Ident{Name: "Show"}}}
+				return info, call, "Sprite.spx", "main.spx"
+			},
+			wantName:   "Sprite",
+			wantResult: true,
+		},
+		{
+			name: "SelectorReceiverMissingType",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+
+				recvIdent := &xgoast.Ident{Name: "sprite"}
+				info := &xgotypes.Info{Pkg: pkg}
+
+				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				return info, call, "Sprite.spx", "main.spx"
+			},
+			wantResult: false,
+		},
+		{
+			name: "SelectorReceiverNonNamedType",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+
+				recvIdent := &xgoast.Ident{Name: "s"}
+				info := &xgotypes.Info{Pkg: pkg}
+				info.Types = map[xgoast.Expr]types.TypeAndValue{
+					recvIdent: {Type: types.Typ[types.String]},
+				}
+
+				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				return info, call, "Sprite.spx", "main.spx"
+			},
+			wantResult: false,
+		},
+		{
+			name: "ImplicitMainSpxResolvesGame",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				game := newNamed(pkg, "Game")
+				_ = pkg.Scope().Insert(game.Obj())
+
+				info := &xgotypes.Info{Pkg: pkg}
+				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				return info, call, "dir/main.spx", "main.spx"
+			},
+			wantName:   "Game",
+			wantResult: true,
+		},
+		{
+			name: "ImplicitSpriteFileResolvesTypeByFileName",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				hero := newNamed(pkg, "Hero")
+				_ = pkg.Scope().Insert(hero.Obj())
+
+				info := &xgotypes.Info{Pkg: pkg}
+				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				return info, call, "dir/Hero.spx", "main.spx"
+			},
+			wantName:   "Hero",
+			wantResult: true,
+		},
+		{
+			name: "ImplicitLookupNotTypeName",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				_ = pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Enemy", types.Typ[types.Int]))
+
+				info := &xgotypes.Info{Pkg: pkg}
+				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				return info, call, "dir/Enemy.spx", "main.spx"
+			},
+			wantResult: false,
+		},
+		{
+			name: "ImplicitEmptyTypeName",
+			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
+				pkg := types.NewPackage("example.com/test", "test")
+				info := &xgotypes.Info{Pkg: pkg}
+				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				return info, call, "dir/.spx", "main.spx"
+			},
+			wantResult: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			info, call, spxFile, mainSpxFile := tt.build()
+			got := PropertyTargetNamedTypeForCall(info, call, spxFile, mainSpxFile)
+			if !tt.wantResult {
+				assert.Nil(t, got)
+				return
+			}
+			if assert.NotNil(t, got) {
+				assert.Equal(t, tt.wantName, got.Obj().Name())
+			}
 		})
 	}
 }

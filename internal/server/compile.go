@@ -573,11 +573,19 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	if astPkg == nil {
 		return
 	}
+	pkgDoc, _ := proj.PkgDoc()
 	for spxFile, astFile := range astPkg.Files {
 		var diagnostics []Diagnostic
+		// propertyNamesCached / propertyNamesCache together memoize
+		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
+		// because a cached nil (unknown target → skip validation) must be
+		// distinguished from a missing entry.
+		propertyNamesCached := make(map[*xgoast.CallExpr]struct{})
+		propertyNamesCache := make(map[*xgoast.CallExpr][]string)
 		pass := &protocol.Pass{
 			Fset:      fset,
 			Files:     []*xgoast.File{astFile},
+			Pkg:       typeInfo.Pkg,
 			TypesInfo: typeInfo,
 			Report: func(d protocol.Diagnostic) {
 				diagnostics = append(diagnostics, Diagnostic{
@@ -588,6 +596,23 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			},
 			ResultOf: map[*protocol.Analyzer]any{
 				inspect.Analyzer: inspector.New([]*xgoast.File{astFile}),
+			},
+			IsPropertyNameType: IsSpxPropertyNameType,
+			GetPropertyNamesForCall: func(call *xgoast.CallExpr) []string {
+				if _, ok := propertyNamesCached[call]; ok {
+					return propertyNamesCache[call]
+				}
+				propertyNamesCached[call] = struct{}{}
+				named := PropertyTargetNamedTypeForCall(typeInfo, call, spxFile, result.mainSpxFile)
+				if named == nil {
+					return nil
+				}
+				var names []string
+				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
+					names = append(names, m.Name)
+				})
+				propertyNamesCache[call] = names
+				return names
 			},
 		}
 
