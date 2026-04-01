@@ -158,23 +158,23 @@ func runAssign(t *testing.T, src string) []protocol.Diagnostic {
 }
 
 func TestAssignSameExprVariants(t *testing.T) {
-	// IndexExpr self-assignment: s[0] = s[0]
+	// IndexExpr self-assignment: s[0] = s[0] — not flagged because index operations may panic
 	t.Run("index self-assignment", func(t *testing.T) {
 		diags := runAssign(t, `
 var s [3]int
 s[0] = s[0]
 `)
-		assert.NotEmpty(t, diags)
+		assert.Empty(t, diags)
 	})
 
-	// StarExpr self-assignment: *p = *p
+	// StarExpr self-assignment: *p = *p — not flagged because dereference may panic
 	t.Run("star self-assignment", func(t *testing.T) {
 		diags := runAssign(t, `
 var x int
 p := &x
 *p = *p
 `)
-		assert.NotEmpty(t, diags)
+		assert.Empty(t, diags)
 	})
 
 	// Map index should NOT be flagged (map index excluded)

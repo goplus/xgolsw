@@ -50,7 +50,7 @@ func run(pass *protocol.Pass) (any, error) {
 			if isMapIndex(pass.TypesInfo, lhs) {
 				continue
 			}
-			if sameExpr(astutil.Unparen(lhs), astutil.Unparen(rhs)) {
+			if sameExpr(lhs, rhs) {
 				selfAssigned = append(selfAssigned, analysisutil.PrintExpr(lhs))
 			}
 		}
@@ -74,16 +74,6 @@ func isMapIndex(info *xgotypes.Info, e ast.Expr) bool {
 	}
 	_, isMap := tv.Type.Underlying().(*types.Map)
 	return isMap
-}
-
-// isMapType checks if the expression's type is a map.
-func isMapType(info *xgotypes.Info, e ast.Expr) bool {
-	tv, ok := info.Types[e]
-	if !ok || tv.Type == nil {
-		return false
-	}
-	// Use string check since we can't import go/types here without a cycle
-	return strings.Contains(tv.Type.Underlying().String(), "map[")
 }
 
 // sameExpr reports whether two expressions are structurally identical.

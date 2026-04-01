@@ -213,13 +213,22 @@ fmt.Println("hello\n")
 		assert.NotEmpty(t, diags)
 	})
 
-	// Println with URL-like %2F — should NOT trigger (hex escape)
+	// Println with URL-like %2F (exactly 3 bytes) — should NOT trigger (URL percent-encoding)
 	t.Run("Println URL percent encoding no diag", func(t *testing.T) {
 		diags := runPrintf(t, `
 import "fmt"
 fmt.Println("path%2Fto")
 `)
 		assert.Empty(t, diags)
+	})
+
+	// Println with %10d — two-digit width + verb (length 4), NOT URL encoding, should trigger
+	t.Run("Println two-digit width verb triggers diag", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Println("value: %10d")
+`)
+		assert.NotEmpty(t, diags)
 	})
 
 	// Printf with ellipsis — no diag (variadic forwarding)
@@ -249,5 +258,55 @@ import "log"
 log.Printf("%s")
 `)
 		assert.NotEmpty(t, diags)
+	})
+}
+
+// TestCountFormatVerbs exercises countFormatVerbs directly via Printf calls so
+// that argument-indexing edge cases are covered without needing to export the
+// function.
+func TestPrintfArgIndexing(t *testing.T) {
+	// %[1]d used twice with a single argument — no diagnostic.
+	t.Run("same arg used twice via index", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Printf("%[1]d %[1]d", 42)
+`)
+		assert.Empty(t, diags)
+	})
+
+	// %[2]d %[1]d — two explicit indices in reverse order, two args supplied.
+	t.Run("two explicit indices reordered", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Printf("%[2]d %[1]d", 1, 2)
+`)
+		assert.Empty(t, diags)
+	})
+
+	// %[2]d with only one argument — too few args.
+	t.Run("explicit index beyond arg count", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Printf("%[2]d", 1)
+`)
+		assert.NotEmpty(t, diags)
+	})
+
+	// %[1]d with two arguments — arg 1 referenced, arg 2 is extra (too many).
+	t.Run("extra arg when reusing via index", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Printf("%[1]d", 1, 2)
+`)
+		assert.NotEmpty(t, diags)
+	})
+
+	// Width from explicit [n]* — %[1]*d needs two args (width + value).
+	t.Run("explicit width star arg", func(t *testing.T) {
+		diags := runPrintf(t, `
+import "fmt"
+fmt.Printf("%[1]*d", 5, 42)
+`)
+		assert.Empty(t, diags)
 	})
 }

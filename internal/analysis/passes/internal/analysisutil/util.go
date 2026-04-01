@@ -4,7 +4,6 @@ package analysisutil
 
 import (
 	"fmt"
-	"go/constant"
 	"go/parser"
 	"go/token"
 	"strings"
@@ -103,7 +102,7 @@ func ExtractDoc(content, name string) (string, error) {
 	for _, section := range strings.Split(f.Doc.Text(), "\n# ") {
 		if body := strings.TrimPrefix(section, "Analyzer "+name); body != section &&
 			body != "" &&
-			body[0] == '\r' || body[0] == '\n' {
+			(body[0] == '\r' || body[0] == '\n') {
 			body = strings.TrimSpace(body)
 			rest := strings.TrimPrefix(body, name+":")
 			if rest == body {
@@ -133,15 +132,19 @@ func NoSideEffects(e ast.Expr) bool {
 	case *ast.BinaryExpr:
 		return NoSideEffects(e.X) && NoSideEffects(e.Y)
 	case *ast.StarExpr:
-		return NoSideEffects(e.X)
+		// Dereference may panic (e.g., nil pointer); treat as having side effects.
+		return false
 	case *ast.SelectorExpr:
 		return NoSideEffects(e.X)
 	case *ast.IndexExpr:
-		return NoSideEffects(e.X) && NoSideEffects(e.Index)
+		// Indexing may panic (nil or out-of-bounds); treat as having side effects.
+		return false
 	case *ast.SliceExpr:
-		return NoSideEffects(e.X)
+		// Slicing may panic and may have side effects in bounds; treat as having side effects.
+		return false
 	case *ast.TypeAssertExpr:
-		return NoSideEffects(e.X)
+		// Type assertion may panic on failure; treat as having side effects.
+		return false
 	}
 	return false
 }
@@ -178,11 +181,4 @@ func PrintExpr(e ast.Expr) string {
 		return PrintExpr(e.X) + "[:]"
 	}
 	return "..."
-}
-
-// IsConstantValue reports whether expr evaluates to a constant value according
-// to the provided types info (used in type-checking context).
-// This is a nil-safe wrapper: if tv.Value == nil, returns false.
-func IsConstantValue(v constant.Value) bool {
-	return v != nil
 }

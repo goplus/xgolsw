@@ -4,7 +4,6 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/appends"
 	"github.com/goplus/xgolsw/internal/analysis/passes/assign"
 	"github.com/goplus/xgolsw/internal/analysis/passes/bools"
-	"github.com/goplus/xgolsw/internal/analysis/passes/loopclosure"
 	"github.com/goplus/xgolsw/internal/analysis/passes/printf"
 	"github.com/goplus/xgolsw/internal/analysis/passes/propertyname"
 	"github.com/goplus/xgolsw/internal/analysis/passes/stringintconv"
@@ -90,7 +89,6 @@ func init() {
 		{analyzer: unusedresult.Analyzer},
 		{analyzer: printf.Analyzer},
 		{analyzer: bools.Analyzer},
-		{analyzer: loopclosure.Analyzer},
 		{analyzer: stringintconv.Analyzer},
 		// propertyname checks:
 		{analyzer: propertyname.Analyzer},

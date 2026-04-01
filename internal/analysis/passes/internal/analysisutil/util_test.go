@@ -1,7 +1,6 @@
 package analysisutil
 
 import (
-	"go/constant"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -79,11 +78,11 @@ func TestNoSideEffects(t *testing.T) {
 		{"UnaryExpr non-channel", &ast.UnaryExpr{Op: xgotoken.NOT, X: &ast.Ident{Name: "x"}}, true},
 		{"UnaryExpr channel receive", &ast.UnaryExpr{Op: xgotoken.ARROW, X: &ast.Ident{Name: "ch"}}, false},
 		{"BinaryExpr", &ast.BinaryExpr{X: &ast.Ident{Name: "a"}, Op: xgotoken.ADD, Y: &ast.Ident{Name: "b"}}, true},
-		{"StarExpr", &ast.StarExpr{X: &ast.Ident{Name: "p"}}, true},
+		{"StarExpr", &ast.StarExpr{X: &ast.Ident{Name: "p"}}, false},
 		{"SelectorExpr", &ast.SelectorExpr{X: &ast.Ident{Name: "s"}, Sel: &ast.Ident{Name: "f"}}, true},
-		{"IndexExpr", &ast.IndexExpr{X: &ast.Ident{Name: "s"}, Index: &ast.BasicLit{Kind: xgotoken.INT, Value: "0"}}, true},
-		{"SliceExpr", &ast.SliceExpr{X: &ast.Ident{Name: "s"}}, true},
-		{"TypeAssertExpr", &ast.TypeAssertExpr{X: &ast.Ident{Name: "x"}, Type: &ast.Ident{Name: "int"}}, true},
+		{"IndexExpr", &ast.IndexExpr{X: &ast.Ident{Name: "s"}, Index: &ast.BasicLit{Kind: xgotoken.INT, Value: "0"}}, false},
+		{"SliceExpr", &ast.SliceExpr{X: &ast.Ident{Name: "s"}}, false},
+		{"TypeAssertExpr", &ast.TypeAssertExpr{X: &ast.Ident{Name: "x"}, Type: &ast.Ident{Name: "int"}}, false},
 		{"CallExpr has side effects", &ast.CallExpr{Fun: &ast.Ident{Name: "f"}}, false},
 	}
 	for _, tt := range tests {
@@ -119,9 +118,4 @@ func TestPrintExpr(t *testing.T) {
 			assert.Equal(t, tt.want, PrintExpr(tt.expr))
 		})
 	}
-}
-
-func TestIsConstantValue(t *testing.T) {
-	assert.True(t, IsConstantValue(constant.MakeInt64(42)))
-	assert.False(t, IsConstantValue(nil))
 }

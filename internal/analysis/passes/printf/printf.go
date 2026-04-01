@@ -142,10 +142,7 @@ func checkPrintf(pass *protocol.Pass, call *ast.CallExpr, name string) {
 		return
 	}
 
-	if nArgs > nVerbs {
-		pass.ReportRangef(call, "%s call needs %s but has %s",
-			name, count(nVerbs, "arg"), count(nArgs, "arg"))
-	} else if nArgs < nVerbs {
+	if nArgs != nVerbs {
 		pass.ReportRangef(call, "%s call needs %s but has %s",
 			name, count(nVerbs, "arg"), count(nArgs, "arg"))
 	}
@@ -180,8 +177,8 @@ func checkPrint(pass *protocol.Pass, call *ast.CallExpr, name string) {
 		s = strings.TrimSuffix(s, "%")
 		if strings.Contains(s, "%") {
 			for _, m := range printFormatRE.FindAllString(s, -1) {
-				// Allow %XX (URL percent-encoding)
-				if len(m) >= 3 && isHex(m[1]) && isHex(m[2]) {
+				// Allow %XX (URL percent-encoding): exactly 3 bytes, % + two hex digits, no flags/width.
+				if len(m) == 3 && isHex(m[1]) && isHex(m[2]) {
 					continue
 				}
 				pass.ReportRangef(call, "%s call has possible Printf formatting directive %s", name, m)
@@ -202,9 +199,46 @@ func checkPrint(pass *protocol.Pass, call *ast.CallExpr, name string) {
 	}
 }
 
-// countFormatVerbs counts the number of format verbs in a format string (excluding %%).
-func countFormatVerbs(format string) int {
+// parseArgIndex parses an explicit argument index of the form [n] at position i
+// in s. It returns the 1-based index and the total bytes consumed (length of
+// "[n]"). Returns 0, 0 if s[i:] does not begin with a valid [n] sequence (n
+// must be ≥ 1).
+func parseArgIndex(s string, i int) (idx, advance int) {
+	if i >= len(s) || s[i] != '[' {
+		return 0, 0
+	}
+	j := i + 1
+	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+		j++
+	}
+	if j >= len(s) || s[j] != ']' || j == i+1 {
+		return 0, 0
+	}
 	n := 0
+	for k := i + 1; k < j; k++ {
+		n = n*10 + int(s[k]-'0')
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	return n, j - i + 1
+}
+
+// countFormatVerbs returns the number of arguments required by the format
+// string. It supports explicit argument indexing (%[n]verb): when two verbs
+// reference the same argument via [n], only one argument slot is consumed, so
+// the return value is the maximum referenced argument index rather than the raw
+// count of verbs.
+func countFormatVerbs(format string) int {
+	maxIdx := 0
+	implicit := 1 // 1-based index of the next implicitly-consumed argument
+
+	trackArg := func(idx int) {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+
 	for i := 0; i < len(format); i++ {
 		if format[i] != '%' {
 			continue
@@ -214,39 +248,76 @@ func countFormatVerbs(format string) int {
 			break
 		}
 		if format[i] == '%' {
-			continue // %%
+			continue // %%: not a verb, no argument consumed
 		}
-		// Skip flags
+
+		// Skip flag characters.
 		for i < len(format) && strings.ContainsRune(" +-#0", rune(format[i])) {
 			i++
 		}
-		// Skip width (optional)
-		if i < len(format) && format[i] == '*' {
-			n++ // * consumes an arg too
-			i++
+
+		// Width: [n]* consumes argument n; bare * consumes implicit; digits are literal.
+		if i < len(format) && format[i] == '[' {
+			if idx, adv := parseArgIndex(format, i); idx > 0 {
+				if j := i + adv; j < len(format) && format[j] == '*' {
+					// Width value comes from argument idx.
+					implicit = idx
+					trackArg(implicit)
+					implicit++
+					i = j + 1 // advance past [n]* to the char after *
+				}
+				// else: [n] is the verb's arg index (no * follows); leave i unchanged.
+			}
+		} else if i < len(format) && format[i] == '*' {
+			trackArg(implicit)
+			implicit++
+			i++ // consume *
 		} else {
 			for i < len(format) && format[i] >= '0' && format[i] <= '9' {
 				i++
 			}
 		}
-		// Skip precision (optional)
+
+		// Precision: optional '.' followed by [n]*, *, or digits.
 		if i < len(format) && format[i] == '.' {
-			i++
-			if i < len(format) && format[i] == '*' {
-				n++ // * consumes an arg too
-				i++
+			i++ // consume '.'
+			if i < len(format) && format[i] == '[' {
+				if idx, adv := parseArgIndex(format, i); idx > 0 {
+					if j := i + adv; j < len(format) && format[j] == '*' {
+						// Precision value comes from argument idx.
+						implicit = idx
+						trackArg(implicit)
+						implicit++
+						i = j + 1 // advance past [n]*
+					}
+					// else: [n] is the verb's arg index; leave i at [.
+				}
+			} else if i < len(format) && format[i] == '*' {
+				trackArg(implicit)
+				implicit++
+				i++ // consume *
 			} else {
 				for i < len(format) && format[i] >= '0' && format[i] <= '9' {
 					i++
 				}
 			}
 		}
-		// The verb itself
+
+		// Verb: optional explicit [n] immediately before the verb character.
+		if i < len(format) && format[i] == '[' {
+			if idx, adv := parseArgIndex(format, i); idx > 0 {
+				implicit = idx
+				i += adv // advance to the verb char
+			}
+		}
+		// Consume this verb's argument using the current implicit index.
 		if i < len(format) {
-			n++
+			trackArg(implicit)
+			implicit++
+			// i points to the verb char; the for-loop's i++ will advance past it.
 		}
 	}
-	return n
+	return maxIdx
 }
 
 func count(n int, what string) string {

@@ -10,7 +10,7 @@ import (
 
 func TestDefaultAnalyzers(t *testing.T) {
 	wantNames := []string{
-		"appends", "assign", "bools", "loopclosure",
+		"appends", "assign", "bools",
 		"printf", "stringintconv", "unreachable", "unusedresult",
 	}
 	for _, name := range wantNames {
@@ -25,6 +25,15 @@ func TestDefaultAnalyzers(t *testing.T) {
 			assert.Nil(t, a.Tags())
 		})
 	}
+
+	// loopclosure is registered but disabled by default for Go 1.22+ compatibility.
+	t.Run("loopclosure", func(t *testing.T) {
+		a, ok := DefaultAnalyzers["loopclosure"]
+		require.True(t, ok)
+		assert.Equal(t, "loopclosure", a.String())
+		assert.NotNil(t, a.Analyzer())
+		assert.False(t, a.EnabledByDefault())
+	})
 }
 
 func TestAnalyzerSeverityDefault(t *testing.T) {
