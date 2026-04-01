@@ -4,9 +4,13 @@ package analysisutil
 
 import (
 	"fmt"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"strings"
+
+	"github.com/goplus/xgo/ast"
+	xgotoken "github.com/goplus/xgo/token"
 )
 
 // MustExtractDoc is like [ExtractDoc] but it panics on error.
@@ -109,4 +113,76 @@ func ExtractDoc(content, name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("package doc comment contains no 'Analyzer %s' heading", name)
+}
+
+// NoSideEffects reports whether the expression e can be evaluated without
+// observable side effects. It is conservative: returns false when unsure.
+func NoSideEffects(e ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		return true
+	case *ast.Ident:
+		return true
+	case *ast.ParenExpr:
+		return NoSideEffects(e.X)
+	case *ast.UnaryExpr:
+		if e.Op == xgotoken.ARROW { // channel receive has side effects
+			return false
+		}
+		return NoSideEffects(e.X)
+	case *ast.BinaryExpr:
+		return NoSideEffects(e.X) && NoSideEffects(e.Y)
+	case *ast.StarExpr:
+		return NoSideEffects(e.X)
+	case *ast.SelectorExpr:
+		return NoSideEffects(e.X)
+	case *ast.IndexExpr:
+		return NoSideEffects(e.X) && NoSideEffects(e.Index)
+	case *ast.SliceExpr:
+		return NoSideEffects(e.X)
+	case *ast.TypeAssertExpr:
+		return NoSideEffects(e.X)
+	}
+	return false
+}
+
+// PrintExpr renders an expression as a human-readable string for diagnostic messages.
+func PrintExpr(e ast.Expr) string {
+	switch e := e.(type) {
+	case *ast.BasicLit:
+		return e.Value
+	case *ast.Ident:
+		return e.Name
+	case *ast.ParenExpr:
+		return "(" + PrintExpr(e.X) + ")"
+	case *ast.SelectorExpr:
+		return PrintExpr(e.X) + "." + e.Sel.Name
+	case *ast.IndexExpr:
+		return PrintExpr(e.X) + "[" + PrintExpr(e.Index) + "]"
+	case *ast.StarExpr:
+		return "*" + PrintExpr(e.X)
+	case *ast.UnaryExpr:
+		return e.Op.String() + PrintExpr(e.X)
+	case *ast.BinaryExpr:
+		return PrintExpr(e.X) + " " + e.Op.String() + " " + PrintExpr(e.Y)
+	case *ast.CallExpr:
+		return PrintExpr(e.Fun) + "(...)"
+	case *ast.CompositeLit:
+		if e.Type != nil {
+			return PrintExpr(e.Type) + "{...}"
+		}
+		return "{...}"
+	case *ast.TypeAssertExpr:
+		return PrintExpr(e.X) + ".(" + PrintExpr(e.Type) + ")"
+	case *ast.SliceExpr:
+		return PrintExpr(e.X) + "[:]"
+	}
+	return "..."
+}
+
+// IsConstantValue reports whether expr evaluates to a constant value according
+// to the provided types info (used in type-checking context).
+// This is a nil-safe wrapper: if tv.Value == nil, returns false.
+func IsConstantValue(v constant.Value) bool {
+	return v != nil
 }

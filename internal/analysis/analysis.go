@@ -2,6 +2,13 @@ package analysis
 
 import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/appends"
+	"github.com/goplus/xgolsw/internal/analysis/passes/assign"
+	"github.com/goplus/xgolsw/internal/analysis/passes/bools"
+	"github.com/goplus/xgolsw/internal/analysis/passes/loopclosure"
+	"github.com/goplus/xgolsw/internal/analysis/passes/printf"
+	"github.com/goplus/xgolsw/internal/analysis/passes/stringintconv"
+	"github.com/goplus/xgolsw/internal/analysis/passes/unreachable"
+	"github.com/goplus/xgolsw/internal/analysis/passes/unusedresult"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 )
 
@@ -77,6 +84,13 @@ func init() {
 	analyzers := []*Analyzer{
 		// The traditional vet suite:
 		{analyzer: appends.Analyzer},
+		{analyzer: assign.Analyzer},
+		{analyzer: unreachable.Analyzer},
+		{analyzer: unusedresult.Analyzer},
+		{analyzer: printf.Analyzer},
+		{analyzer: bools.Analyzer},
+		{analyzer: loopclosure.Analyzer},
+		{analyzer: stringintconv.Analyzer},
 	}
 	for _, analyzer := range analyzers {
 		DefaultAnalyzers[analyzer.analyzer.Name] = analyzer
