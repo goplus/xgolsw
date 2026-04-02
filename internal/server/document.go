@@ -24,6 +24,9 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 		if xgoutil.NodeFilename(result.proj.Fset, spxResourceRef.Node) != spxFile {
 			continue
 		}
+		if !result.spxResourceSet.Contains(spxResourceRef.ID) {
+			continue
+		}
 		target := URI(spxResourceRef.ID.URI())
 		links = append(links, DocumentLink{
 			Range:  RangeForNode(result.proj, spxResourceRef.Node),
