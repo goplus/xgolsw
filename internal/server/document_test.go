@@ -527,6 +527,7 @@ onStart => {
 	MySprite.setCostume "missingCostume"
 	MySprite.animate "missingAnim"
 	getWidget Monitor, "missingWidget"
+	var missingSprite SpriteName = "MissingSprite"
 }
 `),
 			"assets/index.json":                  []byte(`{"backdrops":[{"name":"backdrop1"}],"zorder":[]}`),
@@ -561,6 +562,7 @@ onStart => {
 		targetsForMySpriteSpx := collectTargets(linksForMySpriteSpx)
 		assert.Contains(t, targetsForMySpriteSpx, "spx://resources/backdrops/backdrop1")
 		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sounds/MissingSound")
+		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MissingSprite")
 		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/costumes/missingCostume")
 		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/animations/missingAnim")
 		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/widgets/missingWidget")
