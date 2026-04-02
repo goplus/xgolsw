@@ -513,6 +513,58 @@ const _ = 1
 		require.NoError(t, err)
 		require.Empty(t, links)
 	})
+
+	t.Run("InvalidSpxResourceReferencesFiltered", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+const ValidBackdrop BackdropName = "backdrop1"
+const MissingBackdrop BackdropName = "missingBackdrop"
+`),
+			"MySprite.spx": []byte(`
+onStart => {
+	play "MissingSound"
+	onBackdrop "backdrop1", func() {}
+	MySprite.setCostume "missingCostume"
+	MySprite.animate "missingAnim"
+	getWidget Monitor, "missingWidget"
+}
+`),
+			"assets/index.json":                  []byte(`{"backdrops":[{"name":"backdrop1"}],"zorder":[]}`),
+			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[],"fAnimations":{}}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		collectTargets := func(links []DocumentLink) []string {
+			t.Helper()
+			targets := make([]string, 0, len(links))
+			for _, link := range links {
+				if link.Target == nil {
+					continue
+				}
+				targets = append(targets, string(*link.Target))
+			}
+			return targets
+		}
+
+		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		targetsForMainSpx := collectTargets(linksForMainSpx)
+		assert.Contains(t, targetsForMainSpx, "spx://resources/backdrops/backdrop1")
+		assert.NotContains(t, targetsForMainSpx, "spx://resources/backdrops/missingBackdrop")
+
+		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+		})
+		require.NoError(t, err)
+		targetsForMySpriteSpx := collectTargets(linksForMySpriteSpx)
+		assert.Contains(t, targetsForMySpriteSpx, "spx://resources/backdrops/backdrop1")
+		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sounds/MissingSound")
+		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/costumes/missingCostume")
+		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/animations/missingAnim")
+		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/widgets/missingWidget")
+	})
 }
 
 func TestSortDocumentLinks(t *testing.T) {

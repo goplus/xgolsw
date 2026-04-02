@@ -239,6 +239,28 @@ func (set *SpxResourceSet) Widget(name string) *SpxWidgetResource {
 	return set.widgets[name]
 }
 
+// Contains reports whether the given resource ID exists in the set.
+func (set *SpxResourceSet) Contains(id SpxResourceID) bool {
+	switch id := id.(type) {
+	case SpxBackdropResourceID:
+		return set.Backdrop(id.BackdropName) != nil
+	case SpxSoundResourceID:
+		return set.Sound(id.SoundName) != nil
+	case SpxSpriteResourceID:
+		return set.Sprite(id.SpriteName) != nil
+	case SpxSpriteCostumeResourceID:
+		sprite := set.Sprite(id.SpriteName)
+		return sprite != nil && sprite.Costume(id.CostumeName) != nil
+	case SpxSpriteAnimationResourceID:
+		sprite := set.Sprite(id.SpriteName)
+		return sprite != nil && sprite.Animation(id.AnimationName) != nil
+	case SpxWidgetResourceID:
+		return set.Widget(id.WidgetName) != nil
+	default:
+		return false
+	}
+}
+
 // SpxBackdropResource represents a backdrop resource in spx.
 type SpxBackdropResource struct {
 	ID   SpxBackdropResourceID `json:"-"`
