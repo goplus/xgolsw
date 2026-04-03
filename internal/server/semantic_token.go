@@ -70,6 +70,18 @@ type semanticTokenInfo struct {
 	tokenModifiers []SemanticTokenModifiers
 }
 
+// semanticTokenTypeForVarKind returns the semantic token type for kind.
+func semanticTokenTypeForVarKind(kind types.VarKind) SemanticTokenTypes {
+	switch {
+	case isParameterLikeVarKind(kind):
+		return ParameterType
+	case kind == types.PackageVar, kind == types.LocalVar, kind == types.ResultVar:
+		return VariableType
+	default:
+		return VariableType
+	}
+}
+
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_semanticTokens
 func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*SemanticTokens, error) {
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
@@ -85,6 +97,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	}
 
 	fset := result.proj.Fset
+	astPkg, _ := result.proj.ASTPackage()
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos xgotoken.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
 		if !startPos.IsValid() || !endPos.IsValid() {
@@ -152,24 +165,15 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					tokenType = TypeType
 				}
 			case *types.Var:
-				switch obj.Kind() {
-				case types.FieldVar:
-					typeInfo, _ := result.proj.TypeInfo()
-					astPkg, _ := result.proj.ASTPackage()
+				switch {
+				case obj.IsField():
 					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
 						tokenType = VariableType
 					} else {
 						tokenType = PropertyType
 					}
-				case types.PackageVar:
-					defIdent := typeInfo.ObjToDef[obj]
-					if defIdent == node {
-						tokenType = ParameterType
-					} else {
-						tokenType = VariableType
-					}
 				default:
-					tokenType = VariableType
+					tokenType = semanticTokenTypeForVarKind(obj.Kind())
 				}
 			case *types.Const:
 				tokenType = VariableType

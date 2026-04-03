@@ -758,4 +758,49 @@ this = 1
 			}
 		}
 	})
+
+	t.Run("VarKindOverviews", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type T struct{}
+
+func (recv T) M(x int) (r int) {
+	return x
+}
+
+var _ = T{}.M(1)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		recvHover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, recvHover)
+		assert.Contains(t, recvHover.Contents.Value, `overview="recv recv main.T"`)
+
+		paramHover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 16},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, paramHover)
+		assert.Contains(t, paramHover.Contents.Value, `overview="param x int"`)
+
+		resultHover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 24},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resultHover)
+		assert.Contains(t, resultHover.Contents.Value, `overview="result r int"`)
+	})
 }

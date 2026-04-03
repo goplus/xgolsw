@@ -278,3 +278,87 @@ func TestCanonicalSpxResourceNameType(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSpxDefinitionForVarKinds(t *testing.T) {
+	pkg := types.NewPackage("main", "main")
+
+	newVar := func(name string, kind types.VarKind) *types.Var {
+		v := types.NewVar(token.NoPos, pkg, name, types.Typ[types.Int])
+		v.SetKind(kind)
+		return v
+	}
+	newParam := func(name string, kind types.VarKind) *types.Var {
+		v := types.NewParam(token.NoPos, pkg, name, types.Typ[types.Int])
+		v.SetKind(kind)
+		return v
+	}
+
+	tests := []struct {
+		name               string
+		v                  *types.Var
+		selectorTypeName   string
+		forceVar           bool
+		wantOverviewPrefix string
+		wantItemKind       CompletionItemKind
+	}{
+		{
+			name:               "PackageVar",
+			v:                  newVar("pkgVar", types.PackageVar),
+			wantOverviewPrefix: "var pkgVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "LocalVar",
+			v:                  newVar("localVar", types.LocalVar),
+			wantOverviewPrefix: "var localVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "ParamVar",
+			v:                  newParam("paramVar", types.ParamVar),
+			wantOverviewPrefix: "param paramVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "OptionalParamVar",
+			v:                  newParam("optionalParamVar", optionalParamVarKind),
+			wantOverviewPrefix: "param optionalParamVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "RecvVar",
+			v:                  newParam("recvVar", types.RecvVar),
+			wantOverviewPrefix: "recv recvVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "ResultVar",
+			v:                  newParam("resultVar", types.ResultVar),
+			wantOverviewPrefix: "result resultVar int",
+			wantItemKind:       VariableCompletion,
+		},
+		{
+			name:               "FieldVar",
+			v:                  types.NewField(token.NoPos, pkg, "fieldVar", types.Typ[types.Int], false),
+			selectorTypeName:   "Sprite",
+			wantOverviewPrefix: "field fieldVar int",
+			wantItemKind:       FieldCompletion,
+		},
+		{
+			name:               "ForcedFieldVar",
+			v:                  types.NewField(token.NoPos, pkg, "forcedFieldVar", types.Typ[types.Int], false),
+			selectorTypeName:   "Sprite",
+			forceVar:           true,
+			wantOverviewPrefix: "var forcedFieldVar int",
+			wantItemKind:       VariableCompletion,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := GetSpxDefinitionForVar(tt.v, tt.selectorTypeName, tt.forceVar, nil)
+			assert.Equal(t, tt.wantOverviewPrefix, def.Overview)
+			assert.Equal(t, tt.wantItemKind, def.CompletionItemKind)
+		})
+	}
+}

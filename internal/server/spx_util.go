@@ -157,7 +157,7 @@ func extractTypeName(typ types.Type) string {
 
 // findFieldOwnerType finds the type that owns a given field.
 func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
-	if !field.IsField() {
+	if field == nil || !field.IsField() {
 		return ""
 	}
 
