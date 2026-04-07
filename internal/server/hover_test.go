@@ -322,7 +322,7 @@ onTouchStart "MySprite", => {}
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxCameraFollowHover)
-		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Game.follow#1"`)
+		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Camera.follow#1"`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 37, Character: 7},
 			End:   Position{Line: 37, Character: 13},
@@ -339,7 +339,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?MySprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 1, Character: 9},
@@ -358,7 +358,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v2?MySprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 0},
@@ -740,7 +740,7 @@ this = 1
 			})
 			require.NoError(t, err)
 			require.NotNil(t, hover)
-			assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?Sprite.onStart"`)
+			assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v2?MySprite.onStart"`)
 			assert.NotContains(t, hover.Contents.Value, `var this`)
 		}
 

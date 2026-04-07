@@ -14,6 +14,7 @@ import (
 	xgotoken "github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -192,7 +193,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 
 	properties := []XGoProperty{}
 	seenNames := make(map[string]bool)
-	collectPropertiesFromNamedType(namedType, mainPkgDoc, make(map[*types.Named]bool), seenNames, &properties)
+	collectPropertiesFromNamedType(namedType, proj, mainPkgDoc, make(map[*types.Named]bool), seenNames, &properties)
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -222,7 +223,7 @@ type propertyMember struct {
 // outer-scope-first order. Outer (less deeply nested) members shadow embedded
 // ones with the same name. visited prevents infinite recursion for cyclic
 // embeddings; seenNames tracks already-yielded property names.
-func walkPropertyMembers(namedType *types.Named, pkgDocFor func(*types.Package) *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
+func walkPropertyMembers(namedType *types.Named, selectorTypeName string, proj *xgo.Project, pkgDocFor func(*types.Package) *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
 	if visited[namedType] {
 		return
 	}
@@ -232,8 +233,6 @@ func walkPropertyMembers(namedType *types.Named, pkgDocFor func(*types.Package) 
 	if !ok {
 		return
 	}
-
-	selectorTypeName := namedType.Obj().Name()
 
 	// Single pass over fields: yield direct property fields and collect
 	// embedded types for later recursion, so each field is visited only once.
@@ -258,7 +257,7 @@ func walkPropertyMembers(namedType *types.Named, pkgDocFor func(*types.Package) 
 			Name:   name,
 			Type:   field.Type(),
 			Kind:   XGoPropertyKindField,
-			SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDocFor(field.Pkg())),
+			SpxDef: resolveSpxDefinitionForField(proj, field, selectorTypeName, pkgDocFor(field.Pkg())),
 		})
 	}
 
@@ -277,13 +276,13 @@ func walkPropertyMembers(namedType *types.Named, pkgDocFor func(*types.Package) 
 			Name:   name,
 			Type:   sig.Results().At(0).Type(),
 			Kind:   XGoPropertyKindMethod,
-			SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDocFor(method.Pkg())),
+			SpxDef: resolveSpxDefinitionForMethod(proj, method, selectorTypeName, pkgDocFor(method.Pkg())),
 		})
 	}
 
 	// Recurse into embedded types collected during the field pass.
 	for _, embNamed := range embeddedTypes {
-		walkPropertyMembers(embNamed, pkgDocFor, visited, seenNames, onMember)
+		walkPropertyMembers(embNamed, selectorTypeName, proj, pkgDocFor, visited, seenNames, onMember)
 	}
 }
 
@@ -302,8 +301,8 @@ func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc) func(*types.Package) *pkgdoc.PkgDo
 
 // collectPropertiesFromNamedType recursively collects properties from a named
 // type into properties, using walkPropertyMembers for the traversal.
-func collectPropertiesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
-	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
+func collectPropertiesFromNamedType(namedType *types.Named, proj *xgo.Project, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
+	walkPropertyMembers(namedType, namedType.Obj().Name(), proj, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
 		*properties = append(*properties, XGoProperty{
 			Name:       m.Name,
 			Type:       GetSimplifiedTypeString(m.Type),
@@ -1216,7 +1215,6 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 			return true
 		}
 
-		var spxSpriteName string
 		if sel, ok := callExpr.Fun.(*xgoast.SelectorExpr); ok {
 			ident, ok := sel.X.(*xgoast.Ident)
 			if !ok {
@@ -1226,20 +1224,10 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 			if obj == nil {
 				return false
 			}
-			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
-			if !ok {
-				return false
-			}
-
-			if named == GetSpxSpriteType() {
-				spxSpriteName = ident.Name
-			} else if result.hasSpxSpriteType(named) {
-				spxSpriteName = obj.Name()
-			}
-		} else if spxFile != "main.spx" {
-			spxSpriteName = strings.TrimSuffix(spxFile, ".spx")
+			spxSpriteResource = result.spxSpriteResourceForObject(obj, ident.Name)
+			return false
 		}
-		spxSpriteResource = result.spxResourceSet.sprites[spxSpriteName]
+		spxSpriteResource = result.spxSpriteResourceForFile(spxFile)
 		return false
 	})
 	return spxSpriteResource

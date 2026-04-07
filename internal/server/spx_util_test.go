@@ -86,6 +86,43 @@ func TestResolvedNamedType(t *testing.T) {
 	}
 }
 
+func TestSpxFileNameHelpers(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		spxFile      string
+		mainSpxFile  string
+		wantTypeName string
+		wantSprite   string
+	}{
+		{
+			name:         "MainFile",
+			spxFile:      "dir/main.spx",
+			mainSpxFile:  "main.spx",
+			wantTypeName: "Game",
+			wantSprite:   "",
+		},
+		{
+			name:         "SpriteFile",
+			spxFile:      "dir/Hero.spx",
+			mainSpxFile:  "main.spx",
+			wantTypeName: "Hero",
+			wantSprite:   "Hero",
+		},
+		{
+			name:         "EmptyFile",
+			spxFile:      "",
+			mainSpxFile:  "main.spx",
+			wantTypeName: "",
+			wantSprite:   "",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantTypeName, spxWorkTypeNameForFile(tt.spxFile, tt.mainSpxFile))
+			assert.Equal(t, tt.wantSprite, spxSpriteNameForFile(tt.spxFile, tt.mainSpxFile))
+		})
+	}
+}
+
 func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 	newNamed := func(pkg *types.Package, name string) *types.Named {
 		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, name, nil), types.NewStruct(nil, nil), nil)

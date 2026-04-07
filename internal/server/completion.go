@@ -1141,11 +1141,8 @@ func (ctx *completionContext) collectDot() error {
 		return nil
 	}
 	typ = xgoutil.DerefType(typ)
-	named := resolvedNamedType(typ)
+	named := spxMemberTraversalType(typ)
 	if named != nil {
-		if IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
-			named = GetSpxSpriteImplType()
-		}
 		typ = named
 	}
 
@@ -1329,13 +1326,10 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		return nil
 	}
 
-	if named := resolvedNamedType(typ); named != nil {
-		switch named {
-		case GetSpxSpriteType(), GetSpxSpriteImplType():
-			for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
-				if spxSprite.Type() == named {
-					ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSprite, "Game")...)
-				}
+	if named := resolvedNamedType(typ); named != nil && isSpxSpriteAPIType(named) {
+		for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
+			if spxSprite.Type() == named {
+				ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSprite, "Game")...)
 			}
 		}
 	}
@@ -1420,10 +1414,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	}
 	sel, ok := callExpr.Fun.(*xgoast.SelectorExpr)
 	if !ok {
-		if ctx.spxFile == "main.spx" {
-			return nil
-		}
-		return ctx.result.spxResourceSet.sprites[strings.TrimSuffix(ctx.spxFile, ".spx")]
+		return ctx.result.spxSpriteResourceForFile(ctx.spxFile)
 	}
 
 	ident, ok := sel.X.(*xgoast.Ident)
@@ -1434,18 +1425,7 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	if obj == nil {
 		return nil
 	}
-	named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
-	if !ok {
-		return nil
-	}
-
-	if named == GetSpxSpriteType() {
-		return ctx.result.spxResourceSet.sprites[ident.Name]
-	}
-	if ctx.result.hasSpxSpriteType(named) {
-		return ctx.result.spxResourceSet.sprites[obj.Name()]
-	}
-	return nil
+	return ctx.result.spxSpriteResourceForObject(obj, ident.Name)
 }
 
 // getPropertyTarget returns the target type name for property name completions.
@@ -1469,10 +1449,7 @@ func (ctx *completionContext) getPropertyTarget() string {
 	if ctx.spxFile == "" {
 		return ""
 	}
-	if ctx.spxFile == ctx.result.mainSpxFile {
-		return "Game"
-	}
-	return strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")
+	return spxWorkTypeNameForFile(ctx.spxFile, ctx.result.mainSpxFile)
 }
 
 // collectPropertyNames collects property name completion items for the given target type.
@@ -1500,7 +1477,7 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 // collectPropertyNamesFromNamedType collects property name completion items
 // from the given named type (including embedded types) using walkPropertyMembers.
 func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
-	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
+	walkPropertyMembers(namedType, namedType.Obj().Name(), ctx.proj, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
 		insertText := m.Name
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(m.Name)
@@ -1526,9 +1503,7 @@ func (ctx *completionContext) collectStructLit() error {
 	}
 
 	selectorTypeName := ctx.compositeLitType.Obj().Name()
-	if IsInSpxPkg(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
-		selectorTypeName = "Sprite"
-	}
+	selectorTypeName = spxPublicTypeName(ctx.compositeLitType.Obj().Pkg(), selectorTypeName)
 
 	seenFields := make(map[string]struct{})
 
