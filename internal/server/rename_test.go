@@ -13,7 +13,6 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 			"main.spx": []byte(`
 const title = "My Game"
 MySprite.turn Left
-run "assets", {Title: title}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -63,7 +62,6 @@ onStart => {
 onClick => {
 	_ = this
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onClick => {
@@ -100,7 +98,6 @@ onClick => {
 onClick => {
 	_ = this
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onClick => {
@@ -156,7 +153,6 @@ func TestServerTextDocumentRename(t *testing.T) {
 			"main.spx": []byte(`
 const Foo = "bar"
 MySprite.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 println Foo
@@ -204,7 +200,6 @@ onStart => {
 			"main.spx": []byte(`
 const Foo = "bar"
 MySprite.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 println Foo
@@ -251,7 +246,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.turnTo "OtherSprite"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -288,7 +282,6 @@ onStart => {
 onClick => {
 	_ = this
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onClick => {
@@ -323,7 +316,6 @@ func TestServerSpxRenameBackdropResource(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 onBackdrop "backdrop1", func() {}
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -370,7 +362,6 @@ onStart => {
 			"main.spx": []byte(`
 const Backdrop1 = "backdrop1"
 onBackdrop Backdrop1, func() {}
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -410,7 +401,6 @@ onStart => {
 			"main.spx": []byte(`
 const Backdrop1 BackdropName = "backdrop1"
 onBackdrop "backdrop1", func() {}
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -463,7 +453,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 onBackdrop "backdrop1", func() {}
-run "assets", {Title: "My Game"}
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"},{"name":"backdrop2","path":"backdrop2.png"}]}`),
 		}
@@ -486,7 +475,6 @@ func TestServerSpxRenameSoundResource(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 play "Sound1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -534,7 +522,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 play "Sound1"
-run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":               []byte(`{}`),
 			"assets/sounds/Sound1/index.json": []byte(`{"path":"sound1.wav"}`),
@@ -559,7 +546,6 @@ func TestServerSpxRenameSpriteResource(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 Sprite1.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"Sprite1.spx": []byte(`
 onStart => {
@@ -607,7 +593,6 @@ onStart => {
 			"main.spx": []byte(`
 Sprite1.turn Left
 Sprite2.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"Sprite1.spx": []byte(`
 onStart => {
@@ -682,7 +667,6 @@ func TestServerSpxRenameSpriteCostumeResource(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.setCostume "costume1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -729,7 +713,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.setCostume "costume1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -756,7 +739,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.setCostume "costume1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -785,7 +767,6 @@ func TestServerSpxRenameSpriteAnimationResource(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.animate "anim1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -832,7 +813,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.animate "anim1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -859,7 +839,6 @@ onStart => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.animate "anim1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -887,7 +866,6 @@ func TestServerSpxRenameWidgetResource(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -922,7 +900,6 @@ onStart => {
 	t.Run("AlreadyExists", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {

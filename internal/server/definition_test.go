@@ -12,7 +12,6 @@ func TestServerTextDocumentDefinition(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -73,7 +72,6 @@ var x int
 	t.Run("ThisPtr", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-this.run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})

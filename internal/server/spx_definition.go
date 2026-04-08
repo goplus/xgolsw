@@ -538,11 +538,6 @@ var (
 		return spxPkg.Scope().Lookup("HSBA").(*types.Func)
 	})
 
-	// GetSpxXGotGameRunFunc returns the [spx.XGot_Game_Run] type.
-	GetSpxXGotGameRunFunc = sync.OnceValue(func() *types.Func {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("XGot_Game_Run").(*types.Func)
-	})
 )
 
 // nonMainPkgSpxDefsCache is a cache of non-main package spx definitions.

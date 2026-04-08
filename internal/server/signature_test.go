@@ -14,7 +14,6 @@ func TestTextDocumentSignatureHelp(t *testing.T) {
 import "fmt"
 fmt.Println 
 MySprite.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {

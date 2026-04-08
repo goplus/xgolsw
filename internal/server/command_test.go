@@ -2084,7 +2084,6 @@ func TestIsPropertyOfEnclosingType(t *testing.T) {
 	t.Run("PropertyField", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "Test"}
 `),
 			"MySprite.spx": []byte(`
 var (
@@ -2156,7 +2155,6 @@ func onStart() {
 	t.Run("PropertyMethod", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "Test"}
 `),
 			"MySprite.spx": []byte(`
 var (
@@ -2240,7 +2238,6 @@ func TestFindEnclosingType(t *testing.T) {
 	t.Run("FieldEnclosingType", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "Test"}
 `),
 			"MySprite.spx": []byte(`
 var (
@@ -2361,7 +2358,6 @@ func onStart() {
 	t.Run("MethodEnclosingType", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "Test"}
 `),
 			"MySprite.spx": []byte(`
 func Speed() float64 {
@@ -2486,7 +2482,6 @@ func onStart() {
 	t.Run("EdgeCases", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "Test"}
 `),
 			"MySprite.spx": []byte(`
 var x int

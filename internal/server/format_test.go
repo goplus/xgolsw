@@ -19,7 +19,6 @@ var (
   Bullet Bullet
 )
 type Score int
-run "assets",    { Title:    "Bullet (by XGo)" }
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -33,7 +32,7 @@ run "assets",    { Title:    "Bullet (by XGo)" }
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 9, Character: 0},
+				End:   Position{Line: 8, Character: 0},
 			},
 			NewText: `// An spx game.
 
@@ -43,8 +42,6 @@ var (
 	MyAircraft MyAircraft
 	Bullet     Bullet
 )
-
-run "assets", {Title: "Bullet (by XGo)"}
 `,
 		})
 	})
@@ -76,7 +73,7 @@ run "assets", {Title: "Bullet (by XGo)"}
 
 	t.Run("NoChangesNeeded", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`run "assets", {Title: "Bullet (by XGo)"}` + "\n"),
+			"main.spx": []byte(``),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 		params := &DocumentFormattingParams{
@@ -250,8 +247,6 @@ var (
 var (
 	MySprite
 )
-
-run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -272,8 +267,6 @@ import "math"
 onClick => {
 	println math.floor(2.5)
 }
-
-run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -428,7 +421,6 @@ const b = "123"
 
 // floating comment4
 
-run "assets", {Title: "My Game"}
 
 // floating comment5
 `),
@@ -444,7 +436,7 @@ run "assets", {Title: "My Game"}
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 24, Character: 0},
+				End:   Position{Line: 23, Character: 0},
 			},
 			NewText: `import "fmt"
 
@@ -468,8 +460,6 @@ func test() {
 }
 
 // floating comment4
-
-run "assets", {Title: "My Game"}
 
 // floating comment5
 `,
@@ -569,7 +559,6 @@ var (
 	moveStep int = 20
 )
 
-run "assets", {Title: "Snake Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -583,7 +572,7 @@ run "assets", {Title: "Snake Game"}
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 12, Character: 0},
+				End:   Position{Line: 11, Character: 0},
 			},
 			NewText: `// An spx game.
 
@@ -595,8 +584,6 @@ var (
 var (
 	moveStep int = 20
 )
-
-run "assets", {Title: "Snake Game"}
 `,
 		})
 	})
@@ -623,7 +610,6 @@ var (
     gameSpeed int = 5
 )
 
-run "assets", {Title: "Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -637,7 +623,7 @@ run "assets", {Title: "Game"}
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 21, Character: 0},
+				End:   Position{Line: 20, Character: 0},
 			},
 			NewText: `// An spx game.
 
@@ -654,8 +640,6 @@ var (
 
 	gameSpeed int = 5
 )
-
-run "assets", {Title: "Game"}
 `,
 		})
 	})
@@ -680,7 +664,6 @@ var (
     name string = "DefaultPlayer"
 )
 
-run "assets", {Title: "Game With Comments"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -694,7 +677,7 @@ run "assets", {Title: "Game With Comments"}
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 19, Character: 0},
+				End:   Position{Line: 18, Character: 0},
 			},
 			NewText: `// An spx game.
 
@@ -713,8 +696,6 @@ var (
 	// Player name
 	name string = "DefaultPlayer"
 )
-
-run "assets", {Title: "Game With Comments"}
 `,
 		})
 	})
@@ -728,7 +709,6 @@ var y int = 10
 var z string
 var name string = "Player"
 
-run "assets", {Title: "Single Vars"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -742,7 +722,7 @@ run "assets", {Title: "Single Vars"}
 		assert.Contains(t, edits, TextEdit{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 8, Character: 0},
+				End:   Position{Line: 7, Character: 0},
 			},
 			NewText: `// An spx game.
 
@@ -757,8 +737,6 @@ var (
 
 	name string = "Player"
 )
-
-run "assets", {Title: "Single Vars"}
 `,
 		})
 	})
