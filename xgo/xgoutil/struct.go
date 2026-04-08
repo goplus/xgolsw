@@ -27,41 +27,17 @@ func IsNamedStructType(named *types.Named) bool {
 	return ok
 }
 
-// IsXGoClassStructType reports whether the given named type is an XGo class struct type.
-func IsXGoClassStructType(named *types.Named) bool {
-	if named == nil {
-		return false
-	}
-	obj := named.Obj()
-	if obj == nil {
-		return false
-	}
-	pkg := obj.Pkg()
-	if !IsMarkedAsXGoPackage(pkg) {
-		return false
-	}
-
-	// FIXME: This is a workaround for the fact that XGo does not have the ability to
-	// recognize XGo class struct types.
-	switch PkgPath(pkg) + "." + obj.Name() {
-	case "github.com/goplus/spx/v2.Game",
-		"github.com/goplus/spx/v2.SpriteImpl":
-		return true
-	}
-
-	return false
-}
-
 // WalkStruct walks a struct and calls the given onMember for each field and
 // method. If onMember returns false, the walk is stopped.
 func WalkStruct(named *types.Named, onMember func(member types.Object, selector *types.Named) bool) {
 	if named == nil {
 		return
 	}
+	selector := named
 	walked := make(map[*types.Named]struct{})
 	seenMembers := make(map[string]struct{})
-	var walk func(named *types.Named, namedPath []*types.Named) bool
-	walk = func(named *types.Named, namedPath []*types.Named) bool {
+	var walk func(named *types.Named) bool
+	walk = func(named *types.Named) bool {
 		if _, ok := walked[named]; ok {
 			return true
 		}
@@ -70,17 +46,6 @@ func WalkStruct(named *types.Named, onMember func(member types.Object, selector 
 		st, ok := named.Underlying().(*types.Struct)
 		if !ok {
 			return true
-		}
-
-		selector := named
-		for _, named := range namedPath {
-			if !IsExportedOrInMainPkg(named.Obj()) {
-				break
-			}
-			selector = named
-			if IsXGoClassStructType(selector) {
-				break
-			}
 		}
 
 		for field := range st.Fields() {
@@ -113,11 +78,11 @@ func WalkStruct(named *types.Named, onMember func(member types.Object, selector 
 				continue
 			}
 
-			if !walk(namedField, append(namedPath, namedField)) {
+			if !walk(namedField) {
 				return false
 			}
 		}
 		return true
 	}
-	walk(named, []*types.Named{named})
+	walk(named)
 }

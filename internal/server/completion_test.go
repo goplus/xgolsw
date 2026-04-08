@@ -67,27 +67,27 @@ onStart => {
 		assert.False(t, containsCompletionItemLabel(mySpriteDotItems, "println"))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
+			Name:       ToPtr("MySprite.turn"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
+			Name:       ToPtr("MySprite.turn"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
+			Name:       ToPtr("MySprite.turn"),
 			OverloadID: ToPtr("1"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.clone"),
+			Name:       ToPtr("MySprite.clone"),
 			OverloadID: ToPtr("0"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.clone"),
+			Name:       ToPtr("MySprite.clone"),
 			OverloadID: ToPtr("1"),
 		}))
 	})
@@ -2597,7 +2597,7 @@ showVar(
 		assert.True(t, containsCompletionItemLabel(items, `"xpos"`))
 		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
 			Package: ToPtr("github.com/goplus/spx/v2"),
-			Name:    ToPtr("Sprite.xpos"),
+			Name:    ToPtr("MySprite.xpos"),
 		}))
 	})
 

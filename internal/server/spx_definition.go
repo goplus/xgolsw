@@ -600,15 +600,95 @@ type nonMainPkgSpxDefCacheForVarsKey struct {
 // spxMemberDefinitionPkgPath returns the package path used in definition IDs for
 // spx members. It prefers the public spx package when the member comes from an
 // internal implementation package but is surfaced through a public spx type.
-func spxMemberDefinitionPkgPath(pkg *types.Package, selectorTypeName string) string {
+func spxMemberDefinitionPkgPath(pkg *types.Package, selectorTypeName, docTypeName string) string {
 	pkgPath := xgoutil.PkgPath(pkg)
 	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v2/internal/") {
 		return pkgPath
 	}
-	if GetSpxPkg().Scope().Lookup(selectorTypeName) != nil {
-		return xgoutil.PkgPath(GetSpxPkg())
+	for _, typeName := range []string{selectorTypeName, docTypeName} {
+		if typeName != "" && GetSpxPkg().Scope().Lookup(typeName) != nil {
+			return xgoutil.PkgPath(GetSpxPkg())
+		}
 	}
 	return pkgPath
+}
+
+// spxPublicTypeName converts internal implementation type names into the
+// public names shown in user-facing spx surfaces.
+func spxPublicTypeName(pkg *types.Package, typeName string) string {
+	if typeName == "" {
+		return ""
+	}
+	pkgPath := xgoutil.PkgPath(pkg)
+	if (pkgPath == SpxPkgPath || strings.HasPrefix(pkgPath, SpxPkgPath+"/internal/")) && typeName == "SpriteImpl" {
+		return "Sprite"
+	}
+	return typeName
+}
+
+// spxSurfaceTypeNameForNamed resolves the public surface type name for a
+// selected receiver type.
+func spxSurfaceTypeNameForNamed(named *types.Named) string {
+	if named == nil || named.Obj() == nil {
+		return ""
+	}
+	return spxPublicTypeName(named.Obj().Pkg(), named.Obj().Name())
+}
+
+// spxSurfaceTypeNameForFieldOwner resolves the public surface type name for a
+// member selected through a field. It keeps the field's concrete type instead
+// of rewriting it to the owning type.
+func spxSurfaceTypeNameForFieldOwner(ownerTypeName string, fieldType types.Type) string {
+	_ = ownerTypeName
+	if named := resolvedNamedType(fieldType); named != nil && named.Obj() != nil {
+		return spxPublicTypeName(named.Obj().Pkg(), named.Obj().Name())
+	}
+	return ""
+}
+
+// spxDefinitionSelectorTypeName resolves the selector type name that should be
+// exposed in user-facing definition IDs.
+func spxDefinitionSelectorTypeName(pkg *types.Package, selectorTypeName, docTypeName string) string {
+	if selectorTypeName != "" {
+		return spxPublicTypeName(pkg, selectorTypeName)
+	}
+	return spxPublicTypeName(pkg, docTypeName)
+}
+
+// spxDocTypeNameForVar resolves the type name to use when looking up field
+// documentation. It prefers the surface selector type and falls back to the
+// field's declaring type when only the latter exists in pkgDoc.
+func spxDocTypeNameForVar(v *types.Var, selectorTypeName string, pkgDoc *pkgdoc.PkgDoc) string {
+	if selectorTypeName == "" || pkgDoc == nil {
+		return selectorTypeName
+	}
+	if _, ok := pkgDoc.Types[selectorTypeName]; ok {
+		return selectorTypeName
+	}
+	if ownerTypeName := findFieldOwnerType(nil, v); ownerTypeName != "" {
+		if _, ok := pkgDoc.Types[ownerTypeName]; ok {
+			return ownerTypeName
+		}
+	}
+	return selectorTypeName
+}
+
+// spxDocTypeNameForFunc resolves the type name to use when looking up method
+// documentation. It prefers the surface selector type and falls back to the
+// declaring receiver type when only the latter exists in pkgDoc.
+func spxDocTypeNameForFunc(selectorTypeName, parsedRecvTypeName string, pkgDoc *pkgdoc.PkgDoc) string {
+	if selectorTypeName == "" || pkgDoc == nil {
+		return selectorTypeName
+	}
+	if _, ok := pkgDoc.Types[selectorTypeName]; ok {
+		return selectorTypeName
+	}
+	if parsedRecvTypeName != "" {
+		if _, ok := pkgDoc.Types[parsedRecvTypeName]; ok {
+			return parsedRecvTypeName
+		}
+	}
+	return ""
 }
 
 // GetSpxDefinitionForVar returns the spx definition for the provided variable.
@@ -626,10 +706,6 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		}()
 	}
 
-	if IsInSpxPkg(v) && selectorTypeName == "Sprite" {
-		selectorTypeName = "SpriteImpl"
-	}
-
 	var overview strings.Builder
 	if !v.IsField() || forceVar {
 		overview.WriteString("var ")
@@ -641,21 +717,18 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 	overview.WriteString(GetSimplifiedTypeString(v.Type()))
 
 	var detail string
+	docTypeName := spxDocTypeNameForVar(v, selectorTypeName, pkgDoc)
 	if pkgDoc != nil {
-		if selectorTypeName == "" {
+		if docTypeName == "" {
 			detail = pkgDoc.Vars[v.Name()]
-		} else if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
+		} else if typeDoc, ok := pkgDoc.Types[docTypeName]; ok {
 			detail = typeDoc.Fields[v.Name()]
 		}
 	}
 
 	idName := v.Name()
 	if selectorTypeName != "" {
-		selectorTypeDisplayName := selectorTypeName
-		if IsInSpxPkg(v) && selectorTypeDisplayName == "SpriteImpl" {
-			selectorTypeDisplayName = "Sprite"
-		}
-		idName = selectorTypeDisplayName + "." + idName
+		idName = spxDefinitionSelectorTypeName(v.Pkg(), selectorTypeName, docTypeName) + "." + idName
 	}
 	completionItemKind := VariableCompletion
 	if strings.HasPrefix(overview.String(), "field ") {
@@ -665,7 +738,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 		TypeHint: v.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(spxMemberDefinitionPkgPath(v.Pkg(), selectorTypeName)),
+			Package: ToPtr(spxMemberDefinitionPkgPath(v.Pkg(), selectorTypeName, docTypeName)),
 			Name:    &idName,
 		},
 		Overview: overview.String(),
@@ -804,38 +877,31 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 		}()
 	}
 
-	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
-		recvTypeName = "SpriteImpl"
-	}
-
 	overview, parsedRecvTypeName, parsedName, overloadID := makeSpxDefinitionOverviewForFunc(fun)
 	if recvTypeName == "" {
 		recvTypeName = parsedRecvTypeName
 	}
 
 	var detail string
+	docRecvTypeName := spxDocTypeNameForFunc(recvTypeName, parsedRecvTypeName, pkgDoc)
 	if pkgDoc != nil {
 		funcName := fun.Name()
-		if recvTypeName == "" || xgoutil.IsXGotMethodName(funcName) {
+		if docRecvTypeName == "" || xgoutil.IsXGotMethodName(funcName) {
 			detail = pkgDoc.Funcs[funcName]
-		} else if typeDoc, ok := pkgDoc.Types[recvTypeName]; ok {
+		} else if typeDoc, ok := pkgDoc.Types[docRecvTypeName]; ok {
 			detail = typeDoc.Methods[funcName]
 		}
 	}
 
 	idName := parsedName
 	if recvTypeName != "" {
-		recvTypeDisplayName := recvTypeName
-		if IsInSpxPkg(fun) && recvTypeDisplayName == "SpriteImpl" {
-			recvTypeDisplayName = "Sprite"
-		}
-		idName = recvTypeDisplayName + "." + idName
+		idName = spxDefinitionSelectorTypeName(fun.Pkg(), recvTypeName, docRecvTypeName) + "." + idName
 	}
 	def = SpxDefinition{
 		TypeHint: fun.Type(),
 
 		ID: SpxDefinitionIdentifier{
-			Package:    ToPtr(spxMemberDefinitionPkgPath(fun.Pkg(), recvTypeName)),
+			Package:    ToPtr(spxMemberDefinitionPkgPath(fun.Pkg(), recvTypeName, docRecvTypeName)),
 			Name:       &idName,
 			OverloadID: overloadID,
 		},

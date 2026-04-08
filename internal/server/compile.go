@@ -153,45 +153,60 @@ func (r *compileResult) spxDefinitionsForNamedStruct(named *types.Named) []SpxDe
 // spxDefinitionForField returns the spx definition for the given field and
 // optional selector type name.
 func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName string) SpxDefinition {
-	var (
-		forceVar bool
-		pkgDoc   *pkgdoc.PkgDoc
-	)
-	if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
-		if defIdent := typeInfo.ObjToDef[field]; defIdent != nil {
-			if selectorTypeName == "" {
-				selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
-			}
-			astPkg, _ := r.proj.ASTPackage()
-			forceVar = xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, field)
-			pkgDoc, _ = r.proj.PkgDoc()
-		}
-	} else {
-		pkg := field.Pkg()
-		pkgPath := xgoutil.PkgPath(pkg)
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
-	}
-	return GetSpxDefinitionForVar(field, selectorTypeName, forceVar, pkgDoc)
+	return resolveSpxDefinitionForField(r.proj, field, selectorTypeName, nil)
 }
 
 // spxDefinitionForMethod returns the spx definition for the given method and
 // optional selector type name.
 func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeName string) SpxDefinition {
-	var pkgDoc *pkgdoc.PkgDoc
-	if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
-		if defIdent := typeInfo.ObjToDef[method]; defIdent != nil {
-			if selectorTypeName == "" {
-				selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
+	return resolveSpxDefinitionForMethod(r.proj, method, selectorTypeName, nil)
+}
+
+// resolveSpxDefinitionForField resolves a field definition using proj-backed
+// type information when available and falling back to pkgDoc for docs.
+func resolveSpxDefinitionForField(proj *xgo.Project, field *types.Var, selectorTypeName string, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
+	var forceVar bool
+	if proj != nil {
+		if typeInfo, _ := proj.TypeInfo(); typeInfo != nil {
+			if defIdent := typeInfo.ObjToDef[field]; defIdent != nil {
+				if selectorTypeName == "" {
+					selectorTypeName = SelectorTypeNameForIdent(proj, defIdent)
+				}
+				astPkg, _ := proj.ASTPackage()
+				forceVar = xgoutil.IsDefinedInClassFieldsDecl(proj.Fset, typeInfo, astPkg, field)
 			}
-			pkgDoc, _ = r.proj.PkgDoc()
 		}
-	} else {
-		if idx := strings.LastIndex(selectorTypeName, "."); idx >= 0 {
-			selectorTypeName = selectorTypeName[idx+1:]
+		if pkgDoc == nil && xgoutil.IsInMainPkg(field) {
+			pkgDoc, _ = proj.PkgDoc()
 		}
-		pkg := method.Pkg()
-		pkgPath := xgoutil.PkgPath(pkg)
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
+	}
+	if pkgDoc == nil {
+		if pkg := field.Pkg(); pkg != nil && !xgoutil.IsMainPkg(pkg) {
+			pkgDoc, _ = pkgdata.GetPkgDoc(xgoutil.PkgPath(pkg))
+		}
+	}
+	return GetSpxDefinitionForVar(field, selectorTypeName, forceVar, pkgDoc)
+}
+
+// resolveSpxDefinitionForMethod resolves a method definition using proj-backed
+// type information when available and falling back to pkgDoc for docs.
+func resolveSpxDefinitionForMethod(proj *xgo.Project, method *types.Func, selectorTypeName string, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
+	if proj != nil {
+		if typeInfo, _ := proj.TypeInfo(); typeInfo != nil {
+			if defIdent := typeInfo.ObjToDef[method]; defIdent != nil && selectorTypeName == "" {
+				selectorTypeName = SelectorTypeNameForIdent(proj, defIdent)
+			}
+		}
+		if pkgDoc == nil && xgoutil.IsInMainPkg(method) {
+			pkgDoc, _ = proj.PkgDoc()
+		}
+	} else if idx := strings.LastIndex(selectorTypeName, "."); idx >= 0 {
+		selectorTypeName = selectorTypeName[idx+1:]
+	}
+	if pkgDoc == nil {
+		if pkg := method.Pkg(); pkg != nil && !xgoutil.IsMainPkg(pkg) {
+			pkgDoc, _ = pkgdata.GetPkgDoc(xgoutil.PkgPath(pkg))
+		}
 	}
 	return GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
 }
@@ -449,15 +464,14 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 	pkg := typeInfo.Pkg
 
 	for file := range snapshot.Files() {
-		if file == "main.spx" {
-			// Skip the main.spx file, as it is not a sprite file.
-			continue
-		}
 		if path.Ext(file) != ".spx" {
 			continue
 		}
 
-		spriteName := strings.TrimSuffix(path.Base(file), ".spx")
+		spriteName := spxSpriteNameForFile(file, result.mainSpxFile)
+		if spriteName == "" {
+			continue
+		}
 		obj := pkg.Scope().Lookup(spriteName)
 		if obj != nil {
 			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
@@ -608,7 +622,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 					return nil
 				}
 				var names []string
-				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
+				walkPropertyMembers(named, named.Obj().Name(), result.proj, makePkgDocFor(pkgDoc), make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
 					names = append(names, m.Name)
 				})
 				propertyNamesCache[call] = names
@@ -678,12 +692,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			if expr.Kind == xgotoken.STRING {
 				if returnType := s.resolveReturnTypeForExpr(result, expr); returnType != nil {
 					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
-						if spxFileBaseName == "main.spx" {
-							return nil
-						}
-						spriteName := strings.TrimSuffix(spxFileBaseName, ".spx")
-						return result.spxResourceSet.Sprite(spriteName)
+						return result.spxSpriteResourceForFile(xgoutil.NodeFilename(result.proj.Fset, expr))
 					})
 					s.inspectSpxResourceRefForTypeAtExpr(result, expr, returnType, getSpriteContext)
 				} else {
@@ -746,11 +755,7 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 		if !ok {
 			return true
 		}
-		fieldType, ok := xgoutil.DerefType(field.Type()).(*types.Named)
-		if !ok {
-			return true
-		}
-		if fieldType == GetSpxSpriteType() || result.hasSpxSpriteType(fieldType) {
+		if result.isSpxSpriteBindingType(field.Type()) {
 			result.spxSpriteResourceAutoBindings[member] = struct{}{}
 		}
 		return true
@@ -850,16 +855,13 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 	if funcSigRecv == nil {
 		return nil
 	}
-	switch xgoutil.DerefType(funcSigRecv.Type()) {
-	case GetSpxSpriteType(), GetSpxSpriteImplType():
-	default:
+	if !isSpxSpriteAPIType(funcSigRecv.Type()) {
 		return nil
 	}
 
 	switch fun := callExpr.Fun.(type) {
 	case *xgoast.Ident:
-		spxSpriteName := strings.TrimSuffix(path.Base(xgoutil.NodeFilename(result.proj.Fset, callExpr)), ".spx")
-		return result.spxResourceSet.Sprite(spxSpriteName)
+		return result.spxSpriteResourceForFile(xgoutil.NodeFilename(result.proj.Fset, callExpr))
 	case *xgoast.SelectorExpr:
 		ident, ok := fun.X.(*xgoast.Ident)
 		if !ok {
@@ -872,9 +874,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 		if !result.hasSpxSpriteResourceAutoBinding(obj) {
 			return nil
 		}
-
-		spxSpriteName := obj.Name()
-		return result.spxResourceSet.Sprite(spxSpriteName)
+		return result.spxSpriteResourceForObject(obj, ident.Name)
 	default:
 		return nil
 	}

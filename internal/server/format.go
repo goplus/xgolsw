@@ -614,24 +614,8 @@ func getFuncAndOverloadsType(proj *xgo.Project, funIdent *xgoast.Ident) (fun *ty
 	if !ok {
 		return
 	}
-	pkg := funType.Pkg()
-	if pkg == nil {
-		return
-	}
-	recvTypeName := SelectorTypeNameForIdent(proj, funIdent)
-	if recvTypeName == "" {
-		return
-	}
-	if IsInSpxPkg(funTypeObj) && recvTypeName == "Sprite" {
-		recvTypeName = "SpriteImpl"
-	}
-
-	recvType := funType.Pkg().Scope().Lookup(recvTypeName).Type()
-	if recvType == nil {
-		return
-	}
-	recvNamed, ok := recvType.(*types.Named)
-	if !ok || !xgoutil.IsNamedStructType(recvNamed) {
+	recvNamed := SelectorNamedTypeForIdent(proj, funIdent)
+	if recvNamed == nil || !xgoutil.IsNamedStructType(recvNamed) {
 		return
 	}
 	var underlineFunType *types.Func
