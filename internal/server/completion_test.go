@@ -761,6 +761,147 @@ onClick => {
 		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
 	})
 
+	t.Run("WithCrossSpxSpriteResourceInGoStmt", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"Sprite1.spx": []byte(`
+onClick => {
+	go Sprite2.setCostume("c")
+}
+`),
+			"Sprite2.spx":                       []byte(``),
+			"assets/index.json":                 []byte(`{}`),
+			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
+			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
+				Position:     Position{Line: 2, Character: 25},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
+	})
+
+	t.Run("WithCrossSpxSpriteResourceInDeferStmt", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"Sprite1.spx": []byte(`
+onClick => {
+	defer Sprite2.setCostume("c")
+}
+`),
+			"Sprite2.spx":                       []byte(``),
+			"assets/index.json":                 []byte(`{}`),
+			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
+			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
+				Position:     Position{Line: 2, Character: 28},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
+	})
+
+	t.Run("SpriteCostumeNameInImplicitCallUsesCurrentSprite", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"Sprite1.spx": []byte(`
+onStart => {
+	setCostume C
+}
+`),
+			"Sprite2.spx":                       []byte(``),
+			"Sprite3.spx":                       []byte(``),
+			"assets/index.json":                 []byte(`{}`),
+			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
+			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
+			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
+				Position:     Position{Line: 2, Character: 13},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
+	})
+
+	t.Run("SpriteCostumeNameInDeclDeduplicatesCrossSpriteNames", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	var costume SpriteCostumeName = C
+}
+`),
+			"Sprite1.spx":                       []byte(``),
+			"Sprite2.spx":                       []byte(``),
+			"Sprite3.spx":                       []byte(``),
+			"assets/index.json":                 []byte(`{}`),
+			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
+			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
+			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 34},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
+	})
+
+	t.Run("StepToOverloadsDeduplicateSpriteNameSuggestions", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"Runner.spx": []byte(`
+onStart => {
+	stepTo C
+}
+`),
+			"Crab2.spx":                        []byte(``),
+			"Crab3.spx":                        []byte(``),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{"costumes":[]}`),
+			"assets/sprites/Crab2/index.json":  []byte(`{"costumes":[]}`),
+			"assets/sprites/Crab3/index.json":  []byte(`{"costumes":[]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///Runner.spx"},
+				Position:     Position{Line: 2, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
+		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
+	})
+
 	t.Run("AtLineStartWithAnIdentifier", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -2631,6 +2772,16 @@ func containsCompletionItemLabel(items []CompletionItem, label string) bool {
 	return slices.ContainsFunc(items, func(item CompletionItem) bool {
 		return item.Label == label
 	})
+}
+
+func countCompletionItemLabel(items []CompletionItem, label string) int {
+	count := 0
+	for _, item := range items {
+		if item.Label == label {
+			count++
+		}
+	}
+	return count
 }
 
 func containsCompletionSpxDefinitionID(items []CompletionItem, id SpxDefinitionIdentifier) bool {
