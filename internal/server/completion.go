@@ -103,6 +103,7 @@ type completionContext struct {
 	kind completionKind
 
 	enclosingNode      xgoast.Node
+	enclosingCallExpr  *xgoast.CallExpr
 	selectorExpr       *xgoast.SelectorExpr
 	expectedTypes      []types.Type
 	expectedStructType *types.Struct
@@ -135,6 +136,9 @@ func (ctx *completionContext) analyze() {
 				ctx.selectorExpr = node
 			}
 		case *xgoast.CallExpr:
+			if ctx.enclosingCallExpr == nil {
+				ctx.enclosingCallExpr = node
+			}
 			if typ := ctx.typeInfo.TypeOf(node.Fun); !xgoutil.IsValidType(typ) {
 				continue
 			}
@@ -420,10 +424,16 @@ func (ctx *completionContext) analyze() {
 				}
 			}
 		case *xgoast.GoStmt:
+			if ctx.enclosingCallExpr == nil {
+				ctx.enclosingCallExpr = node.Call
+			}
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
 			ctx.valueExpression = true
 		case *xgoast.DeferStmt:
+			if ctx.enclosingCallExpr == nil {
+				ctx.enclosingCallExpr = node.Call
+			}
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
 			ctx.valueExpression = true
@@ -1279,7 +1289,7 @@ func (ctx *completionContext) collectCall() error {
 					expectedTypes = append(expectedTypes, sig.Params().At(sig.Params().Len()-1).Type().(*types.Slice).Elem())
 				}
 			}
-			ctx.expectedTypes = slices.Compact(expectedTypes)
+			ctx.expectedTypes = deduplicateTypes(expectedTypes)
 			return ctx.collectGeneral()
 		}
 	}
@@ -1290,6 +1300,23 @@ func (ctx *completionContext) collectCall() error {
 		ctx.expectedTypes = []types.Type{sig.Params().At(sig.Params().Len() - 1).Type().(*types.Slice).Elem()}
 	}
 	return ctx.collectGeneral()
+}
+
+func deduplicateTypes(expectedTypes []types.Type) []types.Type {
+	if len(expectedTypes) <= 1 {
+		return expectedTypes
+	}
+
+	deduplicated := make([]types.Type, 0, len(expectedTypes))
+	for _, expectedType := range expectedTypes {
+		if slices.ContainsFunc(deduplicated, func(existing types.Type) bool {
+			return types.Identical(existing, expectedType)
+		}) {
+			continue
+		}
+		deduplicated = append(deduplicated, expectedType)
+	}
+	return deduplicated
 }
 
 // getCurrentArgIndex gets the current argument index in a function call.
@@ -1391,8 +1418,13 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 			spxResourceIDs = append(spxResourceIDs, SpxWidgetResourceID{spxWidgetName})
 		}
 	}
+	seenResourceNames := make(map[string]struct{}, len(spxResourceIDs))
 	for _, spxResourceID := range spxResourceIDs {
 		name := spxResourceID.Name()
+		if _, ok := seenResourceNames[name]; ok {
+			continue
+		}
+		seenResourceNames[name] = struct{}{}
 		if !ctx.inStringLit {
 			name = strconv.Quote(name)
 		}
@@ -1410,42 +1442,25 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 // getSpxSpriteResource returns a [SpxSpriteResource] for the current context.
 // It returns nil if no [SpxSpriteResource] can be inferred.
 func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
-	if ctx.kind != completionKindCall {
-		return nil
+	callExpr := ctx.getEnclosingCallExpr()
+	if callExpr != nil {
+		return inferSpxSpriteResourceEnclosingNode(ctx.result, callExpr)
 	}
+	return ctx.getCurrentFileSpxSpriteResource()
+}
 
-	callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr)
-	if !ok {
-		return nil
+func (ctx *completionContext) getEnclosingCallExpr() *xgoast.CallExpr {
+	if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
+		return callExpr
 	}
-	sel, ok := callExpr.Fun.(*xgoast.SelectorExpr)
-	if !ok {
-		if ctx.spxFile == "main.spx" {
-			return nil
-		}
-		return ctx.result.spxResourceSet.sprites[strings.TrimSuffix(ctx.spxFile, ".spx")]
-	}
+	return ctx.enclosingCallExpr
+}
 
-	ident, ok := sel.X.(*xgoast.Ident)
-	if !ok {
+func (ctx *completionContext) getCurrentFileSpxSpriteResource() *SpxSpriteResource {
+	if ctx.spxFile == "" || path.Base(ctx.spxFile) == path.Base(ctx.result.mainSpxFile) {
 		return nil
 	}
-	obj := ctx.typeInfo.ObjectOf(ident)
-	if obj == nil {
-		return nil
-	}
-	named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
-	if !ok {
-		return nil
-	}
-
-	if named == GetSpxSpriteType() {
-		return ctx.result.spxResourceSet.sprites[ident.Name]
-	}
-	if ctx.result.hasSpxSpriteType(named) {
-		return ctx.result.spxResourceSet.sprites[obj.Name()]
-	}
-	return nil
+	return ctx.result.spxResourceSet.sprites[strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")]
 }
 
 // getPropertyTarget returns the target type name for property name completions.
