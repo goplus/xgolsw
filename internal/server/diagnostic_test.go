@@ -10,7 +10,6 @@ import (
 func newTestFileMap() map[string][]byte {
 	return map[string][]byte{
 		"main.spx": []byte(`
-run "assets", {Title: "Bullet (by XGo)"}
 `),
 		"MyAircraft.spx": []byte(`
 onStart => {
@@ -304,7 +303,6 @@ var (
 		m := map[string][]byte{
 			"main.spx": []byte(`
 play "Sound1"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 const ConstSoundName = "ConstSoundName"
@@ -388,7 +386,6 @@ onStart => {
 			"main.spx": []byte(`
 onBackdrop "", func() {}
 onBackdrop "NonExistentBackdrop", func() {}
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 const ConstBackdropName = "ConstBackdropName"
@@ -459,7 +456,6 @@ onStart => {
 			"main.spx": []byte(`
 MySprite.say "hi"
 MySprite.touching "OtherSprite"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -509,7 +505,6 @@ onStart => {
 	t.Run("SpriteCostumeResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -557,7 +552,6 @@ onStart => {
 	t.Run("SpriteAnimationResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -605,7 +599,6 @@ onStart => {
 	t.Run("WidgetResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 const ConstWidgetName = "ConstWidgetName"
@@ -665,7 +658,6 @@ onStart => {
 	t.Run("WithNonBasicTypeAliases", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 import "image/color"
@@ -697,7 +689,6 @@ onKey KeyLeft, => {}
 
 onKey [KeyRight, KeyUp, KeyDown], => {}
 
-run "assets", {Title: "My Game"}
 `),
 			"assets/index.json": []byte(`{}`),
 		}

@@ -12,7 +12,6 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.turn Left
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -35,14 +34,7 @@ onStart => {
 			0, 8, 1, 13, 0, // .
 			0, 1, 4, 8, 0, // turn
 			0, 5, 4, 5, 6, // Left
-			1, 0, 3, 7, 0, // run
-			0, 4, 8, 11, 0, // assets
-			0, 10, 1, 13, 0, // {
-			0, 1, 5, 6, 0, // Title
-			0, 5, 1, 13, 0, // :
-			0, 2, 9, 11, 0, // My Game
-			0, 9, 1, 13, 0, // }
-			0, 1, 1, 13, 0, // }
+			0, 4, 1, 13, 0, // }
 		}, mainSpxTokens.Data)
 
 		mySpriteTokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{

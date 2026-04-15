@@ -48,7 +48,6 @@ MySprite.setCostume "costume1"
 Game.onClick => {}
 onClick => {}
 Camera.follow "MySprite"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 MySprite.onClick => {}
