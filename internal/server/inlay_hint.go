@@ -93,7 +93,7 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallE
 
 		// Create an inlay hint with the parameter name before the argument.
 		position := result.proj.Fset.Position(arg.Pos())
-		label := params.At(paramIndex).Name()
+		label := inlayHintLabel(fun, params, paramIndex, argIndex)
 		if fun.Signature().Variadic() && argIndex == params.Len()-1 {
 			label += "..."
 		}
@@ -106,6 +106,21 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallE
 		return true
 	})
 	return inlayHints
+}
+
+// inlayHintLabel resolves one stable inlay-hint label for one function
+// argument position.
+func inlayHintLabel(fun *types.Func, params *types.Tuple, paramIndex int, argIndex int) string {
+	if fun == nil {
+		return params.At(paramIndex).Name()
+	}
+	sig := fun.Signature()
+	if sig != nil && (xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) || IsInSpxPkg(fun)) && xgoutil.IsXGotMethodName(fun.Name()) {
+		if argIndex < sig.TypeParams().Len() {
+			return sig.TypeParams().At(argIndex).Obj().Name()
+		}
+	}
+	return params.At(paramIndex).Name()
 }
 
 // sortInlayHints sorts the given inlay hints in a stable manner.

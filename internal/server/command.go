@@ -978,13 +978,13 @@ func createValueInputSlotFromIdent(result *compileResult, ident *xgoast.Ident, d
 		case GetSpxSpriteNameType():
 			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
 		case GetSpxSpriteCostumeNameType():
-			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
+			spxSpriteResource := resolveSpxSpriteResourceForNode(result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
 			accept.ResourceContext = ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
 		case GetSpxSpriteAnimationNameType():
-			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
+			spxSpriteResource := resolveSpxSpriteResourceForNode(result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
@@ -1207,10 +1207,6 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 
 	var spxSpriteResource *SpxSpriteResource
 	xgoutil.WalkPathEnclosingInterval(astFile, node.Pos(), node.End(), false, func(node xgoast.Node) bool {
-		if node == nil {
-			return true
-		}
-
 		callExpr, ok := node.(*xgoast.CallExpr)
 		if !ok {
 			return true
@@ -1233,7 +1229,7 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node xgoast.Node
 
 			if named == GetSpxSpriteType() {
 				spxSpriteName = ident.Name
-			} else if result.hasSpxSpriteType(named) {
+			} else if _, ok := result.spxSpriteTypes[named]; ok {
 				spxSpriteName = obj.Name()
 			}
 		} else if spxFile != "main.spx" {

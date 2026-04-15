@@ -285,19 +285,6 @@ func (r *compileResult) spxImportsAtASTFilePosition(astFile *xgoast.File, positi
 	return nil
 }
 
-// hasSpxSpriteType reports whether the given type is an spx sprite type.
-func (r *compileResult) hasSpxSpriteType(typ types.Type) bool {
-	_, ok := r.spxSpriteTypes[typ]
-	return ok
-}
-
-// hasSpxSpriteResourceAutoBinding reports whether the given object is an spx
-// resource auto-binding.
-func (r *compileResult) hasSpxSpriteResourceAutoBinding(obj types.Object) bool {
-	_, ok := r.spxSpriteResourceAutoBindings[obj]
-	return ok
-}
-
 // addSpxResourceRef adds an spx resource reference to the compile result.
 func (r *compileResult) addSpxResourceRef(ref SpxResourceRef) {
 	if r.seenSpxResourceRefs == nil {
@@ -668,12 +655,12 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 				continue
 			}
 
-			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
-			})
 			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
 				param := params.At(paramIndex)
 				paramType := xgoutil.DerefType(param.Type())
+				getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
+					return resolveSpxSpriteResourceFromCallArg(result, expr, fun, paramIndex)
+				})
 
 				if sliceLit, ok := arg.(*xgoast.SliceLit); ok {
 					for _, elt := range sliceLit.Elts {
@@ -713,13 +700,14 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 		if !ok {
 			return true
 		}
-		if fieldType == GetSpxSpriteType() || result.hasSpxSpriteType(fieldType) {
+		_, isSpriteType := result.spxSpriteTypes[fieldType]
+		if fieldType == GetSpxSpriteType() || isSpriteType {
 			result.spxSpriteResourceAutoBindings[member] = struct{}{}
 		}
 		return true
 	})
 	for ident, obj := range typeInfo.Uses {
-		if result.hasSpxSpriteResourceAutoBinding(obj) && !ident.Implicit() {
+		if _, ok := result.spxSpriteResourceAutoBindings[obj]; ok && !ident.Implicit() {
 			result.addSpxResourceRef(SpxResourceRef{
 				ID:   SpxSpriteResourceID{SpriteName: obj.Name()},
 				Kind: SpxResourceRefKindAutoBindingReference,
@@ -792,55 +780,6 @@ func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr xgoast.Exp
 		return typ
 	}
 	return nil
-}
-
-// resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.
-func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) *SpxSpriteResource {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-
-	funcType := typeInfo.TypeOf(callExpr.Fun)
-	if !xgoutil.IsValidType(funcType) {
-		return nil
-	}
-	funcSig, ok := funcType.(*types.Signature)
-	if !ok {
-		return nil
-	}
-	funcSigRecv := funcSig.Recv()
-	if funcSigRecv == nil {
-		return nil
-	}
-	switch xgoutil.DerefType(funcSigRecv.Type()) {
-	case GetSpxSpriteType(), GetSpxSpriteImplType():
-	default:
-		return nil
-	}
-
-	switch fun := callExpr.Fun.(type) {
-	case *xgoast.Ident:
-		spxSpriteName := strings.TrimSuffix(path.Base(xgoutil.NodeFilename(result.proj.Fset, callExpr)), ".spx")
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	case *xgoast.SelectorExpr:
-		ident, ok := fun.X.(*xgoast.Ident)
-		if !ok {
-			return nil
-		}
-		obj := typeInfo.ObjectOf(ident)
-		if obj == nil {
-			return nil
-		}
-		if !result.hasSpxSpriteResourceAutoBinding(obj) {
-			return nil
-		}
-
-		spxSpriteName := obj.Name()
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	default:
-		return nil
-	}
 }
 
 // inspectSpxResourceRefForTypeAtExpr inspects an spx resource reference for a
