@@ -80,10 +80,12 @@ type SpxResourceSet struct {
 	widgets   map[string]*SpxWidgetResource
 }
 
+const spxResourceRootDir = "assets"
+
 // NewSpxResourceSet creates a new spx resource set.
-func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, error) {
+func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 	// Read and parse the main index.json for backdrops and widgets.
-	metadataPath := rootDir + "/index.json"
+	metadataPath := spxResourceRootDir + "/index.json"
 	metadataFile, ok := proj.File(metadataPath)
 	if !ok {
 		return nil, fmt.Errorf("failed to read metadata: %w", fs.ErrNotExist)
@@ -116,10 +118,10 @@ func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, erro
 	}
 
 	// Read sounds directory.
-	soundDirs := listSubdirs(proj, rootDir+"/sounds")
+	soundDirs := listSubdirs(proj, spxResourceRootDir+"/sounds")
 	sounds := make(map[string]*SpxSoundResource, len(soundDirs))
 	for _, soundName := range soundDirs {
-		soundMetadataPath := rootDir + "/sounds/" + soundName + "/index.json"
+		soundMetadataPath := spxResourceRootDir + "/sounds/" + soundName + "/index.json"
 		soundMetadataFile, ok := proj.File(soundMetadataPath)
 		if !ok {
 			return nil, fmt.Errorf("failed to read sound metadata: %w", fs.ErrNotExist)
@@ -136,10 +138,10 @@ func NewSpxResourceSet(proj *xgo.Project, rootDir string) (*SpxResourceSet, erro
 	}
 
 	// Read sprites directory.
-	spriteDirs := listSubdirs(proj, rootDir+"/sprites")
+	spriteDirs := listSubdirs(proj, spxResourceRootDir+"/sprites")
 	sprites := make(map[string]*SpxSpriteResource, len(spriteDirs))
 	for _, spriteName := range spriteDirs {
-		spriteMetadataPath := rootDir + "/sprites/" + spriteName + "/index.json"
+		spriteMetadataPath := spxResourceRootDir + "/sprites/" + spriteName + "/index.json"
 		spriteMetadataFile, ok := proj.File(spriteMetadataPath)
 		if !ok {
 			return nil, fmt.Errorf("failed to read sprite metadata: %w", fs.ErrNotExist)

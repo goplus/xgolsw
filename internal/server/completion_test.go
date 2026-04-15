@@ -14,7 +14,6 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 			"main.spx": []byte(`
 
 MySprite.
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -98,7 +97,6 @@ onStart => {
 onStart => {
 
 }
-run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -125,7 +123,7 @@ run "assets", {Title: "My Game"}
 	t.Run("InStringLit", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "a
+echo "a
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -133,7 +131,7 @@ run "a
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
+				Position:     Position{Line: 1, Character: 7},
 			},
 		})
 		require.NoError(t, err)
@@ -145,7 +143,6 @@ run "a
 		m := map[string][]byte{
 			"main.spx": []byte(`
 // Run My G
-run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -154,25 +151,6 @@ run "assets", {Title: "My Game"}
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 				Position:     Position{Line: 1, Character: 11},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, items)
-		assert.Empty(t, items)
-	})
-
-	t.Run("InStringLit", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-run "a
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		items, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
 			},
 		})
 		require.NoError(t, err)
@@ -509,7 +487,6 @@ fmt.
 onStart => {
 
 }
-run "assets", {Title: "My Game"}
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -554,7 +531,6 @@ func test() {}
 onStart => {
 	var x i
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 `),
@@ -586,7 +562,6 @@ run "assets", {Title: "My Game"}
 onStart => {
 	var x SpriteName = "m"
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 `),
@@ -615,7 +590,6 @@ type MySpriteName = SpriteName
 onStart => {
 	var x MySpriteName = "m"
 }
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx":                       []byte(``),
 			"assets/index.json":                  []byte(`{}`),
@@ -639,7 +613,6 @@ run "assets", {Title: "My Game"}
 		m := map[string][]byte{
 			"main.spx": []byte(`
 play "r"
-run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
@@ -662,7 +635,6 @@ run "assets", {Title: "My Game"}
 		m := map[string][]byte{
 			"main.spx": []byte(`
 play r
-run "assets", {Title: "My Game"}
 `),
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
@@ -684,7 +656,6 @@ run "assets", {Title: "My Game"}
 	t.Run("WithImplicitSpxSpriteResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onClick => {
@@ -712,7 +683,6 @@ onClick => {
 		m := map[string][]byte{
 			"main.spx": []byte(`
 MySprite.setCostume "c"
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx":                       []byte(``),
 			"assets/index.json":                  []byte(`{}`),
@@ -735,7 +705,6 @@ run "assets", {Title: "My Game"}
 	t.Run("WithCrossSpxSpriteResource", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"Sprite1.spx": []byte(`
 onClick => {
@@ -2614,7 +2583,6 @@ onStart => {}
 		m := map[string][]byte{
 			"main.spx": []byte(`
 var score int
-run "assets", {Title: "My Game"}
 onStart => {
 	showVar(x)
 }
@@ -2628,7 +2596,7 @@ onStart => {
 		items, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 10}, // inside 'x' arg of showVar
+				Position:     Position{Line: 3, Character: 10}, // inside 'x' arg of showVar
 			},
 		})
 		require.NoError(t, err)
@@ -2648,7 +2616,6 @@ onStart => {
 		// hp is a field of MySprite, so its appearance confirms the correct target is used.
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 var hp int
@@ -2679,7 +2646,6 @@ onStart => {
 		// MySprite.showVar(x) in main.spx → getPropertyTarget returns "MySprite"
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 onStart => {
 	MySprite.showVar(x)
 }
@@ -2696,7 +2662,7 @@ var hp int
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 				// Line 3: "\tMySprite.showVar(x)" — tab(0)+MySprite(1-8)+.(9)+showVar(10-16)+(17)+x(18)
-				Position: Position{Line: 3, Character: 19},
+				Position: Position{Line: 2, Character: 19},
 			},
 		})
 		require.NoError(t, err)
@@ -2712,7 +2678,6 @@ var hp int
 		// SpriteImpl is embedded in MySprite; its property methods should appear.
 		m := map[string][]byte{
 			"main.spx": []byte(`
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 var hp int

@@ -497,44 +497,7 @@ func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *co
 
 // inspectForSpxResourceSet inspects for spx resource set in main.spx.
 func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compileResult) {
-	mainASTFile, _ := result.proj.ASTFile(result.mainSpxFile)
-	typeInfo, _ := snapshot.TypeInfo()
-	if typeInfo == nil {
-		return
-	}
-
-	var spxResourceRootDir string
-	for expr, tv := range typeInfo.Types {
-		if expr == nil || !expr.Pos().IsValid() || expr.Pos() < mainASTFile.Pos() || expr.End() > mainASTFile.End() {
-			continue
-		}
-
-		callExpr, ok := expr.(*xgoast.CallExpr)
-		if !ok || len(callExpr.Args) == 0 || tv.Type != GetSpxXGotGameRunFunc().Type() {
-			continue
-		}
-		firstArg := callExpr.Args[0]
-		firstArgTV, ok := typeInfo.Types[firstArg]
-		if !ok {
-			continue
-		}
-
-		if types.AssignableTo(firstArgTV.Type, types.Typ[types.String]) {
-			spxResourceRootDir, _ = xgoutil.StringLitOrConstValue(firstArg, firstArgTV)
-		} else {
-			documentURI := s.toDocumentURI(result.mainSpxFile)
-			result.addDiagnostics(documentURI, Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForNode(result.proj, firstArg),
-				Message:  s.translate("first argument of run must be a string literal or constant"),
-			})
-		}
-		break
-	}
-	if spxResourceRootDir == "" {
-		spxResourceRootDir = "assets"
-	}
-	spxResourceSet, err := NewSpxResourceSet(snapshot, spxResourceRootDir)
+	spxResourceSet, err := NewSpxResourceSet(snapshot)
 	if err != nil {
 		documentURI := s.toDocumentURI(result.mainSpxFile)
 		result.addDiagnostics(documentURI, Diagnostic{

@@ -13,7 +13,6 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 			"main.spx": []byte(`
 const Backdrop1 BackdropName = "backdrop1"
 const Backdrop1a = Backdrop1
-run "assets", {Title: "Bullet (by XGo)"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
@@ -36,7 +35,7 @@ onStart => {
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		})
 		require.NoError(t, err)
-		require.Len(t, linksForMainSpx, 8)
+		require.Len(t, linksForMainSpx, 6)
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
 				Start: Position{Line: 1, Character: 6},
@@ -85,21 +84,6 @@ onStart => {
 				Kind: SpxResourceRefKindConstantReference,
 			},
 		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 3, Character: 0},
-				End:   Position{Line: 3, Character: 3},
-			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Game.run"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 3, Character: 15},
-				End:   Position{Line: 3, Character: 20},
-			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?Config.Title"),
-		})
-
 		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
 		})

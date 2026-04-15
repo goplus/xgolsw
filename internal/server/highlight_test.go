@@ -13,7 +13,6 @@ func TestServerTextDocumentDocumentHighlight(t *testing.T) {
 			"main.spx": []byte(`
 MySprite.turn Left
 MySprite.turn Right
-run "assets", {Title: "My Game"}
 `),
 			"MySprite.spx": []byte(`
 onStart => {
