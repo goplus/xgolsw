@@ -20,28 +20,36 @@ import (
 	"fmt"
 
 	"github.com/goplus/mod/modfile"
+	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
 )
 
+var spxProject = &modfile.Project{
+	Ext:      ".spx",
+	FullExt:  "main.spx",
+	Class:    "Game",
+	PkgPaths: []string{"github.com/goplus/spx/v2", "math"},
+	Works:    []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}},
+}
+
 func init() {
-	xgomod.SpxProject.PkgPaths = []string{"github.com/goplus/spx/v2", "math"}
-	xgomod.SpxProject.Works = []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}}
+	modload.Default.Opt.Projects = append(modload.Default.Opt.Projects, spxProject)
+	if err := xgomod.Default.ImportClasses(); err != nil {
+		panic(err)
+	}
 }
 
 // SetClassfileAutoImportedPackages sets the auto-imported packages for the
 // classfile specified by id.
 func SetClassfileAutoImportedPackages(id string, pkgs map[string]string) {
-	var project *modfile.Project
-	switch id {
-	case "spx":
-		project = xgomod.SpxProject
-	default:
+	if id != "spx" {
 		panic(fmt.Sprintf("unknown classfile id: %s", id))
 	}
 
-	project.Import = nil // Clear previous imports.
-	for k, v := range pkgs {
-		imp := &modfile.Import{Name: k, Path: v}
-		project.Import = append(xgomod.SpxProject.Import, imp)
+	imports := make([]*modfile.Import, 0, len(pkgs))
+	for name := range pkgs {
+		imports = append(imports, &modfile.Import{Name: name, Path: pkgs[name]})
 	}
+
+	spxProject.Import = imports
 }

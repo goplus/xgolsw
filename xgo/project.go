@@ -94,6 +94,7 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 		fset = token.NewFileSet()
 	}
 	proj := &Project{
+		Mod:               xgomod.Default,
 		Fset:              fset,
 		files:             make(map[string]*File),
 		cacheBuilders:     make(map[CacheKind]CacheBuilder),
