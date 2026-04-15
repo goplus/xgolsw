@@ -19,15 +19,14 @@ package xgo
 import (
 	"testing"
 
-	"github.com/goplus/mod/xgomod"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSetClassfileAutoImportedPackages(t *testing.T) {
 	t.Run("Spx", func(t *testing.T) {
-		originalImports := xgomod.SpxProject.Import
+		originalImports := spxProject.Import
 		t.Cleanup(func() {
-			xgomod.SpxProject.Import = originalImports
+			spxProject.Import = originalImports
 		})
 
 		pkgs := map[string]string{
@@ -37,10 +36,10 @@ func TestSetClassfileAutoImportedPackages(t *testing.T) {
 		}
 		SetClassfileAutoImportedPackages("spx", pkgs)
 
-		assert.Len(t, xgomod.SpxProject.Import, 3)
+		assert.Len(t, spxProject.Import, 3)
 
 		got := make(map[string]string)
-		for _, imp := range xgomod.SpxProject.Import {
+		for _, imp := range spxProject.Import {
 			got[imp.Name] = imp.Path
 		}
 		assert.Equal(t, pkgs, got)
