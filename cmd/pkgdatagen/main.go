@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/gcexportdata"
@@ -177,7 +178,10 @@ func generate(pkgPaths []string, outputFile string) error {
 			pkgName = path.Base(buildPkg.ImportPath)
 		}
 
-		var pkgDoc *pkgdoc.PkgDoc
+		var (
+			pkgDoc            *pkgdoc.PkgDoc
+			pkgResourceSchema *pkgdata.PkgResourceSchema
+		)
 		if pkgPath == "builtin" {
 			astFile, err := parser.ParseFile(token.NewFileSet(), path.Join(buildPkg.Dir, "builtin.go"), nil, parser.ParseComments)
 			if err != nil {
@@ -306,11 +310,28 @@ func generate(pkgPaths []string, outputFile string) error {
 			}
 
 			pkgDoc = pkgdoc.NewGo(pkgPath, astPkg)
+			pkgResourceSchema, err = buildPkgResourceSchema(
+				pkgPath,
+				buildPkg.Dir,
+				pkgName,
+				slices.Concat(buildPkg.GoFiles, buildPkg.CgoFiles),
+				astFiles,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to build package resource schema: %w", err)
+			}
 		}
 		if zf, err := zw.Create(pkgPath + ".pkgdoc"); err != nil {
 			return err
 		} else if err := json.NewEncoder(zf).Encode(pkgDoc); err != nil {
 			return fmt.Errorf("failed to encode package doc: %w", err)
+		}
+		if pkgResourceSchema != nil {
+			if zf, err := zw.Create(pkgPath + pkgdata.PkgResourceSuffix); err != nil {
+				return err
+			} else if err := json.NewEncoder(zf).Encode(pkgResourceSchema); err != nil {
+				return fmt.Errorf("failed to encode package resource schema: %w", err)
+			}
 		}
 	}
 	if err := zw.Close(); err != nil {

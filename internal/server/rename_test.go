@@ -872,7 +872,7 @@ onStart => {
 	getWidget Monitor, "widget1"
 }
 `),
-			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"}]}`),
+			"assets/index.json": []byte(`{"zorder":[{"name":"widget1","type":"monitor"}]}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 		result, err := s.compile()
@@ -906,7 +906,7 @@ onStart => {
 	getWidget Monitor, "widget1"
 }
 `),
-			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"},{"name":"widget2"}]}`),
+			"assets/index.json": []byte(`{"zorder":[{"name":"widget1","type":"monitor"},{"name":"widget2","type":"monitor"}]}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 		result, err := s.compile()

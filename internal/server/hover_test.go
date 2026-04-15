@@ -617,7 +617,7 @@ onStart => {
 	getWidget Monitor, "myWidget"
 }
 `),
-			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget"}]}`),
+			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget","type":"monitor"}]}`),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 

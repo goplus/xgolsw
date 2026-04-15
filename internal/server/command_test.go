@@ -391,7 +391,7 @@ onStart => {
 }
 `),
 		"OtherSprite.spx":                       []byte(``),
-		"assets/index.json":                     []byte(`{"zorder":[{"name":"myWidget"}]}`),
+		"assets/index.json":                     []byte(`{"zorder":[{"name":"myWidget","type":"monitor"}]}`),
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}

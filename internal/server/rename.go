@@ -206,7 +206,7 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() || tv.Type == nil {
 			continue
 		}
-		if result.hasSpxSpriteType(tv.Type) && tv.Type.String() == "main."+id.SpriteName {
+		if _, ok := result.spxSpriteTypes[tv.Type]; ok && tv.Type.String() == "main."+id.SpriteName {
 			rng := RangeForNode(result.proj, expr)
 			if rng.Start == rng.End {
 				continue

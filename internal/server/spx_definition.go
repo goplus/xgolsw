@@ -848,7 +848,7 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 // makeSpxDefinitionOverviewForFunc makes an overview string for a function that
 // is used in [SpxDefinition].
 func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
-	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
+	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) || IsInSpxPkg(fun)
 	name := fun.Name()
 	sig := fun.Type().(*types.Signature)
 
@@ -1014,40 +1014,11 @@ func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
 // resource name type. It returns nil if typ does not represent one.
 func canonicalSpxResourceNameType(typ types.Type) types.Type {
-	seen := make(map[types.Type]struct{})
-	for typ != nil {
-		if _, ok := seen[typ]; ok {
-			return nil
-		}
-		seen[typ] = struct{}{}
-
-		switch typ {
-		case GetSpxBackdropNameType():
-			return GetSpxBackdropNameType()
-		case GetSpxSpriteNameType():
-			return GetSpxSpriteNameType()
-		case GetSpxSpriteCostumeNameType():
-			return GetSpxSpriteCostumeNameType()
-		case GetSpxSpriteAnimationNameType():
-			return GetSpxSpriteAnimationNameType()
-		case GetSpxSoundNameType():
-			return GetSpxSoundNameType()
-		case GetSpxWidgetNameType():
-			return GetSpxWidgetNameType()
-		}
-
-		alias, ok := typ.(*types.Alias)
-		if !ok {
-			return nil
-		}
-
-		rhs := alias.Rhs()
-		if rhs == nil || rhs == typ {
-			return nil
-		}
-		typ = rhs
+	schema, err := getSpxClassfileResourceSchema()
+	if err != nil {
+		return nil
 	}
-	return nil
+	return schema.canonicalType(typ)
 }
 
 // IsSpxResourceNameType reports whether the given type is a spx resource name type.

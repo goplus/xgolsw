@@ -24,12 +24,14 @@ import (
 	"github.com/goplus/mod/xgomod"
 )
 
+// spxProject is the built-in class project definition for `.spx` files.
 var spxProject = &modfile.Project{
 	Ext:      ".spx",
 	FullExt:  "main.spx",
 	Class:    "Game",
 	PkgPaths: []string{"github.com/goplus/spx/v2", "math"},
 	Works:    []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}},
+	Pack:     &modfile.Pack{Directory: "assets", IndexFile: "index.json"},
 }
 
 func init() {

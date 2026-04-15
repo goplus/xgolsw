@@ -1,10 +1,7 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/fs"
-	"maps"
 	"net/url"
 	"path"
 	"slices"
@@ -80,133 +77,9 @@ type SpxResourceSet struct {
 	widgets   map[string]*SpxWidgetResource
 }
 
-const spxResourceRootDir = "assets"
-
 // NewSpxResourceSet creates a new spx resource set.
 func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
-	// Read and parse the main index.json for backdrops and widgets.
-	metadataPath := spxResourceRootDir + "/index.json"
-	metadataFile, ok := proj.File(metadataPath)
-	if !ok {
-		return nil, fmt.Errorf("failed to read metadata: %w", fs.ErrNotExist)
-	}
-	metadata := metadataFile.Content
-
-	var assets struct {
-		Backdrops []SpxBackdropResource `json:"backdrops"`
-		Zorder    []json.RawMessage     `json:"zorder"`
-	}
-	if err := json.Unmarshal(metadata, &assets); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
-	}
-
-	// Process backdrops.
-	backdrops := make(map[string]*SpxBackdropResource, len(assets.Backdrops))
-	for _, backdrop := range assets.Backdrops {
-		backdrop.ID = SpxBackdropResourceID{BackdropName: backdrop.Name}
-		backdrops[backdrop.Name] = &backdrop
-	}
-
-	// Process widgets from zorder.
-	widgets := make(map[string]*SpxWidgetResource, len(assets.Zorder))
-	for _, item := range assets.Zorder {
-		var widget SpxWidgetResource
-		if err := json.Unmarshal(item, &widget); err == nil && widget.Name != "" {
-			widget.ID = SpxWidgetResourceID{WidgetName: widget.Name}
-			widgets[widget.Name] = &widget
-		}
-	}
-
-	// Read sounds directory.
-	soundDirs := listSubdirs(proj, spxResourceRootDir+"/sounds")
-	sounds := make(map[string]*SpxSoundResource, len(soundDirs))
-	for _, soundName := range soundDirs {
-		soundMetadataPath := spxResourceRootDir + "/sounds/" + soundName + "/index.json"
-		soundMetadataFile, ok := proj.File(soundMetadataPath)
-		if !ok {
-			return nil, fmt.Errorf("failed to read sound metadata: %w", fs.ErrNotExist)
-		}
-		soundMetadata := soundMetadataFile.Content
-
-		var sound SpxSoundResource
-		if err := json.Unmarshal(soundMetadata, &sound); err != nil {
-			return nil, fmt.Errorf("failed to parse sound metadata: %w", err)
-		}
-		sound.Name = soundName
-		sound.ID = SpxSoundResourceID{SoundName: soundName}
-		sounds[soundName] = &sound
-	}
-
-	// Read sprites directory.
-	spriteDirs := listSubdirs(proj, spxResourceRootDir+"/sprites")
-	sprites := make(map[string]*SpxSpriteResource, len(spriteDirs))
-	for _, spriteName := range spriteDirs {
-		spriteMetadataPath := spxResourceRootDir + "/sprites/" + spriteName + "/index.json"
-		spriteMetadataFile, ok := proj.File(spriteMetadataPath)
-		if !ok {
-			return nil, fmt.Errorf("failed to read sprite metadata: %w", fs.ErrNotExist)
-		}
-		spriteMetadata := spriteMetadataFile.Content
-
-		sprite := SpxSpriteResource{
-			ID:   SpxSpriteResourceID{SpriteName: spriteName},
-			Name: spriteName,
-		}
-		if err := json.Unmarshal(spriteMetadata, &sprite); err != nil {
-			return nil, fmt.Errorf("failed to parse sprite metadata: %w", err)
-		}
-
-		// Process costumes.
-		costumeIndexes := make(map[string]int, len(sprite.Costumes))
-		for i, costume := range sprite.Costumes {
-			costumeIndexes[costume.Name] = i
-			sprite.Costumes[i].ID = SpxSpriteCostumeResourceID{
-				SpriteName:  spriteName,
-				CostumeName: costume.Name,
-			}
-		}
-
-		// Process animations.
-		animationCostumes := make(map[int]struct{})
-		sprite.Animations = make([]SpxSpriteAnimationResource, 0, len(sprite.FAnimations))
-		for animName, fAnim := range sprite.FAnimations {
-			animation := SpxSpriteAnimationResource{
-				ID:   SpxSpriteAnimationResourceID{SpriteName: spriteName, AnimationName: animName},
-				Name: animName,
-			}
-			if fromIdx, ok := costumeIndexes[fAnim.FrameFrom]; ok {
-				animation.FromIndex = &fromIdx
-			}
-			if toIdx, ok := costumeIndexes[fAnim.FrameTo]; ok {
-				animation.ToIndex = &toIdx
-			}
-			if animation.FromIndex != nil && animation.ToIndex != nil {
-				for i := *animation.FromIndex; i <= *animation.ToIndex; i++ {
-					if i >= 0 && i < len(sprite.Costumes) {
-						animationCostumes[i] = struct{}{}
-					}
-				}
-			}
-			sprite.Animations = append(sprite.Animations, animation)
-		}
-
-		// Process normal costumes.
-		sprite.NormalCostumes = make([]SpxSpriteCostumeResource, 0, len(sprite.Costumes))
-		for i, costume := range sprite.Costumes {
-			if _, ok := animationCostumes[i]; !ok {
-				sprite.NormalCostumes = append(sprite.NormalCostumes, costume)
-			}
-		}
-
-		sprites[spriteName] = &sprite
-	}
-
-	return &SpxResourceSet{
-		backdrops: backdrops,
-		sounds:    sounds,
-		sprites:   sprites,
-		widgets:   widgets,
-	}, nil
+	return buildSpxResourceSet(proj)
 }
 
 // Backdrop returns the backdrop with the given name. It returns nil if not found.
@@ -323,22 +196,14 @@ func (id SpxSoundResourceID) ContextURI() SpxResourceContextURI {
 	return SpxSoundResourceContextURI
 }
 
-type spxSpriteFAnimation struct {
-	FrameFrom string `json:"frameFrom"`
-	FrameTo   string `json:"frameTo"`
-}
-
 // SpxSpriteResource represents an spx sprite resource.
 type SpxSpriteResource struct {
 	ID       SpxSpriteResourceID        `json:"-"`
 	Name     string                     `json:"name"`
 	Costumes []SpxSpriteCostumeResource `json:"costumes"`
-	// NormalCostumes includes all costumes except animation costumes.
-	NormalCostumes   []SpxSpriteCostumeResource     `json:"-"`
-	CostumeIndex     int                            `json:"costumeIndex"`
-	FAnimations      map[string]spxSpriteFAnimation `json:"fAnimations"`
-	Animations       []SpxSpriteAnimationResource   `json:"-"`
-	DefaultAnimation string                         `json:"defaultAnimation"`
+	CostumeIndex     int                          `json:"costumeIndex"`
+	Animations       []SpxSpriteAnimationResource `json:"-"`
+	DefaultAnimation string                       `json:"defaultAnimation"`
 }
 
 // SpxSpriteResourceID is the ID of an spx sprite resource.
@@ -485,22 +350,4 @@ const SpxWidgetResourceContextURI SpxResourceContextURI = "spx://resources/widge
 // ContextURI implements [SpxResourceID].
 func (id SpxWidgetResourceID) ContextURI() SpxResourceContextURI {
 	return SpxWidgetResourceContextURI
-}
-
-// listSubdirs returns a list of subdirectories under the given directory.
-func listSubdirs(proj *xgo.Project, dir string) []string {
-	prefix := path.Clean(dir) + "/"
-	subdirs := make(map[string]bool)
-	for file := range proj.Files() {
-		if strings.HasPrefix(file, prefix) {
-			remaining := file[len(prefix):]
-			if idx := strings.IndexByte(remaining, '/'); idx > 0 {
-				subdirs[remaining[:idx]] = true
-			}
-		}
-	}
-
-	result := slices.Collect(maps.Keys(subdirs))
-	slices.Sort(result)
-	return result
 }

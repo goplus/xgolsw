@@ -1391,8 +1391,8 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 		expectedSpxSprite := ctx.getSpxSpriteResource()
 		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
 			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
-				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.NormalCostumes))
-				for _, spxSpriteCostume := range spxSprite.NormalCostumes {
+				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.Costumes))
+				for _, spxSpriteCostume := range spxSprite.Costumes {
 					spxResourceIDs = append(spxResourceIDs, SpxSpriteCostumeResourceID{spxSprite.Name, spxSpriteCostume.Name})
 				}
 			}
@@ -1444,7 +1444,7 @@ func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
 func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	callExpr := ctx.getEnclosingCallExpr()
 	if callExpr != nil {
-		return inferSpxSpriteResourceEnclosingNode(ctx.result, callExpr)
+		return resolveSpxSpriteResourceForNode(ctx.result, callExpr)
 	}
 	return ctx.getCurrentFileSpxSpriteResource()
 }
