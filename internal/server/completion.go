@@ -518,10 +518,8 @@ func (ctx *completionContext) isInDisabledIdentifierContext(path []xgoast.Node) 
 	}
 
 	if valueSpec := xgoutil.EnclosingNode[*xgoast.ValueSpec](path); valueSpec != nil {
-		for _, name := range valueSpec.Names {
-			if name == ident {
-				return true
-			}
+		if slices.Contains(valueSpec.Names, ident) {
+			return true
 		}
 	}
 
@@ -1147,6 +1145,11 @@ func (ctx *completionContext) collectDot() error {
 	}
 
 	typ := ctx.typeInfo.TypeOf(ctx.selectorExpr.X)
+	if ident, ok := ctx.selectorExpr.X.(*xgoast.Ident); ok {
+		if propertyLikeType := ctx.resolvePropertyLikeExprType(ident, typ); xgoutil.IsValidType(propertyLikeType) {
+			typ = propertyLikeType
+		}
+	}
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
@@ -1163,6 +1166,61 @@ func (ctx *completionContext) collectDot() error {
 		ctx.collectInterfaceMethodCompletions(iface, named, nil)
 	} else if named != nil && xgoutil.IsNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
+	}
+	return nil
+}
+
+// resolvePropertyLikeExprType returns the result type of a property-like
+// function reference. If type-checker information is unavailable, it falls back
+// to [completionContext.resolvePropertyLikeFuncResultType].
+func (ctx *completionContext) resolvePropertyLikeExprType(ident *xgoast.Ident, typ types.Type) types.Type {
+	if ident == nil || ident.Name == "" {
+		return nil
+	}
+
+	if sig, ok := typ.(*types.Signature); ok && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
+			if fun, ok := obj.(*types.Func); ok {
+				if fun.Name() != ident.Name && xgoutil.ToLowerCamelCase(fun.Name()) == ident.Name {
+					return sig.Results().At(0).Type()
+				}
+			}
+		}
+	}
+
+	if xgoutil.IsValidType(typ) {
+		return nil
+	}
+
+	return ctx.resolvePropertyLikeFuncResultType(ident)
+}
+
+// resolvePropertyLikeFuncResultType resolves the result type of a property-like
+// function from the enclosing scopes.
+func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *xgoast.Ident) types.Type {
+	if ident == nil || ident.Name == "" {
+		return nil
+	}
+
+	for scope := ctx.innermostScope; scope != nil && scope != types.Universe; scope = scope.Parent() {
+		isInnermost := scope == ctx.innermostScope
+		isPkgScope := ctx.typeInfo.Pkg != nil && scope == ctx.typeInfo.Pkg.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			fun, ok := obj.(*types.Func)
+			if !ok || fun.Name() == ident.Name || xgoutil.ToLowerCamelCase(fun.Name()) != ident.Name {
+				continue
+			}
+			if isInnermost && !isPkgScope && fun.Pos().IsValid() && fun.Pos() >= ident.Pos() {
+				continue
+			}
+
+			sig, ok := fun.Type().(*types.Signature)
+			if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+				continue
+			}
+			return sig.Results().At(0).Type()
+		}
 	}
 	return nil
 }
