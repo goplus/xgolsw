@@ -16,19 +16,19 @@
 
 package xgoutil
 
-import "go/types"
+import gotypes "go/types"
 
 // IsNamedStructType reports whether the given named type is a struct type.
-func IsNamedStructType(named *types.Named) bool {
+func IsNamedStructType(named *gotypes.Named) bool {
 	if named == nil {
 		return false
 	}
-	_, ok := named.Underlying().(*types.Struct)
+	_, ok := named.Underlying().(*gotypes.Struct)
 	return ok
 }
 
 // IsXGoClassStructType reports whether the given named type is an XGo class struct type.
-func IsXGoClassStructType(named *types.Named) bool {
+func IsXGoClassStructType(named *gotypes.Named) bool {
 	if named == nil {
 		return false
 	}
@@ -54,20 +54,20 @@ func IsXGoClassStructType(named *types.Named) bool {
 
 // WalkStruct walks a struct and calls the given onMember for each field and
 // method. If onMember returns false, the walk is stopped.
-func WalkStruct(named *types.Named, onMember func(member types.Object, selector *types.Named) bool) {
+func WalkStruct(named *gotypes.Named, onMember func(member gotypes.Object, selector *gotypes.Named) bool) {
 	if named == nil {
 		return
 	}
-	walked := make(map[*types.Named]struct{})
+	walked := make(map[*gotypes.Named]struct{})
 	seenMembers := make(map[string]struct{})
-	var walk func(named *types.Named, namedPath []*types.Named) bool
-	walk = func(named *types.Named, namedPath []*types.Named) bool {
+	var walk func(named *gotypes.Named, namedPath []*gotypes.Named) bool
+	walk = func(named *gotypes.Named, namedPath []*gotypes.Named) bool {
 		if _, ok := walked[named]; ok {
 			return true
 		}
 		walked[named] = struct{}{}
 
-		st, ok := named.Underlying().(*types.Struct)
+		st, ok := named.Underlying().(*gotypes.Struct)
 		if !ok {
 			return true
 		}
@@ -108,7 +108,7 @@ func WalkStruct(named *types.Named, onMember func(member types.Object, selector 
 				continue
 			}
 			fieldType := DerefType(field.Type())
-			namedField, ok := fieldType.(*types.Named)
+			namedField, ok := fieldType.(*gotypes.Named)
 			if !ok || !IsNamedStructType(namedField) {
 				continue
 			}
@@ -119,5 +119,5 @@ func WalkStruct(named *types.Named, onMember func(member types.Object, selector 
 		}
 		return true
 	}
-	walk(named, []*types.Named{named})
+	walk(named, []*gotypes.Named{named})
 }

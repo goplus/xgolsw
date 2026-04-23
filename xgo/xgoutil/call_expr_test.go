@@ -17,12 +17,14 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateCallExprFromBranchStmt(t *testing.T) {
@@ -67,9 +69,9 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 			},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		label := types.NewLabel(token.NoPos, pkg, "label")
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+		pkg := gotypes.NewPackage("test", "test")
+		label := gotypes.NewLabel(token.NoPos, pkg, "label")
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
 			stmt.Label: label,
 		}, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
@@ -86,9 +88,9 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 			Label:  labelIdent,
 		}
 
-		pkg := types.NewPackage("test", "test")
-		variable := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+		pkg := gotypes.NewPackage("test", "test")
+		variable := gotypes.NewVar(token.NoPos, pkg, "label", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
 			labelIdent: variable, // Not a label, so it won't be skipped.
 		}, nil)
 		assert.Nil(t, CreateCallExprFromBranchStmt(typeInfo, stmt))
@@ -111,12 +113,12 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 			Name:    "goto",
 		}
 
-		pkg := types.NewPackage("test", "test")
-		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
-		gotoVar := types.NewVar(token.NoPos, pkg, "goto", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+		pkg := gotypes.NewPackage("test", "test")
+		labelVar := gotypes.NewVar(token.NoPos, pkg, "label", gotypes.Typ[gotypes.Int])
+		gotoVar := gotypes.NewVar(token.NoPos, pkg, "goto", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
 			labelIdent: labelVar, // Not a label.
-		}, map[*ast.Ident]types.Object{
+		}, map[*ast.Ident]gotypes.Object{
 			ident: gotoVar, // Not a function.
 		})
 
@@ -140,18 +142,18 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 			Name:    "goto",
 		}
 
-		pkg := types.NewPackage("test", "test")
-		labelVar := types.NewVar(token.NoPos, pkg, "label", types.Typ[types.Int])
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "goto", sig)
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{
+		pkg := gotypes.NewPackage("test", "test")
+		labelVar := gotypes.NewVar(token.NoPos, pkg, "label", gotypes.Typ[gotypes.Int])
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "goto", sig)
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
 			labelIdent: labelVar, // Not a label.
-		}, map[*ast.Ident]types.Object{
+		}, map[*ast.Ident]gotypes.Object{
 			ident: fun, // Is a function.
 		})
 
 		got := CreateCallExprFromBranchStmt(typeInfo, stmt)
-		assert.NotNil(t, got)
+		require.NotNil(t, got)
 		assert.Equal(t, ident, got.Fun)
 		assert.Len(t, got.Args, 1)
 		assert.Equal(t, stmt.Label, got.Args[0])
@@ -187,16 +189,16 @@ func TestFuncFromCallExpr(t *testing.T) {
 			Fun: ident,
 		}
 
-		pkg := types.NewPackage("test", "test")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
 		got := FuncFromCallExpr(typeInfo, expr)
-		assert.NotNil(t, got)
+		require.NotNil(t, got)
 		assert.Equal(t, fun, got)
 	})
 
@@ -209,16 +211,16 @@ func TestFuncFromCallExpr(t *testing.T) {
 			},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "Method", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "Method", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			sel: fun,
 		})
 
 		got := FuncFromCallExpr(typeInfo, expr)
-		assert.NotNil(t, got)
+		require.NotNil(t, got)
 		assert.Equal(t, fun, got)
 	})
 
@@ -228,10 +230,10 @@ func TestFuncFromCallExpr(t *testing.T) {
 			Fun: ident,
 		}
 
-		pkg := types.NewPackage("test", "test")
-		variable := types.NewVar(token.NoPos, pkg, "testVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("test", "test")
+		variable := gotypes.NewVar(token.NoPos, pkg, "testVar", gotypes.Typ[gotypes.Int])
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: variable,
 		})
 
@@ -253,7 +255,7 @@ func TestFuncFromCallExpr(t *testing.T) {
 func TestWalkCallExprArgs(t *testing.T) {
 	t.Run("NilCallExpr", func(t *testing.T) {
 		walkCalled := false
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalled = true
 			return true
 		}
@@ -268,7 +270,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 		}
 
 		walkCalled := false
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalled = true
 			return true
 		}
@@ -288,14 +290,14 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1, arg2},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-		param2 := types.NewParam(token.NoPos, pkg, "p2", types.Typ[types.String])
-		params := types.NewTuple(param1, param2)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+		param2 := gotypes.NewParam(token.NoPos, pkg, "p2", gotypes.Typ[gotypes.String])
+		params := gotypes.NewTuple(param1, param2)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
@@ -305,7 +307,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			arg        ast.Expr
 		}
 
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalls = append(walkCalls, struct {
 				paramIndex int
 				argIndex   int
@@ -335,14 +337,14 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1, arg2, arg3},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-		variadicParam := types.NewParam(token.NoPos, pkg, "args", types.NewSlice(types.Typ[types.String]))
-		params := types.NewTuple(param1, variadicParam)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, true)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+		variadicParam := gotypes.NewParam(token.NoPos, pkg, "args", gotypes.NewSlice(gotypes.Typ[gotypes.String]))
+		params := gotypes.NewTuple(param1, variadicParam)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, true)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
@@ -351,7 +353,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			argIndex   int
 		}
 
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalls = append(walkCalls, struct {
 				paramIndex int
 				argIndex   int
@@ -379,19 +381,19 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1, arg2},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-		param2 := types.NewParam(token.NoPos, pkg, "p2", types.Typ[types.String])
-		params := types.NewTuple(param1, param2)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+		param2 := gotypes.NewParam(token.NoPos, pkg, "p2", gotypes.Typ[gotypes.String])
+		params := gotypes.NewTuple(param1, param2)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
 		walkCallCount := 0
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCallCount++
 			return false // Stop after first call.
 		}
@@ -408,16 +410,16 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1},
 		}
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
 
-		recv := types.NewParam(token.NoPos, pkg, "recv", types.Typ[types.Int])
-		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-		params := types.NewTuple(recv, param1)
-		sig := types.NewSignatureType(recv, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "XGot_Sprite_Move", sig)
+		recv := gotypes.NewParam(token.NoPos, pkg, "recv", gotypes.Typ[gotypes.Int])
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+		params := gotypes.NewTuple(recv, param1)
+		sig := gotypes.NewSignatureType(recv, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_Move", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
@@ -426,7 +428,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			argIndex   int
 		}
 
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalls = append(walkCalls, struct {
 				paramIndex int
 				argIndex   int
@@ -442,6 +444,82 @@ func TestWalkCallExprArgs(t *testing.T) {
 		assert.Equal(t, 0, walkCalls[0].argIndex)   // First arg.
 	})
 
+	t.Run("CallExprWithFuncExFunction", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		ident := &ast.Ident{Name: "testFunc"}
+		expr := &ast.CallExpr{
+			Fun:  ident,
+			Args: []ast.Expr{&ast.Ident{Name: "arg"}},
+		}
+		fun := gogen.NewOverloadFunc(token.NoPos, pkg, "testFunc",
+			gotypes.NewFunc(token.NoPos, pkg, "foo", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)),
+		)
+
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			ident: fun,
+		})
+
+		walkCalled := false
+		WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+			walkCalled = true
+			return true
+		})
+		assert.False(t, walkCalled)
+	})
+
+	t.Run("CallExprWithXGoPackageXGoxMethod", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		markAsXGoPackage(pkg)
+
+		constraint := gotypes.NewInterfaceType(nil, nil)
+		constraint.Complete()
+		typeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), constraint)
+		recv := gotypes.NewParam(token.NoPos, pkg, "recv", gotypes.Typ[gotypes.Int])
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.String])
+		params := gotypes.NewTuple(recv, param1)
+		sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{typeParam}, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_XGox_Move", sig)
+
+		ident := &ast.Ident{Name: "XGot_Sprite_XGox_Move"}
+		expr := &ast.CallExpr{
+			Fun: ident,
+			Args: []ast.Expr{
+				&ast.Ident{Name: "int"},
+				&ast.BasicLit{Kind: token.STRING, Value: `"ok"`},
+			},
+		}
+
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			ident: fun,
+		})
+
+		var walkCalls []struct {
+			paramName  string
+			paramIndex int
+			argIndex   int
+		}
+		WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+			walkCalls = append(walkCalls, struct {
+				paramName  string
+				paramIndex int
+				argIndex   int
+			}{
+				paramName:  params.At(paramIndex).Name(),
+				paramIndex: paramIndex,
+				argIndex:   argIndex,
+			})
+			return true
+		})
+
+		assert.Len(t, walkCalls, 2)
+		assert.Equal(t, "T", walkCalls[0].paramName)
+		assert.Equal(t, 0, walkCalls[0].paramIndex)
+		assert.Equal(t, 0, walkCalls[0].argIndex)
+		assert.Equal(t, "p1", walkCalls[1].paramName)
+		assert.Equal(t, 1, walkCalls[1].paramIndex)
+		assert.Equal(t, 1, walkCalls[1].argIndex)
+	})
+
 	t.Run("CallExprWithMoreArgsThanParams", func(t *testing.T) {
 		ident := &ast.Ident{Name: "testFunc"}
 		arg1 := &ast.Ident{Name: "arg1"}
@@ -452,13 +530,13 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1, arg2, arg3},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-		params := types.NewTuple(param1)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+		params := gotypes.NewTuple(param1)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
@@ -467,7 +545,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			argIndex   int
 		}
 
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalls = append(walkCalls, struct {
 				paramIndex int
 				argIndex   int
@@ -491,17 +569,17 @@ func TestWalkCallExprArgs(t *testing.T) {
 			Args: []ast.Expr{arg1},
 		}
 
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple()
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple()
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			ident: fun,
 		})
 
 		walkCalled := false
-		walkFn := func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+		walkFn := func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 			walkCalled = true
 			return true
 		}

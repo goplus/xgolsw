@@ -17,16 +17,16 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // InnermostScopeAt returns the innermost scope that contains the given
 // position. It returns nil if not found.
-func InnermostScopeAt(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, pos token.Pos) *types.Scope {
+func InnermostScopeAt(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Package, pos token.Pos) *gotypes.Scope {
 	if fset == nil || typeInfo == nil || astPkg == nil || !pos.IsValid() {
 		return nil
 	}
@@ -36,7 +36,7 @@ func InnermostScopeAt(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.
 		return nil
 	}
 
-	var scope *types.Scope
+	var scope *gotypes.Scope
 	WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
 		scope = typeInfo.Scopes[node]
 		if scope == nil {

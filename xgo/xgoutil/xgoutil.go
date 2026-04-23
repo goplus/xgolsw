@@ -18,14 +18,14 @@ package xgoutil
 
 import (
 	"go/constant"
-	"go/types"
+	gotypes "go/types"
 	"iter"
 	"slices"
 	"strconv"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // RangeASTSpecs iterates all XGo AST specs.
@@ -46,7 +46,7 @@ func RangeASTSpecs(astPkg *ast.Package, tok token.Token, f func(spec ast.Spec)) 
 
 // IsDefinedInClassFieldsDecl reports whether the given object is defined in the
 // class fields declaration of an AST file.
-func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, obj types.Object) bool {
+func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Package, obj gotypes.Object) bool {
 	if fset == nil || typeInfo == nil || astPkg == nil || obj == nil {
 		return false
 	}
@@ -86,7 +86,7 @@ func WalkPathEnclosingInterval(root *ast.File, start, end token.Pos, backward bo
 // EnclosingFuncSignature returns the function signature enclosing the AST path.
 // It searches from the innermost node outward and supports both function
 // declarations and literals. It returns nil if not found.
-func EnclosingFuncSignature(typeInfo *xgotypes.Info, path []ast.Node) *types.Signature {
+func EnclosingFuncSignature(typeInfo *types.Info, path []ast.Node) *gotypes.Signature {
 	if typeInfo == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func EnclosingFuncSignature(typeInfo *xgotypes.Info, path []ast.Node) *types.Sig
 		switch node := node.(type) {
 		case *ast.FuncLit:
 			if typ := typeInfo.TypeOf(node); IsValidType(typ) {
-				if sig, ok := typ.(*types.Signature); ok {
+				if sig, ok := typ.(*gotypes.Signature); ok {
 					return sig
 				}
 			}
@@ -103,11 +103,11 @@ func EnclosingFuncSignature(typeInfo *xgotypes.Info, path []ast.Node) *types.Sig
 			if obj == nil {
 				continue
 			}
-			fun, ok := obj.(*types.Func)
+			fun, ok := obj.(*gotypes.Func)
 			if !ok {
 				continue
 			}
-			sig, ok := fun.Type().(*types.Signature)
+			sig, ok := fun.Type().(*gotypes.Signature)
 			if ok {
 				return sig
 			}
@@ -169,7 +169,7 @@ func ToLowerCamelCase(s string) string {
 // constant. It returns the string value and true if successful, or empty string
 // and false if the expression is not a string literal or constant, or if the
 // value cannot be determined.
-func StringLitOrConstValue(expr ast.Expr, tv types.TypeAndValue) (string, bool) {
+func StringLitOrConstValue(expr ast.Expr, tv gotypes.TypeAndValue) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {

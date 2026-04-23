@@ -16,33 +16,33 @@
 
 package xgoutil
 
-import "go/types"
+import gotypes "go/types"
 
 // IsInBuiltinPkg reports whether the given object is defined in the "builtin" package.
-func IsInBuiltinPkg(obj types.Object) bool {
+func IsInBuiltinPkg(obj gotypes.Object) bool {
 	return obj != nil && IsBuiltinPkg(obj.Pkg())
 }
 
 // IsInMainPkg reports whether the given object is defined in the "main" package.
-func IsInMainPkg(obj types.Object) bool {
+func IsInMainPkg(obj gotypes.Object) bool {
 	return obj != nil && IsMainPkg(obj.Pkg())
 }
 
 // IsExportedOrInMainPkg reports whether the given object is exported or
 // defined in the "main" package.
-func IsExportedOrInMainPkg(obj types.Object) bool {
+func IsExportedOrInMainPkg(obj gotypes.Object) bool {
 	return obj != nil && (obj.Exported() || IsInMainPkg(obj))
 }
 
 // IsRenameable reports whether the given object can be renamed.
-func IsRenameable(obj types.Object) bool {
-	if !IsInMainPkg(obj) || !obj.Pos().IsValid() || obj.Parent() == types.Universe {
+func IsRenameable(obj gotypes.Object) bool {
+	if !IsInMainPkg(obj) || !obj.Pos().IsValid() || obj.Parent() == gotypes.Universe {
 		return false
 	}
 	switch obj.(type) {
-	case *types.Var, *types.Const, *types.TypeName, *types.Func, *types.Label:
+	case *gotypes.Var, *gotypes.Const, *gotypes.TypeName, *gotypes.Func, *gotypes.Label:
 		return true
-	case *types.PkgName:
+	case *gotypes.PkgName:
 		return false
 	}
 	return false

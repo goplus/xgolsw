@@ -17,19 +17,19 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"slices"
 
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // CreateCallExprFromBranchStmt attempts to create a call expression from a
 // branch statement. This handles cases in spx where the `Sprite.Goto` method is
 // intended to precede the goto statement.
-func CreateCallExprFromBranchStmt(typeInfo *xgotypes.Info, stmt *ast.BranchStmt) *ast.CallExpr {
+func CreateCallExprFromBranchStmt(typeInfo *types.Info, stmt *ast.BranchStmt) *ast.CallExpr {
 	if typeInfo == nil || stmt == nil {
 		return nil
 	}
@@ -41,7 +41,7 @@ func CreateCallExprFromBranchStmt(typeInfo *xgotypes.Info, stmt *ast.BranchStmt)
 	// Skip if this is a real branch statement with an actual label object.
 	if obj := typeInfo.ObjectOf(stmt.Label); obj == nil {
 		return nil
-	} else if _, ok := obj.(*types.Label); ok {
+	} else if _, ok := obj.(*gotypes.Label); ok {
 		return nil
 	}
 
@@ -51,7 +51,7 @@ func CreateCallExprFromBranchStmt(typeInfo *xgotypes.Info, stmt *ast.BranchStmt)
 	stmtTokEnd := stmt.TokPos + token.Pos(len(stmt.Tok.String()))
 	for ident, obj := range typeInfo.Uses {
 		if ident.Pos() == stmt.TokPos && ident.End() == stmtTokEnd {
-			if _, ok := obj.(*types.Func); ok {
+			if _, ok := obj.(*gotypes.Func); ok {
 				return &ast.CallExpr{
 					Fun:  ident,
 					Args: []ast.Expr{stmt.Label},
@@ -64,7 +64,7 @@ func CreateCallExprFromBranchStmt(typeInfo *xgotypes.Info, stmt *ast.BranchStmt)
 }
 
 // FuncFromCallExpr returns the function object from a call expression.
-func FuncFromCallExpr(typeInfo *xgotypes.Info, expr *ast.CallExpr) *types.Func {
+func FuncFromCallExpr(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Func {
 	if typeInfo == nil || expr == nil {
 		return nil
 	}
@@ -83,7 +83,7 @@ func FuncFromCallExpr(typeInfo *xgotypes.Info, expr *ast.CallExpr) *types.Func {
 	if obj == nil {
 		return nil
 	}
-	fun, _ := obj.(*types.Func)
+	fun, _ := obj.(*gotypes.Func)
 	return fun
 }
 
@@ -91,7 +91,7 @@ func FuncFromCallExpr(typeInfo *xgotypes.Info, expr *ast.CallExpr) *types.Func {
 // provided walkFn for each argument. It does nothing if the function is not
 // found or if the function is XGo FuncEx type. The walk stops if walkFn returns
 // false.
-func WalkCallExprArgs(typeInfo *xgotypes.Info, expr *ast.CallExpr, walkFn func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
+func WalkCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr, walkFn func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool) {
 	if typeInfo == nil || expr == nil {
 		return
 	}
@@ -109,13 +109,13 @@ func WalkCallExprArgs(typeInfo *xgotypes.Info, expr *ast.CallExpr, walkFn func(f
 	if IsMarkedAsXGoPackage(fun.Pkg()) {
 		_, methodName, ok := SplitXGotMethodName(fun.Name(), false)
 		if ok {
-			var vars []*types.Var
+			var vars []*gotypes.Var
 			if _, ok := SplitXGoxFuncName(methodName); ok {
 				typeParams := fun.Signature().TypeParams()
 				if typeParams != nil {
 					vars = slices.Grow(vars, typeParams.Len())
 					for typeParam := range typeParams.TypeParams() {
-						param := types.NewParam(token.NoPos, typeParam.Obj().Pkg(), typeParam.Obj().Name(), typeParam.Constraint().Underlying())
+						param := gotypes.NewParam(token.NoPos, typeParam.Obj().Pkg(), typeParam.Obj().Name(), typeParam.Constraint().Underlying())
 						vars = append(vars, param)
 					}
 				}
@@ -126,7 +126,7 @@ func WalkCallExprArgs(typeInfo *xgotypes.Info, expr *ast.CallExpr, walkFn func(f
 				vars = append(vars, params.At(i))
 			}
 
-			params = types.NewTuple(vars...)
+			params = gotypes.NewTuple(vars...)
 		}
 	}
 

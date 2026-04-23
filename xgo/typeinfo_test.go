@@ -17,7 +17,7 @@
 package xgo
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,7 +55,7 @@ func main() {
 
 		// Verify the type info structure.
 		typeInfo := typeInfoCache.typeInfo
-		assert.NotNil(t, typeInfo.Pkg)
+		require.NotNil(t, typeInfo.Pkg)
 		assert.Equal(t, proj.PkgPath, typeInfo.Pkg.Path())
 		assert.Equal(t, "main", typeInfo.Pkg.Name())
 		assert.NotEmpty(t, typeInfo.Defs)
@@ -75,6 +75,20 @@ func main() {
 			assert.Error(t, err)
 			assert.Nil(t, cache)
 		}
+	})
+
+	t.Run("ASTCacheUnavailable", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{
+			"main.xgo": {
+				Content: []byte(`var x int`),
+			},
+		}, FeatTypeInfoCache)
+
+		cache, err := buildTypeInfoCache(proj)
+		require.Error(t, err)
+		assert.Nil(t, cache)
+		assert.Contains(t, err.Error(), "failed to retrieve AST package")
+		assert.Contains(t, err.Error(), ErrUnknownCacheKind.Error())
 	})
 
 	t.Run("TypeCheckingError", func(t *testing.T) {
@@ -104,7 +118,7 @@ func test() {
 
 		// But still should have some type information.
 		typeInfo := typeInfoCache.typeInfo
-		assert.NotNil(t, typeInfo.Pkg)
+		require.NotNil(t, typeInfo.Pkg)
 	})
 }
 
@@ -130,7 +144,7 @@ func getCounter() int {
 		require.NoError(t, err)
 		require.NotNil(t, typeInfo)
 
-		assert.NotNil(t, typeInfo.Pkg)
+		require.NotNil(t, typeInfo.Pkg)
 		assert.Equal(t, proj.PkgPath, typeInfo.Pkg.Path())
 		assert.Equal(t, "main", typeInfo.Pkg.Name())
 
@@ -139,7 +153,7 @@ func getCounter() int {
 		assert.NotEmpty(t, typeInfo.Uses)
 
 		// Check that counter variable is properly typed.
-		var counterObj types.Object
+		var counterObj gotypes.Object
 		for ident, obj := range typeInfo.Defs {
 			if ident.Name == "counter" {
 				counterObj = obj

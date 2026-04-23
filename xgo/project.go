@@ -17,8 +17,7 @@
 package xgo
 
 import (
-	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"io/fs"
 	"iter"
 	"maps"
@@ -27,6 +26,7 @@ import (
 	"time"
 
 	"github.com/goplus/mod/xgomod"
+	"github.com/goplus/xgo/token"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -72,7 +72,7 @@ type File struct {
 type Project struct {
 	PkgPath  string
 	Mod      *xgomod.Module
-	Importer types.Importer
+	Importer gotypes.Importer
 	Fset     *token.FileSet
 
 	mu            sync.RWMutex

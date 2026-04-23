@@ -18,14 +18,14 @@ package xgoutil
 
 import (
 	"go/constant"
-	"go/types"
+	gotypes "go/types"
 )
 
 // XGoPackage indicates an XGo package.
 const XGoPackage = "GopPackage"
 
 // IsMarkedAsXGoPackage reports whether the given package is marked as an XGo package.
-func IsMarkedAsXGoPackage(pkg *types.Package) bool {
+func IsMarkedAsXGoPackage(pkg *gotypes.Package) bool {
 	if pkg == nil {
 		return false
 	}
@@ -37,11 +37,11 @@ func IsMarkedAsXGoPackage(pkg *types.Package) bool {
 	if obj == nil {
 		return false
 	}
-	cnst, ok := obj.(*types.Const)
+	cnst, ok := obj.(*gotypes.Const)
 	if !ok {
 		return false
 	}
-	if cnst.Type() != types.Typ[types.UntypedBool] {
+	if cnst.Type() != gotypes.Typ[gotypes.UntypedBool] {
 		return false
 	}
 	cnstVal := cnst.Val()
@@ -50,7 +50,7 @@ func IsMarkedAsXGoPackage(pkg *types.Package) bool {
 
 // PkgPath returns the package path of the given pkg. It returns "builtin" if
 // the pkg is nil.
-func PkgPath(pkg *types.Package) string {
+func PkgPath(pkg *gotypes.Package) string {
 	if pkg == nil {
 		return "builtin"
 	}
@@ -64,11 +64,11 @@ func PkgPath(pkg *types.Package) string {
 }
 
 // IsBuiltinPkg reports whether the given package is the "builtin" package.
-func IsBuiltinPkg(pkg *types.Package) bool {
+func IsBuiltinPkg(pkg *gotypes.Package) bool {
 	return PkgPath(pkg) == "builtin"
 }
 
 // IsMainPkg reports whether the given package is the "main" package.
-func IsMainPkg(pkg *types.Package) bool {
+func IsMainPkg(pkg *gotypes.Package) bool {
 	return PkgPath(pkg) == "main"
 }

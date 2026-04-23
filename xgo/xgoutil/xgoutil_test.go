@@ -18,7 +18,7 @@ package xgoutil
 
 import (
 	"go/constant"
-	"go/types"
+	gotypes "go/types"
 	"path"
 	"slices"
 	"testing"
@@ -27,7 +27,7 @@ import (
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,23 +52,33 @@ func newTestPackage(files map[string]*ast.File) *ast.Package {
 	}
 }
 
-func newTestTypeInfo(defs map[*ast.Ident]types.Object, uses map[*ast.Ident]types.Object) *xgotypes.Info {
+func newTestTypeInfo(defs map[*ast.Ident]gotypes.Object, uses map[*ast.Ident]gotypes.Object) *types.Info {
 	if defs == nil {
-		defs = make(map[*ast.Ident]types.Object)
+		defs = make(map[*ast.Ident]gotypes.Object)
 	}
 	if uses == nil {
-		uses = make(map[*ast.Ident]types.Object)
+		uses = make(map[*ast.Ident]gotypes.Object)
 	}
-	return &xgotypes.Info{
+	return &types.Info{
 		Info: typesutil.Info{
-			Types:      make(map[ast.Expr]types.TypeAndValue),
+			Types:      make(map[ast.Expr]gotypes.TypeAndValue),
 			Defs:       defs,
 			Uses:       uses,
-			Selections: make(map[*ast.SelectorExpr]*types.Selection),
-			Implicits:  make(map[ast.Node]types.Object),
-			Scopes:     make(map[ast.Node]*types.Scope),
+			Selections: make(map[*ast.SelectorExpr]*gotypes.Selection),
+			Implicits:  make(map[ast.Node]gotypes.Object),
+			Scopes:     make(map[ast.Node]*gotypes.Scope),
 		},
 	}
+}
+
+func newTestFuncExSignature(pkg *gotypes.Package, recv *gotypes.Var, typ gotypes.Type) *gotypes.Signature {
+	methodSig := gotypes.NewSignatureType(gotypes.NewVar(token.NoPos, nil, "", typ), nil, nil, nil, nil, false)
+	paramType := gotypes.NewInterfaceType([]*gotypes.Func{
+		gotypes.NewFunc(token.NoPos, nil, "_", methodSig),
+	}, nil)
+	paramType.Complete()
+	param := gotypes.NewVar(token.NoPos, pkg, "__xgo_overload_args__", paramType)
+	return gotypes.NewSignatureType(recv, nil, nil, gotypes.NewTuple(param), nil, false)
 }
 
 func findIdent(astFile *ast.File, name string) *ast.Ident {
@@ -100,8 +110,8 @@ func findIdentWithPos(fset *token.FileSet, astFile *ast.File, name string) (*ast
 	return nil, token.Position{}
 }
 
-func markAsXGoPackage(pkg *types.Package) {
-	cnst := types.NewConst(token.NoPos, pkg, XGoPackage, types.Typ[types.UntypedBool], constant.MakeBool(true))
+func markAsXGoPackage(pkg *gotypes.Package) {
+	cnst := gotypes.NewConst(token.NoPos, pkg, XGoPackage, gotypes.Typ[gotypes.UntypedBool], constant.MakeBool(true))
 	pkg.Scope().Insert(cnst)
 }
 
@@ -330,13 +340,13 @@ var (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		xVar := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
 		xIdent := findIdent(astFile, "x")
 		require.NotNil(t, xIdent)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
 			xVar: xIdent,
 		}
 
@@ -355,12 +365,12 @@ func test() {
 
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
-		zVar := types.NewVar(token.NoPos, types.NewPackage("main", "main"), "z", types.Typ[types.Int])
+		zVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "z", gotypes.Typ[gotypes.Int])
 		zIdent := findIdent(astFile, "z")
 		require.NotNil(t, zIdent)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
 			zVar: zIdent,
 		}
 
@@ -383,10 +393,37 @@ func test() {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 		typeInfo := newTestTypeInfo(nil, nil)
-		pkg := types.NewPackage("main", "main")
-		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		xVar := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
 
 		result := IsDefinedInClassFieldsDecl(nil, typeInfo, astPkg, xVar)
+		assert.False(t, result)
+	})
+
+	t.Run("ObjectWithoutDefinition", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.gox", "var x int")
+		require.NoError(t, err)
+
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+		xVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "x", gotypes.Typ[gotypes.Int])
+
+		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
+		assert.False(t, result)
+	})
+
+	t.Run("DefinitionOutsidePackage", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.gox", "var x int")
+		require.NoError(t, err)
+
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+		xVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "x", gotypes.Typ[gotypes.Int])
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
+			xVar: {NamePos: astFile.End() + 10, Name: "x"},
+		}
+
+		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
 		assert.False(t, result)
 	})
 }
@@ -518,13 +555,13 @@ func foo() string {
 `)
 		require.NoError(t, err)
 
-		pkg := types.NewPackage("main", "main")
-		sig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewVar(token.NoPos, pkg, "", types.Typ[types.String])), false)
-		fun := types.NewFunc(token.NoPos, pkg, "foo", sig)
+		pkg := gotypes.NewPackage("main", "main")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, gotypes.NewTuple(gotypes.NewVar(token.NoPos, pkg, "", gotypes.Typ[gotypes.String])), false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "foo", sig)
 
 		nameIdent := findIdent(astFile, "foo")
 		require.NotNil(t, nameIdent)
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{nameIdent: fun}, nil)
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{nameIdent: fun}, nil)
 
 		var ret *ast.ReturnStmt
 		ast.Inspect(astFile, func(n ast.Node) bool {
@@ -554,14 +591,14 @@ func outer() {
 `)
 		require.NoError(t, err)
 
-		pkg := types.NewPackage("main", "main")
-		errorObj := types.Universe.Lookup("error")
+		pkg := gotypes.NewPackage("main", "main")
+		errorObj := gotypes.Universe.Lookup("error")
 		require.NotNil(t, errorObj)
-		retTuple := types.NewTuple(
-			types.NewVar(token.NoPos, pkg, "", types.Typ[types.Int]),
-			types.NewVar(token.NoPos, pkg, "", errorObj.Type()),
+		retTuple := gotypes.NewTuple(
+			gotypes.NewVar(token.NoPos, pkg, "", gotypes.Typ[gotypes.Int]),
+			gotypes.NewVar(token.NoPos, pkg, "", errorObj.Type()),
 		)
-		sig := types.NewSignatureType(nil, nil, nil, nil, retTuple, false)
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, retTuple, false)
 
 		typeInfo := newTestTypeInfo(nil, nil)
 
@@ -580,7 +617,7 @@ func outer() {
 		})
 		require.NotNil(t, ret)
 		require.NotNil(t, lit)
-		typeInfo.Types[lit] = types.TypeAndValue{Type: sig}
+		typeInfo.Types[lit] = gotypes.TypeAndValue{Type: sig}
 
 		basic := ret.Results[0]
 		path, _ := PathEnclosingInterval(astFile, basic.Pos(), basic.End())
@@ -594,6 +631,34 @@ func outer() {
 		require.NoError(t, err)
 		path, _ := PathEnclosingInterval(astFile, astFile.Pos(), astFile.End())
 		assert.Nil(t, EnclosingFuncSignature(nil, path))
+	})
+
+	t.Run("FuncDeclWithoutFunctionObject", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() string {
+	return "ok"
+}
+`)
+		require.NoError(t, err)
+
+		nameIdent := findIdent(astFile, "foo")
+		require.NotNil(t, nameIdent)
+
+		var ret *ast.ReturnStmt
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if r, ok := n.(*ast.ReturnStmt); ok {
+				ret = r
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+
+		path, _ := PathEnclosingInterval(astFile, ret.Results[0].Pos(), ret.Results[0].End())
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
+			nameIdent: gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "foo", gotypes.Typ[gotypes.String]),
+		}, nil)
+		assert.Nil(t, EnclosingFuncSignature(typeInfo, path))
 	})
 }
 
@@ -894,6 +959,49 @@ func foo() (string, string) {
 		assert.Equal(t, 0, ReturnValueIndex(ret, leftLit))
 		assert.Equal(t, 1, ReturnValueIndex(ret, rightLit))
 	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+func foo() string {
+	return "ok"
+}
+`)
+		require.NoError(t, err)
+
+		var ret *ast.ReturnStmt
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if r, ok := n.(*ast.ReturnStmt); ok {
+				ret = r
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, ret)
+
+		target := &ast.BasicLit{
+			ValuePos: ret.End() + 1,
+			Kind:     token.STRING,
+			Value:    `"other"`,
+		}
+		assert.Equal(t, -1, ReturnValueIndex(ret, target))
+	})
+
+	t.Run("NilResultExprIsSkipped", func(t *testing.T) {
+		target := &ast.BasicLit{
+			ValuePos: token.Pos(10),
+			Kind:     token.STRING,
+			Value:    `"right"`,
+		}
+		ret := &ast.ReturnStmt{
+			Return: token.Pos(1),
+			Results: []ast.Expr{
+				nil,
+				target,
+			},
+		}
+
+		assert.Equal(t, 1, ReturnValueIndex(ret, target))
+	})
 }
 
 func TestToLowerCamelCase(t *testing.T) {
@@ -937,24 +1045,24 @@ func TestStringLitOrConstValue(t *testing.T) {
 			Value: `"literal"`,
 		}
 
-		tv := types.TypeAndValue{}
+		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(strLit, tv)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "literal", value)
 	})
 
 	t.Run("StringConstant", func(t *testing.T) {
 		ident := &ast.Ident{Name: "strConst"}
-		tv := types.TypeAndValue{Value: constant.MakeString("constant value")}
+		tv := gotypes.TypeAndValue{Value: constant.MakeString("constant value")}
 
 		value, ok := StringLitOrConstValue(ident, tv)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "constant value", value)
 	})
 
 	t.Run("StringVariable", func(t *testing.T) {
 		ident := &ast.Ident{Name: "strVar"}
-		tv := types.TypeAndValue{Value: nil} // Variables don't have constant values
+		tv := gotypes.TypeAndValue{Value: nil} // Variables don't have constant values
 
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
@@ -967,7 +1075,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 			Value: "42",
 		}
 
-		tv := types.TypeAndValue{}
+		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(intLit, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
@@ -975,7 +1083,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 	t.Run("NonStringConstant", func(t *testing.T) {
 		ident := &ast.Ident{Name: "intConst"}
-		tv := types.TypeAndValue{Value: constant.MakeInt64(42)}
+		tv := gotypes.TypeAndValue{Value: constant.MakeInt64(42)}
 
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
@@ -988,7 +1096,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 			Value: `"invalid\x"`, // Invalid escape sequence.
 		}
 
-		tv := types.TypeAndValue{}
+		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(invalidLit, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
@@ -1001,7 +1109,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 			Y:  &ast.BasicLit{Kind: token.STRING, Value: `"world"`},
 		}
 
-		tv := types.TypeAndValue{}
+		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(binExpr, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
@@ -1009,7 +1117,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 	t.Run("IdentWithNilValue", func(t *testing.T) {
 		ident := &ast.Ident{Name: "test"}
-		tv := types.TypeAndValue{Value: nil}
+		tv := gotypes.TypeAndValue{Value: nil}
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)
@@ -1017,7 +1125,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 	t.Run("IdentWithNonStringConstant", func(t *testing.T) {
 		ident := &ast.Ident{Name: "test"}
-		tv := types.TypeAndValue{Value: constant.MakeInt64(42)}
+		tv := gotypes.TypeAndValue{Value: constant.MakeInt64(42)}
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
 		assert.Equal(t, "", value)

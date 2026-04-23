@@ -17,7 +17,7 @@
 package types
 
 import (
-	"go/types"
+	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/x/typesutil"
@@ -29,16 +29,16 @@ type Info struct {
 	typesutil.Info
 
 	// Pkg is the package associated with this type information.
-	Pkg *types.Package
+	Pkg *gotypes.Package
 
 	// ObjToDef is a reverse mapping for O(1) object-to-identifier lookup.
 	// For identifiers that do not denote objects, the object is nil and
 	// they are excluded from this mapping.
-	ObjToDef map[types.Object]*ast.Ident
+	ObjToDef map[gotypes.Object]*ast.Ident
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced.
-func (i *Info) RefIdentsFor(obj types.Object) []*ast.Ident {
+func (i *Info) RefIdentsFor(obj gotypes.Object) []*ast.Ident {
 	if obj == nil {
 		return nil
 	}

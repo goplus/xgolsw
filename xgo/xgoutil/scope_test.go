@@ -17,7 +17,7 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -51,13 +51,13 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		xVar := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		xVar := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
 		packageScope.Insert(xVar)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile: packageScope,
 		}
 
@@ -73,16 +73,16 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
 
-		yVar := types.NewVar(token.NoPos, pkg, "y", types.Typ[types.Int])
+		yVar := gotypes.NewVar(token.NoPos, pkg, "y", gotypes.Typ[gotypes.Int])
 		functionScope.Insert(yVar)
 
 		typeInfo := newTestTypeInfo(nil, nil)
 		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:       packageScope,
 			funcDecl.Body: functionScope,
 		}
@@ -98,12 +98,12 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
-		blockScope := types.NewScope(functionScope, token.NoPos, token.NoPos, "block")
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		blockScope := gotypes.NewScope(functionScope, token.NoPos, token.NoPos, "block")
 
-		zVar := types.NewVar(token.NoPos, pkg, "z", types.Typ[types.Int])
+		zVar := gotypes.NewVar(token.NoPos, pkg, "z", gotypes.Typ[gotypes.Int])
 		blockScope.Insert(zVar)
 
 		// Find the if statement body.
@@ -118,7 +118,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NotNil(t, ifBody)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:       packageScope,
 			funcDecl.Body: functionScope,
 			ifBody:        blockScope,
@@ -135,16 +135,16 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
 
-		paramVar := types.NewVar(token.NoPos, pkg, "param", types.Typ[types.Int])
+		paramVar := gotypes.NewVar(token.NoPos, pkg, "param", gotypes.Typ[gotypes.Int])
 		functionScope.Insert(paramVar)
 
 		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:       packageScope,
 			funcDecl.Type: functionScope, // Scope for function parameters.
 		}
@@ -160,11 +160,11 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
 
-		paramVar := types.NewVar(token.NoPos, pkg, "param", types.Typ[types.String])
+		paramVar := gotypes.NewVar(token.NoPos, pkg, "param", gotypes.Typ[gotypes.String])
 		functionScope.Insert(paramVar)
 
 		// Extract the function literal from the variable declaration.
@@ -173,7 +173,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		funcLit := valueSpec.Values[0].(*ast.FuncLit)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:      packageScope,
 			funcLit.Type: functionScope, // Scope from FuncType for parameters.
 		}
@@ -189,11 +189,11 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		pkg := types.NewPackage("main", "main")
-		packageScope := types.NewScope(types.Universe, token.NoPos, token.NoPos, "package")
-		functionScope := types.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
 
-		localVar := types.NewVar(token.NoPos, pkg, "local", types.Typ[types.Int])
+		localVar := gotypes.NewVar(token.NoPos, pkg, "local", gotypes.Typ[gotypes.Int])
 		functionScope.Insert(localVar)
 
 		// Extract the function literal from the variable declaration.
@@ -202,7 +202,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		funcLit := valueSpec.Values[0].(*ast.FuncLit)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.Scopes = map[ast.Node]*types.Scope{
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:      packageScope,
 			funcLit.Body: functionScope, // Scope from Body for local variables.
 		}
@@ -213,6 +213,41 @@ func TestInnermostScopeAt(t *testing.T) {
 		require.NotNil(t, scope)
 
 		assert.NotNil(t, scope.Lookup("local"))
+	})
+
+	t.Run("FuncLitFallbackToBodyScope", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "var f = func() { local := 42; println(local) }")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+
+		pkg := gotypes.NewPackage("main", "main")
+		packageScope := gotypes.NewScope(gotypes.Universe, token.NoPos, token.NoPos, "package")
+		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
+		functionScope.Insert(gotypes.NewVar(token.NoPos, pkg, "local", gotypes.Typ[gotypes.Int]))
+
+		genDecl := astFile.Decls[0].(*ast.GenDecl)
+		valueSpec := genDecl.Specs[0].(*ast.ValueSpec)
+		funcLit := valueSpec.Values[0].(*ast.FuncLit)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
+			astFile:      packageScope,
+			funcLit.Body: functionScope,
+		}
+
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, funcLit.Pos())
+		require.NotNil(t, scope)
+		assert.NotNil(t, scope.Lookup("local"))
+	})
+
+	t.Run("PositionOutsidePackage", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		scope := InnermostScopeAt(fset, typeInfo, astPkg, astFile.End()+10)
+		assert.Nil(t, scope)
 	})
 
 	t.Run("NilPackage", func(t *testing.T) {

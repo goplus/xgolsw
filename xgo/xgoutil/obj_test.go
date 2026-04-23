@@ -17,10 +17,10 @@
 package xgoutil
 
 import (
-	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,31 +30,31 @@ func TestIsInBuiltinPkg(t *testing.T) {
 	})
 
 	t.Run("ObjectInBuiltinPackage", func(t *testing.T) {
-		pkg := types.NewPackage("", "builtin")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("", "builtin")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsInBuiltinPkg(obj))
 	})
 
 	t.Run("ObjectInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInBuiltinPkg(obj))
 	})
 
 	t.Run("ObjectInStandardLibraryPackage", func(t *testing.T) {
-		pkg := types.NewPackage("fmt", "fmt")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("fmt", "fmt")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInBuiltinPkg(obj))
 	})
 
 	t.Run("ObjectInThirdPartyPackage", func(t *testing.T) {
-		pkg := types.NewPackage("example.com/pkg", "pkg")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInBuiltinPkg(obj))
 	})
 
 	t.Run("ObjectWithNilPackage", func(t *testing.T) {
-		obj := types.NewVar(token.NoPos, nil, "test", types.Typ[types.Int])
+		obj := gotypes.NewVar(token.NoPos, nil, "test", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsInBuiltinPkg(obj))
 	})
 }
@@ -65,37 +65,37 @@ func TestIsInMainPkg(t *testing.T) {
 	})
 
 	t.Run("ObjectInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsInMainPkg(obj))
 	})
 
 	t.Run("ObjectInBuiltinPackage", func(t *testing.T) {
-		pkg := types.NewPackage("", "builtin")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("", "builtin")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInMainPkg(obj))
 	})
 
 	t.Run("ObjectInStandardLibraryPackage", func(t *testing.T) {
-		pkg := types.NewPackage("fmt", "fmt")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("fmt", "fmt")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInMainPkg(obj))
 	})
 
 	t.Run("ObjectInThirdPartyPackage", func(t *testing.T) {
-		pkg := types.NewPackage("example.com/pkg", "pkg")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInMainPkg(obj))
 	})
 
 	t.Run("ObjectWithNilPackage", func(t *testing.T) {
-		obj := types.NewVar(token.NoPos, nil, "test", types.Typ[types.Int])
+		obj := gotypes.NewVar(token.NoPos, nil, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInMainPkg(obj))
 	})
 
 	t.Run("ObjectInPackageNamedMainButDifferentPath", func(t *testing.T) {
-		pkg := types.NewPackage("example.com/main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "test", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("example.com/main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "test", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsInMainPkg(obj))
 	})
 }
@@ -106,43 +106,43 @@ func TestIsExportedOrInMainPkg(t *testing.T) {
 	})
 
 	t.Run("ExportedObjectInNonMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("fmt", "fmt")
-		obj := types.NewVar(token.NoPos, pkg, "ExportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("fmt", "fmt")
+		obj := gotypes.NewVar(token.NoPos, pkg, "ExportedVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("UnexportedObjectInNonMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("fmt", "fmt")
-		obj := types.NewVar(token.NoPos, pkg, "unexportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("fmt", "fmt")
+		obj := gotypes.NewVar(token.NoPos, pkg, "unexportedVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("ExportedObjectInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "ExportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "ExportedVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("UnexportedObjectInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "unexportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "unexportedVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("ExportedObjectInBuiltinPackage", func(t *testing.T) {
-		pkg := types.NewPackage("", "builtin")
-		obj := types.NewVar(token.NoPos, pkg, "ExportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("", "builtin")
+		obj := gotypes.NewVar(token.NoPos, pkg, "ExportedVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("UnexportedObjectInBuiltinPackage", func(t *testing.T) {
-		pkg := types.NewPackage("", "builtin")
-		obj := types.NewVar(token.NoPos, pkg, "unexportedVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("", "builtin")
+		obj := gotypes.NewVar(token.NoPos, pkg, "unexportedVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsExportedOrInMainPkg(obj))
 	})
 
 	t.Run("ObjectWithNilPackage", func(t *testing.T) {
-		obj := types.NewVar(token.NoPos, nil, "ExportedVar", types.Typ[types.Int])
+		obj := gotypes.NewVar(token.NoPos, nil, "ExportedVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsExportedOrInMainPkg(obj))
 	})
 }
@@ -153,67 +153,67 @@ func TestIsRenameable(t *testing.T) {
 	})
 
 	t.Run("VariableInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.Pos(1), pkg, "testVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.Pos(1), pkg, "testVar", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsRenameable(obj))
 	})
 
 	t.Run("ConstantInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewConst(token.Pos(1), pkg, "testConst", types.Typ[types.Int], nil)
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewConst(token.Pos(1), pkg, "testConst", gotypes.Typ[gotypes.Int], nil)
 		assert.True(t, IsRenameable(obj))
 	})
 
 	t.Run("TypeNameInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewTypeName(token.Pos(1), pkg, "TestType", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewTypeName(token.Pos(1), pkg, "TestType", gotypes.Typ[gotypes.Int])
 		assert.True(t, IsRenameable(obj))
 	})
 
 	t.Run("FunctionInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		obj := types.NewFunc(token.Pos(1), pkg, "testFunc", sig)
+		pkg := gotypes.NewPackage("main", "main")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		obj := gotypes.NewFunc(token.Pos(1), pkg, "testFunc", sig)
 		assert.True(t, IsRenameable(obj))
 	})
 
 	t.Run("LabelInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewLabel(token.Pos(1), pkg, "testLabel")
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewLabel(token.Pos(1), pkg, "testLabel")
 		assert.True(t, IsRenameable(obj))
 	})
 
 	t.Run("PackageNameInMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewPkgName(token.Pos(1), pkg, "testPkg", nil)
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewPkgName(token.Pos(1), pkg, "testPkg", nil)
 		assert.False(t, IsRenameable(obj))
 	})
 
 	t.Run("VariableInNonMainPackage", func(t *testing.T) {
-		pkg := types.NewPackage("fmt", "fmt")
-		obj := types.NewVar(token.Pos(1), pkg, "testVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("fmt", "fmt")
+		obj := gotypes.NewVar(token.Pos(1), pkg, "testVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsRenameable(obj))
 	})
 
 	t.Run("VariableWithInvalidPosition", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "testVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "testVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsRenameable(obj))
 	})
 
 	t.Run("VariableInUniverseScope", func(t *testing.T) {
-		obj := types.Universe.Lookup("int")
+		obj := gotypes.Universe.Lookup("int")
 		assert.False(t, IsRenameable(obj))
 	})
 
 	t.Run("BuiltinVariable", func(t *testing.T) {
-		pkg := types.NewPackage("", "builtin")
-		obj := types.NewVar(token.Pos(1), pkg, "testVar", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("", "builtin")
+		obj := gotypes.NewVar(token.Pos(1), pkg, "testVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsRenameable(obj))
 	})
 
 	t.Run("ObjectWithNilPackage", func(t *testing.T) {
-		obj := types.NewVar(token.Pos(1), nil, "testVar", types.Typ[types.Int])
+		obj := gotypes.NewVar(token.Pos(1), nil, "testVar", gotypes.Typ[gotypes.Int])
 		assert.False(t, IsRenameable(obj))
 	})
 }
