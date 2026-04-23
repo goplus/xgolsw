@@ -18,8 +18,7 @@ func TestGetSpxClassfileResourceSchema(t *testing.T) {
 		var fn *types.Func
 		iface, ok := types.Unalias(GetSpxSpriteType()).Underlying().(*types.Interface)
 		require.True(t, ok)
-		for i := range iface.NumExplicitMethods() {
-			method := iface.ExplicitMethod(i)
+		for method := range iface.ExplicitMethods() {
 			if method.Name() == "SetCostume__0" {
 				fn = method
 				break
@@ -27,7 +26,7 @@ func TestGetSpxClassfileResourceSchema(t *testing.T) {
 		}
 		require.NotNil(t, fn)
 
-		bindings := schema.apiScopeBindings[fn.FullName()]
+		bindings := schema.APIScopeBindings(fn)
 		require.Len(t, bindings, 1)
 		assert.Equal(t, 0, bindings[0].TargetParam)
 		assert.True(t, bindings[0].SourceReceiver)
@@ -35,8 +34,7 @@ func TestGetSpxClassfileResourceSchema(t *testing.T) {
 
 	t.Run("SpriteImplMethod", func(t *testing.T) {
 		var fn *types.Func
-		for i := range GetSpxSpriteImplType().NumMethods() {
-			method := GetSpxSpriteImplType().Method(i)
+		for method := range GetSpxSpriteImplType().Methods() {
 			if method.Name() == "TurnTo__b" {
 				fn = method
 				break
@@ -44,7 +42,7 @@ func TestGetSpxClassfileResourceSchema(t *testing.T) {
 		}
 		require.NotNil(t, fn)
 
-		bindings := schema.apiScopeBindings[fn.FullName()]
+		bindings := schema.APIScopeBindings(fn)
 		require.Len(t, bindings, 1)
 		assert.Equal(t, 2, bindings[0].TargetParam)
 		assert.True(t, bindings[0].SourceReceiver)

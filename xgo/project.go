@@ -40,8 +40,12 @@ const (
 	// FeatPkgDocCache enables PkgDoc cache building.
 	FeatPkgDocCache
 
+	// FeatClassfileResourceCache enables classfile resource and resource
+	// reference cache building.
+	FeatClassfileResourceCache
+
 	// FeatAll enables all features.
-	FeatAll = FeatASTCache | FeatTypeInfoCache | FeatPkgDocCache
+	FeatAll = FeatASTCache | FeatTypeInfoCache | FeatPkgDocCache | FeatClassfileResourceCache
 )
 
 // cacheFeature represents a cache feature configuration that maps feature
@@ -58,6 +62,8 @@ var builtinCacheFeatures = []cacheFeature{
 	{FeatASTCache, astPackageCacheKind{}, buildASTPackageCache},
 	{FeatTypeInfoCache, typeInfoCacheKind{}, buildTypeInfoCache},
 	{FeatPkgDocCache, pkgDocCacheKind{}, buildPkgDocCache},
+	{FeatClassfileResourceCache, classfileResourcesCacheKind{}, buildClassfileResourcesCache},
+	{FeatClassfileResourceCache, classfileResourceInfosCacheKind{}, buildClassfileResourceInfosCache},
 }
 
 // File represents a file in an XGo project.
@@ -92,6 +98,9 @@ type Project struct {
 func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Project {
 	if fset == nil {
 		fset = token.NewFileSet()
+	}
+	if feats&FeatClassfileResourceCache != 0 {
+		feats |= FeatASTCache | FeatTypeInfoCache
 	}
 	proj := &Project{
 		Mod:               xgomod.Default,

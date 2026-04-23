@@ -69,9 +69,15 @@ func buildPkgResourceSchema(pkgPath string, dir string, pkgName string, buildFil
 		if kind.CanonicalType != nil {
 			canonicalType = kind.CanonicalType.Name()
 		}
+		handleTypes := make([]string, 0, len(kind.HandleTypes))
+		for _, handleType := range kind.HandleTypes {
+			handleTypes = append(handleTypes, handleType.Name())
+		}
+		slices.Sort(handleTypes)
 		kinds = append(kinds, pkgdata.PkgResourceKind{
 			Name:               kind.Name,
 			CanonicalType:      canonicalType,
+			HandleTypes:        handleTypes,
 			DiscoveryQuery:     kind.DiscoveryQuery,
 			NameDiscoveryQuery: kind.NameDiscoveryQuery,
 		})
@@ -155,9 +161,7 @@ func hasClassfileResourceDirectives(astFiles map[string]*goast.File) bool {
 func buildPkgResourceAPIScopeBindings(schema *xgoclassfile.ResourceSchema) []pkgdata.PkgResourceAPIScopeBinding {
 	callables := make(map[string]*types.Func)
 	scope := schema.Package.Scope()
-	names := slices.Clone(scope.Names())
-	slices.Sort(names)
-	for _, name := range names {
+	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
 		fn, ok := obj.(*types.Func)
 		if !ok {
@@ -179,19 +183,13 @@ func buildPkgResourceAPIScopeBindings(schema *xgoclassfile.ResourceSchema) []pkg
 			return pkgResourceCallableKey(fn, obj)
 		}
 		if iface, ok := types.Unalias(obj.Type()).Underlying().(*types.Interface); ok {
-			methods = make([]*types.Func, 0, iface.NumExplicitMethods())
-			for i := range iface.NumExplicitMethods() {
-				methods = append(methods, iface.ExplicitMethod(i))
-			}
+			methods = slices.Collect(iface.ExplicitMethods())
 		} else {
 			named, ok := obj.Type().(*types.Named)
 			if !ok {
 				continue
 			}
-			methods = make([]*types.Func, 0, named.NumMethods())
-			for i := range named.NumMethods() {
-				methods = append(methods, named.Method(i))
-			}
+			methods = slices.Collect(named.Methods())
 		}
 		slices.SortFunc(methods, func(a, b *types.Func) int {
 			return strings.Compare(keyOf(a), keyOf(b))
@@ -201,8 +199,7 @@ func buildPkgResourceAPIScopeBindings(schema *xgoclassfile.ResourceSchema) []pkg
 		}
 	}
 
-	keys := slices.Collect(maps.Keys(callables))
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(callables))
 	bindings := make([]pkgdata.PkgResourceAPIScopeBinding, 0)
 	for _, key := range keys {
 		fn := callables[key]

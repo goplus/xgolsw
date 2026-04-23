@@ -21,10 +21,11 @@ type PkgResourceSchema struct {
 
 // PkgResourceKind is one serialized classfile resource kind.
 type PkgResourceKind struct {
-	Name               string `json:"name"`
-	CanonicalType      string `json:"canonicalType,omitempty"`
-	DiscoveryQuery     string `json:"discoveryQuery,omitempty"`
-	NameDiscoveryQuery string `json:"nameDiscoveryQuery,omitempty"`
+	Name               string   `json:"name"`
+	CanonicalType      string   `json:"canonicalType,omitempty"`
+	HandleTypes        []string `json:"handleTypes,omitempty"`
+	DiscoveryQuery     string   `json:"discoveryQuery,omitempty"`
+	NameDiscoveryQuery string   `json:"nameDiscoveryQuery,omitempty"`
 }
 
 // PkgResourceAPIScopeBinding is one serialized resource-api-scope-binding.

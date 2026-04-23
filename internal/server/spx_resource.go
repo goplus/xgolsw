@@ -79,7 +79,101 @@ type SpxResourceSet struct {
 
 // NewSpxResourceSet creates a new spx resource set.
 func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
-	return buildSpxResourceSet(proj)
+	resourceSet, err := proj.ClassfileResourceSet(".spx")
+	if err != nil {
+		return nil, err
+	}
+
+	set := &SpxResourceSet{
+		backdrops: make(map[string]*SpxBackdropResource),
+		sounds:    make(map[string]*SpxSoundResource),
+		sprites:   make(map[string]*SpxSpriteResource),
+		widgets:   make(map[string]*SpxWidgetResource),
+	}
+
+	for _, resource := range resourceSet.Resources("backdrop") {
+		var backdrop SpxBackdropResource
+		if err := resource.Decode(&backdrop); err != nil {
+			return nil, fmt.Errorf("failed to decode backdrop %q: %w", resource.Name, err)
+		}
+		backdrop.Name = resource.Name
+		backdrop.ID = SpxBackdropResourceID{BackdropName: resource.Name}
+		set.backdrops[resource.Name] = &backdrop
+	}
+
+	for _, resource := range resourceSet.Resources("sound") {
+		var sound SpxSoundResource
+		if err := resource.Decode(&sound); err != nil {
+			return nil, fmt.Errorf("failed to decode sound %q: %w", resource.Name, err)
+		}
+		sound.Name = resource.Name
+		sound.ID = SpxSoundResourceID{SoundName: resource.Name}
+		set.sounds[resource.Name] = &sound
+	}
+
+	for _, resource := range resourceSet.Resources("sprite") {
+		var sprite SpxSpriteResource
+		if err := resource.Decode(&sprite); err != nil {
+			return nil, fmt.Errorf("failed to decode sprite %q: %w", resource.Name, err)
+		}
+		sprite.Name = resource.Name
+		sprite.ID = SpxSpriteResourceID{SpriteName: resource.Name}
+		sprite.Costumes = nil
+		sprite.Animations = nil
+		for _, child := range resourceSet.Children(resource, "sprite.costume") {
+			var costume SpxSpriteCostumeResource
+			if err := child.Decode(&costume); err != nil {
+				return nil, fmt.Errorf("failed to decode costume %q for %q: %w", child.Name, resource.Name, err)
+			}
+			costume.Name = child.Name
+			costume.ID = SpxSpriteCostumeResourceID{
+				SpriteName:  resource.Name,
+				CostumeName: child.Name,
+			}
+			sprite.Costumes = append(sprite.Costumes, costume)
+		}
+
+		costumeIndexes := make(map[string]int, len(sprite.Costumes))
+		for i, costume := range sprite.Costumes {
+			costumeIndexes[costume.Name] = i
+		}
+		for _, child := range resourceSet.Children(resource, "sprite.animation") {
+			var raw struct {
+				FrameFrom string `json:"frameFrom"`
+				FrameTo   string `json:"frameTo"`
+			}
+			if err := child.Decode(&raw); err != nil {
+				return nil, fmt.Errorf("failed to decode animation %q for %q: %w", child.Name, resource.Name, err)
+			}
+			animation := SpxSpriteAnimationResource{
+				ID: SpxSpriteAnimationResourceID{
+					SpriteName:    resource.Name,
+					AnimationName: child.Name,
+				},
+				Name: child.Name,
+			}
+			if idx, ok := costumeIndexes[raw.FrameFrom]; ok {
+				animation.FromIndex = &idx
+			}
+			if idx, ok := costumeIndexes[raw.FrameTo]; ok {
+				animation.ToIndex = &idx
+			}
+			sprite.Animations = append(sprite.Animations, animation)
+		}
+		set.sprites[resource.Name] = &sprite
+	}
+
+	for _, resource := range resourceSet.Resources("widget") {
+		var widget SpxWidgetResource
+		if err := resource.Decode(&widget); err != nil {
+			return nil, fmt.Errorf("failed to decode widget %q: %w", resource.Name, err)
+		}
+		widget.Name = resource.Name
+		widget.ID = SpxWidgetResourceID{WidgetName: resource.Name}
+		set.widgets[resource.Name] = &widget
+	}
+
+	return set, nil
 }
 
 // Backdrop returns the backdrop with the given name. It returns nil if not found.
@@ -198,9 +292,9 @@ func (id SpxSoundResourceID) ContextURI() SpxResourceContextURI {
 
 // SpxSpriteResource represents an spx sprite resource.
 type SpxSpriteResource struct {
-	ID       SpxSpriteResourceID        `json:"-"`
-	Name     string                     `json:"name"`
-	Costumes []SpxSpriteCostumeResource `json:"costumes"`
+	ID               SpxSpriteResourceID          `json:"-"`
+	Name             string                       `json:"name"`
+	Costumes         []SpxSpriteCostumeResource   `json:"costumes"`
 	CostumeIndex     int                          `json:"costumeIndex"`
 	Animations       []SpxSpriteAnimationResource `json:"-"`
 	DefaultAnimation string                       `json:"defaultAnimation"`
