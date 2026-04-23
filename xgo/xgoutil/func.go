@@ -17,7 +17,7 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"regexp"
 	"strings"
 
@@ -87,21 +87,21 @@ func IsXGoOverloadedFuncName(name string) bool {
 }
 
 // IsXGoOverloadableFunc reports whether the given function is an XGo overloadable
-// function with a signature like `func(__gop_overload_args__ interface{_()})`.
-func IsXGoOverloadableFunc(fun *types.Func) bool {
-	typ, _ := gogen.CheckSigFuncExObjects(fun.Type().(*types.Signature))
+// function with a signature like `func(__xgo_overload_args__ interface{_()})`.
+func IsXGoOverloadableFunc(fun *gotypes.Func) bool {
+	typ, _ := gogen.CheckSigFuncExObjects(fun.Type().(*gotypes.Signature))
 	return typ != nil
 }
 
 // IsUnexpandableXGoOverloadableFunc reports whether the given function is a
 // Unexpandable-XGo-Overloadable-Func, which is a function that:
-//  1. is overloadable: has a signature like `func(__gop_overload_args__ interface{_()})`
+//  1. is overloadable: has a signature like `func(__xgo_overload_args__ interface{_()})`
 //  2. but not expandable: can not be expanded into overloads
 //
 // A typical example is method `GetWidget` on spx `Game`.
-func IsUnexpandableXGoOverloadableFunc(fun *types.Func) bool {
-	sig := fun.Type().(*types.Signature)
-	if _, ok := gogen.CheckSigFuncEx(sig); ok { // is `func(__gop_overload_args__ interface{_()})`
+func IsUnexpandableXGoOverloadableFunc(fun *gotypes.Func) bool {
+	sig := fun.Type().(*gotypes.Signature)
+	if _, ok := gogen.CheckSigFuncEx(sig); ok { // is `func(__xgo_overload_args__ interface{_()})`
 		if t, _ := gogen.CheckSigFuncExObjects(sig); t == nil { // not expandable
 			return true
 		}
@@ -110,16 +110,16 @@ func IsUnexpandableXGoOverloadableFunc(fun *types.Func) bool {
 }
 
 // ExpandXGoOverloadableFunc expands the given XGo function with a signature
-// like `func(__gop_overload_args__ interface{_()})` to all its overloads. It
+// like `func(__xgo_overload_args__ interface{_()})` to all its overloads. It
 // returns nil if the function is not qualified for overload expansion.
-func ExpandXGoOverloadableFunc(fun *types.Func) []*types.Func {
-	typ, objs := gogen.CheckSigFuncExObjects(fun.Type().(*types.Signature))
+func ExpandXGoOverloadableFunc(fun *gotypes.Func) []*gotypes.Func {
+	typ, objs := gogen.CheckSigFuncExObjects(fun.Type().(*gotypes.Signature))
 	if typ == nil {
 		return nil
 	}
-	overloads := make([]*types.Func, 0, len(objs))
+	overloads := make([]*gotypes.Func, 0, len(objs))
 	for _, obj := range objs {
-		overloads = append(overloads, obj.(*types.Func))
+		overloads = append(overloads, obj.(*gotypes.Func))
 	}
 	return overloads
 }

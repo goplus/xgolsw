@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProjectRegisterCacheBuilder(t *testing.T) {
@@ -43,7 +44,7 @@ func TestProjectRegisterCacheBuilder(t *testing.T) {
 
 		// Test cache building.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "test-data", data)
 	})
 
@@ -68,11 +69,11 @@ func TestProjectRegisterCacheBuilder(t *testing.T) {
 
 		// Test both caches.
 		data1, err1 := proj.Cache(testCacheKind1{})
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "data-1", data1)
 
 		data2, err2 := proj.Cache(testCacheKind2{})
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "data-2", data2)
 	})
 
@@ -97,7 +98,7 @@ func TestProjectRegisterCacheBuilder(t *testing.T) {
 
 		// Test that new cache builder is used.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "updated-data", data)
 	})
 
@@ -142,7 +143,7 @@ func TestProjectRegisterCacheBuilder(t *testing.T) {
 
 		// Test cache building.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result := data.(map[string]any)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
@@ -168,7 +169,7 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, []byte("package test"), data)
 	})
 
@@ -195,11 +196,11 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data1, err1 := proj.FileCache(testCacheKind1{}, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, len("package test"), data1)
 
 		data2, err2 := proj.FileCache(testCacheKind2{}, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "test.go", data2)
 	})
 
@@ -226,7 +227,7 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "updated", data)
 	})
 
@@ -274,7 +275,7 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 
 		// Test cache building.
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result := data.(map[string]any)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
@@ -297,7 +298,7 @@ func TestProjectCache(t *testing.T) {
 
 		// Test cache retrieval.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "cached-data", data)
 	})
 
@@ -328,12 +329,12 @@ func TestProjectCache(t *testing.T) {
 
 		// First cache access.
 		data1, err1 := proj.Cache(testCacheKind{})
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, 1, data1)
 
 		// Second cache access should reuse cached data.
 		data2, err2 := proj.Cache(testCacheKind{})
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, 1, data2) // Same data as first call.
 
 		// Builder should only be called once.
@@ -402,11 +403,11 @@ func TestProjectCache(t *testing.T) {
 
 		// Test both caches work independently.
 		data1, err1 := proj.Cache(testCacheKind1{})
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "cache-1", data1)
 
 		data2, err2 := proj.Cache(testCacheKind2{})
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "cache-2", data2)
 	})
 
@@ -437,7 +438,7 @@ func TestProjectCache(t *testing.T) {
 
 		// Test cache building.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result := data.(map[string]any)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
@@ -500,11 +501,11 @@ func TestProjectCache(t *testing.T) {
 
 		// Both should work independently despite same underlying value.
 		data1, err1 := proj.Cache(kind1)
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "data1", data1)
 
 		data2, err2 := proj.Cache(kind2)
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "data2", data2)
 	})
 
@@ -529,11 +530,11 @@ func TestProjectCache(t *testing.T) {
 
 		// Both should work independently.
 		data1, err1 := proj.Cache(kind1)
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "ast-data", data1)
 
 		data2, err2 := proj.Cache(kind2)
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "types-data", data2)
 	})
 }
@@ -553,7 +554,7 @@ func TestProjectFileCache(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, len("package test"), data)
 	})
 
@@ -606,12 +607,12 @@ func TestProjectFileCache(t *testing.T) {
 
 		// First cache access.
 		data1, err1 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, 1, data1)
 
 		// Second cache access should reuse cached data.
 		data2, err2 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, 1, data2) // Same data as first call.
 
 		// Builder should only be called once.
@@ -685,11 +686,11 @@ func TestProjectFileCache(t *testing.T) {
 
 		// Test caches work independently per file.
 		data1, err1 := proj.FileCache(testCacheKind{}, "test1.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "test1.go:package test1", data1)
 
 		data2, err2 := proj.FileCache(testCacheKind{}, "test2.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "test2.go:package test2", data2)
 	})
 
@@ -721,7 +722,7 @@ func TestProjectFileCache(t *testing.T) {
 
 		// Test cache building.
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		result := data.(map[string]any)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
@@ -749,7 +750,7 @@ func TestProjectFileCache(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data1, err1 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "package test", data1)
 		assert.Equal(t, 1, buildCount)
 
@@ -758,7 +759,7 @@ func TestProjectFileCache(t *testing.T) {
 
 		// Cache should be rebuilt.
 		data2, err2 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "package updated", data2)
 		assert.Equal(t, 2, buildCount) // Builder called again.
 	})
@@ -824,11 +825,11 @@ func TestProjectFileCache(t *testing.T) {
 
 		// Both should work independently despite same underlying value.
 		data1, err1 := proj.FileCache(kind1, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, "filedata1", data1)
 
 		data2, err2 := proj.FileCache(kind2, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, "filedata2", data2)
 	})
 }
@@ -851,7 +852,7 @@ func TestProjectDeleteFileCache(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data1, err1 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, 1, data1)
 		assert.Equal(t, 1, buildCount)
 
@@ -860,7 +861,7 @@ func TestProjectDeleteFileCache(t *testing.T) {
 
 		// Cache should be rebuilt on next access.
 		data2, err2 := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, 2, data2)      // New build number.
 		assert.Equal(t, 2, buildCount) // Builder called again.
 	})
@@ -882,7 +883,7 @@ func TestProjectDeleteFileCache(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "data", data)
 	})
 
@@ -908,11 +909,11 @@ func TestProjectDeleteFileCache(t *testing.T) {
 		proj.PutFile("test.go", file("package test"))
 
 		data1, err1 := proj.FileCache(testCacheKind1{}, "test.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, 1, data1)
 
 		data2, err2 := proj.FileCache(testCacheKind2{}, "test.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, 1, data2)
 
 		// Delete file cache (should delete all caches for this file).
@@ -920,11 +921,11 @@ func TestProjectDeleteFileCache(t *testing.T) {
 
 		// Both caches should be rebuilt.
 		data1New, err1New := proj.FileCache(testCacheKind1{}, "test.go")
-		assert.NoError(t, err1New)
+		require.NoError(t, err1New)
 		assert.Equal(t, 2, data1New)
 
 		data2New, err2New := proj.FileCache(testCacheKind2{}, "test.go")
-		assert.NoError(t, err2New)
+		require.NoError(t, err2New)
 		assert.Equal(t, 2, data2New)
 
 		assert.Equal(t, 2, buildCount1)
@@ -954,11 +955,11 @@ func TestProjectDeleteFileCache(t *testing.T) {
 		proj.PutFile("test2.go", file("package test2"))
 
 		data1, err1 := proj.FileCache(testCacheKind{}, "test1.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 		assert.Equal(t, 1, data1)
 
 		data2, err2 := proj.FileCache(testCacheKind{}, "test2.go")
-		assert.NoError(t, err2)
+		require.NoError(t, err2)
 		assert.Equal(t, 1, data2)
 
 		// Delete cache for one file only.
@@ -966,13 +967,13 @@ func TestProjectDeleteFileCache(t *testing.T) {
 
 		// First file cache should be rebuilt.
 		data1New, err1New := proj.FileCache(testCacheKind{}, "test1.go")
-		assert.NoError(t, err1New)
+		require.NoError(t, err1New)
 		assert.Equal(t, 2, data1New)
 		assert.Equal(t, 2, buildCountTest1)
 
 		// Second file cache should be reused.
 		data2Same, err2Same := proj.FileCache(testCacheKind{}, "test2.go")
-		assert.NoError(t, err2Same)
+		require.NoError(t, err2Same)
 		assert.Equal(t, 1, data2Same)       // Same as before.
 		assert.Equal(t, 1, buildCountTest2) // No rebuild.
 	})
@@ -991,7 +992,7 @@ func TestDataOrErr(t *testing.T) {
 
 		// Verify.
 		assert.Equal(t, originalData, decodedData)
-		assert.NoError(t, decodedErr)
+		require.NoError(t, decodedErr)
 	})
 
 	t.Run("EncodeDecodeErrorData", func(t *testing.T) {
@@ -1027,7 +1028,7 @@ func TestDataOrErr(t *testing.T) {
 
 		// Verify.
 		assert.Equal(t, originalData, decodedData)
-		assert.NoError(t, decodedErr)
+		require.NoError(t, decodedErr)
 	})
 
 	t.Run("EncodeDecodeNilData", func(t *testing.T) {
@@ -1042,7 +1043,7 @@ func TestDataOrErr(t *testing.T) {
 
 		// Verify.
 		assert.Nil(t, decodedData)
-		assert.NoError(t, decodedErr)
+		require.NoError(t, decodedErr)
 	})
 
 	t.Run("EncodeDecodeCustomError", func(t *testing.T) {
@@ -1086,7 +1087,7 @@ func TestDataOrErr(t *testing.T) {
 
 				// Verify.
 				assert.Equal(t, originalData, decodedData)
-				assert.NoError(t, decodedErr)
+				require.NoError(t, decodedErr)
 			})
 		}
 	})

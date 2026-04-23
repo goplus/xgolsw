@@ -16,50 +16,50 @@
 
 package xgoutil
 
-import "go/types"
+import gotypes "go/types"
 
 // DerefType returns the underlying type of t. For pointer types, it returns
 // the element type that the pointer points to. For non-pointer types, it
 // returns the type unchanged.
-func DerefType(t types.Type) types.Type {
-	if ptr, ok := t.(*types.Pointer); ok {
+func DerefType(t gotypes.Type) gotypes.Type {
+	if ptr, ok := t.(*gotypes.Pointer); ok {
 		return ptr.Elem()
 	}
 	return t
 }
 
 // IsValidType reports whether typ is non-nil and not the invalid type sentinel.
-func IsValidType(typ types.Type) bool {
-	return typ != nil && typ != types.Typ[types.Invalid]
+func IsValidType(typ gotypes.Type) bool {
+	return typ != nil && typ != gotypes.Typ[gotypes.Invalid]
 }
 
 // IsTypesCompatible reports whether two types are compatible.
-func IsTypesCompatible(got, want types.Type) bool {
+func IsTypesCompatible(got, want gotypes.Type) bool {
 	if got == nil || want == nil {
 		return false
 	}
 
-	if types.AssignableTo(got, want) {
+	if gotypes.AssignableTo(got, want) {
 		return true
 	}
 
 	switch want := want.(type) {
-	case *types.Interface:
-		return types.Implements(got, want)
-	case *types.Pointer:
-		if gotPtr, ok := got.(*types.Pointer); ok {
-			return types.Identical(want.Elem(), gotPtr.Elem())
+	case *gotypes.Interface:
+		return gotypes.Implements(got, want)
+	case *gotypes.Pointer:
+		if gotPtr, ok := got.(*gotypes.Pointer); ok {
+			return gotypes.Identical(want.Elem(), gotPtr.Elem())
 		}
-		return types.Identical(got, want.Elem())
-	case *types.Slice:
-		gotSlice, ok := got.(*types.Slice)
-		return ok && types.Identical(want.Elem(), gotSlice.Elem())
-	case *types.Chan:
-		gotCh, ok := got.(*types.Chan)
-		return ok && types.Identical(want.Elem(), gotCh.Elem()) &&
-			(want.Dir() == types.SendRecv || want.Dir() == gotCh.Dir())
-	case *types.Signature:
-		gotSig, ok := got.(*types.Signature)
+		return gotypes.Identical(got, want.Elem())
+	case *gotypes.Slice:
+		gotSlice, ok := got.(*gotypes.Slice)
+		return ok && gotypes.Identical(want.Elem(), gotSlice.Elem())
+	case *gotypes.Chan:
+		gotCh, ok := got.(*gotypes.Chan)
+		return ok && gotypes.Identical(want.Elem(), gotCh.Elem()) &&
+			(want.Dir() == gotypes.SendRecv || want.Dir() == gotCh.Dir())
+	case *gotypes.Signature:
+		gotSig, ok := got.(*gotypes.Signature)
 		if !ok {
 			return false
 		}
@@ -72,51 +72,39 @@ func IsTypesCompatible(got, want types.Type) bool {
 		return IsTypesCompatible(gotSig.Results().At(0).Type(), want.Results().At(0).Type())
 	}
 
-	if gotSig, ok := got.(*types.Signature); ok {
+	if gotSig, ok := got.(*gotypes.Signature); ok {
 		if gotSig.Results().Len() != 1 {
 			return false
 		}
 		return IsTypesCompatible(gotSig.Results().At(0).Type(), want)
 	}
 
-	if _, ok := got.(*types.Named); ok {
-		return types.Identical(got, want)
+	if _, ok := got.(*gotypes.Named); ok {
+		return gotypes.Identical(got, want)
 	}
 
 	return false
 }
 
 // IsTypesConvertible reports whether a type can be explicitly converted to another.
-func IsTypesConvertible(from, to types.Type) bool {
+func IsTypesConvertible(from, to gotypes.Type) bool {
 	if from == nil || to == nil {
 		return false
 	}
 
-	if !types.ConvertibleTo(from, to) {
+	if !gotypes.ConvertibleTo(from, to) {
 		return false
 	}
 
 	fromUnderlying := from.Underlying()
 	toUnderlying := to.Underlying()
 
-	fromBasic, fromIsBasic := fromUnderlying.(*types.Basic)
-	toBasic, toIsBasic := toUnderlying.(*types.Basic)
+	fromBasic, fromIsBasic := fromUnderlying.(*gotypes.Basic)
+	toBasic, toIsBasic := toUnderlying.(*gotypes.Basic)
 
 	if fromIsBasic && toIsBasic {
 		// Exclude numeric to string conversions.
-		if (fromBasic.Info()&types.IsNumeric) != 0 && toBasic.Kind() == types.String {
-			return false
-		}
-		// Exclude string to numeric conversions.
-		if fromBasic.Kind() == types.String && (toBasic.Info()&types.IsNumeric) != 0 {
-			return false
-		}
-		// Exclude bool to numeric or string conversions.
-		if fromBasic.Kind() == types.Bool && toBasic.Kind() != types.Bool {
-			return false
-		}
-		// Exclude numeric or string to bool conversions.
-		if fromBasic.Kind() != types.Bool && toBasic.Kind() == types.Bool {
+		if (fromBasic.Info()&gotypes.IsNumeric) != 0 && toBasic.Kind() == gotypes.String {
 			return false
 		}
 	}

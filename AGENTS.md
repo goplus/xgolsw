@@ -7,6 +7,27 @@ Guidelines for AI coding agents working on this project.
 This project is the language server implementation for [XBuilder](https://github.com/goplus/builder), providing LSP
 features (completion, diagnostics, hover, etc.) for XGo source files.
 
+## Code conventions
+
+### Import alias conventions
+
+In `xgo` and its subpackages, prefer the XGo package when a corresponding package exists for a standard library `go/*`
+import. When these packages are needed under `xgo/`, keep the XGo package as the simple name.
+
+- Use `ast` for `github.com/goplus/xgo/ast`
+- Use `format` for `github.com/goplus/xgo/format`
+- Use `parser` for `github.com/goplus/xgo/parser`
+- Use `printer` for `github.com/goplus/xgo/printer`
+- Use `scanner` for `github.com/goplus/xgo/scanner`
+- Use `token` for `github.com/goplus/xgo/token`
+- Use `types` for `github.com/goplus/xgolsw/xgo/types`
+
+Only import the standard library counterpart when it is genuinely required. In that case, use a `go` prefix alias such
+as `goast`, `goformat`, `goparser`, `goprinter`, `goscanner`, `gotoken`, or `gotypes`.
+
+Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes` in `xgo/`. Apply the same convention in both production
+code and unit tests.
+
 ## Testing conventions
 
 ### assert vs require

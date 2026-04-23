@@ -18,13 +18,14 @@ package xgo
 
 import (
 	"fmt"
-	"go/token"
 	"io/fs"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func file(content string) *File {
@@ -34,7 +35,7 @@ func file(content string) *File {
 func TestNewProject(t *testing.T) {
 	t.Run("WithNilFileSet", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
-		assert.NotNil(t, proj)
+		require.NotNil(t, proj)
 		assert.NotNil(t, proj.Fset)
 		assert.NotNil(t, proj.files)
 		assert.Len(t, proj.files, 0)
@@ -47,7 +48,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("WithProvidedFileSet", func(t *testing.T) {
 		fset := token.NewFileSet()
 		proj := NewProject(fset, nil, 0)
-		assert.NotNil(t, proj)
+		require.NotNil(t, proj)
 		assert.Equal(t, fset, proj.Fset)
 	})
 
@@ -68,11 +69,11 @@ func TestNewProject(t *testing.T) {
 
 		// Verify files are copied
 		mainFile, ok := proj.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		testFile, ok := proj.files["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 	})
 
@@ -110,11 +111,11 @@ func TestNewProject(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		snapshot := proj.filesSnapshot.Load()
-		assert.NotNil(t, snapshot)
+		require.NotNil(t, snapshot)
 		assert.Len(t, *snapshot, 1)
 
 		testFile, ok := (*snapshot)["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package test"), testFile.Content)
 	})
 }
@@ -128,7 +129,7 @@ func TestProjectSnapshot(t *testing.T) {
 		proj.PkgPath = "test/pkg"
 
 		snapshot := proj.Snapshot()
-		assert.NotNil(t, snapshot)
+		require.NotNil(t, snapshot)
 		assert.Equal(t, proj.PkgPath, snapshot.PkgPath)
 		assert.Equal(t, proj.Mod, snapshot.Mod)
 		assert.Equal(t, proj.Importer, snapshot.Importer)
@@ -147,11 +148,11 @@ func TestProjectSnapshot(t *testing.T) {
 		// Verify files are copied.
 		assert.Len(t, snapshot.files, 2)
 		mainFile, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		testFile, ok := snapshot.files["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package test"), testFile.Content)
 	})
 
@@ -170,7 +171,7 @@ func TestProjectSnapshot(t *testing.T) {
 		// Snapshot should be unchanged.
 		assert.Len(t, snapshot.files, 1)
 		_, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		_, ok = snapshot.files["new.go"]
 		assert.False(t, ok)
 	})
@@ -204,7 +205,7 @@ func TestProjectSnapshot(t *testing.T) {
 
 		// Build cache.
 		data, err := proj.Cache(testCacheKind{})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "test-data", data)
 
 		snapshot := proj.Snapshot()
@@ -224,11 +225,11 @@ func TestProjectSnapshot(t *testing.T) {
 
 		// Verify snapshot has updated files snapshot.
 		snapshotFiles := snapshot.filesSnapshot.Load()
-		assert.NotNil(t, snapshotFiles)
+		require.NotNil(t, snapshotFiles)
 		assert.Len(t, *snapshotFiles, 1)
 
 		testFile, ok := (*snapshotFiles)["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package test"), testFile.Content)
 	})
 }
@@ -253,17 +254,17 @@ func TestProjectSnapshotWithOverlay(t *testing.T) {
 
 		// Verify overlay file is applied.
 		mainFile, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n// updated"), mainFile.Content)
 
 		// Verify new file is added.
 		newFile, ok := snapshot.files["new.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package new"), newFile.Content)
 
 		// Verify original file is preserved.
 		testFile, ok := snapshot.files["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package test"), testFile.Content)
 	})
 
@@ -278,7 +279,7 @@ func TestProjectSnapshotWithOverlay(t *testing.T) {
 		// Verify snapshot is equivalent to regular snapshot.
 		assert.Len(t, snapshot.files, 1)
 		mainFile, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 
@@ -293,7 +294,7 @@ func TestProjectSnapshotWithOverlay(t *testing.T) {
 		// Verify snapshot is equivalent to regular snapshot.
 		assert.Len(t, snapshot.files, 1)
 		mainFile, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 
@@ -311,12 +312,12 @@ func TestProjectSnapshotWithOverlay(t *testing.T) {
 
 		// Verify original project is unchanged.
 		mainFile, ok := proj.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		// Verify snapshot has overlay.
 		snapshotMainFile, ok := snapshot.files["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n// updated"), snapshotMainFile.Content)
 	})
 
@@ -334,11 +335,11 @@ func TestProjectSnapshotWithOverlay(t *testing.T) {
 
 		// Verify snapshot has updated files snapshot.
 		snapshotFiles := snapshot.filesSnapshot.Load()
-		assert.NotNil(t, snapshotFiles)
+		require.NotNil(t, snapshotFiles)
 		assert.Len(t, *snapshotFiles, 2)
 
 		newFile, ok := (*snapshotFiles)["new.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package new"), newFile.Content)
 	})
 }
@@ -470,13 +471,13 @@ func TestProjectFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
-		assert.NotNil(t, mainFile)
+		require.True(t, ok)
+		require.NotNil(t, mainFile)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		testFile, ok := proj.File("test.go")
-		assert.True(t, ok)
-		assert.NotNil(t, testFile)
+		require.True(t, ok)
+		require.NotNil(t, testFile)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 	})
 
@@ -520,8 +521,8 @@ func TestProjectFile(t *testing.T) {
 		file1, ok1 := proj.File("main.go")
 		file2, ok2 := proj.File("main.go")
 
-		assert.True(t, ok1)
-		assert.True(t, ok2)
+		require.True(t, ok1)
+		require.True(t, ok2)
 		assert.Equal(t, file1.Content, file2.Content)
 	})
 
@@ -552,15 +553,15 @@ func TestProjectPutFile(t *testing.T) {
 
 		// Verify file was added.
 		addedFile, ok := proj.File("main.go")
-		assert.True(t, ok)
-		assert.NotNil(t, addedFile)
+		require.True(t, ok)
+		require.NotNil(t, addedFile)
 		assert.Equal(t, []byte("package main"), addedFile.Content)
 
 		// Verify files snapshot is updated.
 		snapshot := proj.filesSnapshot.Load()
 		assert.Len(t, *snapshot, 1)
 		snapshotFile, ok := (*snapshot)["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), snapshotFile.Content)
 	})
 
@@ -575,7 +576,7 @@ func TestProjectPutFile(t *testing.T) {
 
 		// Verify file was overwritten.
 		updatedFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc main() {}"), updatedFile.Content)
 	})
 
@@ -594,15 +595,15 @@ func TestProjectPutFile(t *testing.T) {
 		assert.Equal(t, 3, count)
 
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		testFile, ok := proj.File("test.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 
 		utilFile, ok := proj.File("util.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc util() {}"), utilFile.Content)
 	})
 
@@ -613,7 +614,7 @@ func TestProjectPutFile(t *testing.T) {
 
 		// Verify file with empty path was added.
 		emptyFile, ok := proj.File("")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("empty path"), emptyFile.Content)
 	})
 
@@ -624,7 +625,7 @@ func TestProjectPutFile(t *testing.T) {
 
 		// Verify nil file was added.
 		nilFile, ok := proj.File("nil.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Nil(t, nilFile)
 	})
 
@@ -653,7 +654,7 @@ func TestProjectDeleteFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		err := proj.DeleteFile("main.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Verify file was deleted.
 		_, ok := proj.File("main.go")
@@ -661,7 +662,7 @@ func TestProjectDeleteFile(t *testing.T) {
 
 		// Verify other file still exists.
 		testFile, ok := proj.File("test.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 
 		// Verify files snapshot is updated.
@@ -670,7 +671,7 @@ func TestProjectDeleteFile(t *testing.T) {
 		_, ok = (*snapshot)["main.go"]
 		assert.False(t, ok)
 		_, ok = (*snapshot)["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 	})
 
 	t.Run("DeleteNonExistingFile", func(t *testing.T) {
@@ -685,7 +686,7 @@ func TestProjectDeleteFile(t *testing.T) {
 
 		// Verify existing file is unchanged.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 
@@ -705,7 +706,7 @@ func TestProjectDeleteFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		err := proj.DeleteFile("")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Verify empty path file was deleted.
 		_, ok := proj.File("")
@@ -713,7 +714,7 @@ func TestProjectDeleteFile(t *testing.T) {
 
 		// Verify other file still exists.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 
@@ -730,9 +731,9 @@ func TestProjectDeleteFile(t *testing.T) {
 		err2 := proj.DeleteFile("test.go")
 		err3 := proj.DeleteFile("util.go")
 
-		assert.NoError(t, err1)
-		assert.NoError(t, err2)
-		assert.NoError(t, err3)
+		require.NoError(t, err1)
+		require.NoError(t, err2)
+		require.NoError(t, err3)
 
 		// Verify all files are deleted.
 		var count int
@@ -754,7 +755,7 @@ func TestProjectDeleteFile(t *testing.T) {
 
 		// Delete file first time.
 		err1 := proj.DeleteFile("main.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 
 		// Delete same file second time.
 		err2 := proj.DeleteFile("main.go")
@@ -772,7 +773,7 @@ func TestProjectRenameFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		err := proj.RenameFile("old.go", "new.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Verify old file was removed.
 		_, ok := proj.File("old.go")
@@ -780,12 +781,12 @@ func TestProjectRenameFile(t *testing.T) {
 
 		// Verify new file exists with same content.
 		newFile, ok := proj.File("new.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), newFile.Content)
 
 		// Verify other file is unchanged.
 		testFile, ok := proj.File("test.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 
 		// Verify files snapshot is updated.
@@ -794,7 +795,7 @@ func TestProjectRenameFile(t *testing.T) {
 		_, ok = (*snapshot)["old.go"]
 		assert.False(t, ok)
 		_, ok = (*snapshot)["new.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 	})
 
 	t.Run("RenameNonExistingFile", func(t *testing.T) {
@@ -809,7 +810,7 @@ func TestProjectRenameFile(t *testing.T) {
 
 		// Verify existing files are unchanged.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		// Verify new file was not created.
@@ -830,11 +831,11 @@ func TestProjectRenameFile(t *testing.T) {
 
 		// Verify both files are unchanged.
 		oldFile, ok := proj.File("old.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), oldFile.Content)
 
 		existingFile, ok := proj.File("existing.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package existing"), existingFile.Content)
 	})
 
@@ -854,19 +855,19 @@ func TestProjectRenameFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		err := proj.RenameFile("", "named.go")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Verify empty path file was renamed.
 		_, ok := proj.File("")
 		assert.False(t, ok)
 
 		namedFile, ok := proj.File("named.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("empty path"), namedFile.Content)
 
 		// Verify other file is unchanged.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 
@@ -877,7 +878,7 @@ func TestProjectRenameFile(t *testing.T) {
 		proj := NewProject(nil, files, 0)
 
 		err := proj.RenameFile("main.go", "")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Verify original file was removed.
 		_, ok := proj.File("main.go")
@@ -885,7 +886,7 @@ func TestProjectRenameFile(t *testing.T) {
 
 		// Verify file exists with empty path.
 		emptyFile, ok := proj.File("")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), emptyFile.Content)
 	})
 
@@ -897,7 +898,7 @@ func TestProjectRenameFile(t *testing.T) {
 
 		// Rename file first time.
 		err1 := proj.RenameFile("old.go", "new.go")
-		assert.NoError(t, err1)
+		require.NoError(t, err1)
 
 		// Try to rename the same old path again.
 		err2 := proj.RenameFile("old.go", "another.go")
@@ -909,7 +910,7 @@ func TestProjectRenameFile(t *testing.T) {
 		assert.False(t, ok)
 
 		newFile, ok := proj.File("new.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), newFile.Content)
 
 		_, ok = proj.File("another.go")
@@ -936,11 +937,11 @@ func TestProjectUpdateFiles(t *testing.T) {
 		assert.Equal(t, 2, count)
 
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		testFile, ok := proj.File("test.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 	})
 
@@ -961,7 +962,7 @@ func TestProjectUpdateFiles(t *testing.T) {
 
 		// Verify file was updated due to different ModTime.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc main() {}"), mainFile.Content)
 		assert.Equal(t, newTime, mainFile.ModTime)
 	})
@@ -982,7 +983,7 @@ func TestProjectUpdateFiles(t *testing.T) {
 
 		// Verify file was not updated due to same ModTime.
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content) // Original content preserved.
 		assert.Equal(t, sameTime, mainFile.ModTime)
 	})
@@ -1011,11 +1012,11 @@ func TestProjectUpdateFiles(t *testing.T) {
 		assert.Equal(t, 2, count)
 
 		mainFile, ok := proj.File("main.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 
 		newFile, ok := proj.File("new.go")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc new() {}"), newFile.Content)
 
 		// Verify removed files no longer exist.
@@ -1085,7 +1086,7 @@ func TestProjectUpdateFiles(t *testing.T) {
 		assert.NotEqual(t, snapshotBefore, snapshotAfter)
 
 		mainFile, ok := (*snapshotAfter)["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main"), mainFile.Content)
 	})
 }
@@ -1112,7 +1113,7 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 
 		// Verify new file is in snapshot.
 		testFile, ok := (*updatedSnapshot)["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, []byte("package main\n\nfunc test() {}"), testFile.Content)
 	})
 
@@ -1140,7 +1141,7 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 		// Verify new snapshot has updated content.
 		assert.Len(t, *snapshot2, 2)
 		_, ok = (*snapshot2)["test.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 
 		// Verify they are different objects.
 		assert.NotEqual(t, snapshot1, snapshot2)
@@ -1169,14 +1170,14 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
 
 		snapshot := proj.filesSnapshot.Load()
-		assert.NotNil(t, snapshot)
+		require.NotNil(t, snapshot)
 		assert.Len(t, *snapshot, 0)
 
 		// Update snapshot on empty project.
 		proj.updateFilesSnapshot()
 
 		updatedSnapshot := proj.filesSnapshot.Load()
-		assert.NotNil(t, updatedSnapshot)
+		require.NotNil(t, updatedSnapshot)
 		assert.Len(t, *updatedSnapshot, 0)
 	})
 
@@ -1200,7 +1201,7 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 		assert.Len(t, *updatedSnapshot, 1)
 
 		_, ok := (*updatedSnapshot)["main.go"]
-		assert.True(t, ok)
+		require.True(t, ok)
 
 		_, ok = (*updatedSnapshot)["test.go"]
 		assert.False(t, ok)

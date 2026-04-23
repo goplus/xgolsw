@@ -18,13 +18,13 @@ package xgo
 
 import (
 	"fmt"
-	"go/scanner"
-	"go/token"
 	"path"
 	"strings"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
+	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/token"
 )
 
 // astFileCacheKind is a cache kind type for [ast.File].

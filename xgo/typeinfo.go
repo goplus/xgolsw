@@ -18,22 +18,22 @@ package xgo
 
 import (
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"maps"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/x/typesutil"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/qiniu/x/errors"
 )
 
-// typeInfoCacheKind is a cache kind type for [xgotypes.Info].
+// typeInfoCacheKind is a cache kind type for [types.Info].
 type typeInfoCacheKind struct{}
 
-// typeInfoCache is a cache for [xgotypes.Info].
+// typeInfoCache is a cache for [types.Info].
 type typeInfoCache struct {
-	typeInfo   *xgotypes.Info
+	typeInfo   *types.Info
 	checkerErr error
 }
 
@@ -45,21 +45,21 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		return nil, fmt.Errorf("failed to retrieve AST package: %w", astErr)
 	}
 
-	typeInfo := &xgotypes.Info{
+	typeInfo := &types.Info{
 		Info: typesutil.Info{
-			Types:      make(map[ast.Expr]types.TypeAndValue),
-			Defs:       make(map[*ast.Ident]types.Object),
-			Uses:       make(map[*ast.Ident]types.Object),
-			Selections: make(map[*ast.SelectorExpr]*types.Selection),
-			Implicits:  make(map[ast.Node]types.Object),
-			Scopes:     make(map[ast.Node]*types.Scope),
+			Types:      make(map[ast.Expr]gotypes.TypeAndValue),
+			Defs:       make(map[*ast.Ident]gotypes.Object),
+			Uses:       make(map[*ast.Ident]gotypes.Object),
+			Selections: make(map[*ast.SelectorExpr]*gotypes.Selection),
+			Implicits:  make(map[ast.Node]gotypes.Object),
+			Scopes:     make(map[ast.Node]*gotypes.Scope),
 		},
-		Pkg: types.NewPackage(proj.PkgPath, astPkg.Name),
+		Pkg: gotypes.NewPackage(proj.PkgPath, astPkg.Name),
 	}
 
 	var checkerErrs errors.List
 	if err := typesutil.NewChecker(
-		&types.Config{
+		&gotypes.Config{
 			Error:    func(err error) { checkerErrs.Add(err) },
 			Importer: proj.Importer,
 		},
@@ -77,7 +77,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	// Build reverse mapping for O(1) object-to-identifier lookup. For
 	// identifiers that do not denote objects, the object is nil and they
 	// are excluded from this mapping.
-	typeInfo.ObjToDef = make(map[types.Object]*ast.Ident, len(typeInfo.Defs))
+	typeInfo.ObjToDef = make(map[gotypes.Object]*ast.Ident, len(typeInfo.Defs))
 	for ident, obj := range typeInfo.Defs {
 		if obj != nil {
 			typeInfo.ObjToDef[obj] = ident
@@ -87,12 +87,12 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
 }
 
-// TypeInfo retrieves the [xgotypes.Info] from the project. The returned
-// [xgotypes.Info] is nil only if building failed.
+// TypeInfo retrieves the [types.Info] from the project. The returned [types.Info]
+// is nil only if building failed.
 //
-// NOTE: Both the returned [xgotypes.Info] and error can be non-nil, which
+// NOTE: Both the returned [types.Info] and error can be non-nil, which
 // indicates that only part of the project was type checked successfully.
-func (p *Project) TypeInfo() (*xgotypes.Info, error) {
+func (p *Project) TypeInfo() (*types.Info, error) {
 	cacheIface, err := p.Cache(typeInfoCacheKind{})
 	if err != nil {
 		return nil, err

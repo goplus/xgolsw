@@ -17,10 +17,10 @@
 package xgoutil
 
 import (
-	"go/token"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +76,7 @@ func TestPosTokenFile(t *testing.T) {
 
 		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
 		file := PosTokenFile(fset, xPos)
-		assert.NotNil(t, file)
+		require.NotNil(t, file)
 		assert.Equal(t, "main.xgo", file.Name())
 	})
 
@@ -99,7 +99,7 @@ func TestNodeTokenFile(t *testing.T) {
 
 		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
 		file := NodeTokenFile(fset, xDecl)
-		assert.NotNil(t, file)
+		require.NotNil(t, file)
 		assert.Equal(t, "main.xgo", file.Name())
 	})
 

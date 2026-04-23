@@ -19,11 +19,11 @@ package xgoutil
 import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // IdentAtPosition returns the identifier at the given position in the given AST file.
-func IdentAtPosition(fset *token.FileSet, typeInfo *xgotypes.Info, astFile *ast.File, position token.Position) *ast.Ident {
+func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.File, position token.Position) *ast.Ident {
 	if fset == nil || typeInfo == nil || astFile == nil {
 		return nil
 	}
@@ -110,7 +110,7 @@ func IsBlankIdent(ident *ast.Ident) bool {
 // receiver "this" that XGo inserts at the start of a classfile. It matches both
 // the defining identifier and any reference whose definition maps to that
 // synthetic receiver.
-func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *ast.Package, ident *ast.Ident) bool {
+func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Package, ident *ast.Ident) bool {
 	if fset == nil || typeInfo == nil || astPkg == nil || ident == nil || ident.Name != "this" {
 		return false
 	}
@@ -124,7 +124,7 @@ func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *xgotypes.Info, astPkg *
 }
 
 // identToDef returns the defining identifier for ident if available.
-func identToDef(typeInfo *xgotypes.Info, ident *ast.Ident) *ast.Ident {
+func identToDef(typeInfo *types.Info, ident *ast.Ident) *ast.Ident {
 	if typeInfo == nil || ident == nil {
 		return nil
 	}

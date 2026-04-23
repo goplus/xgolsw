@@ -17,9 +17,8 @@
 package xgoutil
 
 import (
-	"go/token"
-
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 )
 
 // PosFilename returns the filename for the given position.

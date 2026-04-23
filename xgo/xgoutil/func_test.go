@@ -17,11 +17,13 @@
 package xgoutil
 
 import (
-	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
+	"github.com/goplus/gogen"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsXgotMethodName(t *testing.T) {
@@ -61,21 +63,21 @@ func TestIsXgotMethodName(t *testing.T) {
 func TestSplitXGotMethodName(t *testing.T) {
 	t.Run("ValidXGotMethodName", func(t *testing.T) {
 		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_Method", false)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
 		assert.Equal(t, "Method", methodName)
 	})
 
 	t.Run("ValidXGotMethodNameWithXGoxPrefix", func(t *testing.T) {
 		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_XGox_Method", false)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
 		assert.Equal(t, "XGox_Method", methodName)
 	})
 
 	t.Run("ValidXGotMethodNameTrimXGox", func(t *testing.T) {
 		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_Type_XGox_Method", true)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "Type", recvTypeName)
 		assert.Equal(t, "Method", methodName)
 	})
@@ -107,7 +109,7 @@ func TestSplitXGotMethodName(t *testing.T) {
 
 	t.Run("MultipleUnderscores", func(t *testing.T) {
 		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_MyType_My_Method", false)
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "MyType", recvTypeName)
 		assert.Equal(t, "My_Method", methodName)
 	})
@@ -116,13 +118,13 @@ func TestSplitXGotMethodName(t *testing.T) {
 func TestSplitXGoxFuncName(t *testing.T) {
 	t.Run("ValidXGoxFuncName", func(t *testing.T) {
 		funcName, ok := SplitXGoxFuncName("XGox_Method")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "Method", funcName)
 	})
 
 	t.Run("ValidXGoxFuncNameWithUnderscores", func(t *testing.T) {
 		funcName, ok := SplitXGoxFuncName("XGox_My_Method")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "My_Method", funcName)
 	})
 
@@ -138,7 +140,7 @@ func TestSplitXGoxFuncName(t *testing.T) {
 
 	t.Run("OnlyPrefix", func(t *testing.T) {
 		funcName, ok := SplitXGoxFuncName("XGox_")
-		assert.True(t, ok)
+		require.True(t, ok)
 		assert.Equal(t, "", funcName)
 	})
 
@@ -158,21 +160,21 @@ func TestParseXGoFuncName(t *testing.T) {
 	t.Run("OverloadedFunctionName", func(t *testing.T) {
 		parsedName, overloadID := ParseXGoFuncName("MyFunction__a")
 		assert.Equal(t, "myFunction", parsedName)
-		assert.NotNil(t, overloadID)
+		require.NotNil(t, overloadID)
 		assert.Equal(t, "a", *overloadID)
 	})
 
 	t.Run("OverloadedFunctionNameWithNumber", func(t *testing.T) {
 		parsedName, overloadID := ParseXGoFuncName("MyFunction__1")
 		assert.Equal(t, "myFunction", parsedName)
-		assert.NotNil(t, overloadID)
+		require.NotNil(t, overloadID)
 		assert.Equal(t, "1", *overloadID)
 	})
 
 	t.Run("OverloadedFunctionNameWithZero", func(t *testing.T) {
 		parsedName, overloadID := ParseXGoFuncName("MyFunction__0")
 		assert.Equal(t, "myFunction", parsedName)
-		assert.NotNil(t, overloadID)
+		require.NotNil(t, overloadID)
 		assert.Equal(t, "0", *overloadID)
 	})
 
@@ -241,84 +243,110 @@ func TestIsXGoOverloadedFuncName(t *testing.T) {
 
 func TestIsXGoOverloadableFunc(t *testing.T) {
 	t.Run("RegularFunction", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithIntParameter", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]))
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]))
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithMultipleParameters", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(
-			types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]),
-			types.NewParam(token.NoPos, pkg, "y", types.Typ[types.String]),
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]),
+			gotypes.NewParam(token.NoPos, pkg, "y", gotypes.Typ[gotypes.String]),
 		)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsXGoOverloadableFunc(fun))
+	})
+
+	t.Run("OverloadFunction", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		overload1 := gotypes.NewFunc(token.NoPos, pkg, "foo", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		overload2 := gotypes.NewFunc(token.NoPos, pkg, "bar", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		fun := gogen.NewOverloadFunc(token.NoPos, pkg, "TestFunc", overload1, overload2)
+		assert.True(t, IsXGoOverloadableFunc(fun))
 	})
 }
 
 func TestIsUnexpandableXGoOverloadableFunc(t *testing.T) {
 	t.Run("RegularFunction", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsUnexpandableXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithIntParameter", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]))
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]))
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsUnexpandableXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithMultipleParameters", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(
-			types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]),
-			types.NewParam(token.NoPos, pkg, "y", types.Typ[types.String]),
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]),
+			gotypes.NewParam(token.NoPos, pkg, "y", gotypes.Typ[gotypes.String]),
 		)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.False(t, IsUnexpandableXGoOverloadableFunc(fun))
+	})
+
+	t.Run("UnexpandableFuncEx", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", newTestFuncExSignature(pkg, nil, gotypes.Typ[gotypes.Int]))
+		assert.True(t, IsUnexpandableXGoOverloadableFunc(fun))
 	})
 }
 
 func TestExpandXGoOverloadableFunc(t *testing.T) {
 	t.Run("RegularFunction", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.Nil(t, ExpandXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithIntParameter", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]))
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]))
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.Nil(t, ExpandXGoOverloadableFunc(fun))
 	})
 
 	t.Run("FunctionWithMultipleParameters", func(t *testing.T) {
-		pkg := types.NewPackage("test", "test")
-		params := types.NewTuple(
-			types.NewParam(token.NoPos, pkg, "x", types.Typ[types.Int]),
-			types.NewParam(token.NoPos, pkg, "y", types.Typ[types.String]),
+		pkg := gotypes.NewPackage("test", "test")
+		params := gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int]),
+			gotypes.NewParam(token.NoPos, pkg, "y", gotypes.Typ[gotypes.String]),
 		)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "TestFunc", sig)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "TestFunc", sig)
 		assert.Nil(t, ExpandXGoOverloadableFunc(fun))
+	})
+
+	t.Run("OverloadFunction", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		overload1 := gotypes.NewFunc(token.NoPos, pkg, "foo", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		overload2 := gotypes.NewFunc(token.NoPos, pkg, "bar", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		fun := gogen.NewOverloadFunc(token.NoPos, pkg, "TestFunc", overload1, overload2)
+
+		expanded := ExpandXGoOverloadableFunc(fun)
+		assert.Len(t, expanded, 2)
+		assert.Same(t, overload1, expanded[0])
+		assert.Same(t, overload2, expanded[1])
 	})
 }

@@ -17,9 +17,9 @@
 package xgo
 
 import (
-	"go/scanner"
 	"testing"
 
+	"github.com/goplus/xgo/scanner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +48,7 @@ func Test() {
 
 		// Verify the AST structure.
 		astFile := astFileCache.astFile
-		assert.NotNil(t, astFile.Name)
+		require.NotNil(t, astFile.Name)
 		assert.Equal(t, "main", astFile.Name.Name)
 		assert.NotEmpty(t, astFile.Decls)
 	})
@@ -95,6 +95,13 @@ func Test() {
 		assert.NotNil(t, astFileCache1.astFile)
 		assert.NotNil(t, astFileCache2.astFile)
 	})
+
+	t.Run("RecoverFromPanic", func(t *testing.T) {
+		cache, err := buildASTFileCache(nil, "main.spx", file(`var x int`))
+		assert.Nil(t, cache)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parser panic")
+	})
 }
 
 func TestProjectASTFile(t *testing.T) {
@@ -114,7 +121,7 @@ func Test() {
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		assert.NotNil(t, astFile.Name)
+		require.NotNil(t, astFile.Name)
 		assert.Equal(t, "main", astFile.Name.Name)
 		assert.NotEmpty(t, astFile.Decls)
 	})
@@ -203,6 +210,23 @@ func ValidFunc() {}
 		assert.Equal(t, "main", astPkg.Name)
 		assert.Contains(t, astPkg.Files, "valid.spx")
 		assert.NotNil(t, astPkg.Files["valid.spx"])
+	})
+
+	t.Run("ASTFileNonScannerError", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{
+			"main.spx": file(`var x int`),
+		}, 0)
+
+		cache, err := buildASTPackageCache(proj)
+		require.NoError(t, err)
+		require.NotNil(t, cache)
+
+		astPackageCache, ok := cache.(*astPackageCache)
+		require.True(t, ok)
+		require.NotNil(t, astPackageCache.astPkg)
+		assert.Error(t, astPackageCache.parserErr)
+		assert.Contains(t, astPackageCache.parserErr.Error(), ErrUnknownCacheKind.Error())
+		assert.Empty(t, astPackageCache.astPkg.Files)
 	})
 }
 

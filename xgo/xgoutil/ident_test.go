@@ -17,7 +17,7 @@
 package xgoutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -36,11 +36,11 @@ func TestIdentAtPosition(t *testing.T) {
 		require.NotNil(t, longVarIdent)
 		require.NotNil(t, shortIdent)
 
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]types.Object{
-				longVarIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
-				shortIdent:   types.NewVar(token.NoPos, pkg, "short", types.Typ[types.Int]),
+			map[*ast.Ident]gotypes.Object{
+				longVarIdent: gotypes.NewVar(token.NoPos, pkg, "longVarName", gotypes.Typ[gotypes.Int]),
+				shortIdent:   gotypes.NewVar(token.NoPos, pkg, "short", gotypes.Typ[gotypes.Int]),
 			},
 			nil,
 		)
@@ -66,14 +66,14 @@ func TestIdentAtPosition(t *testing.T) {
 		longVarNameIdent, longVarNamePos := findIdentWithPos(fset, astFile, "longVarName")
 		shortIdent, shortPos := findIdentWithPos(fset, astFile, "short")
 
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]types.Object{
-				resultIdent: types.NewVar(token.NoPos, pkg, "result", types.Typ[types.Int]),
+			map[*ast.Ident]gotypes.Object{
+				resultIdent: gotypes.NewVar(token.NoPos, pkg, "result", gotypes.Typ[gotypes.Int]),
 			},
-			map[*ast.Ident]types.Object{
-				longVarNameIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
-				shortIdent:       types.NewVar(token.NoPos, pkg, "short", types.Typ[types.Int]),
+			map[*ast.Ident]gotypes.Object{
+				longVarNameIdent: gotypes.NewVar(token.NoPos, pkg, "longVarName", gotypes.Typ[gotypes.Int]),
+				shortIdent:       gotypes.NewVar(token.NoPos, pkg, "short", gotypes.Typ[gotypes.Int]),
 			},
 		)
 
@@ -108,6 +108,27 @@ func TestIdentAtPosition(t *testing.T) {
 		assert.Nil(t, ident)
 	})
 
+	t.Run("NilInputs", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+
+		typeInfo := newTestTypeInfo(nil, nil)
+		pos := token.Position{Filename: "main.xgo", Line: 1, Column: 5}
+
+		assert.Nil(t, IdentAtPosition(nil, typeInfo, astFile, pos))
+		assert.Nil(t, IdentAtPosition(fset, nil, astFile, pos))
+		assert.Nil(t, IdentAtPosition(fset, typeInfo, nil, pos))
+	})
+
+	t.Run("TokenFileUnavailable", func(t *testing.T) {
+		fset := token.NewFileSet()
+		astFile := &ast.File{Name: &ast.Ident{Name: "main"}}
+		typeInfo := newTestTypeInfo(nil, nil)
+
+		ident := IdentAtPosition(fset, typeInfo, astFile, token.Position{})
+		assert.Nil(t, ident)
+	})
+
 	t.Run("BoundaryConditions", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1")
 		require.NoError(t, err)
@@ -115,10 +136,10 @@ func TestIdentAtPosition(t *testing.T) {
 		longVarNameIdent := findIdent(astFile, "longVarName")
 		require.NotNil(t, longVarNameIdent)
 
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]types.Object{
-				longVarNameIdent: types.NewVar(token.NoPos, pkg, "longVarName", types.Typ[types.Int]),
+			map[*ast.Ident]gotypes.Object{
+				longVarNameIdent: gotypes.NewVar(token.NoPos, pkg, "longVarName", gotypes.Typ[gotypes.Int]),
 			},
 			nil,
 		)
@@ -150,11 +171,11 @@ func TestIdentAtPosition(t *testing.T) {
 		iIdent, iPos := findIdentWithPos(fset, astFile, "i")
 		iiIdent, iiPos := findIdentWithPos(fset, astFile, "ii")
 
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]types.Object{
-				iIdent:  types.NewVar(token.NoPos, pkg, "i", types.Typ[types.Int]),
-				iiIdent: types.NewVar(token.NoPos, pkg, "ii", types.Typ[types.Int]),
+			map[*ast.Ident]gotypes.Object{
+				iIdent:  gotypes.NewVar(token.NoPos, pkg, "i", gotypes.Typ[gotypes.Int]),
+				iiIdent: gotypes.NewVar(token.NoPos, pkg, "ii", gotypes.Typ[gotypes.Int]),
 			},
 			nil,
 		)
@@ -200,17 +221,30 @@ func TestIdentAtPosition(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "package main")
 		require.NoError(t, err)
 
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		syntheticThis := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
-		obj := types.NewVar(syntheticThis.Pos(), pkg, "this", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{syntheticThis: obj}, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: syntheticThis}
+		obj := gotypes.NewVar(syntheticThis.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{syntheticThis: obj}, nil)
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: syntheticThis}
 
 		ident := IdentAtPosition(fset, typeInfo, astFile, token.Position{
 			Filename: "main.xgo",
 			Line:     1,
 			Column:   1,
 		})
+		assert.Nil(t, ident)
+	})
+
+	t.Run("ImplicitIdentifierIsSkipped", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
+		require.NoError(t, err)
+
+		implicitIdent := findIdent(astFile, "x")
+		require.NotNil(t, implicitIdent)
+		implicitIdent.Obj = &ast.Object{Kind: ast.ImplicitFun}
+
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{implicitIdent: nil}, nil)
+		ident := IdentAtPosition(fset, typeInfo, astFile, fset.Position(implicitIdent.Pos()))
 		assert.Nil(t, ident)
 	})
 
@@ -236,22 +270,43 @@ func f() {
 		})
 		require.Len(t, thisIdents, 2)
 
-		pkg := types.NewPackage("main", "main")
-		obj := types.NewVar(token.NoPos, pkg, "this", types.Typ[types.Int])
+		pkg := gotypes.NewPackage("main", "main")
+		obj := gotypes.NewVar(token.NoPos, pkg, "this", gotypes.Typ[gotypes.Int])
 		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]types.Object{
+			map[*ast.Ident]gotypes.Object{
 				thisIdents[0]: obj,
 			},
-			map[*ast.Ident]types.Object{
+			map[*ast.Ident]gotypes.Object{
 				thisIdents[1]: obj,
 			},
 		)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: thisIdents[0]}
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: thisIdents[0]}
 
 		usePos := fset.Position(thisIdents[1].Pos())
 		ident := IdentAtPosition(fset, typeInfo, astFile, usePos)
 		require.NotNil(t, ident)
 		assert.Equal(t, thisIdents[1], ident)
+	})
+
+	t.Run("BestPossibleUseMatch", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", `
+func f() {
+	_ = y
+}
+`)
+		require.NoError(t, err)
+
+		yIdent := findIdent(astFile, "y")
+		require.NotNil(t, yIdent)
+
+		pkg := gotypes.NewPackage("main", "main")
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			yIdent: gotypes.NewVar(token.NoPos, pkg, "y", gotypes.Typ[gotypes.Int]),
+		})
+
+		ident := IdentAtPosition(fset, typeInfo, astFile, fset.Position(yIdent.Pos()))
+		require.NotNil(t, ident)
+		assert.Equal(t, yIdent, ident)
 	})
 }
 
@@ -262,20 +317,20 @@ func TestIsBlankIdent(t *testing.T) {
 }
 
 func TestIsSyntheticThisIdent(t *testing.T) {
-	newBase := func(t *testing.T) (*token.FileSet, *ast.File, *ast.Package, *types.Package) {
+	newBase := func(t *testing.T) (*token.FileSet, *ast.File, *ast.Package, *gotypes.Package) {
 		fset, astFile, err := newTestFile("main.xgo", "package main")
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		return fset, astFile, astPkg, pkg
 	}
 
 	t.Run("Definition", func(t *testing.T) {
 		fset, astFile, astPkg, pkg := newBase(t)
 		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
-		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		obj := gotypes.NewVar(defIdent.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 
 		assert.True(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
 	})
@@ -284,9 +339,9 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 		fset, astFile, astPkg, pkg := newBase(t)
 		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
 		refIdent := &ast.Ident{NamePos: defIdent.Pos() + 10, Name: "this"}
-		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, map[*ast.Ident]types.Object{refIdent: obj})
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		obj := gotypes.NewVar(defIdent.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, map[*ast.Ident]gotypes.Object{refIdent: obj})
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 
 		assert.True(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, refIdent))
 	})
@@ -302,9 +357,9 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 	t.Run("NonSyntheticPosition", func(t *testing.T) {
 		fset, astFile, astPkg, pkg := newBase(t)
 		defIdent := &ast.Ident{NamePos: astFile.Pos() + 5, Name: "this"}
-		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		obj := gotypes.NewVar(defIdent.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
 	})
@@ -312,14 +367,24 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 	t.Run("NilInputs", func(t *testing.T) {
 		fset, astFile, astPkg, pkg := newBase(t)
 		defIdent := &ast.Ident{NamePos: astFile.Pos(), Name: "this"}
-		obj := types.NewVar(defIdent.Pos(), pkg, "this", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, nil)
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		obj := gotypes.NewVar(defIdent.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 
 		assert.False(t, IsSyntheticThisIdent(nil, typeInfo, astPkg, defIdent))
 		assert.False(t, IsSyntheticThisIdent(fset, nil, astPkg, defIdent))
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, nil, defIdent))
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, nil))
+	})
+
+	t.Run("DefinitionOutsidePackage", func(t *testing.T) {
+		fset, astFile, astPkg, pkg := newBase(t)
+		defIdent := &ast.Ident{NamePos: astFile.End() + 10, Name: "this"}
+		obj := gotypes.NewVar(defIdent.Pos(), pkg, "this", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, nil)
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
+
+		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
 	})
 }
 
@@ -341,20 +406,20 @@ func TestIdentToDef(t *testing.T) {
 	})
 
 	t.Run("ObjectWithoutDefinition", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		ident := &ast.Ident{Name: "x"}
-		obj := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]types.Object{ident: obj})
+		obj := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: obj})
 		assert.Equal(t, ident, identToDef(typeInfo, ident))
 	})
 
 	t.Run("ResolveDefinition", func(t *testing.T) {
-		pkg := types.NewPackage("main", "main")
+		pkg := gotypes.NewPackage("main", "main")
 		defIdent := &ast.Ident{Name: "x"}
 		useIdent := &ast.Ident{Name: "x"}
-		obj := types.NewVar(token.NoPos, pkg, "x", types.Typ[types.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]types.Object{defIdent: obj}, map[*ast.Ident]types.Object{useIdent: obj})
-		typeInfo.ObjToDef = map[types.Object]*ast.Ident{obj: defIdent}
+		obj := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
+		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, map[*ast.Ident]gotypes.Object{useIdent: obj})
+		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 		assert.Equal(t, defIdent, identToDef(typeInfo, useIdent))
 	})
 }

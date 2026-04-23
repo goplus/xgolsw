@@ -57,7 +57,7 @@ func Test() {
 		// Check that Game type exists (main.spx creates Game type).
 		gameType, exists := pkgDoc.Types["Game"]
 		require.True(t, exists)
-		assert.NotNil(t, gameType)
+		require.NotNil(t, gameType)
 		assert.NotNil(t, gameType.Fields)
 		assert.NotNil(t, gameType.Methods)
 	})

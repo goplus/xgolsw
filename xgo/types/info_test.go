@@ -17,7 +17,7 @@
 package types
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -27,8 +27,8 @@ import (
 )
 
 func TestInfoRefIdentsFor(t *testing.T) {
-	xVar := types.NewVar(0, nil, "x", types.Typ[types.Int])
-	yVar := types.NewVar(0, nil, "y", types.Typ[types.Int])
+	xVar := gotypes.NewVar(0, nil, "x", gotypes.Typ[gotypes.Int])
+	yVar := gotypes.NewVar(0, nil, "y", gotypes.Typ[gotypes.Int])
 
 	xDef := &ast.Ident{Name: "x"}
 	xUse1 := &ast.Ident{Name: "x"}
@@ -39,19 +39,19 @@ func TestInfoRefIdentsFor(t *testing.T) {
 
 	info := &Info{
 		Info: typesutil.Info{
-			Defs: map[*ast.Ident]types.Object{
+			Defs: map[*ast.Ident]gotypes.Object{
 				xDef: xVar,
 				yDef: yVar,
 			},
-			Uses: map[*ast.Ident]types.Object{
+			Uses: map[*ast.Ident]gotypes.Object{
 				xUse1: xVar,
 				xUse2: xVar,
 				xUse3: xVar,
 				yUse:  yVar,
 			},
 		},
-		Pkg: types.NewPackage("test", "test"),
-		ObjToDef: map[types.Object]*ast.Ident{
+		Pkg: gotypes.NewPackage("test", "test"),
+		ObjToDef: map[gotypes.Object]*ast.Ident{
 			xVar: xDef,
 			yVar: yDef,
 		},
@@ -71,7 +71,7 @@ func TestInfoRefIdentsFor(t *testing.T) {
 	})
 
 	t.Run("NoReferences", func(t *testing.T) {
-		zVar := types.NewVar(0, nil, "z", types.Typ[types.Int])
+		zVar := gotypes.NewVar(0, nil, "z", gotypes.Typ[gotypes.Int])
 		info.ObjToDef[zVar] = &ast.Ident{Name: "z"}
 
 		refs := info.RefIdentsFor(zVar)
@@ -83,7 +83,7 @@ func TestInfoRefIdentsFor(t *testing.T) {
 	})
 
 	t.Run("UnknownObject", func(t *testing.T) {
-		unknownObj := types.NewVar(0, nil, "unknown", types.Typ[types.Int])
+		unknownObj := gotypes.NewVar(0, nil, "unknown", gotypes.Typ[gotypes.Int])
 
 		refs := info.RefIdentsFor(unknownObj)
 		assert.Empty(t, refs)
