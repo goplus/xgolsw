@@ -152,6 +152,21 @@ func TestHasSpxResourceNameTypeParams(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "FunctionWithAliasToSliceOfSoundNameParameter",
+			fun: func() *gotypes.Func {
+				pkg := GetSpxPkg()
+				sliceType := gotypes.NewAlias(
+					gotypes.NewTypeName(token.NoPos, pkg, "MySoundNames", nil),
+					gotypes.NewSlice(GetSpxSoundNameType()),
+				)
+				param := gotypes.NewParam(token.NoPos, pkg, "sounds", sliceType)
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withAliasSoundSlice", sig)
+			},
+			want: true,
+		},
+		{
 			name: "FunctionWithVariadicSoundNameParameter",
 			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()

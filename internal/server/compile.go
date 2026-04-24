@@ -664,26 +664,25 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			}
 		case *ast.CallExpr:
 			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
+			funcOverloads := callExprFuncOverloads(result.proj, typeInfo, expr)
+			if fun == nil || (!HasSpxResourceNameTypeParams(fun) && len(expr.Kwargs) == 0 && len(funcOverloads) == 0) {
 				continue
 			}
 
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-				param := params.At(paramIndex)
-				paramType := xgoutil.DerefType(param.Type())
-
-				if sliceLit, ok := arg.(*ast.SliceLit); ok {
+			for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, expr) {
+				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
+				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
+					paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
 				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, arg, paramType, getSpriteContext)
+					s.inspectSpxResourceRefForTypeAtExpr(result, resolvedArg.Arg, paramType, getSpriteContext)
 				}
-				return true
-			})
+			}
 		}
 	}
 }
@@ -861,7 +860,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 		spxResourceRefKind = SpxResourceRefKindConstantReference
 	}
 
-	switch typ {
+	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
 		const resourceType = "backdrop"
 

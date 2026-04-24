@@ -2,7 +2,6 @@ package propertyname
 
 import (
 	_ "embed"
-	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
@@ -12,9 +11,12 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+// doc contains the analyzer documentation.
+//
 //go:embed doc.go
 var doc string
 
+// Analyzer reports invalid property-name arguments.
 var Analyzer = &protocol.Analyzer{
 	Name:     "propertyname",
 	Doc:      analysisutil.MustExtractDoc(doc, "propertyname"),
@@ -23,6 +25,7 @@ var Analyzer = &protocol.Analyzer{
 	Run:      run,
 }
 
+// run reports property-name arguments that do not match the call target.
 func run(pass *protocol.Pass) (any, error) {
 	if pass.IsPropertyNameType == nil || pass.GetPropertyNamesForCall == nil {
 		return nil, nil
@@ -45,25 +48,22 @@ func run(pass *protocol.Pass) (any, error) {
 			validNamesSet[name] = struct{}{}
 		}
 
-		xgoutil.WalkCallExprArgs(pass.TypesInfo, call,
-			func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-				param := params.At(paramIndex)
-				if !pass.IsPropertyNameType(param.Type()) {
-					return true
-				}
+		for resolvedArg := range xgoutil.ResolvedCallExprArgs(pass.TypesInfo, call) {
+			if !pass.IsPropertyNameType(resolvedArg.ExpectedType) {
+				continue
+			}
 
-				// Only validate string literal / constant arguments.
-				tv := pass.TypesInfo.Types[arg]
-				propName, ok := xgoutil.StringLitOrConstValue(arg, tv)
-				if !ok {
-					return true
-				}
+			// Only validate string literal / constant arguments.
+			tv := pass.TypesInfo.Types[resolvedArg.Arg]
+			propName, ok := xgoutil.StringLitOrConstValue(resolvedArg.Arg, tv)
+			if !ok {
+				continue
+			}
 
-				if _, ok := validNamesSet[propName]; !ok {
-					pass.ReportRangef(arg, "unknown property %q", propName)
-				}
-				return true
-			})
+			if _, ok := validNamesSet[propName]; !ok {
+				pass.ReportRangef(resolvedArg.Arg, "unknown property %q", propName)
+			}
+		}
 	})
 
 	return nil, nil

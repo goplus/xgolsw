@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -32,14 +33,15 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	}
 	astPkg, _ := proj.ASTPackage()
 
-	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
-	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
+	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-
-	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
+	}
+	if kwargTarget != nil {
+		return ToPtr(RangeForNode(proj, kwargTarget.ident)), nil
 	}
 	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent == nil || defIdent.Implicit() || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
@@ -66,15 +68,23 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	}
 	astPkg, _ := result.proj.ASTPackage()
 
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
-	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
+	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-
-	obj := typeInfo.ObjectOf(ident)
 	if !xgoutil.IsRenameable(obj) {
 		return nil, nil
 	}
+	if kwargTarget != nil {
+		kwargParams := *params
+		kwargParams.NewName = kwargDefinitionRenameText(obj, params.NewName)
+		params = &kwargParams
+	}
+	return s.renameObjectAtPosition(result, params, typeInfo, obj)
+}
+
+// renameObjectAtPosition builds a workspace edit for renaming obj.
+func (s *Server) renameObjectAtPosition(result *compileResult, params *RenameParams, typeInfo *types.Info, obj gotypes.Object) (*WorkspaceEdit, error) {
 	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent == nil || xgoutil.NodeTokenFile(result.proj.Fset, defIdent) == nil {
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
@@ -92,20 +102,40 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 			},
 		},
 	}
-	for _, refLoc := range s.findReferenceLocations(result, obj) {
+	refLocs := s.findReferenceLocations(result, obj)
+	kwargRefLocs := s.kwargReferenceLocations(result, obj)
+	kwargNewName := kwargRenameText(obj, params.NewName)
+	kwargRefSet := make(map[Location]struct{}, len(kwargRefLocs))
+	for _, refLoc := range kwargRefLocs {
+		kwargRefSet[refLoc] = struct{}{}
+	}
+
+	seenRefLocs := make(map[Location]struct{}, len(refLocs)+len(kwargRefLocs))
+	appendRefEdit := func(refLoc Location, newText string) {
+		if _, ok := seenRefLocs[refLoc]; ok {
+			return
+		}
+		seenRefLocs[refLoc] = struct{}{}
 		workspaceEdit.Changes[refLoc.URI] = append(workspaceEdit.Changes[refLoc.URI], TextEdit{
 			Range:   refLoc.Range,
-			NewText: params.NewName,
+			NewText: newText,
 		})
+	}
+
+	for _, refLoc := range refLocs {
+		newText := params.NewName
+		if _, ok := kwargRefSet[refLoc]; ok {
+			newText = kwargNewName
+		}
+		appendRefEdit(refLoc, newText)
+	}
+	for _, refLoc := range kwargRefLocs {
+		appendRefEdit(refLoc, kwargNewName)
 	}
 
 	// Check if the renamed object is a property and send notification if needed
 	if isPropertyOfEnclosingType(obj) {
-		// Send property renamed notification to the client
-		if err := s.notifyPropertyRenamed(obj, params); err != nil {
-			// log or handle notification failure
-			_ = err
-		}
+		_ = s.notifyPropertyRenamed(obj, params)
 	}
 	return &workspaceEdit, nil
 }

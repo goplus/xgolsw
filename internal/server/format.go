@@ -5,6 +5,7 @@ import (
 	"fmt"
 	gotypes "go/types"
 	"io/fs"
+	"iter"
 	"path"
 	"slices"
 	"time"
@@ -510,7 +511,7 @@ func getDeclDoc(decl ast.Decl) *ast.CommentGroup {
 // eliminateUnusedLambdaParams eliminates useless lambda parameter declarations.
 // A lambda parameter is considered "useless" if:
 //  1. The parameter is not used.
-//  2. The lambda is passed to a function that has a overload which receives the lambda without the parameter.
+//  2. The lambda is passed to a function that has an overload which receives the lambda without the parameter.
 //
 // Then we can omit its declaration safely.
 //
@@ -529,34 +530,31 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 		if !ok {
 			return true
 		}
-		funIdent, ok := callExpr.Fun.(*ast.Ident)
-		if !ok {
+		funIdent := callExprFunIdent(callExpr)
+		if funIdent == nil {
 			return true
 		}
-		funType, funTypeOverloads := getFuncAndOverloadsType(proj, funIdent)
-		if funType == nil || funTypeOverloads == nil {
+		funcOverloads := getFuncOverloads(proj, funIdent)
+		if len(funcOverloads) == 0 {
 			return true
 		}
-		paramsType := funType.Signature().Params()
-		for argIdx, argExpr := range callExpr.Args {
-			lambdaExpr, ok := argExpr.(*ast.LambdaExpr2)
-			if !ok {
-				continue
-			}
-			if argIdx >= paramsType.Len() {
-				break
-			}
-			lambdaSig, ok := paramsType.At(argIdx).Type().(*gotypes.Signature)
+		for resolvedArg := range formatResolvedCallExprArgs(typeInfo, callExpr, funcOverloads) {
+			lambdaExpr, ok := resolvedArg.Arg.(*ast.LambdaExpr2)
 			if !ok {
 				continue
 			}
 			if len(lambdaExpr.Lhs) == 0 {
 				continue
 			}
+			lambdaSig := resolvedLambdaSignature(typeInfo, callExpr, funcOverloads, resolvedArg, len(lambdaExpr.Lhs))
+			if lambdaSig == nil {
+				continue
+			}
+
 			// To simplify the implementation, we only check & process the last parameter,
 			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if used := isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]); used {
+			if isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]) {
 				continue
 			}
 
@@ -571,16 +569,12 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 				lambdaSig.Variadic(),
 			)
 			hasMatchedOverload := false
-			for _, overloadType := range funTypeOverloads {
-				if overloadType == funType {
+			for _, overloadType := range funcOverloads {
+				if !overloadMatchesCallExpr(typeInfo, callExpr, overloadType, resolvedArg.ArgIndex) {
 					continue
 				}
-				overloadParamsType := overloadType.Signature().Params()
-				if overloadParamsType.Len() != paramsType.Len() {
-					continue
-				}
-				overloadLambdaSig, ok := overloadParamsType.At(argIdx).Type().(*gotypes.Signature)
-				if !ok {
+				overloadLambdaSig := signatureType(overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, resolvedArg))
+				if overloadLambdaSig == nil {
 					continue
 				}
 				if gotypes.AssignableTo(newLambdaSig, overloadLambdaSig) {
@@ -600,58 +594,306 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 	})
 }
 
-// getFuncAndOverloadsType returns the function type and all its overloads.
-func getFuncAndOverloadsType(proj *xgo.Project, funIdent *ast.Ident) (fun *gotypes.Func, overloads []*gotypes.Func) {
+// callExprFunIdent returns the identifier that names the called function.
+func callExprFunIdent(callExpr *ast.CallExpr) *ast.Ident {
+	switch fun := callExpr.Fun.(type) {
+	case *ast.Ident:
+		return fun
+	case *ast.SelectorExpr:
+		return fun.Sel
+	default:
+		return nil
+	}
+}
+
+// formatResolvedCallExprArgs returns call arguments with a fallback path for
+// overload pseudo-functions that do not expose a normal callable signature.
+func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
+	return func(yield func(xgoutil.ResolvedCallExprArg) bool) {
+		hasResolvedArgs := false
+		for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
+			hasResolvedArgs = true
+			if !yield(resolvedArg) {
+				return
+			}
+		}
+		if hasResolvedArgs || len(overloads) == 0 {
+			return
+		}
+
+		for i, argExpr := range callExpr.Args {
+			if !yield(xgoutil.ResolvedCallExprArg{
+				Arg:      argExpr,
+				ArgIndex: i,
+				Kind:     xgoutil.ResolvedCallExprArgPositional,
+			}) {
+				return
+			}
+		}
+		for i, kwarg := range callExpr.Kwargs {
+			if !yield(xgoutil.ResolvedCallExprArg{
+				Arg:      kwarg.Value,
+				ArgIndex: len(callExpr.Args) + i,
+				Kind:     xgoutil.ResolvedCallExprArgKeyword,
+				Kwarg:    kwarg,
+			}) {
+				return
+			}
+		}
+	}
+}
+
+// overloadResolvedCallExprKwargForFunc returns the parameter slot that receives
+// kwargs for one overload.
+func overloadResolvedCallExprKwargForFunc(typeInfo *types.Info, callExpr *ast.CallExpr, overload *gotypes.Func) *xgoutil.ResolvedCallExprKwarg {
+	sig := overload.Signature()
+	paramIndex, ok := overloadKwargParamIndex(sig, len(callExpr.Args))
+	if !ok {
+		return nil
+	}
+	param := sig.Params().At(paramIndex)
+	return &xgoutil.ResolvedCallExprKwarg{
+		Param:                 param,
+		ParamIndex:            paramIndex,
+		AllowInterfaceTargets: xgoutil.CallExprSupportsInterfaceKwargs(typeInfo, callExpr, param.Type()),
+	}
+}
+
+// overloadKwargParamIndex returns the syntactic kwarg parameter slot for one
+// overload signature.
+func overloadKwargParamIndex(sig *gotypes.Signature, argCount int) (int, bool) {
+	params := sig.Params()
+	if params.Len() == 0 {
+		return 0, false
+	}
+	if sig.Variadic() {
+		paramIndex := params.Len() - 2
+		if paramIndex < 0 || argCount < paramIndex {
+			return 0, false
+		}
+		return paramIndex, true
+	}
+
+	paramIndex := argCount
+	if paramIndex >= params.Len() {
+		return 0, false
+	}
+	return paramIndex, true
+}
+
+// overloadMatchesCallExpr reports whether overloadType is still viable for
+// callExpr after checking every argument except the one at skipArgIndex.
+func overloadMatchesCallExpr(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, skipArgIndex int) bool {
+	sig := overloadType.Signature()
+	kwargParamIndex, hasKwargParam := 0, false
+	if len(callExpr.Kwargs) > 0 {
+		var ok bool
+		kwargParamIndex, ok = overloadKwargParamIndex(sig, len(callExpr.Args))
+		if !ok {
+			return false
+		}
+		hasKwargParam = true
+	}
+
+	for i, argExpr := range callExpr.Args {
+		paramIndex := i
+		if hasKwargParam && i >= kwargParamIndex {
+			paramIndex++
+		}
+		expectedType := overloadCallExprArgType(sig, paramIndex)
+		if expectedType == nil {
+			return false
+		}
+		if i == skipArgIndex {
+			continue
+		}
+		if !formatArgMatchesType(typeInfo, argExpr, expectedType) {
+			return false
+		}
+	}
+
+	for i, kwarg := range callExpr.Kwargs {
+		globalIndex := len(callExpr.Args) + i
+		if globalIndex == skipArgIndex {
+			continue
+		}
+		expectedType := overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, xgoutil.ResolvedCallExprArg{
+			Kind:       xgoutil.ResolvedCallExprArgKeyword,
+			Kwarg:      kwarg,
+			ParamIndex: kwargParamIndex,
+		})
+		if expectedType == nil {
+			return false
+		}
+		if !formatArgMatchesType(typeInfo, kwarg.Value, expectedType) {
+			return false
+		}
+	}
+	return true
+}
+
+// formatArgMatchesType reports whether argExpr is compatible with expectedType
+// for formatter-side overload filtering.
+func formatArgMatchesType(typeInfo *types.Info, argExpr ast.Expr, expectedType gotypes.Type) bool {
+	if lambdaExpr, ok := argExpr.(*ast.LambdaExpr2); ok {
+		lambdaSig := signatureType(expectedType)
+		return lambdaSig != nil && len(lambdaExpr.Lhs) == lambdaSig.Params().Len()
+	}
+
+	actualType := typeInfo.TypeOf(argExpr)
+	if actualType == nil {
+		return true
+	}
+	return gotypes.AssignableTo(actualType, expectedType)
+}
+
+// resolvedLambdaSignature returns the current expected lambda signature for
+// resolvedArg. It falls back to matching overload signatures when the resolved
+// argument type is unavailable on the current call object.
+func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func, resolvedArg xgoutil.ResolvedCallExprArg, paramCount int) *gotypes.Signature {
+	if lambdaSig := signatureType(resolvedArg.ExpectedType); lambdaSig != nil {
+		return lambdaSig
+	}
+
+	for _, overloadType := range overloads {
+		if !overloadMatchesCallExpr(typeInfo, callExpr, overloadType, resolvedArg.ArgIndex) {
+			continue
+		}
+		lambdaSig := signatureType(overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, resolvedArg))
+		if lambdaSig == nil || lambdaSig.Params().Len() != paramCount {
+			continue
+		}
+		return lambdaSig
+	}
+	return nil
+}
+
+// overloadResolvedCallExprArgType returns the expected argument type for
+// resolvedArg when the same call is matched against overloadType.
+func overloadResolvedCallExprArgType(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, resolvedArg xgoutil.ResolvedCallExprArg) gotypes.Type {
+	overloadSig := overloadType.Signature()
+	if resolvedArg.Kind == xgoutil.ResolvedCallExprArgKeyword {
+		paramIndex, ok := overloadKwargParamIndex(overloadSig, len(callExpr.Args))
+		if !ok {
+			return nil
+		}
+
+		param := overloadSig.Params().At(paramIndex)
+		target := xgoutil.LookupResolvedCallExprKwargTarget(&xgoutil.ResolvedCallExprKwarg{
+			Param:                 param,
+			ParamIndex:            paramIndex,
+			AllowInterfaceTargets: xgoutil.CallExprSupportsInterfaceKwargs(typeInfo, callExpr, param.Type()),
+		}, resolvedArg.Kwarg.Name.Name)
+		if target == nil {
+			return nil
+		}
+		return target.ValueType
+	}
+
+	paramIndex := resolvedArg.ArgIndex
+	if len(callExpr.Kwargs) > 0 {
+		kwargParamIndex, ok := overloadKwargParamIndex(overloadSig, len(callExpr.Args))
+		if !ok {
+			return nil
+		}
+		if paramIndex >= kwargParamIndex {
+			paramIndex++
+		}
+	}
+	return overloadCallExprArgType(overloadSig, paramIndex)
+}
+
+// overloadCallExprArgType returns the positional expected argument type at
+// paramIndex and unwraps variadic slices to their element type.
+func overloadCallExprArgType(sig *gotypes.Signature, paramIndex int) gotypes.Type {
+	param, paramIndex := overloadCallExprParam(sig, paramIndex)
+	if param == nil {
+		return nil
+	}
+
+	params := sig.Params()
+	if sig.Variadic() && paramIndex >= params.Len()-1 {
+		if sliceType, ok := param.Type().(*gotypes.Slice); ok {
+			return sliceType.Elem()
+		}
+		return nil
+	}
+	return param.Type()
+}
+
+// overloadCallExprParam returns the positional parameter at paramIndex and
+// normalizes variadic overflow to the variadic parameter.
+func overloadCallExprParam(sig *gotypes.Signature, paramIndex int) (*gotypes.Var, int) {
+	params := sig.Params()
+	if paramIndex < 0 || params.Len() == 0 {
+		return nil, 0
+	}
+	if sig.Variadic() && paramIndex >= params.Len()-1 {
+		return params.At(params.Len() - 1), params.Len() - 1
+	}
+	if paramIndex >= params.Len() {
+		return nil, 0
+	}
+	return params.At(paramIndex), paramIndex
+}
+
+// signatureType returns typ as a function signature after unaliasing.
+func signatureType(typ gotypes.Type) *gotypes.Signature {
+	typ = gotypes.Unalias(typ)
+	sig, _ := typ.(*gotypes.Signature)
+	return sig
+}
+
+// getFuncOverloads returns all overloads for the function named by funIdent.
+func getFuncOverloads(proj *xgo.Project, funIdent *ast.Ident) []*gotypes.Func {
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
-		return
+		return nil
 	}
-	funTypeObj := typeInfo.ObjectOf(funIdent)
-	if funTypeObj == nil {
-		return
-	}
-	funType, ok := funTypeObj.(*gotypes.Func)
+	funType, ok := typeInfo.ObjectOf(funIdent).(*gotypes.Func)
 	if !ok {
-		return
+		return nil
 	}
 	pkg := funType.Pkg()
 	if pkg == nil {
-		return
+		return nil
 	}
 	recvTypeName := SelectorTypeNameForIdent(proj, funIdent)
 	if recvTypeName == "" {
-		return
+		return nil
 	}
-	if IsInSpxPkg(funTypeObj) && recvTypeName == "Sprite" {
+	if IsInSpxPkg(funType) && recvTypeName == "Sprite" {
 		recvTypeName = "SpriteImpl"
 	}
 
-	recvType := funType.Pkg().Scope().Lookup(recvTypeName).Type()
-	if recvType == nil {
-		return
+	recvObj := pkg.Scope().Lookup(recvTypeName)
+	if recvObj == nil {
+		return nil
 	}
+	recvType := recvObj.Type()
 	recvNamed, ok := recvType.(*gotypes.Named)
 	if !ok || !xgoutil.IsNamedStructType(recvNamed) {
-		return
+		return nil
 	}
-	var underlineFunType *gotypes.Func
+	var baseFunc *gotypes.Func
 	xgoutil.WalkStruct(recvNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
 		method, ok := member.(*gotypes.Func)
 		if !ok {
 			return true
 		}
 		if pn, overloadID := xgoutil.ParseXGoFuncName(method.Name()); pn == funIdent.Name && overloadID == nil {
-			underlineFunType = method
+			baseFunc = method
 			return false
 		}
 		return true
 	})
-	if underlineFunType == nil {
-		return
+	if baseFunc == nil {
+		return nil
 	}
-	return funType, xgoutil.ExpandXGoOverloadableFunc(underlineFunType)
+	return xgoutil.ExpandXGoOverloadableFunc(baseFunc)
 }
 
+// isIdentUsed reports whether ident is referenced by any use in typeInfo.
 func isIdentUsed(typeInfo *types.Info, ident *ast.Ident) bool {
 	obj := typeInfo.ObjectOf(ident)
 	if obj == nil {

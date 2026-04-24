@@ -65,4 +65,53 @@ onStart => {
 			Kind: Read,
 		})
 	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+	configure count = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		highlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, highlights)
+		assert.Len(t, *highlights, 3)
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 6},
+			},
+			Kind: Write,
+		})
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 8, Character: 11},
+				End:   Position{Line: 8, Character: 16},
+			},
+			Kind: Read,
+		})
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 9, Character: 11},
+				End:   Position{Line: 9, Character: 16},
+			},
+			Kind: Read,
+		})
+	})
 }

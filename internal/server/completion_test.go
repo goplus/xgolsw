@@ -2788,6 +2788,449 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(nowItems, "year"))
 		assert.False(t, containsCompletionItemLabel(nowItems, "Now"))
 	})
+
+	t.Run("KwargNameCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+	Name string
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure cou = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 13},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			return item.Label == "count" &&
+				item.InsertText == "count = ${1:}" &&
+				item.InsertTextFormat != nil &&
+				*item.InsertTextFormat == SnippetTextFormat
+		}))
+		assert.True(t, containsCompletionItemLabel(items, "name"))
+	})
+
+	t.Run("NonOptionalKwargNameCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+	Name string
+}
+
+func configure(opts Options) {}
+
+onStart => {
+	configure cou = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 13},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "name"))
+	})
+
+	t.Run("KwargNameCompletionSkipsLaterLocalFieldName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+	count string
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure cou = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 13},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.Equal(t, 1, countCompletionItemLabel(items, "count"))
+	})
+
+	t.Run("KwargValueCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	var count int
+	configure count = cou
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 23},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+	})
+
+	t.Run("OverloadKwargNameCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+	Count int
+}
+
+type NameOptions struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts CountOptions?) {}
+func (w *Worker) handleName(opts NameOptions?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+	(Worker).handleName
+)
+
+onStart => {
+	worker.handle cou = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 22, Character: 18},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "name"))
+	})
+
+	t.Run("OverloadKwargNameCompletionFiltersByPositionalArg", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+	Count int
+}
+
+type NameOptions struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(prefix int, opts CountOptions?) {}
+func (w *Worker) handleName(prefix string, opts NameOptions?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+	(Worker).handleName
+)
+
+onStart => {
+	worker.handle "prefix", na = "x"
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 22, Character: 27},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.False(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "name"))
+	})
+
+	t.Run("OverloadKwargPositionalValueCompletionWithVariadicKwargParam", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleNumbers(opts Options?, values ...int) {}
+func (w *Worker) handleString(prefix string, opts Options?) {}
+
+func (Worker).handle = (
+	(Worker).handleNumbers
+	(Worker).handleString
+)
+
+onStart => {
+	var count int
+	var title string
+	worker.handle co, name = "x"
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 20, Character: 17},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "title"))
+	})
+
+	t.Run("OverloadKwargValueCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+	Count int
+}
+
+type NameOptions struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts CountOptions?) {}
+func (w *Worker) handleName(opts NameOptions?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+	(Worker).handleName
+)
+
+onStart => {
+	var count int
+	var title string
+	worker.handle count = cou
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 24, Character: 27},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.False(t, containsCompletionItemLabel(items, "title"))
+	})
+
+	t.Run("EmptyKwargValueCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	var count int
+	var title string
+	configure count =
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 10, Character: 18},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.False(t, containsCompletionItemLabel(items, "title"))
+	})
+
+	t.Run("PositionalValueCompletionWithKwargs", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func configure(opts map[string]string, values ...int) {}
+
+onStart => {
+	var count int
+	var title string
+	configure cou, name = "x"
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 6, Character: 14},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.False(t, containsCompletionItemLabel(items, "title"))
+	})
+
+	t.Run("InterfaceKwargNameCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	MaxTokens(n int64) Params
+	Temperature(v float64) Params
+}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxT = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 15, Character: 27},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, items)
+		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
+			return item.Label == "maxTokens" &&
+				item.InsertText == "maxTokens = ${1:}" &&
+				item.InsertTextFormat != nil &&
+				*item.InsertTextFormat == SnippetTextFormat
+		}))
+		assert.True(t, containsCompletionItemLabel(items, "temperature"))
+	})
+
+	t.Run("InterfaceKwargNameCompletionWithoutFactory", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	MaxTokens(n int64) Params
+	Temperature(v float64) Params
+}
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxT = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 13, Character: 27},
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, containsCompletionItemLabel(items, "maxTokens"))
+		assert.False(t, containsCompletionItemLabel(items, "temperature"))
+	})
+
+	t.Run("FreeFunctionInterfaceKwargNameCompletion", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Params interface {
+	MaxTokens(n int64) Params
+	Temperature(v float64) Params
+}
+
+func complete(prompt string, params Params?) {}
+
+onStart => {
+	complete "hi", maxT = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		items, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 20},
+			},
+		})
+		require.NoError(t, err)
+		assert.False(t, containsCompletionItemLabel(items, "maxTokens"))
+		assert.False(t, containsCompletionItemLabel(items, "temperature"))
+	})
 }
 
 func TestCompletionContextResolvePropertyLikeExprType(t *testing.T) {
