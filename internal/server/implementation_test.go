@@ -83,6 +83,52 @@ func (t MyType) myMethod() {}
 		}, location)
 	})
 
+	t.Run("KwargInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Params interface {
+    MaxTokens(n int64) Params
+}
+
+type Config struct{}
+
+func (c Config) MaxTokens(n int64) Params { return c }
+
+type Client struct{}
+
+func (c Client) Params() Params { return Config{} }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+    client.complete "hi", maxTokens = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		implementation, err := s.textDocumentImplementation(&ImplementationParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 18, Character: 26},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, implementation)
+		locations, ok := implementation.([]Location)
+		require.True(t, ok)
+		require.Len(t, locations, 1)
+		assert.Equal(t, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 7, Character: 16},
+				End:   Position{Line: 7, Character: 16},
+			},
+		}, locations[0])
+	})
+
 	t.Run("InvalidPosition", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

@@ -261,6 +261,12 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			if node.Ellipsis.IsValid() {
 				addToken(node.Ellipsis, node.Ellipsis+3, OperatorType, nil)
 			}
+			for _, kwarg := range node.Kwargs {
+				if len(lookupCallExprKwargTargets(result.proj, typeInfo, node, kwarg.Name.Name)) == 0 {
+					continue
+				}
+				addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
+			}
 		case *ast.KeyValueExpr:
 			addToken(node.Colon, node.Colon+1, OperatorType, nil)
 		case *ast.ErrWrapExpr:

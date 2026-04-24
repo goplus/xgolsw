@@ -20,9 +20,7 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	if typeInfo == nil {
 		return nil, nil
 	}
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
-
-	obj := typeInfo.ObjectOf(ident)
+	_, obj, _ := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}

@@ -4,6 +4,8 @@ import (
 	godoc "go/doc"
 	"strings"
 
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -35,8 +37,10 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if typeInfo == nil {
 		return nil, nil
 	}
-
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
+	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
+	if kwargTarget != nil {
+		return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident), nil
+	}
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
@@ -58,10 +62,13 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 			return nil, nil
 		}
 	}
+	return hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident), nil
+}
 
-	spxDefs := result.spxDefinitionsForIdent(ident)
-	if spxDefs == nil {
-		return nil, nil
+// hoverForSpxDefs renders spx definitions into a hover at node.
+func hoverForSpxDefs(proj *xgo.Project, spxDefs []SpxDefinition, node ast.Node) *Hover {
+	if len(spxDefs) == 0 {
+		return nil
 	}
 
 	var hoverContent strings.Builder
@@ -73,6 +80,6 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 			Kind:  Markdown,
 			Value: hoverContent.String(),
 		},
-		Range: RangeForNode(result.proj, ident),
-	}, nil
+		Range: RangeForNode(proj, node),
+	}
 }

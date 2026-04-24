@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"path"
 	"slices"
 	"strconv"
@@ -540,11 +541,9 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	pkgDoc, _ := proj.PkgDoc()
 	for spxFile, astFile := range astPkg.Files {
 		var diagnostics []Diagnostic
-		// propertyNamesCached / propertyNamesCache together memoize
-		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
-		// because a cached nil (unknown target → skip validation) must be
-		// distinguished from a missing entry.
-		propertyNamesCached := make(map[*ast.CallExpr]struct{})
+		// propertyNamesCache memoizes GetPropertyNamesForCall results per
+		// CallExpr. A cached nil result means an unknown target. A map lookup
+		// still distinguishes it from a missing entry.
 		propertyNamesCache := make(map[*ast.CallExpr][]string)
 		pass := &protocol.Pass{
 			Fset:      fset,
@@ -563,20 +562,23 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 			},
 			IsPropertyNameType: IsSpxPropertyNameType,
 			GetPropertyNamesForCall: func(call *ast.CallExpr) []string {
-				if _, ok := propertyNamesCached[call]; ok {
-					return propertyNamesCache[call]
+				if names, ok := propertyNamesCache[call]; ok {
+					return names
 				}
-				propertyNamesCached[call] = struct{}{}
 				named := PropertyTargetNamedTypeForCall(typeInfo, call, spxFile, result.mainSpxFile)
 				if named == nil {
+					propertyNamesCache[call] = nil
 					return nil
 				}
-				var names []string
+				names := make([]string, 0)
 				for m := range propertyMembers(named, makePkgDocFor(pkgDoc)) {
 					names = append(names, m.Name)
 				}
 				propertyNamesCache[call] = names
 				return names
+			},
+			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
+				return resolvedCallExprArgs(result.proj, typeInfo, call)
 			},
 		}
 
@@ -665,20 +667,25 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			}
 		case *ast.CallExpr:
 			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
+			if fun == nil {
+				continue
+			}
+			funcOverloads := callExprFuncOverloads(result.proj, typeInfo, expr)
+			if !HasSpxResourceNameTypeParams(fun) && len(expr.Kwargs) == 0 && len(funcOverloads) == 0 {
 				continue
 			}
 
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, expr) {
+			for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, expr) {
 				if resolvedArg.ExpectedType == nil {
 					continue
 				}
 				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
 
 				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
+					paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
@@ -862,7 +869,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 		spxResourceRefKind = SpxResourceRefKindConstantReference
 	}
 
-	switch typ {
+	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
 		const resourceType = "backdrop"
 

@@ -1014,15 +1014,22 @@ func HasSpxResourceNameTypeParams(fun *gotypes.Func) (has bool) {
 
 	funcSig := fun.Signature()
 	for param := range funcSig.Params().Variables() {
-		paramType := xgoutil.DerefType(param.Type())
-		if slice, ok := paramType.(*gotypes.Slice); ok {
-			paramType = slice.Elem()
-		}
+		paramType := spxResourceNameValueType(param.Type())
 		if IsSpxResourceNameType(paramType) {
 			return true
 		}
 	}
 	return false
+}
+
+// spxResourceNameValueType returns typ or its element type when typ is a slice
+// or an alias to a slice.
+func spxResourceNameValueType(typ gotypes.Type) gotypes.Type {
+	typ = xgoutil.DerefType(typ)
+	if slice, ok := gotypes.Unalias(typ).(*gotypes.Slice); ok {
+		return xgoutil.DerefType(slice.Elem())
+	}
+	return typ
 }
 
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx

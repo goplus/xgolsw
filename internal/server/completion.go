@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"path"
 	"slices"
 	"strconv"
@@ -114,6 +115,7 @@ type completionContext struct {
 	returnIndex        int
 
 	inStringLit             bool
+	inCallKwargName         bool
 	inSpxEventHandler       bool
 	valueExpression         bool
 	expectedFuncResultCount int
@@ -135,6 +137,10 @@ func (ctx *completionContext) analyze() {
 				ctx.kind = completionKindDot
 				ctx.selectorExpr = node
 			}
+		case *ast.KwargExpr:
+			if ctx.pos <= node.Name.End() {
+				ctx.inCallKwargName = true
+			}
 		case *ast.CallExpr:
 			if ctx.enclosingCallExpr == nil {
 				ctx.enclosingCallExpr = node
@@ -154,42 +160,15 @@ func (ctx *completionContext) analyze() {
 			// where we want general completions.
 			if shouldSetCallContext {
 				for _, arg := range node.Args {
-					// Check for SliceLit (XGo-style slice literals)
-					if sl, ok := arg.(*ast.SliceLit); ok {
-						if sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
-							shouldSetCallContext = false
-							break
-						}
+					if !ctx.callArgKeepsCallContext(arg) {
+						shouldSetCallContext = false
+						break
 					}
-
-					comp, ok := arg.(*ast.CompositeLit)
-					if !ok {
-						continue
-					}
-					if comp.Pos() <= ctx.pos && ctx.pos <= comp.End() {
-						// Don't set call context for map literals.
-						if ctx.isMapLiteral(comp) {
+				}
+				if shouldSetCallContext {
+					for _, kwarg := range node.Kwargs {
+						if !ctx.callArgKeepsCallContext(kwarg.Value) {
 							shouldSetCallContext = false
-							break
-						}
-
-						// Don't set call context for slice or array literals.
-						if ctx.isSliceOrArrayLiteral(comp) {
-							shouldSetCallContext = false
-							break
-						}
-
-						// Also don't set call context if we're in a struct literal
-						// field value position.
-						for _, elt := range comp.Elts {
-							if kv, ok := elt.(*ast.KeyValueExpr); ok {
-								if kv.Colon < ctx.pos {
-									shouldSetCallContext = false
-									break
-								}
-							}
-						}
-						if !shouldSetCallContext {
 							break
 						}
 					}
@@ -489,6 +468,29 @@ func (ctx *completionContext) analyze() {
 	ctx.inSpxEventHandler = ctx.result.isInSpxEventHandler(ctx.pos)
 }
 
+// callArgKeepsCallContext reports whether arg should keep completion in the
+// enclosing call context.
+func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
+	// XGo-style slice literals should use general completions.
+	if sl, ok := arg.(*ast.SliceLit); ok && sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
+		return false
+	}
+
+	comp, ok := arg.(*ast.CompositeLit)
+	if !ok || ctx.pos < comp.Pos() || ctx.pos > comp.End() {
+		return true
+	}
+	if ctx.isMapLiteral(comp) || ctx.isSliceOrArrayLiteral(comp) {
+		return false
+	}
+	for _, elt := range comp.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok && kv.Colon < ctx.pos {
+			return false
+		}
+	}
+	return true
+}
+
 // isInDisabledIdentifierContext reports whether the completion position is
 // inside an identifier context where completion should be suppressed.
 func (ctx *completionContext) isInDisabledIdentifierContext(path []ast.Node) bool {
@@ -699,45 +701,38 @@ func isMapType(typ gotypes.Type) bool {
 	return isMap
 }
 
+// isSliceOrArrayType reports whether the given type is a slice or array.
+func isSliceOrArrayType(typ gotypes.Type) bool {
+	if !xgoutil.IsValidType(typ) {
+		return false
+	}
+	underlying := typ.Underlying()
+	_, isSlice := underlying.(*gotypes.Slice)
+	_, isArray := underlying.(*gotypes.Array)
+	return isSlice || isArray
+}
+
 // isSliceOrArrayLiteral reports whether the given [ast.CompositeLit]
 // represents a slice or array literal.
 //
 // In XGo, slice literals can be written without explicit type declaration when
 // passed as function arguments, e.g., `printSlice [1, 2, 3]`.
 func (ctx *completionContext) isSliceOrArrayLiteral(comp *ast.CompositeLit) bool {
-	// Check if we have type information.
 	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
-		underlying := typ.Underlying()
-		_, isSlice := underlying.(*gotypes.Slice)
-		_, isArray := underlying.(*gotypes.Array)
-		return isSlice || isArray
+		return isSliceOrArrayType(typ)
 	}
 
-	// Try to get type information from the Type field if available.
 	if comp.Type != nil {
-		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
-			underlying := typ.Underlying()
-			_, isSlice := underlying.(*gotypes.Slice)
-			_, isArray := underlying.(*gotypes.Array)
-			return isSlice || isArray
-		}
+		return isSliceOrArrayType(ctx.typeInfo.TypeOf(comp.Type))
 	}
 
 	// No type info available. In XGo, slice literals without key-value pairs
 	// could be slice literals (e.g., [1, 2, 3]).
 	// If all elements are NOT key-value pairs, it might be a slice.
-	if len(comp.Elts) > 0 {
-		for _, elt := range comp.Elts {
-			if _, isKV := elt.(*ast.KeyValueExpr); isKV {
-				// Has key-value pairs, so it's not a slice
-				return false
-			}
-		}
-		// No key-value pairs, could be a slice literal
-		return true
-	}
-
-	return false
+	return len(comp.Elts) > 0 && !slices.ContainsFunc(comp.Elts, func(elt ast.Expr) bool {
+		_, isKV := elt.(*ast.KeyValueExpr)
+		return isKV
+	})
 }
 
 // isMapLiteral reports whether the given [ast.CompositeLit] represents a map
@@ -746,20 +741,12 @@ func (ctx *completionContext) isSliceOrArrayLiteral(comp *ast.CompositeLit) bool
 // In XGo, map literals can be written without explicit type declaration when
 // passed as function arguments, e.g., `println {"key": value}`.
 func (ctx *completionContext) isMapLiteral(comp *ast.CompositeLit) bool {
-	// Check if we have type information.
 	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
 		return isMapType(typ)
 	}
 
-	// Try to get type information from the Type field if available.
 	if comp.Type != nil {
-		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
-			return isMapType(typ)
-		}
-
-		// If we have an explicit type but no type info, it's likely not a map.
-		// XGo-style map literals don't have an explicit type.
-		return false
+		return isMapType(ctx.typeInfo.TypeOf(comp.Type))
 	}
 
 	// No type info available, but could still be an XGo-style map literal.
@@ -767,35 +754,35 @@ func (ctx *completionContext) isMapLiteral(comp *ast.CompositeLit) bool {
 	//
 	// Note: An empty composite literal {} is ambiguous and could be either
 	// a map or struct, so we don't consider it a map without type info.
-	for _, elt := range comp.Elts {
-		if _, isKV := elt.(*ast.KeyValueExpr); isKV {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(comp.Elts, func(elt ast.Expr) bool {
+		_, isKV := elt.(*ast.KeyValueExpr)
+		return isKV
+	})
 }
 
 // mapLiteralElementType returns the element type for the given map literal.
 func (ctx *completionContext) mapLiteralElementType(comp *ast.CompositeLit) gotypes.Type {
-	if comp == nil {
-		return nil
-	}
-
-	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
-		if mapType, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
-			return mapType.Elem()
-		}
+	if elemType := mapElementType(ctx.typeInfo.TypeOf(comp)); elemType != nil {
+		return elemType
 	}
 
 	if comp.Type != nil {
-		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
-			if mapType, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
-				return mapType.Elem()
-			}
-		}
+		return mapElementType(ctx.typeInfo.TypeOf(comp.Type))
 	}
 
 	return nil
+}
+
+// mapElementType returns the element type if typ is a map.
+func mapElementType(typ gotypes.Type) gotypes.Type {
+	if !xgoutil.IsValidType(typ) {
+		return nil
+	}
+	mapType, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map)
+	if !ok {
+		return nil
+	}
+	return mapType.Elem()
 }
 
 // valueExprAtPos returns the expression for the value located at the current
@@ -856,8 +843,8 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *ast.CompositeLit
 		}
 
 		if typ := ctx.typeInfo.TypeOf(kv.Value); xgoutil.IsValidType(typ) {
-			if mapTyp, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
-				return mapTyp.Elem()
+			if elemType := mapElementType(typ); elemType != nil {
+				return elemType
 			}
 			return typ
 		}
@@ -865,9 +852,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *ast.CompositeLit
 		if innerComp, ok := kv.Value.(*ast.CompositeLit); ok {
 			var innerExpected gotypes.Type
 			if mapType != nil {
-				if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
-					innerExpected = mapTyp.Elem()
-				}
+				innerExpected = mapElementType(mapType)
 			}
 			if innerExpected == nil {
 				if typ := ctx.typeInfo.TypeOf(kv.Value); xgoutil.IsValidType(typ) {
@@ -879,10 +864,8 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *ast.CompositeLit
 			}
 		}
 
-		if mapType != nil {
-			if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
-				return mapTyp.Elem()
-			}
+		if elemType := mapElementType(mapType); elemType != nil {
+			return elemType
 		}
 		if ctx.isMapLiteral(comp) {
 			return ctx.mapLiteralElementType(comp)
@@ -890,10 +873,8 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *ast.CompositeLit
 		return nil
 	}
 
-	if mapType != nil {
-		if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
-			return mapTyp.Elem()
-		}
+	if elemType := mapElementType(mapType); elemType != nil {
+		return elemType
 	}
 	if ctx.isMapLiteral(comp) && len(comp.Elts) == 0 {
 		return ctx.mapLiteralElementType(comp)
@@ -1322,6 +1303,23 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
+	if ctx.inCallKwargName {
+		ctx.collectCallKwargNames(callExpr, len(callExpr.Args), ctx.currentCallKwargArgIndex(callExpr))
+		return nil
+	}
+	if argIndex, ok := ctx.currentCallKwargNameCandidateArgIndex(callExpr); ok {
+		if ctx.collectCallKwargNames(callExpr, argIndex, argIndex) {
+			return nil
+		}
+	}
+	if resolvedArg, ok := ctx.getCurrentResolvedCallArg(callExpr); ok {
+		if xgoutil.IsValidType(resolvedArg.ExpectedType) {
+			ctx.expectedTypes = []gotypes.Type{resolvedArg.ExpectedType}
+		} else {
+			ctx.expectedTypes = ctx.overloadExpectedTypes(callExpr, resolvedArg)
+		}
+		return ctx.collectGeneral()
+	}
 	typ := ctx.typeInfo.TypeOf(callExpr.Fun)
 	if !xgoutil.IsValidType(typ) {
 		return ctx.collectGeneral()
@@ -1360,6 +1358,7 @@ func (ctx *completionContext) collectCall() error {
 	return ctx.collectGeneral()
 }
 
+// deduplicateTypes removes duplicate expected types while preserving order.
 func deduplicateTypes(expectedTypes []gotypes.Type) []gotypes.Type {
 	if len(expectedTypes) <= 1 {
 		return expectedTypes
@@ -1391,6 +1390,138 @@ func (ctx *completionContext) getCurrentArgIndex(callExpr *ast.CallExpr) int {
 		return len(callExpr.Args)
 	}
 	return -1
+}
+
+// getCurrentResolvedCallArg returns the resolved call argument that contains
+// the current cursor position.
+func (ctx *completionContext) getCurrentResolvedCallArg(callExpr *ast.CallExpr) (xgoutil.ResolvedCallExprArg, bool) {
+	if arg, ok := ctx.currentResolvedCallArg(xgoutil.ResolvedCallExprArgs(ctx.typeInfo, callExpr)); ok {
+		return arg, true
+	}
+	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)))
+}
+
+// currentResolvedCallArg returns the call argument in args that contains the
+// current cursor position.
+func (ctx *completionContext) currentResolvedCallArg(args iter.Seq[xgoutil.ResolvedCallExprArg]) (xgoutil.ResolvedCallExprArg, bool) {
+	for arg := range args {
+		if ctx.pos >= arg.Arg.Pos() && ctx.pos <= arg.Arg.End() {
+			return arg, true
+		}
+		if arg.Kind != xgoutil.ResolvedCallExprArgKeyword {
+			continue
+		}
+		if ctx.pos > arg.Kwarg.Name.End() && ctx.pos <= arg.Kwarg.End() {
+			return arg, true
+		}
+	}
+	return xgoutil.ResolvedCallExprArg{}, false
+}
+
+// overloadExpectedTypes returns expected argument types from overloads that
+// still match callExpr.
+func (ctx *completionContext) overloadExpectedTypes(callExpr *ast.CallExpr, resolvedArg xgoutil.ResolvedCallExprArg) []gotypes.Type {
+	overloads := callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)
+	if len(overloads) == 0 {
+		return nil
+	}
+
+	expectedTypes := make([]gotypes.Type, 0, len(overloads))
+	for _, overload := range overloads {
+		if !overloadMatchesCallExpr(ctx.typeInfo, callExpr, overload, resolvedArg.ArgIndex) {
+			continue
+		}
+		expectedType := overloadResolvedCallExprArgType(ctx.typeInfo, callExpr, overload, resolvedArg)
+		if xgoutil.IsValidType(expectedType) {
+			expectedTypes = append(expectedTypes, expectedType)
+		}
+	}
+	return deduplicateTypes(expectedTypes)
+}
+
+// currentCallKwargNameCandidateArgIndex returns the positional argument index
+// that should be treated as an incomplete kwarg name.
+func (ctx *completionContext) currentCallKwargNameCandidateArgIndex(callExpr *ast.CallExpr) (int, bool) {
+	for i, arg := range callExpr.Args {
+		ident, ok := arg.(*ast.Ident)
+		if !ok || ctx.pos < ident.Pos() || ctx.pos > ident.End() {
+			continue
+		}
+		return i, true
+	}
+	return -1, false
+}
+
+// collectCallKwargNames collects completion items for available keyword
+// argument names at the current call site.
+func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argCount, skipArgIndex int) bool {
+	kwargs := resolveCallExprKwargsAtArgCount(ctx.proj, ctx.typeInfo, callExpr, argCount, skipArgIndex)
+	if len(kwargs) == 0 {
+		return false
+	}
+
+	usedTargets := make(map[gotypes.Object]struct{})
+	for _, kwarg := range kwargs {
+		for _, kwargExpr := range callExpr.Kwargs {
+			target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, kwargExpr.Name.Name)
+			if obj := kwargTargetObject(target); obj != nil {
+				usedTargets[obj] = struct{}{}
+			}
+		}
+	}
+
+	collected := false
+	for _, kwarg := range kwargs {
+		selectorTypeName := kwargSelectorTypeName(kwarg)
+		for _, target := range xgoutil.ListResolvedCallExprKwargTargets(kwarg) {
+			var spxDef SpxDefinition
+			switch {
+			case target.Field != nil:
+				if _, ok := usedTargets[target.Field]; ok {
+					continue
+				}
+				spxDef = ctx.result.spxDefinitionForField(target.Field, selectorTypeName)
+			case target.Method != nil:
+				if _, ok := usedTargets[target.Method]; ok {
+					continue
+				}
+				spxDef = ctx.result.spxDefinitionForMethod(target.Method, selectorTypeName)
+			default:
+				continue
+			}
+			spxDef.CompletionItemLabel = target.Name
+			spxDef.CompletionItemInsertText = target.Name + " = ${1:}"
+			spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
+			ctx.itemSet.addSpxDefs(spxDef)
+			collected = true
+		}
+	}
+	return collected
+}
+
+// currentCallKwargArgIndex returns the argument index for the kwarg name under
+// the current cursor position.
+func (ctx *completionContext) currentCallKwargArgIndex(callExpr *ast.CallExpr) int {
+	for i, kwarg := range callExpr.Kwargs {
+		if ctx.pos >= kwarg.Name.Pos() && ctx.pos <= kwarg.Name.End() {
+			return len(callExpr.Args) + i
+		}
+	}
+	return -1
+}
+
+// kwargSelectorTypeName returns the selector type name used for kwarg
+// completion metadata.
+func kwargSelectorTypeName(kwarg *xgoutil.ResolvedCallExprKwarg) string {
+	named := resolvedNamedType(xgoutil.DerefType(kwarg.Param.Type()))
+	if named == nil {
+		return ""
+	}
+	selectorTypeName := named.Obj().Name()
+	if IsInSpxPkg(named.Obj()) && selectorTypeName == "SpriteImpl" {
+		return "Sprite"
+	}
+	return selectorTypeName
 }
 
 // collectAssignOrDefine collects completions for assignments and definitions.
@@ -1507,6 +1638,8 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	return ctx.getCurrentFileSpxSpriteResource()
 }
 
+// getEnclosingCallExpr returns the closest call expression in the current
+// completion context.
 func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
 	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
 		return callExpr
@@ -1514,6 +1647,8 @@ func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
 	return ctx.enclosingCallExpr
 }
 
+// getCurrentFileSpxSpriteResource returns the sprite resource represented by
+// the current spx file.
 func (ctx *completionContext) getCurrentFileSpxSpriteResource() *SpxSpriteResource {
 	if ctx.spxFile == "" || path.Base(ctx.spxFile) == path.Base(ctx.result.mainSpxFile) {
 		return nil
