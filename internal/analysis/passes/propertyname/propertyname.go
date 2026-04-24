@@ -11,9 +11,12 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+// doc contains the analyzer documentation.
+//
 //go:embed doc.go
 var doc string
 
+// Analyzer reports invalid property-name arguments.
 var Analyzer = &protocol.Analyzer{
 	Name:     "propertyname",
 	Doc:      analysisutil.MustExtractDoc(doc, "propertyname"),
@@ -22,6 +25,7 @@ var Analyzer = &protocol.Analyzer{
 	Run:      run,
 }
 
+// run reports property-name arguments that do not match the call target.
 func run(pass *protocol.Pass) (any, error) {
 	if pass.IsPropertyNameType == nil || pass.GetPropertyNamesForCall == nil {
 		return nil, nil
@@ -44,7 +48,11 @@ func run(pass *protocol.Pass) (any, error) {
 			validNamesSet[name] = struct{}{}
 		}
 
-		for resolvedArg := range xgoutil.ResolvedCallExprArgs(pass.TypesInfo, call) {
+		resolvedCallExprArgs := xgoutil.ResolvedCallExprArgs(pass.TypesInfo, call)
+		if pass.ResolvedCallExprArgs != nil {
+			resolvedCallExprArgs = pass.ResolvedCallExprArgs(call)
+		}
+		for resolvedArg := range resolvedCallExprArgs {
 			if resolvedArg.ExpectedType == nil {
 				continue
 			}

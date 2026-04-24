@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"path"
 	"slices"
 	"strconv"
@@ -542,7 +543,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 		var diagnostics []Diagnostic
 		// propertyNamesCached / propertyNamesCache together memoize
 		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
-		// because a cached nil (unknown target → skip validation) must be
+		// because a cached nil result for an unknown target must be
 		// distinguished from a missing entry.
 		propertyNamesCached := make(map[*ast.CallExpr]struct{})
 		propertyNamesCache := make(map[*ast.CallExpr][]string)
@@ -571,12 +572,15 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 				if named == nil {
 					return nil
 				}
-				var names []string
+				names := make([]string, 0)
 				for m := range propertyMembers(named, makePkgDocFor(pkgDoc)) {
 					names = append(names, m.Name)
 				}
 				propertyNamesCache[call] = names
 				return names
+			},
+			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
+				return resolvedCallExprArgs(result.proj, typeInfo, call)
 			},
 		}
 
@@ -665,20 +669,22 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			}
 		case *ast.CallExpr:
 			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
+			funcOverloads := callExprFuncOverloads(result.proj, typeInfo, expr)
+			if fun == nil || (!HasSpxResourceNameTypeParams(fun) && len(expr.Kwargs) == 0 && len(funcOverloads) == 0) {
 				continue
 			}
 
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, expr) {
+			for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, expr) {
 				if resolvedArg.ExpectedType == nil {
 					continue
 				}
 				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
 
 				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
+					paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
@@ -862,7 +868,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 		spxResourceRefKind = SpxResourceRefKindConstantReference
 	}
 
-	switch typ {
+	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
 		const resourceType = "backdrop"
 

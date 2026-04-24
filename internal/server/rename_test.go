@@ -145,6 +145,94 @@ const _ = 1
 		require.NoError(t, err)
 		require.Nil(t, workspaceEdit)
 	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, rng)
+		assert.Equal(t, Range{
+			Start: Position{Line: 8, Character: 11},
+			End:   Position{Line: 8, Character: 16},
+		}, *rng)
+	})
+
+	t.Run("MapKwargHasNoPrepareRename", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func configure(opts map[string]int?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		assert.Nil(t, rng)
+	})
+
+	t.Run("KwargInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	MaxTokens(n int64) Params
+}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxTokens = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 14, Character: 25},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, rng)
+		assert.Equal(t, Range{
+			Start: Position{Line: 14, Character: 23},
+			End:   Position{Line: 14, Character: 32},
+		}, *rng)
+	})
 }
 
 func TestServerTextDocumentRename(t *testing.T) {
@@ -308,6 +396,114 @@ onClick => {
 		})
 		require.NoError(t, err)
 		require.Nil(t, mySpriteSpxWorkspaceEdit)
+	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+	configure count = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), newMockReplier(), fileMapGetter(m), &MockScheduler{})
+
+		workspaceEdit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Position:     Position{Line: 8, Character: 12},
+			NewName:      "total",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, workspaceEdit)
+		require.NotNil(t, workspaceEdit.Changes)
+
+		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
+		require.Len(t, mainSpxChanges, 3)
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 6},
+			},
+			NewText: "Total",
+		})
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 8, Character: 11},
+				End:   Position{Line: 8, Character: 16},
+			},
+			NewText: "total",
+		})
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 9, Character: 11},
+				End:   Position{Line: 9, Character: 16},
+			},
+			NewText: "total",
+		})
+	})
+
+	t.Run("KwargInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	MaxTokens(n int64) Params
+}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxTokens = 1
+	client.complete "bye", maxTokens = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		workspaceEdit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Position:     Position{Line: 14, Character: 25},
+			NewName:      "limit",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, workspaceEdit)
+		require.NotNil(t, workspaceEdit.Changes)
+
+		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
+		require.Len(t, mainSpxChanges, 3)
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 4, Character: 1},
+				End:   Position{Line: 4, Character: 10},
+			},
+			NewText: "Limit",
+		})
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 14, Character: 23},
+				End:   Position{Line: 14, Character: 32},
+			},
+			NewText: "limit",
+		})
+		assert.Contains(t, mainSpxChanges, TextEdit{
+			Range: Range{
+				Start: Position{Line: 15, Character: 24},
+				End:   Position{Line: 15, Character: 33},
+			},
+			NewText: "limit",
+		})
 	})
 }
 

@@ -22,14 +22,18 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 	if typeInfo == nil {
 		return nil, nil
 	}
-	targetIdent := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
-
-	targetObj := typeInfo.ObjectOf(targetIdent)
+	_, targetObj, _ := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if targetObj == nil {
 		return nil, nil
 	}
 
 	var highlights []DocumentHighlight
+	appendHighlight := func(highlight DocumentHighlight) {
+		if slices.Contains(highlights, highlight) {
+			return
+		}
+		highlights = append(highlights, highlight)
+	}
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil {
 			return true
@@ -51,6 +55,10 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 
 		for _, parent := range slices.Backward(path[:len(path)-1]) {
 			switch p := parent.(type) {
+			case *ast.KwargExpr:
+				if p.Name == ident {
+					kind = Read
+				}
 			case *ast.ValueSpec:
 				for _, name := range p.Names {
 					if name == ident {
@@ -149,11 +157,17 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 			}
 		}
 
-		highlights = append(highlights, DocumentHighlight{
+		appendHighlight(DocumentHighlight{
 			Range: RangeForNode(result.proj, ident),
 			Kind:  kind,
 		})
 		return true
 	})
+	for _, loc := range s.kwargReferenceLocations(result, targetObj) {
+		appendHighlight(DocumentHighlight{
+			Range: loc.Range,
+			Kind:  Read,
+		})
+	}
 	return &highlights, nil
 }

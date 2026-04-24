@@ -314,6 +314,102 @@ func (Foo) Bar`),
 		require.NoError(t, err)
 		assert.Nil(t, inputSlots)
 	})
+
+	t.Run("KwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 5
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, int64(5), slot.Input.Value)
+	})
+
+	t.Run("OverloadKwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Count int
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts Options?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+)
+
+onStart => {
+	worker.handle count = 5
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, int64(5), slot.Input.Value)
+	})
+
+	t.Run("UnknownKwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 5
+	configure unknown = 9
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		countSlot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, countSlot)
+		assert.Equal(t, SpxInputSlotKindValue, countSlot.Kind)
+
+		unknownSlot := findInputSlot(inputSlots, int64(9), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		assert.Nil(t, unknownSlot)
+	})
 }
 
 func TestFindInputSlots(t *testing.T) {

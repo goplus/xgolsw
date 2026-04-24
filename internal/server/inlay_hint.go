@@ -76,10 +76,12 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 	if typeInfo == nil {
 		return nil
 	}
+	_, _, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	hasResolvedSignature := resolvedParams != nil
 
 	var inlayHints []InlayHint
 	variadicParamSeen := false
-	for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}
@@ -94,6 +96,9 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 		switch resolvedArg.Arg.(type) {
 		case *ast.LambdaExpr, *ast.LambdaExpr2:
 			// Skip lambda expressions.
+			continue
+		}
+		if !hasResolvedSignature && !xgoutil.IsValidType(typeInfo.TypeOf(resolvedArg.Arg)) {
 			continue
 		}
 

@@ -130,6 +130,62 @@ func run() {
 			wantDiag: false,
 		},
 		{
+			name: "UnknownPropertyKwargLiteral",
+			src: `
+package test
+
+type PropertyName string
+
+type Options struct {
+	Name PropertyName
+}
+
+func showVar(opts Options?) {}
+
+func run() {
+	showVar name = "unknown"
+}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return []string{"x", "y"}
+				},
+			},
+			wantDiag: true,
+		},
+		{
+			name: "KnownPropertyKwargLiteral",
+			src: `
+package test
+
+type PropertyName string
+
+type Options struct {
+	Name PropertyName
+}
+
+func showVar(opts Options?) {}
+
+func run() {
+	showVar name = "x"
+}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return []string{"x", "y"}
+				},
+			},
+			wantDiag: false,
+		},
+		{
 			name: "NilIsPropertyNameTypeCallback",
 			src: `
 package test
