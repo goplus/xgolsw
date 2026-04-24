@@ -2,7 +2,7 @@ package server
 
 import (
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"html/template"
 	"slices"
 	"strings"
@@ -18,7 +18,7 @@ import (
 type SpxDefinition struct {
 	// TypeHint represents a type hint for this definition. It may be nil if
 	// the definition has no associated type.
-	TypeHint types.Type
+	TypeHint gotypes.Type
 
 	ID       SpxDefinitionIdentifier
 	Overview string
@@ -237,7 +237,7 @@ var (
 )
 
 // GetSpxDefinitionForBuiltinObj returns the spx definition for the given object.
-func GetSpxDefinitionForBuiltinObj(obj types.Object) SpxDefinition {
+func GetSpxDefinitionForBuiltinObj(obj gotypes.Object) SpxDefinition {
 	const pkgPath = "builtin"
 
 	idName := obj.Name()
@@ -307,13 +307,13 @@ func GetSpxDefinitionForBuiltinObj(obj types.Object) SpxDefinition {
 
 // GetBuiltinSpxDefinitions returns the builtin spx definitions.
 var GetBuiltinSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
-	names := types.Universe.Names()
+	names := gotypes.Universe.Names()
 	defs := make([]SpxDefinition, 0, len(names)+len(xgoBuiltinAliases))
 	for _, name := range names {
 		if _, ok := xgoBuiltinAliases[name]; ok {
 			continue
 		}
-		if obj := types.Universe.Lookup(name); obj != nil && obj.Pkg() == nil {
+		if obj := gotypes.Universe.Lookup(name); obj != nil && obj.Pkg() == nil {
 			defs = append(defs, GetSpxDefinitionForBuiltinObj(obj))
 		}
 	}
@@ -354,9 +354,9 @@ func getSpxDefinitionForXGoBuiltinAlias(alias string) (SpxDefinition, error) {
 	}
 	var def SpxDefinition
 	switch obj := obj.(type) {
-	case *types.TypeName:
+	case *gotypes.TypeName:
 		def = GetSpxDefinitionForType(obj, pkgDoc)
-	case *types.Func:
+	case *gotypes.Func:
 		def = GetSpxDefinitionForFunc(obj, "", pkgDoc)
 	default:
 		return SpxDefinition{}, fmt.Errorf("unexpected object type for xgo builtin alias %q: %T", alias, obj)
@@ -380,7 +380,7 @@ func getSpxDefinitionForXGoBuiltinAlias(alias string) (SpxDefinition, error) {
 
 var (
 	// GetMathPkg returns the math package.
-	GetMathPkg = sync.OnceValue(func() *types.Package {
+	GetMathPkg = sync.OnceValue(func() *gotypes.Package {
 		mathPkg, err := internal.Importer.Import("math")
 		if err != nil {
 			panic(fmt.Errorf("failed to import math package: %w", err))
@@ -405,7 +405,7 @@ const SpxPkgPath = "github.com/goplus/spx/v2"
 
 var (
 	// GetSpxPkg returns the spx package.
-	GetSpxPkg = sync.OnceValue(func() *types.Package {
+	GetSpxPkg = sync.OnceValue(func() *gotypes.Package {
 		spxPkg, err := internal.Importer.Import(SpxPkgPath)
 		if err != nil {
 			panic(fmt.Errorf("failed to import spx package: %w", err))
@@ -414,105 +414,105 @@ var (
 	})
 
 	// GetSpxGameType returns the [spx.Game] type.
-	GetSpxGameType = sync.OnceValue(func() *types.Named {
+	GetSpxGameType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Game").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("Game").Type().(*gotypes.Named)
 	})
 
 	// GetSpxBackdropNameType returns the [spx.BackdropName] type.
-	GetSpxBackdropNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxBackdropNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("BackdropName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("BackdropName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxSpriteType returns the [spx.Sprite] type.
-	GetSpxSpriteType = sync.OnceValue(func() *types.Named {
+	GetSpxSpriteType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Sprite").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("Sprite").Type().(*gotypes.Named)
 	})
 
 	// GetSpxSpriteImplType returns the [spx.SpriteImpl] type.
-	GetSpxSpriteImplType = sync.OnceValue(func() *types.Named {
+	GetSpxSpriteImplType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteImpl").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("SpriteImpl").Type().(*gotypes.Named)
 	})
 
 	// GetSpxSpriteNameType returns the [spx.SpriteName] type.
-	GetSpxSpriteNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxSpriteNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("SpriteName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxSpriteCostumeNameType returns the [spx.SpriteCostumeName] type.
-	GetSpxSpriteCostumeNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxSpriteCostumeNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteCostumeName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("SpriteCostumeName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxSpriteAnimationNameType returns the [spx.SpriteAnimationName] type.
-	GetSpxSpriteAnimationNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxSpriteAnimationNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteAnimationName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("SpriteAnimationName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxSoundNameType returns the [spx.SoundName] type.
-	GetSpxSoundNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxSoundNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SoundName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("SoundName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxWidgetNameType returns the [spx.WidgetName] type.
-	GetSpxWidgetNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxWidgetNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("WidgetName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("WidgetName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxDirectionType returns the [spx.Direction] type.
-	GetSpxDirectionType = sync.OnceValue(func() *types.Alias {
+	GetSpxDirectionType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Direction").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("Direction").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxLayerActionType returns the [spx.LayerAction] type.
-	GetSpxLayerActionType = sync.OnceValue(func() *types.Named {
+	GetSpxLayerActionType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("layerAction").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("layerAction").Type().(*gotypes.Named)
 	})
 
 	// GetSpxDirActionType returns the [spx.DirLayer] type.
-	GetSpxDirActionType = sync.OnceValue(func() *types.Named {
+	GetSpxDirActionType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("dirAction").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("dirAction").Type().(*gotypes.Named)
 	})
 
 	// GetSpxEffectKindType returns the [spx.EffectKind] type.
-	GetSpxEffectKindType = sync.OnceValue(func() *types.Named {
+	GetSpxEffectKindType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("EffectKind").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("EffectKind").Type().(*gotypes.Named)
 	})
 
 	// GetSpxKeyType returns the [spx.Key] type.
-	GetSpxKeyType = sync.OnceValue(func() *types.Alias {
+	GetSpxKeyType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Key").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("Key").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxSpecialObjType returns the [spx.SpecialObj] type.
-	GetSpxSpecialObjType = sync.OnceValue(func() *types.Named {
+	GetSpxSpecialObjType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Edge").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("Edge").Type().(*gotypes.Named)
 	})
 
 	// GetSpxRotationStyleType returns the [spx.RotationStyle] type.
-	GetSpxRotationStyleType = sync.OnceValue(func() *types.Named {
+	GetSpxRotationStyleType = sync.OnceValue(func() *gotypes.Named {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("RotationStyle").Type().(*types.Named)
+		return spxPkg.Scope().Lookup("RotationStyle").Type().(*gotypes.Named)
 	})
 
 	// GetSpxPropertyNameType returns the [spx.PropertyName] type.
-	GetSpxPropertyNameType = sync.OnceValue(func() *types.Alias {
+	GetSpxPropertyNameType = sync.OnceValue(func() *gotypes.Alias {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("PropertyName").Type().(*types.Alias)
+		return spxPkg.Scope().Lookup("PropertyName").Type().(*gotypes.Alias)
 	})
 
 	// GetSpxPkgDefinitions returns the spx definitions for the spx package.
@@ -527,24 +527,23 @@ var (
 	})
 
 	// GetSpxHSBFunc returns the [spx.HSB] type.
-	GetSpxHSBFunc = sync.OnceValue(func() *types.Func {
+	GetSpxHSBFunc = sync.OnceValue(func() *gotypes.Func {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("HSB").(*types.Func)
+		return spxPkg.Scope().Lookup("HSB").(*gotypes.Func)
 	})
 
 	// GetSpxHSBAFunc returns the [spx.HSBA] type.
-	GetSpxHSBAFunc = sync.OnceValue(func() *types.Func {
+	GetSpxHSBAFunc = sync.OnceValue(func() *gotypes.Func {
 		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("HSBA").(*types.Func)
+		return spxPkg.Scope().Lookup("HSBA").(*gotypes.Func)
 	})
-
 )
 
 // nonMainPkgSpxDefsCache is a cache of non-main package spx definitions.
 var nonMainPkgSpxDefsCache sync.Map // map[*types.Package][]SpxDefinition
 
 // GetSpxDefinitionsForPkg returns the spx definitions for the given package.
-func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
+func GetSpxDefinitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
 	if !xgoutil.IsMainPkg(pkg) {
 		if defsIface, ok := nonMainPkgSpxDefsCache.Load(pkg); ok {
 			return defsIface.([]SpxDefinition)
@@ -559,13 +558,13 @@ func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []
 	for _, name := range names {
 		if obj := pkg.Scope().Lookup(name); obj != nil && obj.Exported() {
 			switch obj := obj.(type) {
-			case *types.Var:
+			case *gotypes.Var:
 				defs = append(defs, GetSpxDefinitionForVar(obj, "", false, pkgDoc))
-			case *types.Const:
+			case *gotypes.Const:
 				defs = append(defs, GetSpxDefinitionForConst(obj, pkgDoc))
-			case *types.TypeName:
+			case *gotypes.TypeName:
 				defs = append(defs, GetSpxDefinitionForType(obj, pkgDoc))
-			case *types.Func:
+			case *gotypes.Func:
 				if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 					for _, funcOverload := range funcOverloads {
 						defs = append(defs, GetSpxDefinitionForFunc(funcOverload, "", pkgDoc))
@@ -573,7 +572,7 @@ func GetSpxDefinitionsForPkg(pkg *types.Package, pkgDoc *pkgdoc.PkgDoc) (defs []
 				} else {
 					defs = append(defs, GetSpxDefinitionForFunc(obj, "", pkgDoc))
 				}
-			case *types.PkgName:
+			case *gotypes.PkgName:
 				defs = append(defs, GetSpxDefinitionForPkg(obj, pkgDoc))
 			}
 		}
@@ -588,14 +587,14 @@ var nonMainPkgSpxDefCacheForVars sync.Map // map[nonMainPkgSpxDefCacheForVarsKey
 // nonMainPkgSpxDefCacheForVarsKey is the key for the non-main package spx
 // definition cache for variables.
 type nonMainPkgSpxDefCacheForVarsKey struct {
-	v                *types.Var
+	v                *gotypes.Var
 	selectorTypeName string
 }
 
 // spxMemberDefinitionPkgPath returns the package path used in definition IDs for
 // spx members. It prefers the public spx package when the member comes from an
 // internal implementation package but is surfaced through a public spx type.
-func spxMemberDefinitionPkgPath(pkg *types.Package, selectorTypeName string) string {
+func spxMemberDefinitionPkgPath(pkg *gotypes.Package, selectorTypeName string) string {
 	pkgPath := xgoutil.PkgPath(pkg)
 	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v2/internal/") {
 		return pkgPath
@@ -607,7 +606,7 @@ func spxMemberDefinitionPkgPath(pkg *types.Package, selectorTypeName string) str
 }
 
 // GetSpxDefinitionForVar returns the spx definition for the provided variable.
-func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
+func GetSpxDefinitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(v) {
 		cacheKey := nonMainPkgSpxDefCacheForVarsKey{
 			v:                v,
@@ -679,7 +678,7 @@ func GetSpxDefinitionForVar(v *types.Var, selectorTypeName string, forceVar bool
 var nonMainPkgSpxDefCacheForConsts sync.Map // map[*types.Const]SpxDefinition
 
 // GetSpxDefinitionForConst returns the spx definition for the provided constant.
-func GetSpxDefinitionForConst(c *types.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
+func GetSpxDefinitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(c) {
 		if defIface, ok := nonMainPkgSpxDefCacheForConsts.Load(c); ok {
 			return defIface.(SpxDefinition)
@@ -723,7 +722,7 @@ func GetSpxDefinitionForConst(c *types.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDef
 var nonMainPkgSpxDefCacheForTypes sync.Map // map[*types.TypeName]SpxDefinition
 
 // GetSpxDefinitionForType returns the spx definition for the provided type.
-func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
+func GetSpxDefinitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(typeName) {
 		if defIface, ok := nonMainPkgSpxDefCacheForTypes.Load(typeName); ok {
 			return defIface.(SpxDefinition)
@@ -748,9 +747,9 @@ func GetSpxDefinitionForType(typeName *types.TypeName, pkgDoc *pkgdoc.PkgDoc) (d
 	completionKind := ClassCompletion
 	if named := resolvedNamedType(typeName.Type()); named != nil {
 		switch named.Underlying().(type) {
-		case *types.Interface:
+		case *gotypes.Interface:
 			completionKind = InterfaceCompletion
-		case *types.Struct:
+		case *gotypes.Struct:
 			completionKind = StructCompletion
 		}
 	}
@@ -780,12 +779,12 @@ var nonMainPkgSpxDefCacheForFuncs sync.Map // map[nonMainPkgSpxDefCacheForFuncsK
 // nonMainPkgSpxDefCacheForFuncsKey is the key for the non-main package spx
 // definition cache for functions.
 type nonMainPkgSpxDefCacheForFuncsKey struct {
-	fun          *types.Func
+	fun          *gotypes.Func
 	recvTypeName string
 }
 
 // GetSpxDefinitionForFunc returns the spx definition for the provided function.
-func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
+func GetSpxDefinitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(fun) {
 		cacheKey := nonMainPkgSpxDefCacheForFuncsKey{
 			fun:          fun,
@@ -847,10 +846,10 @@ func GetSpxDefinitionForFunc(fun *types.Func, recvTypeName string, pkgDoc *pkgdo
 
 // makeSpxDefinitionOverviewForFunc makes an overview string for a function that
 // is used in [SpxDefinition].
-func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
+func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
 	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
 	name := fun.Name()
-	sig := fun.Type().(*types.Signature)
+	sig := fun.Type().(*gotypes.Signature)
 
 	var sb strings.Builder
 	sb.WriteString("func ")
@@ -858,7 +857,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 	var isXGotMethod bool
 	if recv := sig.Recv(); recv != nil {
 		recvType := xgoutil.DerefType(recv.Type())
-		if named, ok := recvType.(*types.Named); ok {
+		if named, ok := recvType.(*gotypes.Named); ok {
 			parsedRecvTypeName = named.Obj().Name()
 		}
 	} else if isXGoPkg {
@@ -896,7 +895,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 
 		// Check if this is a variadic parameter.
 		if sig.Variadic() && i == sig.Params().Len()-1 {
-			if slice, ok := paramType.(*types.Slice); ok {
+			if slice, ok := paramType.(*gotypes.Slice); ok {
 				elemTypeName := GetSimplifiedTypeString(slice.Elem())
 				paramTypeName = "..." + elemTypeName
 			}
@@ -937,7 +936,7 @@ func makeSpxDefinitionOverviewForFunc(fun *types.Func) (overview, parsedRecvType
 var nonMainPkgSpxDefCacheForPkgs sync.Map // map[*types.PkgName]SpxDefinition
 
 // GetSpxDefinitionForPkg returns the spx definition for the provided package.
-func GetSpxDefinitionForPkg(pkgName *types.PkgName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
+func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
 	if !xgoutil.IsInMainPkg(pkgName) {
 		if defIface, ok := nonMainPkgSpxDefCacheForPkgs.Load(pkgName); ok {
 			return defIface.(SpxDefinition)
@@ -975,7 +974,7 @@ var nonMainPkgSpxResourceNameTypeFuncCache sync.Map // map[*types.Func]bool
 
 // HasSpxResourceNameTypeParams reports if a function has parameters of spx
 // resource name types.
-func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
+func HasSpxResourceNameTypeParams(fun *gotypes.Func) (has bool) {
 	if fun == nil {
 		return false
 	}
@@ -994,14 +993,14 @@ func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
 		}()
 	}
 
-	funcSig, ok := fun.Type().(*types.Signature)
+	funcSig, ok := fun.Type().(*gotypes.Signature)
 	if !ok {
 		return false
 	}
 
 	for param := range funcSig.Params().Variables() {
 		paramType := xgoutil.DerefType(param.Type())
-		if slice, ok := paramType.(*types.Slice); ok {
+		if slice, ok := paramType.(*gotypes.Slice); ok {
 			paramType = slice.Elem()
 		}
 		if IsSpxResourceNameType(paramType) {
@@ -1013,8 +1012,8 @@ func HasSpxResourceNameTypeParams(fun *types.Func) (has bool) {
 
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
 // resource name type. It returns nil if typ does not represent one.
-func canonicalSpxResourceNameType(typ types.Type) types.Type {
-	seen := make(map[types.Type]struct{})
+func canonicalSpxResourceNameType(typ gotypes.Type) gotypes.Type {
+	seen := make(map[gotypes.Type]struct{})
 	for typ != nil {
 		if _, ok := seen[typ]; ok {
 			return nil
@@ -1036,7 +1035,7 @@ func canonicalSpxResourceNameType(typ types.Type) types.Type {
 			return GetSpxWidgetNameType()
 		}
 
-		alias, ok := typ.(*types.Alias)
+		alias, ok := typ.(*gotypes.Alias)
 		if !ok {
 			return nil
 		}
@@ -1051,14 +1050,14 @@ func canonicalSpxResourceNameType(typ types.Type) types.Type {
 }
 
 // IsSpxResourceNameType reports whether the given type is a spx resource name type.
-func IsSpxResourceNameType(typ types.Type) bool {
+func IsSpxResourceNameType(typ gotypes.Type) bool {
 	return canonicalSpxResourceNameType(typ) != nil
 }
 
 // IsSpxPropertyNameType reports whether the given type is or is an alias of
 // [spx.PropertyName], resolving alias chains before comparing.
-func IsSpxPropertyNameType(typ types.Type) bool {
-	seen := make(map[types.Type]struct{})
+func IsSpxPropertyNameType(typ gotypes.Type) bool {
+	seen := make(map[gotypes.Type]struct{})
 	for typ != nil {
 		if _, ok := seen[typ]; ok {
 			return false
@@ -1069,7 +1068,7 @@ func IsSpxPropertyNameType(typ types.Type) bool {
 			return true
 		}
 
-		alias, ok := typ.(*types.Alias)
+		alias, ok := typ.(*gotypes.Alias)
 		if !ok {
 			return false
 		}

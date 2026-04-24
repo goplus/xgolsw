@@ -155,7 +155,7 @@ func TestCreateCallExprFromBranchStmt(t *testing.T) {
 		got := CreateCallExprFromBranchStmt(typeInfo, stmt)
 		require.NotNil(t, got)
 		assert.Equal(t, ident, got.Fun)
-		assert.Len(t, got.Args, 1)
+		require.Len(t, got.Args, 1)
 		assert.Equal(t, stmt.Label, got.Args[0])
 	})
 }
@@ -318,7 +318,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 
 		WalkCallExprArgs(typeInfo, expr, walkFn)
 
-		assert.Len(t, walkCalls, 2)
+		require.Len(t, walkCalls, 2)
 		assert.Equal(t, 0, walkCalls[0].paramIndex)
 		assert.Equal(t, 0, walkCalls[0].argIndex)
 		assert.Equal(t, arg1, walkCalls[0].arg)
@@ -363,7 +363,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 
 		WalkCallExprArgs(typeInfo, expr, walkFn)
 
-		assert.Len(t, walkCalls, 3)
+		require.Len(t, walkCalls, 3)
 		assert.Equal(t, 0, walkCalls[0].paramIndex) // First param
 		assert.Equal(t, 0, walkCalls[0].argIndex)
 		assert.Equal(t, 1, walkCalls[1].paramIndex) // Variadic param
@@ -439,7 +439,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 		WalkCallExprArgs(typeInfo, expr, walkFn)
 
 		// Should skip the receiver parameter.
-		assert.Len(t, walkCalls, 1)
+		require.Len(t, walkCalls, 1)
 		assert.Equal(t, 0, walkCalls[0].paramIndex) // First non-receiver param index in new tuple.
 		assert.Equal(t, 0, walkCalls[0].argIndex)   // First arg.
 	})
@@ -511,7 +511,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 			return true
 		})
 
-		assert.Len(t, walkCalls, 2)
+		require.Len(t, walkCalls, 2)
 		assert.Equal(t, "T", walkCalls[0].paramName)
 		assert.Equal(t, 0, walkCalls[0].paramIndex)
 		assert.Equal(t, 0, walkCalls[0].argIndex)
@@ -556,7 +556,7 @@ func TestWalkCallExprArgs(t *testing.T) {
 		WalkCallExprArgs(typeInfo, expr, walkFn)
 
 		// Should only process one argument since function is not variadic.
-		assert.Len(t, walkCalls, 1)
+		require.Len(t, walkCalls, 1)
 		assert.Equal(t, 0, walkCalls[0].paramIndex)
 		assert.Equal(t, 0, walkCalls[0].argIndex)
 	})

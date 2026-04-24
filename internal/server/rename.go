@@ -2,10 +2,10 @@ package server
 
 import (
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"slices"
 
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -129,13 +129,13 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 		nodePos := fset.Position(node.Pos())
 		nodeEnd := fset.Position(node.End())
 
-		if expr, ok := node.(xgoast.Expr); ok && types.AssignableTo(typeInfo.TypeOf(expr), types.Typ[types.String]) {
-			if ident, ok := expr.(*xgoast.Ident); ok {
+		if expr, ok := node.(ast.Expr); ok && gotypes.AssignableTo(typeInfo.TypeOf(expr), gotypes.Typ[gotypes.String]) {
+			if ident, ok := expr.(*ast.Ident); ok {
 				// It has to be a constant. So we must find its declaration site and
 				// use the position of its value instead.
 				defIdent := typeInfo.ObjToDef[typeInfo.ObjectOf(ident)]
 				if defIdent != nil && xgoutil.NodeTokenFile(result.proj.Fset, defIdent) != nil {
-					parent, ok := defIdent.Obj.Decl.(*xgoast.ValueSpec)
+					parent, ok := defIdent.Obj.Decl.(*ast.ValueSpec)
 					if ok && slices.Contains(parent.Names, defIdent) && len(parent.Values) > 0 {
 						node = parent.Values[0]
 						nodePos = fset.Position(node.Pos())

@@ -45,6 +45,22 @@ onCloned => {
 	}
 }
 
+func requireRelatedFullDocumentDiagnosticReport(t *testing.T, report *DocumentDiagnosticReport) RelatedFullDocumentDiagnosticReport {
+	t.Helper()
+
+	fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
+	require.True(t, ok, "want RelatedFullDocumentDiagnosticReport, got %T", report.Value)
+	return fullReport
+}
+
+func requireWorkspaceFullDocumentDiagnosticReport(t *testing.T, item WorkspaceDocumentDiagnosticReport) WorkspaceFullDocumentDiagnosticReport {
+	t.Helper()
+
+	fullReport, ok := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+	require.True(t, ok, "want WorkspaceFullDocumentDiagnosticReport, got %T", item.Value)
+	return fullReport
+}
+
 func TestServerTextDocumentDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
@@ -56,8 +72,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 		assert.Empty(t, fullReport.Items)
 	})
@@ -78,8 +93,7 @@ var (
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 		require.Len(t, fullReport.Items, 2)
 		assert.Contains(t, fullReport.Items, Diagnostic{
@@ -122,8 +136,7 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		require.Len(t, fullReport.Items, 1)
 		assert.Contains(t, fullReport.Items, Diagnostic{
 			Severity: SeverityError,
@@ -152,8 +165,7 @@ func getValue() int {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		require.Len(t, fullReport.Items, 1)
 		assert.Contains(t, fullReport.Items, Diagnostic{
 			Severity: SeverityError,
@@ -177,8 +189,7 @@ func getValue() int {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 		assert.Empty(t, fullReport.Items)
 	})
@@ -195,8 +206,7 @@ func getValue() int {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 		require.Len(t, fullReport.Items, 1)
 		assert.Contains(t, fullReport.Items, Diagnostic{
@@ -219,8 +229,7 @@ func getValue() int {
 		require.NoError(t, err)
 		require.NotNil(t, report)
 
-		fullReport, ok := report.Value.(RelatedFullDocumentDiagnosticReport)
-		assert.True(t, ok, "expected RelatedFullDocumentDiagnosticReport")
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
 		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 		assert.Empty(t, fullReport.Items)
 	})
@@ -236,7 +245,7 @@ func TestServerWorkspaceDiagnostic(t *testing.T) {
 		assert.Len(t, report.Items, 3)
 		foundFiles := make(map[string]struct{})
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			relPath, err := s.fromDocumentURI(fullReport.URI)
 			require.NoError(t, err)
 			foundFiles[relPath] = struct{}{}
@@ -266,7 +275,7 @@ var (
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			if fullReport.URI == "file:///main.spx" {
 				require.Len(t, fullReport.Items, 2)
 				assert.Contains(t, fullReport.Items, Diagnostic{
@@ -328,7 +337,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///main.spx":
@@ -406,7 +415,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///main.spx":
@@ -473,7 +482,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///main.spx":
@@ -522,7 +531,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///MySprite.spx":
@@ -569,7 +578,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///MySprite.spx":
@@ -620,7 +629,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			switch fullReport.URI {
 			case "file:///MySprite.spx":
@@ -676,7 +685,7 @@ onStart => {
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			assert.Empty(t, fullReport.Items)
 		}
@@ -699,7 +708,7 @@ onKey [KeyRight, KeyUp, KeyDown], => {}
 		require.NotNil(t, report)
 		assert.Len(t, report.Items, 1)
 		for _, item := range report.Items {
-			fullReport := item.Value.(WorkspaceFullDocumentDiagnosticReport)
+			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			assert.Empty(t, fullReport.Items)
 		}

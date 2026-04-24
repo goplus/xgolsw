@@ -3,8 +3,8 @@ package server
 import (
 	"slices"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -30,11 +30,11 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 	}
 
 	var highlights []DocumentHighlight
-	xgoast.Inspect(astFile, func(node xgoast.Node) bool {
+	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil {
 			return true
 		}
-		ident, ok := node.(*xgoast.Ident)
+		ident, ok := node.(*ast.Ident)
 		if !ok {
 			return true
 		}
@@ -51,14 +51,14 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 
 		for _, parent := range slices.Backward(path[:len(path)-1]) {
 			switch p := parent.(type) {
-			case *xgoast.ValueSpec:
+			case *ast.ValueSpec:
 				for _, name := range p.Names {
 					if name == ident {
 						kind = Write
 						break
 					}
 				}
-			case *xgoast.Field:
+			case *ast.Field:
 				if p.Names != nil {
 					for _, name := range p.Names {
 						if name == ident {
@@ -67,21 +67,21 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 						}
 					}
 				}
-			case *xgoast.FuncDecl:
+			case *ast.FuncDecl:
 				if p.Name == ident {
 					kind = Write
 				}
-			case *xgoast.TypeSpec:
+			case *ast.TypeSpec:
 				if p.Name == ident {
 					kind = Write
 				}
-			case *xgoast.LabeledStmt:
+			case *ast.LabeledStmt:
 				if p.Label == ident {
 					kind = Write
 				}
-			case *xgoast.AssignStmt:
+			case *ast.AssignStmt:
 				switch p.Tok {
-				case xgotoken.ASSIGN:
+				case token.ASSIGN:
 					for _, lhs := range p.Lhs {
 						if lhs == ident {
 							kind = Write
@@ -96,7 +96,7 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 							}
 						}
 					}
-				case xgotoken.DEFINE:
+				case token.DEFINE:
 					for _, lhs := range p.Lhs {
 						if lhs == ident {
 							kind = Write
@@ -106,19 +106,19 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 				default:
 					kind = Write
 				}
-			case *xgoast.IncDecStmt:
+			case *ast.IncDecStmt:
 				if p.X == ident {
 					kind = Write
 				}
-			case *xgoast.RangeStmt:
+			case *ast.RangeStmt:
 				if p.X == ident {
 					kind = Read
 				} else if p.Key == ident || p.Value == ident {
 					kind = Write
 				}
-			case *xgoast.TypeSwitchStmt:
+			case *ast.TypeSwitchStmt:
 				if p.Assign != nil {
-					if assign, ok := p.Assign.(*xgoast.AssignStmt); ok {
+					if assign, ok := p.Assign.(*ast.AssignStmt); ok {
 						for _, lhs := range assign.Lhs {
 							if lhs == ident {
 								kind = Write
@@ -127,19 +127,19 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 						}
 					}
 				}
-			case *xgoast.BinaryExpr,
-				*xgoast.UnaryExpr,
-				*xgoast.CallExpr,
-				*xgoast.CompositeLit,
-				*xgoast.IndexExpr,
-				*xgoast.ReturnStmt,
-				*xgoast.SendStmt:
+			case *ast.BinaryExpr,
+				*ast.UnaryExpr,
+				*ast.CallExpr,
+				*ast.CompositeLit,
+				*ast.IndexExpr,
+				*ast.ReturnStmt,
+				*ast.SendStmt:
 				kind = Read
-			case *xgoast.KeyValueExpr:
+			case *ast.KeyValueExpr:
 				if p.Key == ident || p.Value == ident {
 					kind = Read
 				}
-			case *xgoast.SelectorExpr:
+			case *ast.SelectorExpr:
 				if p.X == ident {
 					kind = Read
 				}

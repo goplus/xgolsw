@@ -1,7 +1,7 @@
 package propertyname
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,11 +14,11 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 type propertynameCallbacks struct {
-	isPropertyNameType      func(types.Type) bool
+	isPropertyNameType      func(gotypes.Type) bool
 	getPropertyNamesForCall func(*ast.CallExpr) []string
 }
 
@@ -30,7 +30,7 @@ func TestPropertyname(t *testing.T) {
 		wantDiag  bool
 	}{
 		{
-			name: "unknown property literal",
+			name: "UnknownPropertyLiteral",
 			src: `
 package test
 
@@ -43,8 +43,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -54,7 +54,7 @@ func run() {
 			wantDiag: true,
 		},
 		{
-			name: "known property literal",
+			name: "KnownPropertyLiteral",
 			src: `
 package test
 
@@ -67,8 +67,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -78,7 +78,7 @@ func run() {
 			wantDiag: false,
 		},
 		{
-			name: "const identifier argument",
+			name: "ConstIdentifierArgument",
 			src: `
 package test
 
@@ -93,8 +93,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -104,7 +104,7 @@ func run() {
 			wantDiag: true,
 		},
 		{
-			name: "non constant identifier argument",
+			name: "NonConstantIdentifierArgument",
 			src: `
 package test
 
@@ -119,8 +119,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -130,7 +130,7 @@ func run() {
 			wantDiag: false,
 		},
 		{
-			name: "nil IsPropertyNameType callback",
+			name: "NilIsPropertyNameTypeCallback",
 			src: `
 package test
 
@@ -151,7 +151,7 @@ func run() {
 			wantDiag: false,
 		},
 		{
-			name: "nil GetPropertyNamesForCall callback",
+			name: "NilGetPropertyNamesForCallCallback",
 			src: `
 package test
 
@@ -164,8 +164,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: nil,
@@ -173,7 +173,7 @@ func run() {
 			wantDiag: false,
 		},
 		{
-			name: "nil return from GetPropertyNamesForCall skips validation",
+			name: "NilReturnFromGetPropertyNamesForCallSkipsValidation",
 			src: `
 package test
 
@@ -186,8 +186,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -197,7 +197,7 @@ func run() {
 			wantDiag: false,
 		},
 		{
-			name: "empty return from GetPropertyNamesForCall reports all properties unknown",
+			name: "EmptyReturnFromGetPropertyNamesForCallReportsAllPropertiesUnknown",
 			src: `
 package test
 
@@ -210,8 +210,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ types.Type) bool {
-					named, ok := types.Unalias(typ).(*types.Named)
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
 					return ok && named.Obj().Name() == "PropertyName"
 				},
 				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
@@ -225,7 +225,11 @@ func run() {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			diagnostics := runPropertynameAnalyzer(t, tt.src, tt.callbacks)
-			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
+			if tt.wantDiag {
+				assert.NotEmpty(t, diagnostics)
+			} else {
+				assert.Empty(t, diagnostics)
+			}
 		})
 	}
 }
@@ -237,19 +241,19 @@ func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCal
 	f, err := parser.ParseFile(fset, "test.xgo", src, parser.ParseComments)
 	require.NoError(t, err)
 
-	info := &xgotypes.Info{
+	info := &types.Info{
 		Info: typesutil.Info{
-			Types: make(map[ast.Expr]types.TypeAndValue),
-			Defs:  make(map[*ast.Ident]types.Object),
-			Uses:  make(map[*ast.Ident]types.Object),
+			Types: make(map[ast.Expr]gotypes.TypeAndValue),
+			Defs:  make(map[*ast.Ident]gotypes.Object),
+			Uses:  make(map[*ast.Ident]gotypes.Object),
 		},
 	}
 
 	checker := typesutil.NewChecker(
-		&types.Config{},
+		&gotypes.Config{},
 		&typesutil.Config{
 			Fset:  fset,
-			Types: types.NewPackage("test", "test"),
+			Types: gotypes.NewPackage("test", "test"),
 		},
 		nil,
 		&info.Info,

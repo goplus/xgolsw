@@ -71,6 +71,54 @@ func newTestTypeInfo(defs map[*ast.Ident]gotypes.Object, uses map[*ast.Ident]got
 	}
 }
 
+func requireTypeSpec(t *testing.T, spec ast.Spec) *ast.TypeSpec {
+	t.Helper()
+
+	typeSpec, ok := spec.(*ast.TypeSpec)
+	require.True(t, ok, "want *ast.TypeSpec, got %T", spec)
+	return typeSpec
+}
+
+func requireGenDecl(t *testing.T, decl ast.Decl) *ast.GenDecl {
+	t.Helper()
+
+	genDecl, ok := decl.(*ast.GenDecl)
+	require.True(t, ok, "want *ast.GenDecl, got %T", decl)
+	return genDecl
+}
+
+func requireFuncDecl(t *testing.T, decl ast.Decl) *ast.FuncDecl {
+	t.Helper()
+
+	funcDecl, ok := decl.(*ast.FuncDecl)
+	require.True(t, ok, "want *ast.FuncDecl, got %T", decl)
+	return funcDecl
+}
+
+func requireValueSpec(t *testing.T, spec ast.Spec) *ast.ValueSpec {
+	t.Helper()
+
+	valueSpec, ok := spec.(*ast.ValueSpec)
+	require.True(t, ok, "want *ast.ValueSpec, got %T", spec)
+	return valueSpec
+}
+
+func requireFuncLit(t *testing.T, expr ast.Expr) *ast.FuncLit {
+	t.Helper()
+
+	funcLit, ok := expr.(*ast.FuncLit)
+	require.True(t, ok, "want *ast.FuncLit, got %T", expr)
+	return funcLit
+}
+
+func requireImportSpec(t *testing.T, spec ast.Spec) *ast.ImportSpec {
+	t.Helper()
+
+	importSpec, ok := spec.(*ast.ImportSpec)
+	require.True(t, ok, "want *ast.ImportSpec, got %T", spec)
+	return importSpec
+}
+
 func newTestFuncExSignature(pkg *gotypes.Package, recv *gotypes.Var, typ gotypes.Type) *gotypes.Signature {
 	methodSig := gotypes.NewSignatureType(gotypes.NewVar(token.NoPos, nil, "", typ), nil, nil, nil, nil, false)
 	paramType := gotypes.NewInterfaceType([]*gotypes.Func{
@@ -127,7 +175,7 @@ func TestRangeASTSpecs(t *testing.T) {
 		})
 
 		require.Len(t, specs, 1)
-		ts := specs[0].(*ast.TypeSpec)
+		ts := requireTypeSpec(t, specs[0])
 		assert.Equal(t, "A", ts.Name.Name)
 		assert.NotEqual(t, token.NoPos, ts.Assign)
 	})
@@ -153,7 +201,7 @@ type (
 		require.Len(t, specs, 3)
 		names := make([]string, len(specs))
 		for i, spec := range specs {
-			ts := spec.(*ast.TypeSpec)
+			ts := requireTypeSpec(t, spec)
 			names[i] = ts.Name.Name
 		}
 		assert.Contains(t, names, "A")
@@ -179,7 +227,7 @@ var (
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
 		for i, spec := range specs {
-			vs := spec.(*ast.ValueSpec)
+			vs := requireValueSpec(t, spec)
 			names[i] = vs.Names[0].Name
 		}
 		assert.Contains(t, names, "x")
@@ -204,7 +252,7 @@ const (
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
 		for i, spec := range specs {
-			vs := spec.(*ast.ValueSpec)
+			vs := requireValueSpec(t, spec)
 			names[i] = vs.Names[0].Name
 		}
 		assert.Contains(t, names, "Pi")
@@ -230,7 +278,7 @@ const (
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
 		for i, spec := range specs {
-			ts := spec.(*ast.TypeSpec)
+			ts := requireTypeSpec(t, spec)
 			names[i] = ts.Name.Name
 		}
 		assert.Contains(t, names, "MainType")
@@ -247,7 +295,7 @@ const (
 			specs = append(specs, spec)
 		})
 
-		assert.Len(t, specs, 0)
+		assert.Empty(t, specs)
 	})
 
 	t.Run("EmptyPackage", func(t *testing.T) {
@@ -258,7 +306,7 @@ const (
 			specs = append(specs, spec)
 		})
 
-		assert.Len(t, specs, 0)
+		assert.Empty(t, specs)
 	})
 
 	t.Run("MixedDeclarations", func(t *testing.T) {
@@ -285,13 +333,13 @@ func myFunc() {}`)
 			constSpecs = append(constSpecs, spec)
 		})
 
-		assert.Len(t, typeSpecs, 1)
-		assert.Len(t, varSpecs, 1)
-		assert.Len(t, constSpecs, 1)
+		require.Len(t, typeSpecs, 1)
+		require.Len(t, varSpecs, 1)
+		require.Len(t, constSpecs, 1)
 
-		assert.Equal(t, "MyType", typeSpecs[0].(*ast.TypeSpec).Name.Name)
-		assert.Equal(t, "myVar", varSpecs[0].(*ast.ValueSpec).Names[0].Name)
-		assert.Equal(t, "myConst", constSpecs[0].(*ast.ValueSpec).Names[0].Name)
+		assert.Equal(t, "MyType", requireTypeSpec(t, typeSpecs[0]).Name.Name)
+		assert.Equal(t, "myVar", requireValueSpec(t, varSpecs[0]).Names[0].Name)
+		assert.Equal(t, "myConst", requireValueSpec(t, constSpecs[0]).Names[0].Name)
 	})
 
 	t.Run("ImportSpecs", func(t *testing.T) {
@@ -312,7 +360,7 @@ import (
 		require.Len(t, specs, 2)
 		paths := make([]string, len(specs))
 		for i, spec := range specs {
-			is := spec.(*ast.ImportSpec)
+			is := requireImportSpec(t, spec)
 			paths[i] = is.Path.Value
 		}
 		assert.Contains(t, paths, `"fmt"`)
@@ -325,7 +373,7 @@ import (
 			specs = append(specs, spec)
 		})
 
-		assert.Len(t, specs, 0)
+		assert.Empty(t, specs)
 	})
 }
 
@@ -494,7 +542,7 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 			nodes = append(nodes, node)
 			return false // Stop after first node.
 		})
-		assert.Len(t, nodes, 1)
+		require.Len(t, nodes, 1)
 	})
 
 	t.Run("EmptyInterval", func(t *testing.T) {
@@ -506,7 +554,7 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 			nodes = append(nodes, node)
 			return true
 		})
-		assert.Len(t, nodes, 1) // Should still return at least the file node.
+		require.Len(t, nodes, 1) // Should still return at least the file node.
 	})
 
 	t.Run("WalkBackward", func(t *testing.T) {
@@ -537,7 +585,7 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 
 		require.NotEmpty(t, forwardNodes)
 		require.NotEmpty(t, backwardNodes)
-		require.Equal(t, len(forwardNodes), len(backwardNodes))
+		require.Len(t, backwardNodes, len(forwardNodes))
 
 		// Backward walk should return nodes in reverse order.
 		for i := range forwardNodes {
@@ -765,7 +813,7 @@ func test() {
 		path, _ := PathEnclosingInterval(astFile, xIdent.Pos(), xIdent.End())
 		block := EnclosingNode[*ast.BlockStmt](path)
 		require.NotNil(t, block)
-		assert.Len(t, block.List, 1)
+		require.Len(t, block.List, 1)
 	})
 
 	t.Run("FunctionLiteral", func(t *testing.T) {
@@ -1006,7 +1054,7 @@ func foo() string {
 
 func TestToLowerCamelCase(t *testing.T) {
 	t.Run("EmptyString", func(t *testing.T) {
-		assert.Equal(t, "", ToLowerCamelCase(""))
+		assert.Empty(t, ToLowerCamelCase(""))
 	})
 
 	t.Run("SingleCharacterUpper", func(t *testing.T) {
@@ -1047,7 +1095,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(strLit, tv)
-		require.True(t, ok)
+		require.True(t, ok, "want string literal to be accepted")
 		assert.Equal(t, "literal", value)
 	})
 
@@ -1056,7 +1104,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{Value: constant.MakeString("constant value")}
 
 		value, ok := StringLitOrConstValue(ident, tv)
-		require.True(t, ok)
+		require.True(t, ok, "want string constant to be accepted")
 		assert.Equal(t, "constant value", value)
 	})
 
@@ -1066,7 +1114,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("NonStringLiteral", func(t *testing.T) {
@@ -1078,7 +1126,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(intLit, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("NonStringConstant", func(t *testing.T) {
@@ -1087,7 +1135,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("InvalidStringLiteral", func(t *testing.T) {
@@ -1099,7 +1147,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(invalidLit, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("UnsupportedExpression", func(t *testing.T) {
@@ -1112,7 +1160,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{}
 		value, ok := StringLitOrConstValue(binExpr, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("IdentWithNilValue", func(t *testing.T) {
@@ -1120,7 +1168,7 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{Value: nil}
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 
 	t.Run("IdentWithNonStringConstant", func(t *testing.T) {
@@ -1128,6 +1176,6 @@ func TestStringLitOrConstValue(t *testing.T) {
 		tv := gotypes.TypeAndValue{Value: constant.MakeInt64(42)}
 		value, ok := StringLitOrConstValue(ident, tv)
 		assert.False(t, ok)
-		assert.Equal(t, "", value)
+		assert.Empty(t, value)
 	})
 }

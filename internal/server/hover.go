@@ -1,7 +1,7 @@
 package server
 
 import (
-	"go/doc"
+	godoc "go/doc"
 	"strings"
 
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -45,7 +45,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 			return &Hover{
 				Contents: MarkupContent{
 					Kind:  Markdown,
-					Value: doc.Synopsis(rpkg.Pkg.Doc),
+					Value: godoc.Synopsis(rpkg.Pkg.Doc),
 				},
 				Range: RangeForNode(result.proj, rpkg.Node),
 			}, nil

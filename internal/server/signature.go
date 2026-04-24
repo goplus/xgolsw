@@ -1,7 +1,7 @@
 package server
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"strings"
 
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -28,11 +28,11 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		return nil, nil
 	}
 
-	fun, ok := obj.(*types.Func)
+	fun, ok := obj.(*gotypes.Func)
 	if !ok {
 		return nil, nil
 	}
-	sig, ok := fun.Type().(*types.Signature)
+	sig, ok := fun.Type().(*gotypes.Signature)
 	if !ok {
 		return nil, nil
 	}

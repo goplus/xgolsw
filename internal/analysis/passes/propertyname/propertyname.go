@@ -2,7 +2,7 @@ package propertyname
 
 import (
 	_ "embed"
-	"go/types"
+	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
@@ -46,7 +46,7 @@ func run(pass *protocol.Pass) (any, error) {
 		}
 
 		xgoutil.WalkCallExprArgs(pass.TypesInfo, call,
-			func(fun *types.Func, params *types.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
+			func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 				param := params.At(paramIndex)
 				if !pass.IsPropertyNameType(param.Type()) {
 					return true

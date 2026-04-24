@@ -565,7 +565,7 @@ func TestSortDocumentLinks(t *testing.T) {
 		sortDocumentLinks(links)
 
 		// Links with nil targets should come first.
-		require.Equal(t, 4, len(links))
+		require.Len(t, links, 4)
 		assert.Nil(t, links[0].Target)
 		assert.Nil(t, links[1].Target)
 		assert.NotNil(t, links[2].Target)
@@ -589,7 +589,7 @@ func TestSortDocumentLinks(t *testing.T) {
 		sortDocumentLinks(links)
 
 		// Links with targets should be sorted by target URI string.
-		require.Equal(t, 3, len(links))
+		require.Len(t, links, 3)
 		assert.Equal(t, targetA, links[0].Target)
 		assert.Equal(t, targetB, links[1].Target)
 		assert.Equal(t, targetC, links[2].Target)
@@ -606,7 +606,7 @@ func TestSortDocumentLinks(t *testing.T) {
 		sortDocumentLinks(links)
 
 		// Same target URI should be sorted by line number.
-		require.Equal(t, 3, len(links))
+		require.Len(t, links, 3)
 		assert.Equal(t, uint32(10), links[0].Range.Start.Line)
 		assert.Equal(t, uint32(20), links[1].Range.Start.Line)
 		assert.Equal(t, uint32(30), links[2].Range.Start.Line)
@@ -623,7 +623,7 @@ func TestSortDocumentLinks(t *testing.T) {
 		sortDocumentLinks(links)
 
 		// Same target URI and line should be sorted by character position.
-		require.Equal(t, 3, len(links))
+		require.Len(t, links, 3)
 		assert.Equal(t, uint32(5), links[0].Range.Start.Character)
 		assert.Equal(t, uint32(15), links[1].Range.Start.Character)
 		assert.Equal(t, uint32(25), links[2].Range.Start.Character)
@@ -644,7 +644,7 @@ func TestSortDocumentLinks(t *testing.T) {
 		sortDocumentLinks(links)
 
 		// Nil targets should come first, sorted by line number.
-		require.Equal(t, 6, len(links))
+		require.Len(t, links, 6)
 		assert.Nil(t, links[0].Target)
 		assert.Nil(t, links[1].Target)
 		assert.Equal(t, uint32(1), links[0].Range.Start.Line)

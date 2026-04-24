@@ -1,7 +1,7 @@
 package appends
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +14,7 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 func TestAppends(t *testing.T) {
@@ -24,7 +24,7 @@ func TestAppends(t *testing.T) {
 		wantDiag bool
 	}{
 		{
-			name: "append without values",
+			name: "AppendWithoutValues",
 			src: `
 var s []int
 _ = append(s)
@@ -32,7 +32,7 @@ _ = append(s)
 			wantDiag: true,
 		},
 		{
-			name: "append with values",
+			name: "AppendWithValues",
 			src: `
 var s []int
 _ = append(s, 1)
@@ -48,19 +48,19 @@ _ = append(s, 1)
 			f, err := parser.ParseFile(fset, "test.xgo", tt.src, parser.ParseComments)
 			require.NoError(t, err)
 
-			info := &xgotypes.Info{
+			info := &types.Info{
 				Info: typesutil.Info{
-					Types: make(map[ast.Expr]types.TypeAndValue),
-					Defs:  make(map[*ast.Ident]types.Object),
-					Uses:  make(map[*ast.Ident]types.Object),
+					Types: make(map[ast.Expr]gotypes.TypeAndValue),
+					Defs:  make(map[*ast.Ident]gotypes.Object),
+					Uses:  make(map[*ast.Ident]gotypes.Object),
 				},
 			}
 
 			checker := typesutil.NewChecker(
-				&types.Config{},
+				&gotypes.Config{},
 				&typesutil.Config{
 					Fset:  fset,
-					Types: types.NewPackage("test", "test"),
+					Types: gotypes.NewPackage("test", "test"),
 				},
 				nil,
 				&info.Info,
@@ -86,7 +86,11 @@ _ = append(s, 1)
 			_, err = Analyzer.Run(pass)
 			require.NoError(t, err)
 
-			assert.Equal(t, tt.wantDiag, len(diagnostics) > 0)
+			if tt.wantDiag {
+				assert.NotEmpty(t, diagnostics)
+			} else {
+				assert.Empty(t, diagnostics)
+			}
 		})
 	}
 }

@@ -762,6 +762,6 @@ onStart => {
 
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
-		require.Len(t, edits, 0)
+		require.Empty(t, edits)
 	})
 }

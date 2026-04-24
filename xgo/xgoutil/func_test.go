@@ -141,7 +141,7 @@ func TestSplitXGoxFuncName(t *testing.T) {
 	t.Run("OnlyPrefix", func(t *testing.T) {
 		funcName, ok := SplitXGoxFuncName("XGox_")
 		require.True(t, ok)
-		assert.Equal(t, "", funcName)
+		assert.Empty(t, funcName)
 	})
 
 	t.Run("EmptyString", func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestParseXGoFuncName(t *testing.T) {
 
 	t.Run("EmptyString", func(t *testing.T) {
 		parsedName, overloadID := ParseXGoFuncName("")
-		assert.Equal(t, "", parsedName)
+		assert.Empty(t, parsedName)
 		assert.Nil(t, overloadID)
 	})
 
@@ -345,7 +345,7 @@ func TestExpandXGoOverloadableFunc(t *testing.T) {
 		fun := gogen.NewOverloadFunc(token.NoPos, pkg, "TestFunc", overload1, overload2)
 
 		expanded := ExpandXGoOverloadableFunc(fun)
-		assert.Len(t, expanded, 2)
+		require.Len(t, expanded, 2)
 		assert.Same(t, overload1, expanded[0])
 		assert.Same(t, overload2, expanded[1])
 	})

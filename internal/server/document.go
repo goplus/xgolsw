@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"slices"
 
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -45,7 +45,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 
 	// Add links for spx definitions.
 	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
-	addLinksForIdent := func(ident *xgoast.Ident) {
+	addLinksForIdent := func(ident *ast.Ident) {
 		if ident.Implicit() || xgoutil.NodeFilename(result.proj.Fset, ident) != spxFile {
 			return
 		}

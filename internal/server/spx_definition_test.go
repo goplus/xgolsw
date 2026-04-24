@@ -1,12 +1,13 @@
 package server
 
 import (
-	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"sync"
 	"testing"
 
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHasSpxResourceNameTypeParams(t *testing.T) {
@@ -14,164 +15,164 @@ func TestHasSpxResourceNameTypeParams(t *testing.T) {
 
 	for _, tt := range []struct {
 		name string
-		fun  func() *types.Func
+		fun  func() *gotypes.Func
 		want bool
 	}{
 		{
 			name: "NilFunction",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				return nil
 			},
 			want: false,
 		},
 		{
 			name: "FunctionWithNoParameters",
-			fun: func() *types.Func {
-				pkg := types.NewPackage("test", "test")
-				sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "noParams", sig)
+			fun: func() *gotypes.Func {
+				pkg := gotypes.NewPackage("test", "test")
+				sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "noParams", sig)
 			},
 			want: false,
 		},
 		{
 			name: "FunctionWithBasicTypeParameters",
-			fun: func() *types.Func {
-				pkg := types.NewPackage("test", "test")
-				param1 := types.NewParam(token.NoPos, pkg, "p1", types.Typ[types.Int])
-				param2 := types.NewParam(token.NoPos, pkg, "p2", types.Typ[types.String])
-				params := types.NewTuple(param1, param2)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "basicParams", sig)
+			fun: func() *gotypes.Func {
+				pkg := gotypes.NewPackage("test", "test")
+				param1 := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
+				param2 := gotypes.NewParam(token.NoPos, pkg, "p2", gotypes.Typ[gotypes.String])
+				params := gotypes.NewTuple(param1, param2)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "basicParams", sig)
 			},
 			want: false,
 		},
 		{
 			name: "FunctionWithBackdropNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withBackdrop", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withBackdrop", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithSpriteNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "sprite", GetSpxSpriteNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withSprite", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "sprite", GetSpxSpriteNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withSprite", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithSpriteCostumeNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "costume", GetSpxSpriteCostumeNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withCostume", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "costume", GetSpxSpriteCostumeNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withCostume", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithSpriteAnimationNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "animation", GetSpxSpriteAnimationNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withAnimation", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "animation", GetSpxSpriteAnimationNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withAnimation", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithSoundNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "sound", GetSpxSoundNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withSound", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "sound", GetSpxSoundNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withSound", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithWidgetNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param := types.NewParam(token.NoPos, pkg, "widget", GetSpxWidgetNameType())
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withWidget", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "widget", GetSpxWidgetNameType())
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withWidget", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithAliasToSoundNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				aliasType := types.NewAlias(
-					types.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
+				aliasType := gotypes.NewAlias(
+					gotypes.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
 					GetSpxSoundNameType(),
 				)
-				param := types.NewParam(token.NoPos, pkg, "sound", aliasType)
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withAliasSound", sig)
+				param := gotypes.NewParam(token.NoPos, pkg, "sound", aliasType)
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withAliasSound", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithPointerToBackdropNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				ptrType := types.NewPointer(GetSpxBackdropNameType())
-				param := types.NewParam(token.NoPos, pkg, "backdrop", ptrType)
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withBackdropPtr", sig)
+				ptrType := gotypes.NewPointer(GetSpxBackdropNameType())
+				param := gotypes.NewParam(token.NoPos, pkg, "backdrop", ptrType)
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withBackdropPtr", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithSliceOfSpriteNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				sliceType := types.NewSlice(GetSpxSpriteNameType())
-				param := types.NewParam(token.NoPos, pkg, "sprites", sliceType)
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withSpriteSlice", sig)
+				sliceType := gotypes.NewSlice(GetSpxSpriteNameType())
+				param := gotypes.NewParam(token.NoPos, pkg, "sprites", sliceType)
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withSpriteSlice", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithVariadicSoundNameParameter",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				sliceType := types.NewSlice(GetSpxSoundNameType())
-				param := types.NewParam(token.NoPos, pkg, "sounds", sliceType)
-				params := types.NewTuple(param)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, true) // variadic = true
-				return types.NewFunc(token.NoPos, pkg, "withVariadicSounds", sig)
+				sliceType := gotypes.NewSlice(GetSpxSoundNameType())
+				param := gotypes.NewParam(token.NoPos, pkg, "sounds", sliceType)
+				params := gotypes.NewTuple(param)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, true) // variadic = true
+				return gotypes.NewFunc(token.NoPos, pkg, "withVariadicSounds", sig)
 			},
 			want: true,
 		},
 		{
 			name: "FunctionWithMixedParameters",
-			fun: func() *types.Func {
+			fun: func() *gotypes.Func {
 				pkg := GetSpxPkg()
-				param1 := types.NewParam(token.NoPos, pkg, "id", types.Typ[types.Int])
-				param2 := types.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
-				param3 := types.NewParam(token.NoPos, pkg, "name", types.Typ[types.String])
-				params := types.NewTuple(param1, param2, param3)
-				sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-				return types.NewFunc(token.NoPos, pkg, "withMixed", sig)
+				param1 := gotypes.NewParam(token.NoPos, pkg, "id", gotypes.Typ[gotypes.Int])
+				param2 := gotypes.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
+				param3 := gotypes.NewParam(token.NoPos, pkg, "name", gotypes.Typ[gotypes.String])
+				params := gotypes.NewTuple(param1, param2, param3)
+				sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+				return gotypes.NewFunc(token.NoPos, pkg, "withMixed", sig)
 			},
 			want: true,
 		},
@@ -189,17 +190,18 @@ func TestHasSpxResourceNameTypeParamsCaching(t *testing.T) {
 
 	t.Run("SpxPackageFunctionIsCached", func(t *testing.T) {
 		pkg := GetSpxPkg()
-		param := types.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
-		params := types.NewTuple(param)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, pkg, "testFunc", sig)
+		param := gotypes.NewParam(token.NoPos, pkg, "backdrop", GetSpxBackdropNameType())
+		params := gotypes.NewTuple(param)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "testFunc", sig)
 
 		result1 := HasSpxResourceNameTypeParams(fun)
 		assert.True(t, result1)
 
 		cached, ok := nonMainPkgSpxResourceNameTypeFuncCache.Load(fun)
-		assert.True(t, ok)
-		assert.True(t, cached.(bool))
+		require.True(t, ok)
+		cachedValue := requireValueAs[bool](t, cached)
+		assert.True(t, cachedValue)
 
 		result2 := HasSpxResourceNameTypeParams(fun)
 		assert.True(t, result2)
@@ -207,11 +209,11 @@ func TestHasSpxResourceNameTypeParamsCaching(t *testing.T) {
 	})
 
 	t.Run("MainPackageFunctionIsNotCached", func(t *testing.T) {
-		mainPkg := types.NewPackage("main", "main")
-		param := types.NewParam(token.NoPos, mainPkg, "backdrop", GetSpxBackdropNameType())
-		params := types.NewTuple(param)
-		sig := types.NewSignatureType(nil, nil, nil, params, nil, false)
-		fun := types.NewFunc(token.NoPos, mainPkg, "mainFunc", sig)
+		mainPkg := gotypes.NewPackage("main", "main")
+		param := gotypes.NewParam(token.NoPos, mainPkg, "backdrop", GetSpxBackdropNameType())
+		params := gotypes.NewTuple(param)
+		sig := gotypes.NewSignatureType(nil, nil, nil, params, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, mainPkg, "mainFunc", sig)
 
 		result := HasSpxResourceNameTypeParams(fun)
 		assert.True(t, result)
@@ -222,20 +224,20 @@ func TestHasSpxResourceNameTypeParamsCaching(t *testing.T) {
 }
 
 func TestCanonicalSpxResourceNameType(t *testing.T) {
-	pkg := types.NewPackage("example.com/pkg", "pkg")
-	soundAlias := types.NewAlias(
-		types.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
+	pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+	soundAlias := gotypes.NewAlias(
+		gotypes.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
 		GetSpxSoundNameType(),
 	)
-	soundAliasChain := types.NewAlias(
-		types.NewTypeName(token.NoPos, pkg, "MySoundNameChain", nil),
+	soundAliasChain := gotypes.NewAlias(
+		gotypes.NewTypeName(token.NoPos, pkg, "MySoundNameChain", nil),
 		soundAlias,
 	)
 
 	for _, tt := range []struct {
 		name string
-		typ  types.Type
-		want types.Type
+		typ  gotypes.Type
+		want gotypes.Type
 	}{
 		{
 			name: "Nil",
@@ -259,12 +261,12 @@ func TestCanonicalSpxResourceNameType(t *testing.T) {
 		},
 		{
 			name: "BasicString",
-			typ:  types.Typ[types.String],
+			typ:  gotypes.Typ[gotypes.String],
 			want: nil,
 		},
 		{
 			name: "AliasToBasicString",
-			typ:  types.NewAlias(types.NewTypeName(token.NoPos, pkg, "MyString", nil), types.Typ[types.String]),
+			typ:  gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "MyString", nil), gotypes.Typ[gotypes.String]),
 			want: nil,
 		},
 	} {

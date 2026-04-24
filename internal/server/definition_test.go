@@ -139,14 +139,14 @@ fmt.println "Hello, spx!"
 		})
 		require.NoError(t, err)
 		require.NotNil(t, def)
-		require.IsType(t, Location{}, def)
+		location := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
 				End:   Position{Line: 1, Character: 7},
 			},
-		}, def.(Location))
+		}, location)
 	})
 
 	t.Run("ImportedPackageWithAlias", func(t *testing.T) {
@@ -166,14 +166,14 @@ fmt2.println "Hello, spx!"
 		})
 		require.NoError(t, err)
 		require.NotNil(t, def)
-		require.IsType(t, Location{}, def)
+		location := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
 			URI: "file:///main.spx",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
 				End:   Position{Line: 1, Character: 11},
 			},
-		}, def.(Location))
+		}, location)
 	})
 
 	t.Run("InvalidTextDocument", func(t *testing.T) {

@@ -11,22 +11,34 @@ features (completion, diagnostics, hover, etc.) for XGo source files.
 
 ### Import alias conventions
 
-In `xgo` and its subpackages, prefer the XGo package when a corresponding package exists for a standard library `go/*`
-import. When these packages are needed under `xgo/`, keep the XGo package as the simple name.
+When a `github.com/goplus/xgo/*` package corresponds to a standard library `go/*` package, prefer the XGo package and
+keep it as the simple package name.
 
 - Use `ast` for `github.com/goplus/xgo/ast`
+- Use `doc` for `github.com/goplus/xgo/doc`
 - Use `format` for `github.com/goplus/xgo/format`
 - Use `parser` for `github.com/goplus/xgo/parser`
 - Use `printer` for `github.com/goplus/xgo/printer`
 - Use `scanner` for `github.com/goplus/xgo/scanner`
 - Use `token` for `github.com/goplus/xgo/token`
-- Use `types` for `github.com/goplus/xgolsw/xgo/types`
+
+Use `types` for the project-local XGo type wrapper `github.com/goplus/xgolsw/xgo/types`. It is not a
+`github.com/goplus/xgo/*` package, but it represents XGo type information and follows the same simple-name preference.
 
 Only import the standard library counterpart when it is genuinely required. In that case, use a `go` prefix alias such
-as `goast`, `goformat`, `goparser`, `goprinter`, `goscanner`, `gotoken`, or `gotypes`.
+as `goast`, `godoc`, `goformat`, `goparser`, `goprinter`, `goscanner`, `gotoken`, or `gotypes`, even when the XGo
+counterpart is not imported in the same file.
 
-Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes` in `xgo/`. Apply the same convention in both production
-code and unit tests.
+For `go/doc`, use `godoc` when standard library APIs such as `New` or `Synopsis` are required, because
+`github.com/goplus/xgo/doc` does not provide those APIs.
+
+For `go/token`, prefer `github.com/goplus/xgo/token` for source positions and file sets such as `Pos`, `NoPos`,
+`FileSet`, and `NewFileSet`, because those are aliases of the standard library types. Use `gotoken` only when the
+standard library `go/token.Token` type is genuinely required, such as when switching on token values from a `go/ast`
+node. `github.com/goplus/xgo/token.Token` is a distinct XGo token type.
+
+Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes`. Apply the same convention in both production code and
+unit tests.
 
 ## Testing conventions
 

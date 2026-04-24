@@ -22,11 +22,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go/ast"
+	goast "go/ast"
 	"go/build"
-	"go/parser"
-	"go/token"
-	"go/types"
+	goparser "go/parser"
+	gotoken "go/token"
+	gotypes "go/types"
 	"os"
 	"os/exec"
 	"path"
@@ -179,7 +179,7 @@ func generate(pkgPaths []string, outputFile string) error {
 
 		var pkgDoc *pkgdoc.PkgDoc
 		if pkgPath == "builtin" {
-			astFile, err := parser.ParseFile(token.NewFileSet(), path.Join(buildPkg.Dir, "builtin.go"), nil, parser.ParseComments)
+			astFile, err := goparser.ParseFile(gotoken.NewFileSet(), path.Join(buildPkg.Dir, "builtin.go"), nil, goparser.ParseComments)
 			if err != nil {
 				return fmt.Errorf("failed to parse builtin.go: %w", err)
 			}
@@ -194,12 +194,12 @@ func generate(pkgPaths []string, outputFile string) error {
 			}
 			for _, decl := range astFile.Decls {
 				switch decl := decl.(type) {
-				case *ast.GenDecl:
+				case *goast.GenDecl:
 					switch decl.Tok {
-					case token.VAR:
+					case gotoken.VAR:
 						for _, spec := range decl.Specs {
 							switch spec := spec.(type) {
-							case *ast.ValueSpec:
+							case *goast.ValueSpec:
 								for _, name := range spec.Names {
 									doc := spec.Doc.Text()
 									if doc == "" {
@@ -211,10 +211,10 @@ func generate(pkgPaths []string, outputFile string) error {
 								return fmt.Errorf("unknown builtin gen decl spec: %T", spec)
 							}
 						}
-					case token.CONST:
+					case gotoken.CONST:
 						for _, spec := range decl.Specs {
 							switch spec := spec.(type) {
-							case *ast.ValueSpec:
+							case *goast.ValueSpec:
 								for _, name := range spec.Names {
 									doc := spec.Doc.Text()
 									if doc == "" {
@@ -226,11 +226,11 @@ func generate(pkgPaths []string, outputFile string) error {
 								return fmt.Errorf("unknown builtin gen decl spec: %T", spec)
 							}
 						}
-					case token.IMPORT:
-					case token.TYPE:
+					case gotoken.IMPORT:
+					case gotoken.TYPE:
 						for _, spec := range decl.Specs {
 							switch spec := spec.(type) {
-							case *ast.TypeSpec:
+							case *goast.TypeSpec:
 								doc := spec.Doc.Text()
 								if doc == "" {
 									doc = decl.Doc.Text()
@@ -245,7 +245,7 @@ func generate(pkgPaths []string, outputFile string) error {
 					default:
 						return fmt.Errorf("unknown builtin gen decl token: %s", decl.Tok)
 					}
-				case *ast.FuncDecl:
+				case *goast.FuncDecl:
 					pkgDoc.Funcs[decl.Name.Name] = decl.Doc.Text()
 				default:
 					return fmt.Errorf("unknown builtin decl: %T", decl)
@@ -272,8 +272,8 @@ func generate(pkgPaths []string, outputFile string) error {
 				return fmt.Errorf("failed to create package export reader: %w", err)
 			}
 
-			exportFSet := token.NewFileSet()
-			typesPkg, err := gcexportdata.Read(r, exportFSet, make(map[string]*types.Package), pkgPath)
+			exportFSet := gotoken.NewFileSet()
+			typesPkg, err := gcexportdata.Read(r, exportFSet, make(map[string]*gotypes.Package), pkgPath)
 			if err != nil {
 				return fmt.Errorf("failed to read package export data: %w", err)
 			}
@@ -283,11 +283,11 @@ func generate(pkgPaths []string, outputFile string) error {
 				return fmt.Errorf("failed to write optimized package export data: %w", err)
 			}
 
-			parseFSet := token.NewFileSet()
-			astFiles := make(map[string]*ast.File, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
+			parseFSet := gotoken.NewFileSet()
+			astFiles := make(map[string]*goast.File, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
 			for _, fileName := range slices.Concat(buildPkg.GoFiles, buildPkg.CgoFiles) {
 				fullPath := filepath.Join(buildPkg.Dir, fileName)
-				astFile, err := parser.ParseFile(parseFSet, fullPath, nil, parser.ParseComments)
+				astFile, err := goparser.ParseFile(parseFSet, fullPath, nil, goparser.ParseComments)
 				if err != nil {
 					return fmt.Errorf("failed to parse %q: %w", fileName, err)
 				}
@@ -300,7 +300,7 @@ func generate(pkgPaths []string, outputFile string) error {
 				continue
 			}
 
-			astPkg := &ast.Package{
+			astPkg := &goast.Package{
 				Files: astFiles,
 				Name:  pkgName,
 			}

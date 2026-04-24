@@ -90,8 +90,10 @@ func Test() {
 		require.NoError(t, err2)
 		require.NotNil(t, cache2)
 
-		astFileCache1 := cache1.(*astFileCache)
-		astFileCache2 := cache2.(*astFileCache)
+		astFileCache1, ok := cache1.(*astFileCache)
+		require.True(t, ok)
+		astFileCache2, ok := cache2.(*astFileCache)
+		require.True(t, ok)
 		assert.NotNil(t, astFileCache1.astFile)
 		assert.NotNil(t, astFileCache2.astFile)
 	})

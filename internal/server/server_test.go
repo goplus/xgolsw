@@ -28,17 +28,17 @@ func newMockReplier() *mockReplier {
 
 func (m *mockReplier) ReplyMessage(msg jsonrpc2.Message) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.messages = append(m.messages, msg)
 	m.cond.Broadcast()
+	m.mu.Unlock()
 	return nil
 }
 
 func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	result := make([]jsonrpc2.Message, len(m.messages))
 	copy(result, m.messages)
+	m.mu.Unlock()
 	return result
 }
 
@@ -47,23 +47,21 @@ func (m *mockReplier) waitForMessages(count int, timeout time.Duration) []jsonrp
 	if count == 0 {
 		time.Sleep(10 * time.Millisecond)
 		m.mu.Lock()
-		defer m.mu.Unlock()
 		result := make([]jsonrpc2.Message, len(m.messages))
 		copy(result, m.messages)
+		m.mu.Unlock()
 		return result
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	timedOut := false
 	timer := time.AfterFunc(timeout, func() {
 		m.mu.Lock()
-		defer m.mu.Unlock()
 		timedOut = true
 		m.cond.Broadcast()
+		m.mu.Unlock()
 	})
-	defer timer.Stop()
 
 	for len(m.messages) < count && !timedOut {
 		m.cond.Wait()
@@ -71,6 +69,8 @@ func (m *mockReplier) waitForMessages(count int, timeout time.Duration) []jsonrp
 
 	result := make([]jsonrpc2.Message, len(m.messages))
 	copy(result, m.messages)
+	m.mu.Unlock()
+	timer.Stop()
 	return result
 }
 
@@ -80,6 +80,14 @@ func newProjectWithoutModTime(files map[string][]byte) *xgo.Project {
 		fileMap[k] = &xgo.File{Content: v}
 	}
 	return xgo.NewProject(nil, fileMap, xgo.FeatAll)
+}
+
+func requireValueAs[T any](t *testing.T, value any) T {
+	t.Helper()
+
+	typed, ok := value.(T)
+	require.True(t, ok)
+	return typed
 }
 
 func fileMapGetter(files map[string][]byte) func() map[string]*xgo.File {
@@ -188,7 +196,7 @@ echo x
 	})
 }
 
-func TestHandleMessage_Call(t *testing.T) {
+func TestHandleMessageCall(t *testing.T) {
 	testCases := []struct {
 		name   string
 		method string
@@ -197,7 +205,7 @@ func TestHandleMessage_Call(t *testing.T) {
 		msgNum int
 	}{
 		{
-			name:   "Method Not Found",
+			name:   "MethodNotFound",
 			method: "unknown/method",
 			msgNum: 1,
 		},
@@ -208,7 +216,7 @@ func TestHandleMessage_Call(t *testing.T) {
 			msgNum: 2, // 1 response + 1 notification
 		},
 		{
-			name:   "TextDocument/Hover",
+			name:   "TextDocumentHover",
 			method: "textDocument/hover",
 			params: &HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -229,7 +237,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Completion",
+			name:   "TextDocumentCompletion",
 			method: "textDocument/completion",
 			params: CompletionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -243,7 +251,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/SignatureHelp",
+			name:   "TextDocumentSignatureHelp",
 			method: "textDocument/signatureHelp",
 			params: SignatureHelpParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -257,7 +265,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Declaration",
+			name:   "TextDocumentDeclaration",
 			method: "textDocument/declaration",
 			params: DeclarationParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -271,7 +279,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Definition",
+			name:   "TextDocumentDefinition",
 			method: "textDocument/definition",
 			params: DefinitionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -285,7 +293,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/TypeDefinition",
+			name:   "TextDocumentTypeDefinition",
 			method: "textDocument/typeDefinition",
 			params: TypeDefinitionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -299,7 +307,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Implementation",
+			name:   "TextDocumentImplementation",
 			method: "textDocument/implementation",
 			params: ImplementationParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -313,7 +321,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/References",
+			name:   "TextDocumentReferences",
 			method: "textDocument/references",
 			params: ReferenceParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -330,7 +338,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/DocumentHighlight",
+			name:   "TextDocumentDocumentHighlight",
 			method: "textDocument/documentHighlight",
 			params: DocumentHighlightParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -344,7 +352,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/DocumentLink",
+			name:   "TextDocumentDocumentLink",
 			method: "textDocument/documentLink",
 			params: DocumentLinkParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -355,7 +363,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Diagnostic",
+			name:   "TextDocumentDiagnostic",
 			method: "textDocument/diagnostic",
 			params: DocumentDiagnosticParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -366,7 +374,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "Workspace/Diagnostic",
+			name:   "WorkspaceDiagnostic",
 			method: "workspace/diagnostic",
 			params: WorkspaceDiagnosticParams{},
 			files: map[string][]byte{
@@ -375,7 +383,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Formatting",
+			name:   "TextDocumentFormatting",
 			method: "textDocument/formatting",
 			params: DocumentFormattingParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -386,7 +394,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/PrepareRename",
+			name:   "TextDocumentPrepareRename",
 			method: "textDocument/prepareRename",
 			params: PrepareRenameParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -400,7 +408,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/Rename",
+			name:   "TextDocumentRename",
 			method: "textDocument/rename",
 			params: RenameParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -413,7 +421,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/SemanticTokens/Full",
+			name:   "TextDocumentSemanticTokensFull",
 			method: "textDocument/semanticTokens/full",
 			params: SemanticTokensParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -424,7 +432,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "TextDocument/InlayHint",
+			name:   "TextDocumentInlayHint",
 			method: "textDocument/inlayHint",
 			params: InlayHintParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -439,7 +447,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "Workspace/ExecuteCommand",
+			name:   "WorkspaceExecuteCommand",
 			method: "workspace/executeCommand",
 			params: ExecuteCommandParams{
 				Command: CommandXGoRenameResources,
@@ -460,7 +468,7 @@ fmt.Println("Hello, World!")
 			msgNum: 2,
 		},
 		{
-			name:   "Workspace/ExecuteCommandLegacy",
+			name:   "WorkspaceExecuteCommandLegacy",
 			method: "workspace/executeCommand",
 			params: ExecuteCommandParams{
 				Command: CommandSpxRenameResources,
@@ -503,13 +511,13 @@ fmt.Println("Hello, World!")
 
 			msgs := replier.waitForMessages(tc.msgNum, 5*time.Second)
 			assert.Len(t, msgs, tc.msgNum,
-				"Method '%s': Expected %d messages, got %d",
-				tc.method, tc.msgNum, len(msgs))
+				"method %q got %d messages, want %d",
+				tc.method, len(msgs), tc.msgNum)
 		})
 	}
 }
 
-func TestHandleMessage_Notification(t *testing.T) {
+func TestHandleMessageNotification(t *testing.T) {
 	testCases := []struct {
 		name   string
 		method string
@@ -518,19 +526,19 @@ func TestHandleMessage_Notification(t *testing.T) {
 		msgNum int
 	}{
 		{
-			name:   "initialized",
+			name:   "Initialized",
 			method: "initialized",
 			params: InitializedParams{},
 			msgNum: 1, // only telemetry event
 		},
 		{
-			name:   "exit",
+			name:   "Exit",
 			method: "exit",
 			params: nil,
 			msgNum: 0, // exit 不发送任何消息
 		},
 		{
-			name:   "$/cancelRequest",
+			name:   "CancelRequest",
 			method: "$/cancelRequest",
 			params: CancelParams{
 				ID: jsonrpc2.NewStringID("test-request"),
@@ -538,7 +546,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			msgNum: 1, // only telemetry event
 		},
 		{
-			name:   "textDocument/didOpen",
+			name:   "TextDocumentDidOpen",
 			method: "textDocument/didOpen",
 			params: DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
@@ -554,7 +562,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
 		{
-			name:   "textDocument/didChange",
+			name:   "TextDocumentDidChange",
 			method: "textDocument/didChange",
 			params: DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -575,7 +583,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
 		{
-			name:   "textDocument/didSave",
+			name:   "TextDocumentDidSave",
 			method: "textDocument/didSave",
 			params: DidSaveTextDocumentParams{
 				TextDocument: TextDocumentIdentifier{
@@ -592,7 +600,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
 		{
-			name:   "textDocument/didClose",
+			name:   "TextDocumentDidClose",
 			method: "textDocument/didClose",
 			params: DidCloseTextDocumentParams{
 				TextDocument: TextDocumentIdentifier{
@@ -605,7 +613,7 @@ func TestHandleMessage_Notification(t *testing.T) {
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
 		{
-			name:   "Unknown Notification Method",
+			name:   "UnknownNotificationMethod",
 			method: "unknown/method",
 			params: nil,
 			msgNum: 0,
@@ -632,8 +640,8 @@ func TestHandleMessage_Notification(t *testing.T) {
 
 			msgs := replier.waitForMessages(tc.msgNum, 5*time.Second)
 			assert.Len(t, msgs, tc.msgNum,
-				"Method '%s': Expected %d messages, got %d",
-				tc.method, tc.msgNum, len(msgs))
+				"method %q got %d messages, want %d",
+				tc.method, len(msgs), tc.msgNum)
 		})
 	}
 }
@@ -671,7 +679,7 @@ var (
 
 		// Wait for messages and filter for property renamed notification
 		msgs := replier.waitForMessages(1, 1*time.Second)
-		require.Len(t, msgs, 1, "Expected 1 notification message")
+		require.Len(t, msgs, 1, "want 1 notification message")
 
 		notif, ok := msgs[0].(*jsonrpc2.Notification)
 		require.True(t, ok, "Message should be a notification")

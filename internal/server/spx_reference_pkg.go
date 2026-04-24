@@ -1,7 +1,7 @@
 package server
 
 import (
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/pkgdoc"
 )
 
@@ -9,5 +9,5 @@ import (
 type SpxReferencePkg struct {
 	PkgPath string
 	Pkg     *pkgdoc.PkgDoc
-	Node    *xgoast.ImportSpec
+	Node    *ast.ImportSpec
 }

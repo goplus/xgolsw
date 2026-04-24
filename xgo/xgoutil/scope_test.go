@@ -61,7 +61,7 @@ func TestInnermostScopeAt(t *testing.T) {
 			astFile: packageScope,
 		}
 
-		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		xPos := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0].Pos()
 		scope := InnermostScopeAt(fset, typeInfo, astPkg, xPos)
 		require.NotNil(t, scope)
 
@@ -81,7 +81,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		functionScope.Insert(yVar)
 
 		typeInfo := newTestTypeInfo(nil, nil)
-		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		funcDecl := requireFuncDecl(t, astFile.Decls[0])
 		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:       packageScope,
 			funcDecl.Body: functionScope,
@@ -107,7 +107,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		blockScope.Insert(zVar)
 
 		// Find the if statement body.
-		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		funcDecl := requireFuncDecl(t, astFile.Decls[0])
 		var ifBody *ast.BlockStmt
 		for _, stmt := range funcDecl.Body.List {
 			if ifStmt, ok := stmt.(*ast.IfStmt); ok {
@@ -142,7 +142,7 @@ func TestInnermostScopeAt(t *testing.T) {
 		paramVar := gotypes.NewVar(token.NoPos, pkg, "param", gotypes.Typ[gotypes.Int])
 		functionScope.Insert(paramVar)
 
-		funcDecl := astFile.Decls[0].(*ast.FuncDecl)
+		funcDecl := requireFuncDecl(t, astFile.Decls[0])
 		typeInfo := newTestTypeInfo(nil, nil)
 		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
 			astFile:       packageScope,
@@ -168,9 +168,9 @@ func TestInnermostScopeAt(t *testing.T) {
 		functionScope.Insert(paramVar)
 
 		// Extract the function literal from the variable declaration.
-		genDecl := astFile.Decls[0].(*ast.GenDecl)
-		valueSpec := genDecl.Specs[0].(*ast.ValueSpec)
-		funcLit := valueSpec.Values[0].(*ast.FuncLit)
+		genDecl := requireGenDecl(t, astFile.Decls[0])
+		valueSpec := requireValueSpec(t, genDecl.Specs[0])
+		funcLit := requireFuncLit(t, valueSpec.Values[0])
 
 		typeInfo := newTestTypeInfo(nil, nil)
 		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
@@ -197,9 +197,9 @@ func TestInnermostScopeAt(t *testing.T) {
 		functionScope.Insert(localVar)
 
 		// Extract the function literal from the variable declaration.
-		genDecl := astFile.Decls[0].(*ast.GenDecl)
-		valueSpec := genDecl.Specs[0].(*ast.ValueSpec)
-		funcLit := valueSpec.Values[0].(*ast.FuncLit)
+		genDecl := requireGenDecl(t, astFile.Decls[0])
+		valueSpec := requireValueSpec(t, genDecl.Specs[0])
+		funcLit := requireFuncLit(t, valueSpec.Values[0])
 
 		typeInfo := newTestTypeInfo(nil, nil)
 		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
@@ -225,9 +225,9 @@ func TestInnermostScopeAt(t *testing.T) {
 		functionScope := gotypes.NewScope(packageScope, token.NoPos, token.NoPos, "function")
 		functionScope.Insert(gotypes.NewVar(token.NoPos, pkg, "local", gotypes.Typ[gotypes.Int]))
 
-		genDecl := astFile.Decls[0].(*ast.GenDecl)
-		valueSpec := genDecl.Specs[0].(*ast.ValueSpec)
-		funcLit := valueSpec.Values[0].(*ast.FuncLit)
+		genDecl := requireGenDecl(t, astFile.Decls[0])
+		valueSpec := requireValueSpec(t, genDecl.Specs[0])
+		funcLit := requireFuncLit(t, valueSpec.Values[0])
 
 		typeInfo := newTestTypeInfo(nil, nil)
 		typeInfo.Scopes = map[ast.Node]*gotypes.Scope{
