@@ -2,14 +2,15 @@ package server
 
 import (
 	"errors"
-	"go/token"
 	"testing"
 	"time"
 
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // MockReplier implements a message replier for testing
@@ -39,10 +40,10 @@ func TestModifyFiles(t *testing.T) {
 		name    string
 		initial map[string]*xgo.File
 		changes []FileChange
-		want    map[string]string // path -> expected content
+		want    map[string]string // path -> want content
 	}{
 		{
-			name:    "add new files",
+			name:    "AddNewFiles",
 			initial: map[string]*xgo.File{},
 			changes: []FileChange{
 				{
@@ -56,7 +57,7 @@ func TestModifyFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "update existing file with newer version",
+			name: "UpdateExistingFileWithNewerVersion",
 			initial: map[string]*xgo.File{
 				"main.go": {
 					Content: []byte("old content"),
@@ -75,7 +76,7 @@ func TestModifyFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "ignore older version update",
+			name: "IgnoreOlderVersionUpdate",
 			initial: map[string]*xgo.File{
 				"main.go": {
 					Content: []byte("current content"),
@@ -94,7 +95,7 @@ func TestModifyFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple file changes",
+			name: "MultipleFileChanges",
 			initial: map[string]*xgo.File{
 				"file1.go": {
 					Content: []byte("content1"),
@@ -141,26 +142,17 @@ func TestModifyFiles(t *testing.T) {
 			// Verify results
 			for path, wantContent := range tt.want {
 				file, ok := proj.File(path)
-				if !ok {
-					t.Errorf("file %s not found", path)
-					continue
-				}
-				if got := string(file.Content); got != wantContent {
-					t.Errorf("%s file %s content = %q, want %q", tt.name, path, got, wantContent)
-				}
+				require.True(t, ok)
+				assert.Equal(t, wantContent, string(file.Content))
 			}
 
 			// Verify no extra files exist
 			count := 0
 			for path := range proj.Files() {
 				count++
-				if _, ok := tt.want[path]; !ok {
-					t.Errorf("unexpected file: %s", path)
-				}
+				assert.Contains(t, tt.want, path)
 			}
-			if count != len(tt.want) {
-				t.Errorf("got %d files, want %d", count, len(tt.want))
-			}
+			assert.Len(t, tt.want, count)
 		})
 	}
 }
@@ -168,14 +160,14 @@ func TestModifyFiles(t *testing.T) {
 // TestDidOpen tests the didOpen handler functionality
 func TestDidOpen(t *testing.T) {
 	tests := []struct {
-		name            string
-		params          *protocol.DidOpenTextDocumentParams
-		expectedPath    string
-		expectedContent string
-		wantErr         bool
+		name        string
+		params      *protocol.DidOpenTextDocumentParams
+		wantPath    string
+		wantContent string
+		wantErr     bool
 	}{
 		{
-			name: "basic open",
+			name: "BasicOpen",
 			params: &protocol.DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://workspace/echo.spx",
@@ -183,12 +175,12 @@ func TestDidOpen(t *testing.T) {
 					Text:    "echo \"100\"",
 				},
 			},
-			expectedPath:    "echo.spx",
-			expectedContent: "echo \"100\"",
-			wantErr:         false,
+			wantPath:    "echo.spx",
+			wantContent: "echo \"100\"",
+			wantErr:     false,
 		},
 		{
-			name: "open file with function",
+			name: "OpenFileWithFunction",
 			params: &protocol.DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://workspace/test_func.spx",
@@ -196,12 +188,12 @@ func TestDidOpen(t *testing.T) {
 					Text:    "onStart {\n say \"Hello, World!\"\n}",
 				},
 			},
-			expectedPath:    "test_func.spx",
-			expectedContent: "onStart {\n say \"Hello, World!\"\n}",
-			wantErr:         false,
+			wantPath:    "test_func.spx",
+			wantContent: "onStart {\n say \"Hello, World!\"\n}",
+			wantErr:     false,
 		},
 		{
-			name: "open file with unicode content",
+			name: "OpenFileWithUnicodeContent",
 			params: &protocol.DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://workspace/i18n.spx",
@@ -209,12 +201,12 @@ func TestDidOpen(t *testing.T) {
 					Text:    "onStart {\n say \"你好，世界!\"\n}",
 				},
 			},
-			expectedPath:    "i18n.spx",
-			expectedContent: "onStart {\n say \"你好，世界!\"\n}",
-			wantErr:         false,
+			wantPath:    "i18n.spx",
+			wantContent: "onStart {\n say \"你好，世界!\"\n}",
+			wantErr:     false,
 		},
 		{
-			name: "URI conversion error",
+			name: "URIConversionError",
 			params: &protocol.DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://error_workspace/error.spx",
@@ -225,7 +217,7 @@ func TestDidOpen(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "empty file content",
+			name: "EmptyFileContent",
 			params: &protocol.DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
 					URI:     "file://workspace/empty.spx",
@@ -233,9 +225,9 @@ func TestDidOpen(t *testing.T) {
 					Text:    "",
 				},
 			},
-			expectedPath:    "empty.spx",
-			expectedContent: "",
-			wantErr:         false,
+			wantPath:    "empty.spx",
+			wantContent: "",
+			wantErr:     false,
 		},
 	}
 
@@ -243,7 +235,7 @@ func TestDidOpen(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment with real Project instead of MockProject
 			proj := xgo.NewProject(token.NewFileSet(), make(map[string]*xgo.File), 0)
-			proj.PutFile(tt.expectedPath, file("mock content"))
+			proj.PutFile(tt.wantPath, file("mock content"))
 			mockReplier := &MockReplier{}
 
 			// Create a TestServer that extends the real Server
@@ -257,30 +249,18 @@ func TestDidOpen(t *testing.T) {
 			err := server.didOpen(tt.params)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("didOpen() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			if !tt.wantErr {
 				// Verify file was correctly added to the project
-				file, ok := proj.File(tt.expectedPath)
-				if !ok {
-					t.Errorf("File not found in project: %s", tt.expectedPath)
-					return
-				}
-
-				if string(file.Content) != tt.expectedContent {
-					t.Errorf("File %s content = %q, want %q", tt.expectedPath, string(file.Content), tt.expectedContent)
-				}
-
-				// If available, check file version
-				if _, ok := proj.File(tt.expectedPath); ok {
-					expectedVersion := int(tt.params.TextDocument.Version)
-					// Note: In a real test, you might need to extract the version from the FileImpl
-					// This depends on how version is stored in your implementation
-					t.Logf("File opened with version: %d", expectedVersion)
-				}
+				file, ok := proj.File(tt.wantPath)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantContent, string(file.Content))
+				assert.Equal(t, int(tt.params.TextDocument.Version), file.Version)
 			}
 		})
 	}
@@ -289,15 +269,15 @@ func TestDidOpen(t *testing.T) {
 // TestDidChange tests the didChange handler functionality
 func TestDidChange(t *testing.T) {
 	tests := []struct {
-		name            string
-		initialContent  string
-		params          *protocol.DidChangeTextDocumentParams
-		convertError    error
-		expectedContent string
-		wantErr         bool
+		name           string
+		initialContent string
+		params         *protocol.DidChangeTextDocumentParams
+		convertError   error
+		wantContent    string
+		wantErr        bool
 	}{
 		{
-			name:           "full document replacement",
+			name:           "FullDocumentReplacement",
 			initialContent: "package main",
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -310,11 +290,11 @@ func TestDidChange(t *testing.T) {
 					{Text: "package main\n\nfunc main() {}"},
 				},
 			},
-			expectedContent: "package main\n\nfunc main() {}",
-			wantErr:         false,
+			wantContent: "package main\n\nfunc main() {}",
+			wantErr:     false,
 		},
 		{
-			name:           "incremental change",
+			name:           "IncrementalChange",
 			initialContent: "package main\n\nfunc main() {\n\t\n}",
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -333,11 +313,11 @@ func TestDidChange(t *testing.T) {
 					},
 				},
 			},
-			expectedContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello, World!\")\n}",
-			wantErr:         false,
+			wantContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello, World!\")\n}",
+			wantErr:     false,
 		},
 		{
-			name:           "multiple incremental changes",
+			name:           "MultipleIncrementalChanges",
 			initialContent: "package main\n\nfunc main() {\n\t\n}",
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -363,11 +343,11 @@ func TestDidChange(t *testing.T) {
 					},
 				},
 			},
-			expectedContent: "package main\n\nfunc main() {\n\tfmt.Print(\"Hello, World!\")\n}",
-			wantErr:         false,
+			wantContent: "package main\n\nfunc main() {\n\tfmt.Print(\"Hello, World!\")\n}",
+			wantErr:     false,
 		},
 		{
-			name:           "URI conversion error",
+			name:           "URIConversionError",
 			initialContent: "package main",
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -384,7 +364,7 @@ func TestDidChange(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name:           "empty changes array",
+			name:           "EmptyChangesArray",
 			initialContent: "package main",
 			params: &protocol.DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -424,27 +404,18 @@ func TestDidChange(t *testing.T) {
 			err := server.didChange(tt.params)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("%s didChange() error = %v, wantErr %v", tt.name, err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			if !tt.wantErr {
 				// Verify file content was updated
 				file, ok := proj.File(path)
-				if !ok {
-					t.Errorf("%s File not found in project: %s", tt.name, path)
-					return
-				}
-
-				if string(file.Content) != tt.expectedContent {
-					t.Errorf("%s File content = %q, want %q", tt.name, string(file.Content), tt.expectedContent)
-				}
-
-				// If available, check file version
-				expectedVersion := int(tt.params.TextDocument.Version)
-				// Note: For a real implementation, verify the version is stored correctly
-				t.Logf("%s File changed with version: %d", tt.name, expectedVersion)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantContent, string(file.Content))
+				assert.Equal(t, int(tt.params.TextDocument.Version), file.Version)
 			}
 		})
 	}
@@ -453,15 +424,15 @@ func TestDidChange(t *testing.T) {
 // TestDidSave tests the didSave handler functionality
 func TestDidSave(t *testing.T) {
 	tests := []struct {
-		name            string
-		initialContent  string
-		params          *protocol.DidSaveTextDocumentParams
-		expectedContent string
-		contentChanged  bool
-		wantErr         bool
+		name           string
+		initialContent string
+		params         *protocol.DidSaveTextDocumentParams
+		wantContent    string
+		contentChanged bool
+		wantErr        bool
 	}{
 		{
-			name:           "save with text",
+			name:           "SaveWithText",
 			initialContent: "package main",
 			params: &protocol.DidSaveTextDocumentParams{
 				TextDocument: protocol.TextDocumentIdentifier{
@@ -469,12 +440,12 @@ func TestDidSave(t *testing.T) {
 				},
 				Text: strPtr("package main\n\nfunc main() {}"),
 			},
-			expectedContent: "package main\n\nfunc main() {}",
-			contentChanged:  true,
-			wantErr:         false,
+			wantContent:    "package main\n\nfunc main() {}",
+			contentChanged: true,
+			wantErr:        false,
 		},
 		{
-			name:           "save without text",
+			name:           "SaveWithoutText",
 			initialContent: "package main",
 			params: &protocol.DidSaveTextDocumentParams{
 				TextDocument: protocol.TextDocumentIdentifier{
@@ -482,12 +453,12 @@ func TestDidSave(t *testing.T) {
 				},
 				Text: nil,
 			},
-			expectedContent: "package main", // Content should not change
-			contentChanged:  false,
-			wantErr:         false,
+			wantContent:    "package main", // Content should not change
+			contentChanged: false,
+			wantErr:        false,
 		},
 		{
-			name:           "URI conversion error",
+			name:           "URIConversionError",
 			initialContent: "package main",
 			params: &protocol.DidSaveTextDocumentParams{
 				TextDocument: protocol.TextDocumentIdentifier{
@@ -503,7 +474,7 @@ func TestDidSave(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := make(map[string]*xgo.File)
 			path := "test.xgo"
 
@@ -526,22 +497,17 @@ func TestDidSave(t *testing.T) {
 			err := server.didSave(tt.params)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("%s didSave() error = %v, wantErr %v", tt.name, err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			if !tt.wantErr {
 				// Verify file content
 				file, ok := proj.File(path)
-				if !ok {
-					t.Errorf("%s File not found in project: %s", tt.name, path)
-					return
-				}
-
-				if string(file.Content) != tt.expectedContent {
-					t.Errorf("%s File content = %q, want %q", tt.name, string(file.Content), tt.expectedContent)
-				}
+				require.True(t, ok)
+				assert.Equal(t, tt.wantContent, string(file.Content))
 			}
 		})
 	}
@@ -555,7 +521,7 @@ func TestDidClose(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "close document",
+			name: "CloseDocument",
 			params: &protocol.DidCloseTextDocumentParams{
 				TextDocument: protocol.TextDocumentIdentifier{
 					URI: "file://workspace/test.xgo",
@@ -568,7 +534,7 @@ func TestDidClose(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
@@ -591,9 +557,10 @@ func TestDidClose(t *testing.T) {
 			err := server.didClose(tt.params)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("didClose() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -609,7 +576,7 @@ func TestChangedText(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name:           "full document replacement",
+			name:           "FullDocumentReplacement",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -620,7 +587,7 @@ func TestChangedText(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "incremental change - add comma",
+			name:           "IncrementalChangeAddComma",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -635,7 +602,7 @@ func TestChangedText(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "incremental change - replace word",
+			name:           "IncrementalChangeReplaceWord",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -650,7 +617,7 @@ func TestChangedText(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "multiple incremental changes",
+			name:           "MultipleIncrementalChanges",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -672,14 +639,14 @@ func TestChangedText(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "empty changes array",
+			name:           "EmptyChangesArray",
 			initialContent: "package main",
 			changes:        []protocol.TextDocumentContentChangeEvent{},
 			want:           "",
 			wantErr:        true,
 		},
 		{
-			name:           "invalid range - end before start",
+			name:           "InvalidRangeEndBeforeStart",
 			initialContent: "package main",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -698,7 +665,7 @@ func TestChangedText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
@@ -713,9 +680,7 @@ func TestChangedText(t *testing.T) {
 			// For AST parsing to work, we need a real file with content
 			// parsed into the AST before we can apply changes
 			_, err := proj.ASTFile(path)
-			if err != nil {
-				t.Fatalf("Failed to setup test: %v", err)
-			}
+			require.NoError(t, err)
 
 			server := &Server{
 				workspaceRootFS: proj,
@@ -725,15 +690,14 @@ func TestChangedText(t *testing.T) {
 			got, err := server.changedText(path, tt.changes)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("changedText() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			if !tt.wantErr {
-				if string(got) != tt.want {
-					t.Errorf("%s changedText() = %q, want %q", tt.name, string(got), tt.want)
-				}
+				assert.Equal(t, tt.want, string(got))
 			}
 		})
 	}
@@ -749,7 +713,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name:           "add text at beginning",
+			name:           "AddTextAtBeginning",
 			initialContent: "func main() {}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -764,7 +728,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "add text in middle",
+			name:           "AddTextInMiddle",
 			initialContent: "func main() {}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -779,7 +743,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "delete text",
+			name:           "DeleteText",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -794,7 +758,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "replace entire line",
+			name:           "ReplaceEntireLine",
 			initialContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -809,7 +773,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:           "nil range",
+			name:           "NilRange",
 			initialContent: "package main",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -821,7 +785,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:           "non-existent file",
+			name:           "NonExistentFile",
 			initialContent: "",
 			changes: []protocol.TextDocumentContentChangeEvent{
 				{
@@ -840,7 +804,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := make(map[string]*xgo.File)
 			path := "/test.xgo"
 
@@ -856,9 +820,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			// For tests with content, ensure we have AST
 			if tt.initialContent != "" {
 				_, err := proj.ASTFile(path)
-				if err != nil {
-					t.Fatalf("Failed to setup test: %v", err)
-				}
+				require.NoError(t, err)
 			}
 
 			server := &Server{
@@ -869,15 +831,14 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			got, err := server.applyIncrementalChanges(path, tt.changes)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("applyIncrementalChanges() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
 			if !tt.wantErr {
-				if string(got) != tt.want {
-					t.Errorf("%s applyIncrementalChanges() = %q, want %q", tt.name, string(got), tt.want)
-				}
+				assert.Equal(t, tt.want, string(got))
 			}
 		})
 	}
@@ -894,7 +855,7 @@ func TestGetDiagnostics(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name:           "import errors",
+			name:           "ImportErrors",
 			content:        "package main\n\nfunc main() {\n\tfmt.Println(\"Hello, World!\")\n}",
 			path:           "/test.xgo",
 			wantDiagCount:  1,
@@ -902,7 +863,7 @@ func TestGetDiagnostics(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name:           "syntax error",
+			name:           "SyntaxError",
 			content:        "package main\n\nfunc main() {\n\tfmt.Println(\"Hello, World!\"\n}", // Missing closing parenthesis
 			path:           "/syntax_error.xgo",
 			wantDiagCount:  8,
@@ -910,7 +871,7 @@ func TestGetDiagnostics(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name:           "type error",
+			name:           "TypeError",
 			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n}", // Type mismatch
 			path:           "/type_error.xgo",
 			wantDiagCount:  1,
@@ -918,7 +879,7 @@ func TestGetDiagnostics(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name:           "no error",
+			name:           "NoError",
 			content:        "package main\n\nfunc main() {\n\t}",
 			path:           "/code_error.xgo",
 			wantDiagCount:  0,
@@ -926,7 +887,7 @@ func TestGetDiagnostics(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name:           "multiple type errors",
+			name:           "MultipleTypeErrors",
 			content:        "package main\n\nfunc main() {\n\tvar x int = \"string\"\n\tvar y bool = 42\n}",
 			path:           "/multiple_errors.xgo",
 			wantDiagCount:  2,
@@ -938,7 +899,7 @@ func TestGetDiagnostics(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := make(map[string]*xgo.File)
 
 			// Create the test file
@@ -956,28 +917,20 @@ func TestGetDiagnostics(t *testing.T) {
 			diagnostics, err := server.getDiagnostics(tt.path)
 
 			// Verify results
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getDiagnostics() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
-			// for _, d := range diagnostics {
-			// 	t.Logf("%s Diagnostic: %v; Range: %d/%d %d/%d", tt.name, d.Message,
-			// 		d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Line, d.Range.End.Character)
-			// }
-
-			if len(diagnostics) != tt.wantDiagCount {
-				t.Errorf("%s getDiagnostics() returned %v diagnostics, want %d", tt.name, len(diagnostics), tt.wantDiagCount)
-			}
+			assert.Len(t, diagnostics, tt.wantDiagCount)
 
 			// Check diagnostic severities
 			for i, diag := range diagnostics {
 				if i >= len(tt.wantSeverities) {
 					break
 				}
-				if diag.Severity != tt.wantSeverities[i] {
-					t.Errorf("diagnostic[%d] severity = %d, want %d", i, diag.Severity, tt.wantSeverities[i])
-				}
+				assert.Equal(t, tt.wantSeverities[i], diag.Severity)
 			}
 		})
 	}

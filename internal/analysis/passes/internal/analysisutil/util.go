@@ -4,9 +4,10 @@ package analysisutil
 
 import (
 	"fmt"
-	"go/parser"
-	"go/token"
+	goparser "go/parser"
 	"strings"
+
+	"github.com/goplus/xgo/token"
 )
 
 // MustExtractDoc is like [ExtractDoc] but it panics on error.
@@ -89,7 +90,7 @@ func ExtractDoc(content, name string) (string, error) {
 		return "", fmt.Errorf("empty XGo source file")
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", content, parser.ParseComments|parser.PackageClauseOnly)
+	f, err := goparser.ParseFile(fset, "", content, goparser.ParseComments|goparser.PackageClauseOnly)
 	if err != nil {
 		return "", fmt.Errorf("not an XGo source file")
 	}

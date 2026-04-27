@@ -1,7 +1,7 @@
 package server
 
 import (
-	"go/types"
+	gotypes "go/types"
 
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -27,9 +27,9 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 		return nil, nil
 	}
 
-	if method, ok := obj.(*types.Func); ok && method.Type().(*types.Signature).Recv() != nil {
-		if recv := method.Type().(*types.Signature).Recv().Type(); types.IsInterface(recv) {
-			locations := s.findImplementingMethodDefinitions(result, recv.(*types.Interface), method.Name())
+	if method, ok := obj.(*gotypes.Func); ok && method.Type().(*gotypes.Signature).Recv() != nil {
+		if recv := method.Type().(*gotypes.Signature).Recv().Type(); gotypes.IsInterface(recv) {
+			locations := s.findImplementingMethodDefinitions(result, recv.(*gotypes.Interface), method.Name())
 			return DedupeLocations(locations), nil
 		}
 	}
@@ -39,7 +39,7 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 
 // findImplementingMethodDefinitions finds the definition locations of all
 // methods that implement the given interface method.
-func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface *types.Interface, methodName string) []Location {
+func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface *gotypes.Interface, methodName string) []Location {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
@@ -50,11 +50,11 @@ func (s *Server) findImplementingMethodDefinitions(result *compileResult, iface 
 		if obj == nil {
 			continue
 		}
-		named, ok := obj.Type().(*types.Named)
+		named, ok := obj.Type().(*gotypes.Named)
 		if !ok {
 			continue
 		}
-		if !types.Implements(named, iface) {
+		if !gotypes.Implements(named, iface) {
 			continue
 		}
 

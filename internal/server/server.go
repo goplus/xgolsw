@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"maps"
 	"slices"
 	"strings"
@@ -13,8 +13,8 @@ import (
 
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
@@ -330,7 +330,7 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
 // This allows clients to update any monitoring or tracking of the property.
-func (s *Server) notifyPropertyRenamed(obj types.Object, params *RenameParams) error {
+func (s *Server) notifyPropertyRenamed(obj gotypes.Object, params *RenameParams) error {
 	named := findEnclosingType(obj)
 	if named == nil {
 		return fmt.Errorf("failed to find enclosing type for object: %s", obj.Name())
@@ -511,17 +511,17 @@ func (s *Server) toDocumentURI(path string) DocumentURI {
 }
 
 // posDocumentURI returns the [DocumentURI] for the given position in the project.
-func (s *Server) posDocumentURI(proj *xgo.Project, pos xgotoken.Pos) DocumentURI {
+func (s *Server) posDocumentURI(proj *xgo.Project, pos token.Pos) DocumentURI {
 	return s.toDocumentURI(xgoutil.PosFilename(proj.Fset, pos))
 }
 
 // nodeDocumentURI returns the [DocumentURI] for the given node in the project.
-func (s *Server) nodeDocumentURI(proj *xgo.Project, node xgoast.Node) DocumentURI {
+func (s *Server) nodeDocumentURI(proj *xgo.Project, node ast.Node) DocumentURI {
 	return s.posDocumentURI(proj, node.Pos())
 }
 
 // locationForPos returns the [Location] for the given position in the project.
-func (s *Server) locationForPos(proj *xgo.Project, pos xgotoken.Pos) Location {
+func (s *Server) locationForPos(proj *xgo.Project, pos token.Pos) Location {
 	return Location{
 		URI:   s.posDocumentURI(proj, pos),
 		Range: RangeForPos(proj, pos),
@@ -529,7 +529,7 @@ func (s *Server) locationForPos(proj *xgo.Project, pos xgotoken.Pos) Location {
 }
 
 // locationForNode returns the [Location] for the given node in the project.
-func (s *Server) locationForNode(proj *xgo.Project, node xgoast.Node) Location {
+func (s *Server) locationForNode(proj *xgo.Project, node ast.Node) Location {
 	return Location{
 		URI:   s.nodeDocumentURI(proj, node),
 		Range: RangeForNode(proj, node),

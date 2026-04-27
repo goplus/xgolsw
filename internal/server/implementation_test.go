@@ -73,8 +73,7 @@ func (t MyType) myMethod() {}
 		})
 		require.NoError(t, err)
 		require.NotNil(t, implementation)
-		location, ok := implementation.(Location)
-		require.True(t, ok)
+		location := requireValueAs[Location](t, implementation)
 		assert.Equal(t, Location{
 			URI: "file:///main.spx",
 			Range: Range{

@@ -1,13 +1,13 @@
 package server
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"reflect"
 	"slices"
 	"testing"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -536,7 +536,7 @@ onStart => {
 		}
 	})
 
-	t.Run("spx.Sprite.StepTo", func(t *testing.T) {
+	t.Run("SpxSpriteStepTo", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -559,7 +559,7 @@ onStart => {
 		})
 	})
 
-	t.Run("spx.Sprite.Clone", func(t *testing.T) {
+	t.Run("SpxSpriteClone", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
@@ -615,7 +615,7 @@ onStart => {
 	for _, tt := range []struct {
 		name           string
 		exprPosition   Position
-		exprFilter     func(xgoast.Node) bool
+		exprFilter     func(ast.Node) bool
 		wantNil        bool
 		wantKind       SpxInputSlotKind
 		wantAcceptType SpxInputType
@@ -627,7 +627,7 @@ onStart => {
 		{
 			name:           "IntegerLiteral",
 			exprPosition:   Position{Line: 3, Character: 14},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.BasicLit); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.BasicLit); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeInteger,
 			wantInputKind:  SpxInputKindInPlace,
@@ -637,7 +637,7 @@ onStart => {
 		{
 			name:           "FloatLiteral",
 			exprPosition:   Position{Line: 4, Character: 16},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.BasicLit); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.BasicLit); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeDecimal,
 			wantInputKind:  SpxInputKindInPlace,
@@ -647,7 +647,7 @@ onStart => {
 		{
 			name:           "StringLiteral",
 			exprPosition:   Position{Line: 5, Character: 14},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.BasicLit); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.BasicLit); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeString,
 			wantInputKind:  SpxInputKindInPlace,
@@ -657,7 +657,7 @@ onStart => {
 		{
 			name:           "DirectionIdentifier",
 			exprPosition:   Position{Line: 8, Character: 14},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.Ident); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.Ident); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeDirection,
 			wantInputKind:  SpxInputKindInPlace,
@@ -667,7 +667,7 @@ onStart => {
 		{
 			name:           "BooleanIdentifier",
 			exprPosition:   Position{Line: 9, Character: 15},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.Ident); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.Ident); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeBoolean,
 			wantInputKind:  SpxInputKindInPlace,
@@ -677,7 +677,7 @@ onStart => {
 		{
 			name:           "ColorFunctionCall",
 			exprPosition:   Position{Line: 12, Character: 16},
-			exprFilter:     func(node xgoast.Node) bool { _, ok := node.(*xgoast.CallExpr); return ok },
+			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.CallExpr); return ok },
 			wantKind:       SpxInputSlotKindValue,
 			wantAcceptType: SpxInputTypeColor,
 			wantInputKind:  SpxInputKindInPlace,
@@ -690,7 +690,7 @@ onStart => {
 		{
 			name:         "NonValueNode",
 			exprPosition: Position{Line: 15, Character: 16},
-			exprFilter:   func(node xgoast.Node) bool { _, ok := node.(*xgoast.CompositeLit); return ok },
+			exprFilter:   func(node ast.Node) bool { _, ok := node.(*ast.CompositeLit); return ok },
 			wantNil:      true,
 		},
 	} {
@@ -698,9 +698,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.exprPosition)
 			require.True(t, pos.IsValid())
 
-			var expr xgoast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if node, ok := node.(xgoast.Expr); ok && tt.exprFilter(node) {
+			var expr ast.Expr
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
 					return false
 				}
@@ -750,26 +750,26 @@ onStart => {
 	for _, tt := range []struct {
 		name         string
 		exprPosition Position
-		exprFilter   func(xgoast.Node) bool
+		exprFilter   func(ast.Node) bool
 		wantNil      bool
 		wantName     string
 	}{
 		{
 			name:         "ExistingIdentifier",
 			exprPosition: Position{Line: 6, Character: 2},
-			exprFilter:   func(node xgoast.Node) bool { _, ok := node.(*xgoast.Ident); return ok },
+			exprFilter:   func(node ast.Node) bool { _, ok := node.(*ast.Ident); return ok },
 			wantName:     "varA",
 		},
 		{
 			name:         "CallExpr",
 			exprPosition: Position{Line: 7, Character: 2},
-			exprFilter:   func(node xgoast.Node) bool { _, ok := node.(*xgoast.CallExpr); return ok },
+			exprFilter:   func(node ast.Node) bool { _, ok := node.(*ast.CallExpr); return ok },
 			wantNil:      true,
 		},
 		{
 			name:         "BasicLit",
 			exprPosition: Position{Line: 8, Character: 14},
-			exprFilter:   func(node xgoast.Node) bool { _, ok := node.(*xgoast.BasicLit); return ok },
+			exprFilter:   func(node ast.Node) bool { _, ok := node.(*ast.BasicLit); return ok },
 			wantNil:      true,
 		},
 	} {
@@ -777,9 +777,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.exprPosition)
 			require.True(t, pos.IsValid())
 
-			var expr xgoast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if node, ok := node.(xgoast.Expr); ok && tt.exprFilter(node) {
+			var expr ast.Expr
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
 					return false
 				}
@@ -791,7 +791,7 @@ onStart => {
 			if tt.wantNil {
 				assert.Nil(t, got)
 			} else {
-				assert.NotNil(t, got)
+				require.NotNil(t, got)
 				assert.Equal(t, SpxInputSlotKindAddress, got.Kind)
 				assert.Equal(t, SpxInputTypeUnknown, got.Accept.Type)
 				assert.Equal(t, SpxInputKindPredefined, got.Input.Kind)
@@ -836,7 +836,7 @@ onStart => {
 	for _, tt := range []struct {
 		name           string
 		litPosition    Position
-		declaredType   types.Type
+		declaredType   gotypes.Type
 		wantAcceptType SpxInputType
 		wantInputType  SpxInputType
 		wantInputKind  SpxInputKind
@@ -896,9 +896,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.litPosition)
 			require.True(t, pos.IsValid())
 
-			var lit *xgoast.BasicLit
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if node, ok := node.(*xgoast.BasicLit); ok {
+			var lit *ast.BasicLit
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if node, ok := node.(*ast.BasicLit); ok {
 					lit = node
 					return false
 				}
@@ -918,8 +918,8 @@ onStart => {
 	}
 
 	t.Run("InvalidIntLiteral", func(t *testing.T) {
-		invalidIntLit := &xgoast.BasicLit{
-			Kind:  xgotoken.INT,
+		invalidIntLit := &ast.BasicLit{
+			Kind:  token.INT,
 			Value: "not.a.int",
 		}
 		got := createValueInputSlotFromBasicLit(result, invalidIntLit, nil)
@@ -927,8 +927,8 @@ onStart => {
 	})
 
 	t.Run("InvalidFloatLiteral", func(t *testing.T) {
-		invalidFloatLit := &xgoast.BasicLit{
-			Kind:  xgotoken.FLOAT,
+		invalidFloatLit := &ast.BasicLit{
+			Kind:  token.FLOAT,
 			Value: "not.a.float",
 		}
 		got := createValueInputSlotFromBasicLit(result, invalidFloatLit, nil)
@@ -936,8 +936,8 @@ onStart => {
 	})
 
 	t.Run("UnsupportedLiteralKind", func(t *testing.T) {
-		unsupportedLit := &xgoast.BasicLit{
-			Kind:  xgotoken.CHAR,
+		unsupportedLit := &ast.BasicLit{
+			Kind:  token.CHAR,
 			Value: "'c'",
 		}
 		got := createValueInputSlotFromBasicLit(result, unsupportedLit, nil)
@@ -945,8 +945,8 @@ onStart => {
 	})
 
 	t.Run("InvalidStringLiteral", func(t *testing.T) {
-		invalidStringLit := &xgoast.BasicLit{
-			Kind:  xgotoken.STRING,
+		invalidStringLit := &ast.BasicLit{
+			Kind:  token.STRING,
 			Value: "\"unclosed string literal", // Missing ending quote.
 		}
 		got := createValueInputSlotFromBasicLit(result, invalidStringLit, nil)
@@ -1060,9 +1060,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.identPosition)
 			require.True(t, pos.IsValid())
 
-			var ident *xgoast.Ident
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if node, ok := node.(*xgoast.Ident); ok {
+			var ident *ast.Ident
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if node, ok := node.(*ast.Ident); ok {
 					ident = node
 					return false
 				}
@@ -1104,9 +1104,9 @@ onStart => {
 		pos := PosAt(result.proj, astFile, Position{Line: 4, Character: 7})
 		require.True(t, pos.IsValid())
 
-		var ident *xgoast.Ident
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-			if node, ok := node.(*xgoast.Ident); ok && node.Name == "mySound" {
+		var ident *ast.Ident
+		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			if node, ok := node.(*ast.Ident); ok && node.Name == "mySound" {
 				ident = node
 				return false
 			}
@@ -1114,8 +1114,8 @@ onStart => {
 		})
 		require.NotNil(t, ident)
 
-		pkg := types.NewPackage("example.com/pkg", "pkg")
-		declaredType := types.NewAlias(types.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType())
+		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+		declaredType := gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType())
 
 		got := createValueInputSlotFromIdent(result, ident, declaredType)
 		require.NotNil(t, got)
@@ -1215,9 +1215,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.exprPosition)
 			require.True(t, pos.IsValid())
 
-			var unaryExpr *xgoast.UnaryExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if expr, ok := node.(*xgoast.UnaryExpr); ok {
+			var unaryExpr *ast.UnaryExpr
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if expr, ok := node.(*ast.UnaryExpr); ok {
 					unaryExpr = expr
 					return false
 				}
@@ -1290,9 +1290,9 @@ onStart => {
 			pos := PosAt(result.proj, astFile, tt.callExprPosition)
 			require.True(t, pos.IsValid())
 
-			var callExpr *xgoast.CallExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-				if node, ok := node.(*xgoast.CallExpr); ok {
+			var callExpr *ast.CallExpr
+			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+				if node, ok := node.(*ast.CallExpr); ok {
 					callExpr = node
 					return false
 				}
@@ -1310,8 +1310,7 @@ onStart => {
 				assert.Equal(t, SpxInputKindInPlace, got.Input.Kind)
 				assert.Equal(t, SpxInputTypeColor, got.Input.Type)
 
-				colorValue, ok := got.Input.Value.(SpxColorInputValue)
-				require.True(t, ok)
+				colorValue := requireValueAs[SpxColorInputValue](t, got.Input.Value)
 				assert.Equal(t, tt.wantValue.Constructor, colorValue.Constructor)
 				assert.ElementsMatch(t, tt.wantValue.Args, colorValue.Args)
 
@@ -1321,14 +1320,14 @@ onStart => {
 	}
 
 	t.Run("NonIdentifierFunction", func(t *testing.T) {
-		callExpr := &xgoast.CallExpr{
-			Fun: &xgoast.SelectorExpr{
-				X:   &xgoast.Ident{Name: "math"},
-				Sel: &xgoast.Ident{Name: "Max"},
+		callExpr := &ast.CallExpr{
+			Fun: &ast.SelectorExpr{
+				X:   &ast.Ident{Name: "math"},
+				Sel: &ast.Ident{Name: "Max"},
 			},
-			Args: []xgoast.Expr{
-				&xgoast.BasicLit{Kind: xgotoken.INT, Value: "1"},
-				&xgoast.BasicLit{Kind: xgotoken.INT, Value: "2"},
+			Args: []ast.Expr{
+				&ast.BasicLit{Kind: token.INT, Value: "1"},
+				&ast.BasicLit{Kind: token.INT, Value: "2"},
 			},
 		}
 		got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
@@ -1336,9 +1335,9 @@ onStart => {
 	})
 
 	t.Run("NilFunctionType", func(t *testing.T) {
-		callExpr := &xgoast.CallExpr{
-			Fun:  &xgoast.Ident{Name: "unknownFunction"},
-			Args: []xgoast.Expr{&xgoast.BasicLit{Kind: xgotoken.INT, Value: "1"}},
+		callExpr := &ast.CallExpr{
+			Fun:  &ast.Ident{Name: "unknownFunction"},
+			Args: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "1"}},
 		}
 		got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
 		assert.Nil(t, got)
@@ -1348,7 +1347,7 @@ onStart => {
 func TestIsSpxColorFunc(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		fun  *types.Func
+		fun  *gotypes.Func
 		want bool
 	}{
 		{"HSB", GetSpxHSBFunc(), true},
@@ -1365,33 +1364,33 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 	t.Run("BasicTypes", func(t *testing.T) {
 		for _, tt := range []struct {
 			name string
-			typ  types.Type
+			typ  gotypes.Type
 			want SpxInputType
 		}{
-			{"String", types.Typ[types.String], SpxInputTypeString},
-			{"UntypedString", types.Typ[types.UntypedString], SpxInputTypeString},
+			{"String", gotypes.Typ[gotypes.String], SpxInputTypeString},
+			{"UntypedString", gotypes.Typ[gotypes.UntypedString], SpxInputTypeString},
 
-			{"Int", types.Typ[types.Int], SpxInputTypeInteger},
-			{"Int8", types.Typ[types.Int8], SpxInputTypeInteger},
-			{"Int16", types.Typ[types.Int16], SpxInputTypeInteger},
-			{"Int32", types.Typ[types.Int32], SpxInputTypeInteger},
-			{"Int64", types.Typ[types.Int64], SpxInputTypeInteger},
-			{"Uint", types.Typ[types.Uint], SpxInputTypeInteger},
-			{"Uint8", types.Typ[types.Uint8], SpxInputTypeInteger},
-			{"Uint16", types.Typ[types.Uint16], SpxInputTypeInteger},
-			{"Uint32", types.Typ[types.Uint32], SpxInputTypeInteger},
-			{"Uint64", types.Typ[types.Uint64], SpxInputTypeInteger},
-			{"UntypedInt", types.Typ[types.UntypedInt], SpxInputTypeInteger},
+			{"Int", gotypes.Typ[gotypes.Int], SpxInputTypeInteger},
+			{"Int8", gotypes.Typ[gotypes.Int8], SpxInputTypeInteger},
+			{"Int16", gotypes.Typ[gotypes.Int16], SpxInputTypeInteger},
+			{"Int32", gotypes.Typ[gotypes.Int32], SpxInputTypeInteger},
+			{"Int64", gotypes.Typ[gotypes.Int64], SpxInputTypeInteger},
+			{"Uint", gotypes.Typ[gotypes.Uint], SpxInputTypeInteger},
+			{"Uint8", gotypes.Typ[gotypes.Uint8], SpxInputTypeInteger},
+			{"Uint16", gotypes.Typ[gotypes.Uint16], SpxInputTypeInteger},
+			{"Uint32", gotypes.Typ[gotypes.Uint32], SpxInputTypeInteger},
+			{"Uint64", gotypes.Typ[gotypes.Uint64], SpxInputTypeInteger},
+			{"UntypedInt", gotypes.Typ[gotypes.UntypedInt], SpxInputTypeInteger},
 
-			{"Float32", types.Typ[types.Float32], SpxInputTypeDecimal},
-			{"Float64", types.Typ[types.Float64], SpxInputTypeDecimal},
-			{"UntypedFloat", types.Typ[types.UntypedFloat], SpxInputTypeDecimal},
+			{"Float32", gotypes.Typ[gotypes.Float32], SpxInputTypeDecimal},
+			{"Float64", gotypes.Typ[gotypes.Float64], SpxInputTypeDecimal},
+			{"UntypedFloat", gotypes.Typ[gotypes.UntypedFloat], SpxInputTypeDecimal},
 
-			{"Bool", types.Typ[types.Bool], SpxInputTypeBoolean},
-			{"UntypedBool", types.Typ[types.UntypedBool], SpxInputTypeBoolean},
+			{"Bool", gotypes.Typ[gotypes.Bool], SpxInputTypeBoolean},
+			{"UntypedBool", gotypes.Typ[gotypes.UntypedBool], SpxInputTypeBoolean},
 
-			{"Complex64", types.Typ[types.Complex64], SpxInputTypeUnknown},
-			{"Complex128", types.Typ[types.Complex128], SpxInputTypeUnknown},
+			{"Complex64", gotypes.Typ[gotypes.Complex64], SpxInputTypeUnknown},
+			{"Complex128", gotypes.Typ[gotypes.Complex128], SpxInputTypeUnknown},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				got := inferSpxInputTypeFromType(tt.typ)
@@ -1401,16 +1400,16 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 	})
 
 	t.Run("NonBasicType", func(t *testing.T) {
-		pkg := types.NewPackage("example.com/pkg", "pkg")
-		structType := types.NewStruct([]*types.Var{}, []string{})
-		namedType := types.NewNamed(types.NewTypeName(0, pkg, "MyStruct", nil), structType, nil)
+		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
+		namedType := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "MyStruct", nil), structType, nil)
 
 		got := inferSpxInputTypeFromType(namedType)
 		assert.Equal(t, SpxInputTypeUnknown, got)
 	})
 
 	t.Run("PointerType", func(t *testing.T) {
-		pointerType := types.NewPointer(types.Typ[types.Int])
+		pointerType := gotypes.NewPointer(gotypes.Typ[gotypes.Int])
 
 		got := inferSpxInputTypeFromType(pointerType)
 		assert.Equal(t, SpxInputTypeUnknown, got)
@@ -1419,7 +1418,7 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 	t.Run("SpxAliasTypes", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string
-			typeGetter func() *types.Alias
+			typeGetter func() *gotypes.Alias
 			want       SpxInputType
 		}{
 			{"BackdropName", GetSpxBackdropNameType, SpxInputTypeResourceName},
@@ -1442,7 +1441,7 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 	t.Run("SpxNamedTypes", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string
-			typeGetter func() *types.Named
+			typeGetter func() *gotypes.Named
 			want       SpxInputType
 		}{
 			{"EffectKind", GetSpxEffectKindType, SpxInputTypeEffectKind},
@@ -1456,32 +1455,32 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 	})
 
 	t.Run("AliasFallback", func(t *testing.T) {
-		pkg := types.NewPackage("example.com/pkg", "pkg")
-		namedIntType := types.NewNamed(types.NewTypeName(0, pkg, "MyCount", nil), types.Typ[types.Int], nil)
+		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+		namedIntType := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "MyCount", nil), gotypes.Typ[gotypes.Int], nil)
 
 		for _, tt := range []struct {
 			name string
-			typ  types.Type
+			typ  gotypes.Type
 			want SpxInputType
 		}{
 			{
 				name: "AliasToBasic",
-				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyInt", nil), types.Typ[types.Int]),
+				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MyInt", nil), gotypes.Typ[gotypes.Int]),
 				want: SpxInputTypeInteger,
 			},
 			{
 				name: "AliasToSpxResourceName",
-				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType()),
+				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType()),
 				want: SpxInputTypeResourceName,
 			},
 			{
 				name: "AliasToSpxDirection",
-				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyDirection", nil), GetSpxDirectionType()),
+				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MyDirection", nil), GetSpxDirectionType()),
 				want: SpxInputTypeDirection,
 			},
 			{
 				name: "AliasToNamedType",
-				typ:  types.NewAlias(types.NewTypeName(0, pkg, "MyCountAlias", nil), namedIntType),
+				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MyCountAlias", nil), namedIntType),
 				want: SpxInputTypeUnknown,
 			},
 		} {
@@ -1520,9 +1519,9 @@ onStart => {
 		pos := PosAt(result.proj, astFile, Position{Line: 2, Character: 11})
 		require.True(t, pos.IsValid())
 
-		var callExpr *xgoast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-			if node, ok := node.(*xgoast.CallExpr); ok {
+		var callExpr *ast.CallExpr
+		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
 				return false
 			}
@@ -1545,9 +1544,9 @@ onStart => {
 		pos := PosAt(result.proj, astFile, Position{Line: 2, Character: 2})
 		require.True(t, pos.IsValid())
 
-		var callExpr *xgoast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-			if node, ok := node.(*xgoast.CallExpr); ok {
+		var callExpr *ast.CallExpr
+		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
 				return false
 			}
@@ -1570,9 +1569,9 @@ onStart => {
 		pos := PosAt(result.proj, astFile, Position{Line: 1, Character: 2})
 		require.True(t, pos.IsValid())
 
-		var callExpr *xgoast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node xgoast.Node) bool {
-			if node, ok := node.(*xgoast.CallExpr); ok {
+		var callExpr *ast.CallExpr
+		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
 				return false
 			}
@@ -1588,12 +1587,12 @@ onStart => {
 func TestIsBlank(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		expr xgoast.Expr
+		expr ast.Expr
 		want bool
 	}{
-		{"BlankIdent", &xgoast.Ident{Name: "_"}, true},
-		{"NonBlankIdent", &xgoast.Ident{Name: "variable"}, false},
-		{"BasicLit", &xgoast.BasicLit{Value: "test"}, false},
+		{"BlankIdent", &ast.Ident{Name: "_"}, true},
+		{"NonBlankIdent", &ast.Ident{Name: "variable"}, false},
+		{"BasicLit", &ast.BasicLit{Value: "test"}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isBlank(tt.expr)
@@ -1698,7 +1697,7 @@ func TestSortSpxInputSlots(t *testing.T) {
 		l5Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
 			return s.Range.Start.Line != 5
 		})
-		require.Equal(t, 3, len(l5Slots))
+		require.Len(t, l5Slots, 3)
 		assert.Equal(t, uint32(5), l5Slots[0].Range.Start.Character)
 		assert.Equal(t, uint32(15), l5Slots[1].Range.Start.Character)
 		assert.Equal(t, uint32(20), l5Slots[2].Range.Start.Character)
@@ -1706,7 +1705,7 @@ func TestSortSpxInputSlots(t *testing.T) {
 		l7Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
 			return s.Range.Start.Line != 7
 		})
-		require.Equal(t, 2, len(l7Slots))
+		require.Len(t, l7Slots, 2)
 		assert.Equal(t, uint32(10), l7Slots[0].Range.Start.Character)
 		assert.Equal(t, uint32(30), l7Slots[1].Range.Start.Character)
 	})
@@ -1748,7 +1747,7 @@ func TestSortSpxInputSlots(t *testing.T) {
 		l5c10Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
 			return s.Range.Start.Line != 5 || s.Range.Start.Character != 10
 		})
-		require.Equal(t, 2, len(l5c10Slots))
+		require.Len(t, l5c10Slots, 2)
 		assert.Equal(t, SpxInputSlotKindAddress, l5c10Slots[0].Kind)
 		assert.Equal(t, SpxInputSlotKindValue, l5c10Slots[1].Kind)
 	})
@@ -2120,17 +2119,17 @@ func onStart() {
 		mySpriteObj := pkg.Scope().Lookup("MySprite")
 		require.NotNil(t, mySpriteObj)
 
-		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		mySpriteTypeName, ok := mySpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		mySpriteType, ok := mySpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
-		structType, ok := mySpriteType.Underlying().(*types.Struct)
+		structType, ok := mySpriteType.Underlying().(*gotypes.Struct)
 		require.True(t, ok)
 
 		// Test field x (should be property)
-		var xField *types.Var
+		var xField *gotypes.Var
 		for f := range structType.Fields() {
 			if f.Name() == "x" {
 				xField = f
@@ -2141,7 +2140,7 @@ func onStart() {
 		assert.True(t, isPropertyOfEnclosingType(xField), "x field should be a property")
 
 		// Test field y (should also be property)
-		var yField *types.Var
+		var yField *gotypes.Var
 		for f := range structType.Fields() {
 			if f.Name() == "y" {
 				yField = f
@@ -2193,14 +2192,14 @@ func onStart() {
 		mySpriteObj := pkg.Scope().Lookup("MySprite")
 		require.NotNil(t, mySpriteObj)
 
-		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		mySpriteTypeName, ok := mySpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		mySpriteType, ok := mySpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
 		// Test Speed method (should be property - no params, one return)
-		var speedMethod *types.Func
+		var speedMethod *gotypes.Func
 		for method := range mySpriteType.Methods() {
 			if method.Name() == "Speed" {
 				speedMethod = method
@@ -2211,7 +2210,7 @@ func onStart() {
 		assert.True(t, isPropertyOfEnclosingType(speedMethod), "Speed method should be a property")
 
 		// Test Move method (should NOT be property - has parameters)
-		var moveMethod *types.Func
+		var moveMethod *gotypes.Func
 		for method := range mySpriteType.Methods() {
 			if method.Name() == "Move" {
 				moveMethod = method
@@ -2222,7 +2221,7 @@ func onStart() {
 		assert.False(t, isPropertyOfEnclosingType(moveMethod), "Move method should not be a property (has parameters)")
 
 		// Test XGo_Internal method (should NOT be property - XGo_ prefix)
-		var internalMethod *types.Func
+		var internalMethod *gotypes.Func
 		for method := range mySpriteType.Methods() {
 			if method.Name() == "XGo_Internal" {
 				internalMethod = method
@@ -2277,30 +2276,30 @@ func onStart() {
 		mySpriteObj := pkg.Scope().Lookup("MySprite")
 		require.NotNil(t, mySpriteObj)
 
-		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		mySpriteTypeName, ok := mySpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		mySpriteType, ok := mySpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
-		mySpriteStruct, ok := mySpriteType.Underlying().(*types.Struct)
+		mySpriteStruct, ok := mySpriteType.Underlying().(*gotypes.Struct)
 		require.True(t, ok)
 
 		// Find OtherSprite type
 		otherSpriteObj := pkg.Scope().Lookup("OtherSprite")
 		require.NotNil(t, otherSpriteObj)
 
-		otherSpriteTypeName, ok := otherSpriteObj.(*types.TypeName)
+		otherSpriteTypeName, ok := otherSpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		otherSpriteType, ok := otherSpriteTypeName.Type().(*types.Named)
+		otherSpriteType, ok := otherSpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
-		otherSpriteStruct, ok := otherSpriteType.Underlying().(*types.Struct)
+		otherSpriteStruct, ok := otherSpriteType.Underlying().(*gotypes.Struct)
 		require.True(t, ok)
 
 		// Test MySprite.x field
-		var mySpriteXField *types.Var
+		var mySpriteXField *gotypes.Var
 		for f := range mySpriteStruct.Fields() {
 			if f.Name() == "x" {
 				mySpriteXField = f
@@ -2313,7 +2312,7 @@ func onStart() {
 		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.x should return MySprite as enclosing type")
 
 		// Test MySprite.y field
-		var mySpriteYField *types.Var
+		var mySpriteYField *gotypes.Var
 		for f := range mySpriteStruct.Fields() {
 			if f.Name() == "y" {
 				mySpriteYField = f
@@ -2326,7 +2325,7 @@ func onStart() {
 		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.y should return MySprite as enclosing type")
 
 		// Test OtherSprite.x field (same name, different type)
-		var otherSpriteXField *types.Var
+		var otherSpriteXField *gotypes.Var
 		for f := range otherSpriteStruct.Fields() {
 			if f.Name() == "x" {
 				otherSpriteXField = f
@@ -2342,7 +2341,7 @@ func onStart() {
 		assert.NotEqual(t, mySpriteXField, otherSpriteXField, "MySprite.x and OtherSprite.x should be different field objects")
 
 		// Test OtherSprite.z field
-		var otherSpriteZField *types.Var
+		var otherSpriteZField *gotypes.Var
 		for f := range otherSpriteStruct.Fields() {
 			if f.Name() == "z" {
 				otherSpriteZField = f
@@ -2401,24 +2400,24 @@ func onStart() {
 		mySpriteObj := pkg.Scope().Lookup("MySprite")
 		require.NotNil(t, mySpriteObj)
 
-		mySpriteTypeName, ok := mySpriteObj.(*types.TypeName)
+		mySpriteTypeName, ok := mySpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		mySpriteType, ok := mySpriteTypeName.Type().(*types.Named)
+		mySpriteType, ok := mySpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
 		// Find OtherSprite type
 		otherSpriteObj := pkg.Scope().Lookup("OtherSprite")
 		require.NotNil(t, otherSpriteObj)
 
-		otherSpriteTypeName, ok := otherSpriteObj.(*types.TypeName)
+		otherSpriteTypeName, ok := otherSpriteObj.(*gotypes.TypeName)
 		require.True(t, ok)
 
-		otherSpriteType, ok := otherSpriteTypeName.Type().(*types.Named)
+		otherSpriteType, ok := otherSpriteTypeName.Type().(*gotypes.Named)
 		require.True(t, ok)
 
 		// Test MySprite.Speed method
-		var mySpriteSpeedMethod *types.Func
+		var mySpriteSpeedMethod *gotypes.Func
 		for m := range mySpriteType.Methods() {
 			if m.Name() == "Speed" {
 				mySpriteSpeedMethod = m
@@ -2431,7 +2430,7 @@ func onStart() {
 		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.Speed should return MySprite as enclosing type")
 
 		// Test MySprite.Move method
-		var mySpriteMoveMethod *types.Func
+		var mySpriteMoveMethod *gotypes.Func
 		for m := range mySpriteType.Methods() {
 			if m.Name() == "Move" {
 				mySpriteMoveMethod = m
@@ -2444,7 +2443,7 @@ func onStart() {
 		assert.Equal(t, "main.MySprite", enclosingType.String(), "MySprite.Move should return MySprite as enclosing type")
 
 		// Test OtherSprite.Speed method (same name, different type)
-		var otherSpriteSpeedMethod *types.Func
+		var otherSpriteSpeedMethod *gotypes.Func
 		for m := range otherSpriteType.Methods() {
 			if m.Name() == "Speed" {
 				otherSpriteSpeedMethod = m
@@ -2460,7 +2459,7 @@ func onStart() {
 		assert.NotEqual(t, mySpriteSpeedMethod, otherSpriteSpeedMethod, "MySprite.Speed and OtherSprite.Speed should be different method objects")
 
 		// Test OtherSprite.Jump method
-		var otherSpriteJumpMethod *types.Func
+		var otherSpriteJumpMethod *gotypes.Func
 		for m := range otherSpriteType.Methods() {
 			if m.Name() == "Jump" {
 				otherSpriteJumpMethod = m
@@ -2513,7 +2512,7 @@ func onStart() {
 		// Test with Const (not Var or Func)
 		constObj := pkg.Scope().Lookup("MyConst")
 		if constObj != nil {
-			_, ok := constObj.(*types.Const)
+			_, ok := constObj.(*gotypes.Const)
 			if ok {
 				// Test findEnclosingType with Const (not Var or Func)
 				enclosingType := findEnclosingType(constObj)
@@ -2524,10 +2523,10 @@ func onStart() {
 		// Test with a free function (helper function without receiver)
 		helperFuncObj := pkg.Scope().Lookup("helperFunction")
 		if helperFuncObj != nil {
-			funcObj, ok := helperFuncObj.(*types.Func)
+			funcObj, ok := helperFuncObj.(*gotypes.Func)
 			if ok {
 				// Check if it has a receiver
-				sig, ok := funcObj.Type().(*types.Signature)
+				sig, ok := funcObj.Type().(*gotypes.Signature)
 				if ok && sig.Recv() == nil {
 					// Test findEnclosingType with free function
 					enclosingType := findEnclosingType(funcObj)
@@ -2557,11 +2556,11 @@ func onStart() {
 		// Create a synthetic method with a non-named receiver type
 		// to trigger the "namedType, ok := recvType.(*types.Named); if !ok" path
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		// Create a signature with this receiver
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
 		// Create a Func with this signature
-		funcObj := types.NewFunc(0, pkg, "MethodOnBasicType", sig)
+		funcObj := gotypes.NewFunc(0, pkg, "MethodOnBasicType", sig)
 
 		enclosingType := findEnclosingTypeForMethod(funcObj)
 		assert.Nil(t, enclosingType, "Method with non-Named receiver should return nil")
@@ -2571,13 +2570,13 @@ func onStart() {
 		// Create a synthetic method with a pointer to basic type receiver
 		// Even after DerefType, it should still be a basic type, not Named
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		// Create a receiver with a pointer to basic type
-		recv := types.NewVar(0, pkg, "recv", types.NewPointer(types.Typ[types.String]))
+		recv := gotypes.NewVar(0, pkg, "recv", gotypes.NewPointer(gotypes.Typ[gotypes.String]))
 		// Create a signature with this receiver
-		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		sig := gotypes.NewSignatureType(recv, nil, nil, nil, nil, false)
 		// Create a Func with this signature
-		funcObj := types.NewFunc(0, pkg, "MethodOnPointerToBasic", sig)
+		funcObj := gotypes.NewFunc(0, pkg, "MethodOnPointerToBasic", sig)
 
 		enclosingType := findEnclosingTypeForMethod(funcObj)
 		assert.Nil(t, enclosingType, "Method with pointer to basic type receiver should return nil")
@@ -2587,15 +2586,15 @@ func onStart() {
 		// Create a synthetic method with an interface receiver
 		// Interfaces are not *types.Named (though they can be underlying type of Named)
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		// Create an interface type directly (not as underlying of a Named type)
-		iface := types.NewInterfaceType(nil, nil).Complete()
+		iface := gotypes.NewInterfaceType(nil, nil).Complete()
 		// Create a receiver with this interface type
-		recv := types.NewVar(0, pkg, "recv", iface)
+		recv := gotypes.NewVar(0, pkg, "recv", iface)
 		// Create a signature with this receiver
-		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		sig := gotypes.NewSignatureType(recv, nil, nil, nil, nil, false)
 		// Create a Func with this signature
-		funcObj := types.NewFunc(0, pkg, "MethodOnInterface", sig)
+		funcObj := gotypes.NewFunc(0, pkg, "MethodOnInterface", sig)
 
 		enclosingType := findEnclosingTypeForMethod(funcObj)
 		assert.Nil(t, enclosingType, "Method with interface receiver should return nil")
@@ -2605,15 +2604,15 @@ func onStart() {
 		// Create a synthetic method with a struct receiver (not a Named type)
 		// The struct itself is not Named, only *types.Named wrapping it would be
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		// Create a struct type directly (not wrapped in Named)
-		structType := types.NewStruct(nil, nil)
+		structType := gotypes.NewStruct(nil, nil)
 		// Create a receiver with this struct type
-		recv := types.NewVar(0, pkg, "recv", structType)
+		recv := gotypes.NewVar(0, pkg, "recv", structType)
 		// Create a signature with this receiver
-		sig := types.NewSignatureType(recv, nil, nil, nil, nil, false)
+		sig := gotypes.NewSignatureType(recv, nil, nil, nil, nil, false)
 		// Create a Func with this signature
-		funcObj := types.NewFunc(0, pkg, "MethodOnStruct", sig)
+		funcObj := gotypes.NewFunc(0, pkg, "MethodOnStruct", sig)
 
 		enclosingType := findEnclosingTypeForMethod(funcObj)
 		assert.Nil(t, enclosingType, "Method with non-Named struct receiver should return nil")
@@ -2623,52 +2622,52 @@ func onStart() {
 		// This test covers the continue branches in findEnclosingTypeForField
 		// by creating a package scope with various types of objects using the types package
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		scope := pkg.Scope()
 
 		// Create various objects in the scope to trigger different continue branches:
 
 		// 1. Add a Const (not a TypeName) - triggers line 328 continue
-		constObj := types.NewConst(0, pkg, "MyConst", types.Typ[types.Int], nil)
+		constObj := gotypes.NewConst(0, pkg, "MyConst", gotypes.Typ[gotypes.Int], nil)
 		scope.Insert(constObj)
 
 		// 2. Add a Var (not a TypeName) - triggers line 328 continue
-		varObj := types.NewVar(0, pkg, "MyVar", types.Typ[types.String])
+		varObj := gotypes.NewVar(0, pkg, "MyVar", gotypes.Typ[gotypes.String])
 		scope.Insert(varObj)
 
 		// 3. Add a Func (not a TypeName) - triggers line 328 continue
-		sig := types.NewSignatureType(nil, nil, nil, nil, nil, false)
-		funcObj := types.NewFunc(0, pkg, "MyFunc", sig)
+		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		funcObj := gotypes.NewFunc(0, pkg, "MyFunc", sig)
 		scope.Insert(funcObj)
 
 		// 4. Add a type alias (TypeName but Type is not Named) - triggers line 333 continue
 		// Note: Type aliases in go/types are represented as TypeName with underlying type
-		aliasObj := types.NewTypeName(0, pkg, "IntAlias", types.Typ[types.Int])
+		aliasObj := gotypes.NewTypeName(0, pkg, "IntAlias", gotypes.Typ[gotypes.Int])
 		scope.Insert(aliasObj)
 
 		// 5. Add a named int type (Named but underlying is not Struct) - triggers line 338 continue
-		namedIntType := types.NewNamed(
-			types.NewTypeName(0, pkg, "MyInt", nil),
-			types.Typ[types.Int],
+		namedIntType := gotypes.NewNamed(
+			gotypes.NewTypeName(0, pkg, "MyInt", nil),
+			gotypes.Typ[gotypes.Int],
 			nil,
 		)
 		scope.Insert(namedIntType.Obj())
 
 		// 6. Add a named interface type (Named but underlying is Interface) - triggers line 338 continue
-		namedInterfaceType := types.NewNamed(
-			types.NewTypeName(0, pkg, "MyInterface", nil),
-			types.NewInterfaceType(nil, nil).Complete(),
+		namedInterfaceType := gotypes.NewNamed(
+			gotypes.NewTypeName(0, pkg, "MyInterface", nil),
+			gotypes.NewInterfaceType(nil, nil).Complete(),
 			nil,
 		)
 		scope.Insert(namedInterfaceType.Obj())
 
 		// 7. Finally, add a proper struct type with a field
-		structType := types.NewStruct([]*types.Var{
-			types.NewField(0, pkg, "x", types.Typ[types.Int], false),
-			types.NewField(0, pkg, "y", types.Typ[types.Int], false),
+		structType := gotypes.NewStruct([]*gotypes.Var{
+			gotypes.NewField(0, pkg, "x", gotypes.Typ[gotypes.Int], false),
+			gotypes.NewField(0, pkg, "y", gotypes.Typ[gotypes.Int], false),
 		}, nil)
-		namedStructType := types.NewNamed(
-			types.NewTypeName(0, pkg, "MyStruct", nil),
+		namedStructType := gotypes.NewNamed(
+			gotypes.NewTypeName(0, pkg, "MyStruct", nil),
 			structType,
 			nil,
 		)
@@ -2695,33 +2694,33 @@ func onStart() {
 	t.Run("FieldNotFoundInAnyStruct", func(t *testing.T) {
 		// Test the final "return nil" (line 353) when field is not found in any struct
 
-		pkg := types.NewPackage("test", "test")
+		pkg := gotypes.NewPackage("test", "test")
 		scope := pkg.Scope()
 
 		// Create a struct with field x
-		structType1 := types.NewStruct([]*types.Var{
-			types.NewField(0, pkg, "x", types.Typ[types.Int], false),
+		structType1 := gotypes.NewStruct([]*gotypes.Var{
+			gotypes.NewField(0, pkg, "x", gotypes.Typ[gotypes.Int], false),
 		}, nil)
-		namedStructType1 := types.NewNamed(
-			types.NewTypeName(0, pkg, "Struct1", nil),
+		namedStructType1 := gotypes.NewNamed(
+			gotypes.NewTypeName(0, pkg, "Struct1", nil),
 			structType1,
 			nil,
 		)
 		scope.Insert(namedStructType1.Obj())
 
 		// Create another struct with field y (not x)
-		structType2 := types.NewStruct([]*types.Var{
-			types.NewField(0, pkg, "y", types.Typ[types.Int], false),
+		structType2 := gotypes.NewStruct([]*gotypes.Var{
+			gotypes.NewField(0, pkg, "y", gotypes.Typ[gotypes.Int], false),
 		}, nil)
-		namedStructType2 := types.NewNamed(
-			types.NewTypeName(0, pkg, "Struct2", nil),
+		namedStructType2 := gotypes.NewNamed(
+			gotypes.NewTypeName(0, pkg, "Struct2", nil),
 			structType2,
 			nil,
 		)
 		scope.Insert(namedStructType2.Obj())
 
 		// Create a field that doesn't belong to any struct in the package
-		orphanField := types.NewField(0, pkg, "orphan", types.Typ[types.String], false)
+		orphanField := gotypes.NewField(0, pkg, "orphan", gotypes.Typ[gotypes.String], false)
 
 		// Try to find enclosing type for orphan field
 		enclosingType := findEnclosingTypeForField(orphanField)
@@ -2732,7 +2731,7 @@ func onStart() {
 		// Test field.Pkg() == nil case (line 314-315)
 		// Create a field with nil package
 
-		fieldWithNilPkg := types.NewField(0, nil, "fieldWithNilPkg", types.Typ[types.Int], false)
+		fieldWithNilPkg := gotypes.NewField(0, nil, "fieldWithNilPkg", gotypes.Typ[gotypes.Int], false)
 		assert.True(t, fieldWithNilPkg.IsField(), "Should be a field")
 		assert.Nil(t, fieldWithNilPkg.Pkg(), "Package should be nil")
 

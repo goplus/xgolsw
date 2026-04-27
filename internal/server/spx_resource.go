@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
 )
 
@@ -25,7 +25,7 @@ type SpxResourceID interface {
 type SpxResourceRef struct {
 	ID   SpxResourceID
 	Kind SpxResourceRefKind
-	Node xgoast.Node
+	Node ast.Node
 }
 
 // SpxResourceRefKind is the kind of an spx resource reference.

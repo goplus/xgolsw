@@ -30,7 +30,7 @@ func TestPosFilename(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)
 
-		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		xPos := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0].Pos()
 		filename := PosFilename(fset, xPos)
 		assert.Equal(t, "main.xgo", filename)
 	})
@@ -52,7 +52,7 @@ func TestNodeFilename(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)
 
-		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		xDecl := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0]
 		filename := NodeFilename(fset, xDecl)
 		assert.Equal(t, "main.xgo", filename)
 	})
@@ -74,7 +74,7 @@ func TestPosTokenFile(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)
 
-		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		xPos := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0].Pos()
 		file := PosTokenFile(fset, xPos)
 		require.NotNil(t, file)
 		assert.Equal(t, "main.xgo", file.Name())
@@ -97,7 +97,7 @@ func TestNodeTokenFile(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)
 
-		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		xDecl := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0]
 		file := NodeTokenFile(fset, xDecl)
 		require.NotNil(t, file)
 		assert.Equal(t, "main.xgo", file.Name())
@@ -121,7 +121,7 @@ func TestPosASTFile(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		xPos := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0].Pos()
+		xPos := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0].Pos()
 		file := PosASTFile(fset, astPkg, xPos)
 		assert.Equal(t, astFile, file)
 	})
@@ -152,7 +152,7 @@ func TestNodeASTFile(t *testing.T) {
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		xDecl := astFile.Decls[0].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Names[0]
+		xDecl := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0]
 		file := NodeASTFile(fset, astPkg, xDecl)
 		assert.Equal(t, astFile, file)
 	})

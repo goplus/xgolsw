@@ -1,9 +1,9 @@
 package server
 
 import (
-	"go/types"
+	gotypes "go/types"
 
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -33,7 +33,7 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 
 	locations = append(locations, s.findReferenceLocations(result, obj)...)
 
-	if fn, ok := obj.(*types.Func); ok && fn.Type().(*types.Signature).Recv() != nil {
+	if fn, ok := obj.(*gotypes.Func); ok && fn.Type().(*gotypes.Signature).Recv() != nil {
 		locations = append(locations, s.handleMethodReferences(result, fn)...)
 		locations = append(locations, s.handleEmbeddedFieldReferences(result, obj)...)
 	}
@@ -54,7 +54,7 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 }
 
 // findReferenceLocations returns all locations where the given object is referenced.
-func (s *Server) findReferenceLocations(result *compileResult, obj types.Object) []Location {
+func (s *Server) findReferenceLocations(result *compileResult, obj gotypes.Object) []Location {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
@@ -75,11 +75,11 @@ func (s *Server) findReferenceLocations(result *compileResult, obj types.Object)
 
 // handleMethodReferences finds all references to a method, including interface
 // implementations and interface method references.
-func (s *Server) handleMethodReferences(result *compileResult, fn *types.Func) []Location {
+func (s *Server) handleMethodReferences(result *compileResult, fn *gotypes.Func) []Location {
 	var locations []Location
-	recvType := fn.Type().(*types.Signature).Recv().Type()
-	if types.IsInterface(recvType) {
-		iface, ok := recvType.(*types.Interface)
+	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	if gotypes.IsInterface(recvType) {
+		iface, ok := recvType.(*gotypes.Interface)
 		if !ok {
 			return nil
 		}
@@ -94,38 +94,38 @@ func (s *Server) handleMethodReferences(result *compileResult, fn *types.Func) [
 
 // findEmbeddedInterfaceReferences finds references to methods in interfaces
 // that embed the given interface.
-func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
+func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *gotypes.Interface, methodName string) []Location {
 	var locations []Location
-	seenIfaces := make(map[*types.Interface]bool)
+	seenIfaces := make(map[*gotypes.Interface]bool)
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return locations
 	}
 
 	astPkg, _ := result.proj.ASTPackage()
-	var find func(*types.Interface)
-	find = func(current *types.Interface) {
+	var find func(*gotypes.Interface)
+	find = func(current *gotypes.Interface) {
 		if seenIfaces[current] {
 			return
 		}
 		seenIfaces[current] = true
 
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
-			typeSpec := spec.(*xgoast.TypeSpec)
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				return
 			}
-			embedIface, ok := typeName.Type().Underlying().(*types.Interface)
+			embedIface, ok := typeName.Type().Underlying().(*gotypes.Interface)
 			if !ok {
 				return
 			}
 
 			for typ := range embedIface.EmbeddedTypes() {
-				if types.Identical(typ, current) {
-					selection, ok := types.LookupSelection(embedIface, false, typeName.Pkg(), methodName)
+				if gotypes.Identical(typ, current) {
+					selection, ok := gotypes.LookupSelection(embedIface, false, typeName.Pkg(), methodName)
 					if ok {
-						method, ok := selection.Obj().(*types.Func)
+						method, ok := selection.Obj().(*gotypes.Func)
 						if ok {
 							locations = append(locations, s.findReferenceLocations(result, method)...)
 						}
@@ -141,29 +141,29 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *t
 
 // findImplementingMethodReferences finds references to all methods that
 // implement the given interface method.
-func (s *Server) findImplementingMethodReferences(result *compileResult, iface *types.Interface, methodName string) []Location {
+func (s *Server) findImplementingMethodReferences(result *compileResult, iface *gotypes.Interface, methodName string) []Location {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
 	var locations []Location
 	astPkg, _ := result.proj.ASTPackage()
-	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
-		typeSpec := spec.(*xgoast.TypeSpec)
+	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+		typeSpec := spec.(*ast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
 			return
 		}
-		named, ok := typeName.Type().(*types.Named)
-		if !ok || !types.Implements(named, iface) {
+		named, ok := typeName.Type().(*gotypes.Named)
+		if !ok || !gotypes.Implements(named, iface) {
 			return
 		}
 
-		selection, ok := types.LookupSelection(named, false, named.Obj().Pkg(), methodName)
+		selection, ok := gotypes.LookupSelection(named, false, named.Obj().Pkg(), methodName)
 		if !ok {
 			return
 		}
-		method, ok := selection.Obj().(*types.Func)
+		method, ok := selection.Obj().(*gotypes.Func)
 		if !ok {
 			return
 		}
@@ -174,33 +174,33 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 
 // findInterfaceMethodReferences finds references to interface methods that this
 // method implements, including methods from embedded interfaces.
-func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.Func) []Location {
+func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *gotypes.Func) []Location {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
 	var locations []Location
-	recvType := fn.Type().(*types.Signature).Recv().Type()
-	seenIfaces := make(map[*types.Interface]bool)
+	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	seenIfaces := make(map[*gotypes.Interface]bool)
 	astPkg, _ := result.proj.ASTPackage()
 
-	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
-		typeSpec := spec.(*xgoast.TypeSpec)
+	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+		typeSpec := spec.(*ast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
 			return
 		}
-		ifaceType, ok := typeName.Type().Underlying().(*types.Interface)
-		if !ok || !types.Implements(recvType, ifaceType) || seenIfaces[ifaceType] {
+		ifaceType, ok := typeName.Type().Underlying().(*gotypes.Interface)
+		if !ok || !gotypes.Implements(recvType, ifaceType) || seenIfaces[ifaceType] {
 			return
 		}
 		seenIfaces[ifaceType] = true
 
-		selection, ok := types.LookupSelection(ifaceType, false, typeName.Pkg(), fn.Name())
+		selection, ok := gotypes.LookupSelection(ifaceType, false, typeName.Pkg(), fn.Name())
 		if !ok {
 			return
 		}
-		method, ok := selection.Obj().(*types.Func)
+		method, ok := selection.Obj().(*gotypes.Func)
 		if !ok {
 			return
 		}
@@ -211,27 +211,27 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *types.
 }
 
 // handleEmbeddedFieldReferences finds all references through embedded fields.
-func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.Object) []Location {
+func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj gotypes.Object) []Location {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
 	var locations []Location
-	if fn, ok := obj.(*types.Func); ok {
-		recv := fn.Type().(*types.Signature).Recv()
+	if fn, ok := obj.(*gotypes.Func); ok {
+		recv := fn.Type().(*gotypes.Signature).Recv()
 		if recv == nil {
 			return nil
 		}
 
-		seenTypes := make(map[types.Type]bool)
+		seenTypes := make(map[gotypes.Type]bool)
 		astPkg, _ := result.proj.ASTPackage()
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
-			typeSpec := spec.(*xgoast.TypeSpec)
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				return
 			}
-			named, ok := typeName.Type().(*types.Named)
+			named, ok := typeName.Type().(*gotypes.Named)
 			if !ok {
 				return
 			}
@@ -244,13 +244,13 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj types.
 
 // findEmbeddedMethodReferences recursively finds all references to a method
 // through embedded fields.
-func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.Func, named *types.Named, targetType types.Type, seenTypes map[types.Type]bool) []Location {
+func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *gotypes.Func, named *gotypes.Named, targetType gotypes.Type, seenTypes map[gotypes.Type]bool) []Location {
 	if seenTypes[named] {
 		return nil
 	}
 	seenTypes[named] = true
 
-	st, ok := named.Underlying().(*types.Struct)
+	st, ok := named.Underlying().(*gotypes.Struct)
 	if !ok {
 		return nil
 	}
@@ -262,21 +262,21 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 			continue
 		}
 
-		if types.Identical(field.Type(), targetType) {
+		if gotypes.Identical(field.Type(), targetType) {
 			hasEmbed = true
 
-			selection, ok := types.LookupSelection(named, false, fn.Pkg(), fn.Name())
+			selection, ok := gotypes.LookupSelection(named, false, fn.Pkg(), fn.Name())
 			if !ok {
 				continue
 			}
-			method, ok := selection.Obj().(*types.Func)
+			method, ok := selection.Obj().(*gotypes.Func)
 			if !ok {
 				continue
 			}
 			locations = append(locations, s.findReferenceLocations(result, method)...)
 		}
 
-		if fieldNamed, ok := field.Type().(*types.Named); ok {
+		if fieldNamed, ok := field.Type().(*gotypes.Named); ok {
 			locations = append(locations, s.findEmbeddedMethodReferences(result, fn, fieldNamed, targetType, seenTypes)...)
 		}
 	}
@@ -286,13 +286,13 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *types.F
 			return nil
 		}
 		astPkg, _ := result.proj.ASTPackage()
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec xgoast.Spec) {
-			typeSpec := spec.(*xgoast.TypeSpec)
+		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
 				return
 			}
-			named, ok := typeName.Type().(*types.Named)
+			named, ok := typeName.Type().(*gotypes.Named)
 			if !ok {
 				return
 			}

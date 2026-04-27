@@ -5,8 +5,8 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -121,8 +121,8 @@ func PositionOffset(content []byte, position Position) int {
 	return lineOffset + utf8Offset
 }
 
-// FromPosition converts a [xgotoken.Position] to a [Position].
-func FromPosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Position) Position {
+// FromPosition converts a [token.Position] to a [Position].
+func FromPosition(proj *xgo.Project, astFile *ast.File, position token.Position) Position {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
 	line := min(max(position.Line, 1), tokenFile.LineCount())
@@ -148,8 +148,8 @@ func FromPosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Pos
 	}
 }
 
-// ToPosition converts a [Position] to a [xgotoken.Position].
-func ToPosition(proj *xgo.Project, astFile *xgoast.File, position Position) xgotoken.Position {
+// ToPosition converts a [Position] to a [token.Position].
+func ToPosition(proj *xgo.Project, astFile *ast.File, position Position) token.Position {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
 	line := min(int(position.Line)+1, tokenFile.LineCount())
@@ -162,7 +162,7 @@ func ToPosition(proj *xgo.Project, astFile *xgoast.File, position Position) xgot
 	utf8Offset := UTF16PosToUTF8Offset(string(lineContent), int(position.Character))
 	column := utf8Offset + 1
 
-	return xgotoken.Position{
+	return token.Position{
 		Filename: tokenFile.Name(),
 		Offset:   relLineStart + utf8Offset,
 		Line:     line,
@@ -170,24 +170,24 @@ func ToPosition(proj *xgo.Project, astFile *xgoast.File, position Position) xgot
 	}
 }
 
-// PosAt returns the [xgotoken.Pos] of the given position in the given AST file.
-func PosAt(proj *xgo.Project, astFile *xgoast.File, position Position) xgotoken.Pos {
+// PosAt returns the [token.Pos] of the given position in the given AST file.
+func PosAt(proj *xgo.Project, astFile *ast.File, position Position) token.Pos {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	if int(position.Line) > tokenFile.LineCount()-1 {
-		return xgotoken.Pos(tokenFile.Base() + tokenFile.Size()) // EOF
+		return token.Pos(tokenFile.Base() + tokenFile.Size()) // EOF
 	}
 	return tokenFile.Pos(ToPosition(proj, astFile, position).Offset)
 }
 
-// RangeForASTFilePosition returns a [Range] for the given [xgotoken.Position]
+// RangeForASTFilePosition returns a [Range] for the given [token.Position]
 // in the given AST file.
-func RangeForASTFilePosition(proj *xgo.Project, astFile *xgoast.File, position xgotoken.Position) Range {
+func RangeForASTFilePosition(proj *xgo.Project, astFile *ast.File, position token.Position) Range {
 	p := FromPosition(proj, astFile, position)
 	return Range{Start: p, End: p}
 }
 
 // RangeForASTFileNode returns the [Range] for the given node in the given AST file.
-func RangeForASTFileNode(proj *xgo.Project, astFile *xgoast.File, node xgoast.Node) Range {
+func RangeForASTFileNode(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
 	fset := proj.Fset
 	return Range{
 		Start: FromPosition(proj, astFile, fset.Position(node.Pos())),
@@ -196,13 +196,13 @@ func RangeForASTFileNode(proj *xgo.Project, astFile *xgoast.File, node xgoast.No
 }
 
 // RangeForPos returns the [Range] for the given position.
-func RangeForPos(proj *xgo.Project, pos xgotoken.Pos) Range {
+func RangeForPos(proj *xgo.Project, pos token.Pos) Range {
 	astPkg, _ := proj.ASTPackage()
 	return RangeForASTFilePosition(proj, xgoutil.PosASTFile(proj.Fset, astPkg, pos), proj.Fset.Position(pos))
 }
 
 // RangeForPosEnd returns the [Range] for the given pos and end positions.
-func RangeForPosEnd(proj *xgo.Project, pos, end xgotoken.Pos) Range {
+func RangeForPosEnd(proj *xgo.Project, pos, end token.Pos) Range {
 	astPkg, _ := proj.ASTPackage()
 	astFile := xgoutil.PosASTFile(proj.Fset, astPkg, pos)
 	return Range{
@@ -212,7 +212,7 @@ func RangeForPosEnd(proj *xgo.Project, pos, end xgotoken.Pos) Range {
 }
 
 // RangeForNode returns the [Range] for the given node.
-func RangeForNode(proj *xgo.Project, node xgoast.Node) Range {
+func RangeForNode(proj *xgo.Project, node ast.Node) Range {
 	astPkg, _ := proj.ASTPackage()
 	return RangeForASTFileNode(proj, xgoutil.NodeASTFile(proj.Fset, astPkg, node), node)
 }

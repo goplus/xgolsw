@@ -38,7 +38,7 @@ func TestNewProject(t *testing.T) {
 		require.NotNil(t, proj)
 		assert.NotNil(t, proj.Fset)
 		assert.NotNil(t, proj.files)
-		assert.Len(t, proj.files, 0)
+		assert.Empty(t, proj.files)
 		assert.NotNil(t, proj.cacheBuilders)
 		assert.NotNil(t, proj.caches)
 		assert.NotNil(t, proj.fileCacheBuilders)
@@ -55,7 +55,7 @@ func TestNewProject(t *testing.T) {
 	t.Run("WithNilFiles", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
 		assert.NotNil(t, proj.files)
-		assert.Len(t, proj.files, 0)
+		assert.Empty(t, proj.files)
 	})
 
 	t.Run("WithProvidedFiles", func(t *testing.T) {
@@ -79,8 +79,8 @@ func TestNewProject(t *testing.T) {
 
 	t.Run("WithNoFeatures", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
-		assert.Len(t, proj.cacheBuilders, 0)
-		assert.Len(t, proj.fileCacheBuilders, 0)
+		assert.Empty(t, proj.cacheBuilders)
+		assert.Empty(t, proj.fileCacheBuilders)
 	})
 
 	t.Run("WithAllFeatures", func(t *testing.T) {
@@ -189,8 +189,8 @@ func TestProjectSnapshot(t *testing.T) {
 		snapshot := proj.Snapshot()
 
 		// Verify cache builders are copied.
-		assert.Equal(t, len(proj.cacheBuilders), len(snapshot.cacheBuilders))
-		assert.Equal(t, len(proj.fileCacheBuilders), len(snapshot.fileCacheBuilders))
+		assert.Len(t, snapshot.cacheBuilders, len(proj.cacheBuilders))
+		assert.Len(t, snapshot.fileCacheBuilders, len(proj.fileCacheBuilders))
 	})
 
 	t.Run("CachesAreCopied", func(t *testing.T) {
@@ -211,8 +211,8 @@ func TestProjectSnapshot(t *testing.T) {
 		snapshot := proj.Snapshot()
 
 		// Verify caches are copied.
-		assert.Equal(t, len(proj.caches), len(snapshot.caches))
-		assert.Equal(t, len(proj.fileCaches), len(snapshot.fileCaches))
+		assert.Len(t, snapshot.caches, len(proj.caches))
+		assert.Len(t, snapshot.fileCaches, len(proj.fileCaches))
 	})
 
 	t.Run("FilesSnapshotIsUpdated", func(t *testing.T) {
@@ -537,7 +537,10 @@ func TestProjectFile(t *testing.T) {
 		for range 100 {
 			wg.Go(func() {
 				f, ok := proj.File("test.go")
-				assert.True(t, ok)
+				if !ok {
+					assert.Fail(t, "file not found")
+					return
+				}
 				assert.Equal(t, []byte("package test"), f.Content)
 			})
 		}
@@ -634,7 +637,7 @@ func TestProjectPutFile(t *testing.T) {
 
 		// Get snapshot before adding.
 		snapshotBefore := proj.filesSnapshot.Load()
-		assert.Len(t, *snapshotBefore, 0)
+		assert.Empty(t, *snapshotBefore)
 
 		proj.PutFile("main.go", file("package main"))
 
@@ -744,7 +747,7 @@ func TestProjectDeleteFile(t *testing.T) {
 
 		// Verify files snapshot is empty.
 		snapshot := proj.filesSnapshot.Load()
-		assert.Len(t, *snapshot, 0)
+		assert.Empty(t, *snapshot)
 	})
 
 	t.Run("DeleteSameFileTwice", func(t *testing.T) {
@@ -1047,7 +1050,7 @@ func TestProjectUpdateFiles(t *testing.T) {
 
 		// Verify files snapshot is empty.
 		snapshot := proj.filesSnapshot.Load()
-		assert.Len(t, *snapshot, 0)
+		assert.Empty(t, *snapshot)
 	})
 
 	t.Run("UpdateFilesWithNilMap", func(t *testing.T) {
@@ -1073,7 +1076,7 @@ func TestProjectUpdateFiles(t *testing.T) {
 
 		// Get snapshot before update.
 		snapshotBefore := proj.filesSnapshot.Load()
-		assert.Len(t, *snapshotBefore, 0)
+		assert.Empty(t, *snapshotBefore)
 
 		newFiles := map[string]*File{
 			"main.go": file("package main"),
@@ -1171,14 +1174,14 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 
 		snapshot := proj.filesSnapshot.Load()
 		require.NotNil(t, snapshot)
-		assert.Len(t, *snapshot, 0)
+		assert.Empty(t, *snapshot)
 
 		// Update snapshot on empty project.
 		proj.updateFilesSnapshot()
 
 		updatedSnapshot := proj.filesSnapshot.Load()
 		require.NotNil(t, updatedSnapshot)
-		assert.Len(t, *updatedSnapshot, 0)
+		assert.Empty(t, *updatedSnapshot)
 	})
 
 	t.Run("SnapshotAfterFileRemoval", func(t *testing.T) {
@@ -1228,8 +1231,7 @@ func TestProjectUpdateFilesSnapshot(t *testing.T) {
 			for range 1000 {
 				currentSnapshot := snapshot
 				assert.Len(t, *currentSnapshot, 1)
-				_, ok := (*currentSnapshot)["initial.go"]
-				assert.True(t, ok)
+				assert.Contains(t, *currentSnapshot, "initial.go")
 			}
 		})
 

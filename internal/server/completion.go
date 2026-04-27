@@ -3,20 +3,20 @@ package server
 import (
 	"cmp"
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgoscanner "github.com/goplus/xgo/scanner"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -91,26 +91,26 @@ type completionContext struct {
 	itemSet *completionItemSet
 
 	proj           *xgo.Project
-	typeInfo       *xgotypes.Info
+	typeInfo       *types.Info
 	result         *compileResult
 	spxFile        string
-	astFile        *xgoast.File
-	astFileScope   *types.Scope
-	tokenFile      *xgotoken.File
-	pos            xgotoken.Pos
-	innermostScope *types.Scope
+	astFile        *ast.File
+	astFileScope   *gotypes.Scope
+	tokenFile      *token.File
+	pos            token.Pos
+	innermostScope *gotypes.Scope
 
 	kind completionKind
 
-	enclosingNode      xgoast.Node
-	enclosingCallExpr  *xgoast.CallExpr
-	selectorExpr       *xgoast.SelectorExpr
-	expectedTypes      []types.Type
-	expectedStructType *types.Struct
-	compositeLitType   *types.Named
-	assignTargets      []*xgoast.Ident
-	declValueSpec      *xgoast.ValueSpec
-	switchTag          xgoast.Expr
+	enclosingNode      ast.Node
+	enclosingCallExpr  *ast.CallExpr
+	selectorExpr       *ast.SelectorExpr
+	expectedTypes      []gotypes.Type
+	expectedStructType *gotypes.Struct
+	compositeLitType   *gotypes.Named
+	assignTargets      []*ast.Ident
+	declValueSpec      *ast.ValueSpec
+	switchTag          ast.Expr
 	returnIndex        int
 
 	inStringLit             bool
@@ -128,14 +128,14 @@ func (ctx *completionContext) analyze() {
 	}
 	for i, node := range slices.Backward(path) {
 		switch node := node.(type) {
-		case *xgoast.ImportSpec:
+		case *ast.ImportSpec:
 			ctx.kind = completionKindImport
-		case *xgoast.SelectorExpr:
+		case *ast.SelectorExpr:
 			if node.Sel == nil || node.Sel.End() >= ctx.pos {
 				ctx.kind = completionKindDot
 				ctx.selectorExpr = node
 			}
-		case *xgoast.CallExpr:
+		case *ast.CallExpr:
 			if ctx.enclosingCallExpr == nil {
 				ctx.enclosingCallExpr = node
 			}
@@ -155,14 +155,14 @@ func (ctx *completionContext) analyze() {
 			if shouldSetCallContext {
 				for _, arg := range node.Args {
 					// Check for SliceLit (XGo-style slice literals)
-					if sl, ok := arg.(*xgoast.SliceLit); ok {
+					if sl, ok := arg.(*ast.SliceLit); ok {
 						if sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
 							shouldSetCallContext = false
 							break
 						}
 					}
 
-					comp, ok := arg.(*xgoast.CompositeLit)
+					comp, ok := arg.(*ast.CompositeLit)
 					if !ok {
 						continue
 					}
@@ -182,7 +182,7 @@ func (ctx *completionContext) analyze() {
 						// Also don't set call context if we're in a struct literal
 						// field value position.
 						for _, elt := range comp.Elts {
-							if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+							if kv, ok := elt.(*ast.KeyValueExpr); ok {
 								if kv.Colon < ctx.pos {
 									shouldSetCallContext = false
 									break
@@ -201,15 +201,15 @@ func (ctx *completionContext) analyze() {
 				ctx.enclosingNode = node
 				ctx.valueExpression = true
 			}
-		case *xgoast.FuncLit:
+		case *ast.FuncLit:
 			// Skip FuncLit, as we want general completion inside function literals
 			// to allow access to all variables and identifiers.
 			continue
-		case *xgoast.SliceLit:
+		case *ast.SliceLit:
 			// Skip SliceLit, as XGo-style slice literals should allow general completion
 			// to access all variables and identifiers.
 			continue
-		case *xgoast.CompositeLit:
+		case *ast.CompositeLit:
 			typ := ctx.typeInfo.TypeOf(node)
 			if !xgoutil.IsValidType(typ) {
 				// Try to get type from the CompositeLit.Type field.
@@ -233,13 +233,13 @@ func (ctx *completionContext) analyze() {
 
 			// Skip slice and array literals, as they should also use general completion
 			// to allow variable suggestions inside the literal.
-			if _, ok := typ.Underlying().(*types.Slice); ok {
+			if _, ok := typ.Underlying().(*gotypes.Slice); ok {
 				if ctx.valueExprAtPos(node) != nil {
 					ctx.valueExpression = true
 				}
 				continue
 			}
-			if _, ok := typ.Underlying().(*types.Array); ok {
+			if _, ok := typ.Underlying().(*gotypes.Array); ok {
 				if ctx.valueExprAtPos(node) != nil {
 					ctx.valueExpression = true
 				}
@@ -251,7 +251,7 @@ func (ctx *completionContext) analyze() {
 				continue
 			}
 			typ = named
-			st, ok := named.Underlying().(*types.Struct)
+			st, ok := named.Underlying().(*gotypes.Struct)
 			if !ok {
 				continue
 			}
@@ -260,7 +260,7 @@ func (ctx *completionContext) analyze() {
 			// If so, we want general completion for the value, not struct field completion.
 			inFieldValue := false
 			for _, elt := range node.Elts {
-				if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+				if kv, ok := elt.(*ast.KeyValueExpr); ok {
 					// Check if cursor is in the value part of the key-value pair.
 					if kv.Colon < ctx.pos && ctx.pos <= kv.Value.End() {
 						inFieldValue = true
@@ -280,8 +280,8 @@ func (ctx *completionContext) analyze() {
 			ctx.expectedStructType = st
 			ctx.compositeLitType = named
 			ctx.enclosingNode = node
-		case *xgoast.AssignStmt:
-			if node.Tok != xgotoken.ASSIGN && node.Tok != xgotoken.DEFINE {
+		case *ast.AssignStmt:
+			if node.Tok != token.ASSIGN && node.Tok != token.DEFINE {
 				continue
 			}
 			for j, rhs := range node.Rhs {
@@ -295,9 +295,9 @@ func (ctx *completionContext) analyze() {
 					ctx.kind = completionKindAssignOrDefine
 					ctx.valueExpression = true
 					if typ := ctx.typeInfo.TypeOf(node.Lhs[j]); xgoutil.IsValidType(typ) {
-						ctx.expectedTypes = []types.Type{typ}
+						ctx.expectedTypes = []gotypes.Type{typ}
 					}
-					if ident, ok := node.Lhs[j].(*xgoast.Ident); ok {
+					if ident, ok := node.Lhs[j].(*ast.Ident); ok {
 						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
 						if defIdent != nil {
 							ctx.assignTargets = append(ctx.assignTargets, defIdent)
@@ -306,7 +306,7 @@ func (ctx *completionContext) analyze() {
 
 					if len(node.Lhs) > 1 && len(node.Rhs) == 1 {
 						ctx.expectedFuncResultCount = len(node.Lhs)
-						resultVars := make([]*types.Var, 0, len(node.Lhs))
+						resultVars := make([]*gotypes.Var, 0, len(node.Lhs))
 						hasAllTypes := true
 						for _, lhsExpr := range node.Lhs {
 							typ := ctx.typeInfo.TypeOf(lhsExpr)
@@ -314,17 +314,17 @@ func (ctx *completionContext) analyze() {
 								hasAllTypes = false
 								break
 							}
-							resultVars = append(resultVars, types.NewVar(lhsExpr.Pos(), ctx.typeInfo.Pkg, "", typ))
+							resultVars = append(resultVars, gotypes.NewVar(lhsExpr.Pos(), ctx.typeInfo.Pkg, "", typ))
 						}
 						if hasAllTypes {
-							sig := types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(resultVars...), false)
+							sig := gotypes.NewSignatureType(nil, nil, nil, nil, gotypes.NewTuple(resultVars...), false)
 							ctx.expectedTypes = append(ctx.expectedTypes, sig)
 						}
 					}
 					break
 				}
 			}
-		case *xgoast.ReturnStmt:
+		case *ast.ReturnStmt:
 			sig := ctx.enclosingFunction(path[i+1:])
 			if sig == nil {
 				continue
@@ -338,20 +338,20 @@ func (ctx *completionContext) analyze() {
 			// return statement. If the cursor is in a value position, we should allow
 			// general completion instead of restricting to return type completion.
 			shouldSetReturnContext := true
-			var mapValueExpectedType types.Type
+			var mapValueExpectedType gotypes.Type
 			for j, result := range node.Results {
 				// Check for CompositeLit directly or within UnaryExpr (e.g., &Struct{}).
-				var comp *xgoast.CompositeLit
-				var sliceLit *xgoast.SliceLit
+				var comp *ast.CompositeLit
+				var sliceLit *ast.SliceLit
 				switch expr := result.(type) {
-				case *xgoast.CompositeLit:
+				case *ast.CompositeLit:
 					comp = expr
-				case *xgoast.SliceLit:
+				case *ast.SliceLit:
 					// Handle XGo-style slice literal [...].
 					sliceLit = expr
-				case *xgoast.UnaryExpr:
+				case *ast.UnaryExpr:
 					// Handle &Struct{...} case.
-					if c, ok := expr.X.(*xgoast.CompositeLit); ok {
+					if c, ok := expr.X.(*ast.CompositeLit); ok {
 						comp = c
 					}
 				}
@@ -369,7 +369,7 @@ func (ctx *completionContext) analyze() {
 					// Check if we're in a value position inside a composite literal.
 					// This applies to maps, slices, and arrays.
 					if valueExpr := ctx.valueExprAtPos(comp); valueExpr != nil {
-						var expected types.Type
+						var expected gotypes.Type
 						if j < results.Len() {
 							expected = results.At(j).Type()
 						}
@@ -397,21 +397,21 @@ func (ctx *completionContext) analyze() {
 
 			if mapValueExpectedType == nil {
 				if idx := ctx.findReturnValueIndex(node); idx >= 0 && idx < results.Len() {
-					if mapType, ok := xgoutil.DerefType(results.At(idx).Type()).Underlying().(*types.Map); ok {
+					if mapType, ok := xgoutil.DerefType(results.At(idx).Type()).Underlying().(*gotypes.Map); ok {
 						mapValueExpectedType = mapType.Elem()
 					}
 				}
 			}
 			if mapValueExpectedType == nil {
 				for result := range results.Variables() {
-					if mapType, ok := xgoutil.DerefType(result.Type()).Underlying().(*types.Map); ok {
+					if mapType, ok := xgoutil.DerefType(result.Type()).Underlying().(*gotypes.Map); ok {
 						mapValueExpectedType = mapType.Elem()
 						break
 					}
 				}
 			}
 			if mapValueExpectedType != nil {
-				ctx.expectedTypes = []types.Type{mapValueExpectedType}
+				ctx.expectedTypes = []gotypes.Type{mapValueExpectedType}
 				ctx.valueExpression = true
 			}
 
@@ -420,32 +420,32 @@ func (ctx *completionContext) analyze() {
 				ctx.valueExpression = true
 				ctx.returnIndex = ctx.findReturnValueIndex(node)
 				if ctx.returnIndex >= 0 && ctx.returnIndex < results.Len() {
-					ctx.expectedTypes = []types.Type{results.At(ctx.returnIndex).Type()}
+					ctx.expectedTypes = []gotypes.Type{results.At(ctx.returnIndex).Type()}
 				}
 			}
-		case *xgoast.GoStmt:
+		case *ast.GoStmt:
 			if ctx.enclosingCallExpr == nil {
 				ctx.enclosingCallExpr = node.Call
 			}
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
 			ctx.valueExpression = true
-		case *xgoast.DeferStmt:
+		case *ast.DeferStmt:
 			if ctx.enclosingCallExpr == nil {
 				ctx.enclosingCallExpr = node.Call
 			}
 			ctx.kind = completionKindCall
 			ctx.enclosingNode = node.Call
 			ctx.valueExpression = true
-		case *xgoast.SwitchStmt:
+		case *ast.SwitchStmt:
 			ctx.kind = completionKindSwitchCase
 			ctx.switchTag = node.Tag
-		case *xgoast.SelectStmt:
+		case *ast.SelectStmt:
 			ctx.kind = completionKindSelect
-		case *xgoast.DeclStmt:
-			if genDecl, ok := node.Decl.(*xgoast.GenDecl); ok && (genDecl.Tok == xgotoken.VAR || genDecl.Tok == xgotoken.CONST) {
+		case *ast.DeclStmt:
+			if genDecl, ok := node.Decl.(*ast.GenDecl); ok && (genDecl.Tok == token.VAR || genDecl.Tok == token.CONST) {
 				for _, spec := range genDecl.Specs {
-					valueSpec, ok := spec.(*xgoast.ValueSpec)
+					valueSpec, ok := spec.(*ast.ValueSpec)
 					if !ok || len(valueSpec.Names) == 0 {
 						continue
 					}
@@ -454,21 +454,21 @@ func (ctx *completionContext) analyze() {
 					}
 					ctx.kind = completionKindDecl
 					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); xgoutil.IsValidType(typ) {
-						ctx.expectedTypes = []types.Type{typ}
+						ctx.expectedTypes = []gotypes.Type{typ}
 					}
 					ctx.assignTargets = valueSpec.Names
 					ctx.declValueSpec = valueSpec
 					break
 				}
 			}
-		case *xgoast.BasicLit:
-			if node.Kind == xgotoken.STRING {
+		case *ast.BasicLit:
+			if node.Kind == token.STRING {
 				if ctx.kind == completionKindUnknown {
 					ctx.kind = completionKindStringLit
 				}
 				ctx.inStringLit = true
 			}
-		case *xgoast.BlockStmt:
+		case *ast.BlockStmt:
 			ctx.kind = completionKindUnknown
 		}
 	}
@@ -491,8 +491,8 @@ func (ctx *completionContext) analyze() {
 
 // isInDisabledIdentifierContext reports whether the completion position is
 // inside an identifier context where completion should be suppressed.
-func (ctx *completionContext) isInDisabledIdentifierContext(path []xgoast.Node) bool {
-	ident := xgoutil.EnclosingNode[*xgoast.Ident](path)
+func (ctx *completionContext) isInDisabledIdentifierContext(path []ast.Node) bool {
+	ident := xgoutil.EnclosingNode[*ast.Ident](path)
 	if ident == nil {
 		return false
 	}
@@ -501,33 +501,33 @@ func (ctx *completionContext) isInDisabledIdentifierContext(path []xgoast.Node) 
 		return true
 	}
 
-	if funcDecl := xgoutil.EnclosingNode[*xgoast.FuncDecl](path); funcDecl != nil && funcDecl.Name == ident {
+	if funcDecl := xgoutil.EnclosingNode[*ast.FuncDecl](path); funcDecl != nil && funcDecl.Name == ident {
 		return true
 	}
 
-	if overloadDecl := xgoutil.EnclosingNode[*xgoast.OverloadFuncDecl](path); overloadDecl != nil && overloadDecl.Name == ident {
+	if overloadDecl := xgoutil.EnclosingNode[*ast.OverloadFuncDecl](path); overloadDecl != nil && overloadDecl.Name == ident {
 		return true
 	}
 
-	if importSpec := xgoutil.EnclosingNode[*xgoast.ImportSpec](path); importSpec != nil && importSpec.Name == ident {
+	if importSpec := xgoutil.EnclosingNode[*ast.ImportSpec](path); importSpec != nil && importSpec.Name == ident {
 		return true
 	}
 
-	if typeSpec := xgoutil.EnclosingNode[*xgoast.TypeSpec](path); typeSpec != nil && typeSpec.Name == ident {
+	if typeSpec := xgoutil.EnclosingNode[*ast.TypeSpec](path); typeSpec != nil && typeSpec.Name == ident {
 		return true
 	}
 
-	if valueSpec := xgoutil.EnclosingNode[*xgoast.ValueSpec](path); valueSpec != nil {
+	if valueSpec := xgoutil.EnclosingNode[*ast.ValueSpec](path); valueSpec != nil {
 		if slices.Contains(valueSpec.Names, ident) {
 			return true
 		}
 	}
 
-	if field := xgoutil.EnclosingNode[*xgoast.Field](path); field != nil && slices.Contains(field.Names, ident) {
+	if field := xgoutil.EnclosingNode[*ast.Field](path); field != nil && slices.Contains(field.Names, ident) {
 		return true
 	}
 
-	if labeledStmt := xgoutil.EnclosingNode[*xgoast.LabeledStmt](path); labeledStmt != nil && labeledStmt.Label == ident {
+	if labeledStmt := xgoutil.EnclosingNode[*ast.LabeledStmt](path); labeledStmt != nil && labeledStmt.Label == ident {
 		return true
 	}
 
@@ -548,33 +548,33 @@ func (ctx *completionContext) isInComment() bool {
 // isInImportStringLit reports whether the position of the current completion
 // context is inside an import string literal.
 func (ctx *completionContext) isInImportStringLit() bool {
-	var s xgoscanner.Scanner
+	var s scanner.Scanner
 	s.Init(ctx.tokenFile, ctx.astFile.Code, nil, 0)
 
 	var (
-		lastPos       xgotoken.Pos
-		lastTok       xgotoken.Token
+		lastPos       token.Pos
+		lastTok       token.Token
 		inImportGroup bool
 	)
 	for {
 		pos, tok, lit := s.Scan()
-		if tok == xgotoken.EOF {
+		if tok == token.EOF {
 			break
 		}
 
 		// Track if we're inside an import group.
-		if lastTok == xgotoken.IMPORT && tok == xgotoken.LPAREN {
+		if lastTok == token.IMPORT && tok == token.LPAREN {
 			inImportGroup = true
-		} else if tok == xgotoken.RPAREN {
+		} else if tok == token.RPAREN {
 			inImportGroup = false
 		}
 
 		// Check if we found `import` followed by `"` or we're in an import group.
-		if (lastTok == xgotoken.IMPORT || inImportGroup) &&
-			(tok == xgotoken.STRING || tok == xgotoken.ILLEGAL) {
+		if (lastTok == token.IMPORT || inImportGroup) &&
+			(tok == token.STRING || tok == token.ILLEGAL) {
 			// Check if position is after `import` keyword or within an import
 			// group, and inside a string literal (complete or incomplete).
-			if lastPos <= ctx.pos && ctx.pos <= pos+xgotoken.Pos(len(lit)) {
+			if lastPos <= ctx.pos && ctx.pos <= pos+token.Pos(len(lit)) {
 				return true
 			}
 		}
@@ -589,7 +589,7 @@ func (ctx *completionContext) isInImportStringLit() bool {
 // by a continuous sequence of non-whitespace characters (like an identifier or
 // a member access expression).
 func (ctx *completionContext) isLineStart() bool {
-	fileBase := xgotoken.Pos(ctx.tokenFile.Base())
+	fileBase := token.Pos(ctx.tokenFile.Base())
 	relPos := ctx.pos - fileBase
 	if relPos < 0 || int(relPos) > len(ctx.astFile.Code) {
 		return false
@@ -613,26 +613,26 @@ func (ctx *completionContext) isLineStart() bool {
 
 // isInIdentifier reports whether the position is within an identifier.
 func (ctx *completionContext) isInIdentifier() bool {
-	fileBase := xgotoken.Pos(ctx.tokenFile.Base())
+	fileBase := token.Pos(ctx.tokenFile.Base())
 	relPos := ctx.pos - fileBase
 	if relPos < 0 || int(relPos) > len(ctx.astFile.Code) {
 		return false
 	}
 
-	var s xgoscanner.Scanner
+	var s scanner.Scanner
 	s.Init(ctx.tokenFile, ctx.astFile.Code, nil, 0)
 
 	for {
 		pos, tok, lit := s.Scan()
-		if tok == xgotoken.EOF {
+		if tok == token.EOF {
 			break
 		}
 
 		// Check if position is inside this token. For identifiers, we should
 		// be either in the middle or at the end to trigger completion (not
 		// at the beginning).
-		if pos < ctx.pos && ctx.pos <= pos+xgotoken.Pos(len(lit)) {
-			return tok == xgotoken.IDENT
+		if pos < ctx.pos && ctx.pos <= pos+token.Pos(len(lit)) {
+			return tok == token.IDENT
 		}
 
 		// If we've scanned past our position, we're not in an identifier.
@@ -646,7 +646,7 @@ func (ctx *completionContext) isInIdentifier() bool {
 // isAfterNumberLiteral reports whether the position is immediately after a
 // number literal followed by a dot.
 func (ctx *completionContext) isAfterNumberLiteral() bool {
-	fileBase := xgotoken.Pos(ctx.tokenFile.Base())
+	fileBase := token.Pos(ctx.tokenFile.Base())
 	relPos := ctx.pos - fileBase
 	if relPos < 1 || int(relPos) > len(ctx.astFile.Code) {
 		return false
@@ -691,25 +691,25 @@ func (ctx *completionContext) isAfterNumberLiteral() bool {
 }
 
 // isMapType reports whether the given type is a map type.
-func isMapType(typ types.Type) bool {
+func isMapType(typ gotypes.Type) bool {
 	if !xgoutil.IsValidType(typ) {
 		return false
 	}
-	_, isMap := typ.Underlying().(*types.Map)
+	_, isMap := typ.Underlying().(*gotypes.Map)
 	return isMap
 }
 
-// isSliceOrArrayLiteral reports whether the given [xgoast.CompositeLit]
+// isSliceOrArrayLiteral reports whether the given [ast.CompositeLit]
 // represents a slice or array literal.
 //
 // In XGo, slice literals can be written without explicit type declaration when
 // passed as function arguments, e.g., `printSlice [1, 2, 3]`.
-func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) bool {
+func (ctx *completionContext) isSliceOrArrayLiteral(comp *ast.CompositeLit) bool {
 	// Check if we have type information.
 	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
 		underlying := typ.Underlying()
-		_, isSlice := underlying.(*types.Slice)
-		_, isArray := underlying.(*types.Array)
+		_, isSlice := underlying.(*gotypes.Slice)
+		_, isArray := underlying.(*gotypes.Array)
 		return isSlice || isArray
 	}
 
@@ -717,8 +717,8 @@ func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) b
 	if comp.Type != nil {
 		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
 			underlying := typ.Underlying()
-			_, isSlice := underlying.(*types.Slice)
-			_, isArray := underlying.(*types.Array)
+			_, isSlice := underlying.(*gotypes.Slice)
+			_, isArray := underlying.(*gotypes.Array)
 			return isSlice || isArray
 		}
 	}
@@ -728,7 +728,7 @@ func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) b
 	// If all elements are NOT key-value pairs, it might be a slice.
 	if len(comp.Elts) > 0 {
 		for _, elt := range comp.Elts {
-			if _, isKV := elt.(*xgoast.KeyValueExpr); isKV {
+			if _, isKV := elt.(*ast.KeyValueExpr); isKV {
 				// Has key-value pairs, so it's not a slice
 				return false
 			}
@@ -740,12 +740,12 @@ func (ctx *completionContext) isSliceOrArrayLiteral(comp *xgoast.CompositeLit) b
 	return false
 }
 
-// isMapLiteral reports whether the given [xgoast.CompositeLit] represents a map
+// isMapLiteral reports whether the given [ast.CompositeLit] represents a map
 // literal.
 //
 // In XGo, map literals can be written without explicit type declaration when
 // passed as function arguments, e.g., `println {"key": value}`.
-func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
+func (ctx *completionContext) isMapLiteral(comp *ast.CompositeLit) bool {
 	// Check if we have type information.
 	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
 		return isMapType(typ)
@@ -768,7 +768,7 @@ func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
 	// Note: An empty composite literal {} is ambiguous and could be either
 	// a map or struct, so we don't consider it a map without type info.
 	for _, elt := range comp.Elts {
-		if _, isKV := elt.(*xgoast.KeyValueExpr); isKV {
+		if _, isKV := elt.(*ast.KeyValueExpr); isKV {
 			return true
 		}
 	}
@@ -776,20 +776,20 @@ func (ctx *completionContext) isMapLiteral(comp *xgoast.CompositeLit) bool {
 }
 
 // mapLiteralElementType returns the element type for the given map literal.
-func (ctx *completionContext) mapLiteralElementType(comp *xgoast.CompositeLit) types.Type {
+func (ctx *completionContext) mapLiteralElementType(comp *ast.CompositeLit) gotypes.Type {
 	if comp == nil {
 		return nil
 	}
 
 	if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
-		if mapType, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
+		if mapType, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
 			return mapType.Elem()
 		}
 	}
 
 	if comp.Type != nil {
 		if typ := ctx.typeInfo.TypeOf(comp.Type); xgoutil.IsValidType(typ) {
-			if mapType, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
+			if mapType, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
 				return mapType.Elem()
 			}
 		}
@@ -800,10 +800,10 @@ func (ctx *completionContext) mapLiteralElementType(comp *xgoast.CompositeLit) t
 
 // valueExprAtPos returns the expression for the value located at the current
 // position within the given composite literal, handling nested literals.
-func (ctx *completionContext) valueExprAtPos(comp *xgoast.CompositeLit) xgoast.Expr {
+func (ctx *completionContext) valueExprAtPos(comp *ast.CompositeLit) ast.Expr {
 	for _, elt := range comp.Elts {
 		// Handle KeyValueExpr for maps and structs.
-		if kv, ok := elt.(*xgoast.KeyValueExpr); ok {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
 			if kv.Value == nil {
 				continue
 			}
@@ -811,7 +811,7 @@ func (ctx *completionContext) valueExprAtPos(comp *xgoast.CompositeLit) xgoast.E
 				continue
 			}
 
-			if innerComp, ok := kv.Value.(*xgoast.CompositeLit); ok {
+			if innerComp, ok := kv.Value.(*ast.CompositeLit); ok {
 				if inner := ctx.valueExprAtPos(innerComp); inner != nil {
 					return inner
 				}
@@ -821,7 +821,7 @@ func (ctx *completionContext) valueExprAtPos(comp *xgoast.CompositeLit) xgoast.E
 
 		// Handle direct expressions for slices and arrays.
 		if ctx.pos >= elt.Pos() && ctx.pos <= elt.End()+1 {
-			if innerComp, ok := elt.(*xgoast.CompositeLit); ok {
+			if innerComp, ok := elt.(*ast.CompositeLit); ok {
 				if inner := ctx.valueExprAtPos(innerComp); inner != nil {
 					return inner
 				}
@@ -834,12 +834,12 @@ func (ctx *completionContext) valueExprAtPos(comp *xgoast.CompositeLit) xgoast.E
 
 // expectedMapElementTypeAtPos returns the map element type for the current
 // position if it is within a map literal, handling nested map literals.
-func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.CompositeLit, expected types.Type) types.Type {
+func (ctx *completionContext) expectedMapElementTypeAtPos(comp *ast.CompositeLit, expected gotypes.Type) gotypes.Type {
 	if comp == nil || ctx.pos < comp.Pos() || ctx.pos > comp.End() {
 		return nil
 	}
 
-	var mapType types.Type
+	var mapType gotypes.Type
 	if expected != nil {
 		mapType = expected
 	} else if typ := ctx.typeInfo.TypeOf(comp); xgoutil.IsValidType(typ) {
@@ -847,7 +847,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 	}
 
 	for _, elt := range comp.Elts {
-		kv, ok := elt.(*xgoast.KeyValueExpr)
+		kv, ok := elt.(*ast.KeyValueExpr)
 		if !ok || kv.Value == nil {
 			continue
 		}
@@ -856,16 +856,16 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 		}
 
 		if typ := ctx.typeInfo.TypeOf(kv.Value); xgoutil.IsValidType(typ) {
-			if mapTyp, ok := xgoutil.DerefType(typ).Underlying().(*types.Map); ok {
+			if mapTyp, ok := xgoutil.DerefType(typ).Underlying().(*gotypes.Map); ok {
 				return mapTyp.Elem()
 			}
 			return typ
 		}
 
-		if innerComp, ok := kv.Value.(*xgoast.CompositeLit); ok {
-			var innerExpected types.Type
+		if innerComp, ok := kv.Value.(*ast.CompositeLit); ok {
+			var innerExpected gotypes.Type
 			if mapType != nil {
-				if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+				if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
 					innerExpected = mapTyp.Elem()
 				}
 			}
@@ -880,7 +880,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 		}
 
 		if mapType != nil {
-			if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+			if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
 				return mapTyp.Elem()
 			}
 		}
@@ -891,7 +891,7 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 	}
 
 	if mapType != nil {
-		if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*types.Map); ok {
+		if mapTyp, ok := xgoutil.DerefType(mapType).Underlying().(*gotypes.Map); ok {
 			return mapTyp.Elem()
 		}
 	}
@@ -902,23 +902,23 @@ func (ctx *completionContext) expectedMapElementTypeAtPos(comp *xgoast.Composite
 }
 
 // enclosingFunction gets the function signature containing the current position.
-func (ctx *completionContext) enclosingFunction(path []xgoast.Node) *types.Signature {
+func (ctx *completionContext) enclosingFunction(path []ast.Node) *gotypes.Signature {
 	for _, node := range path {
 		switch n := node.(type) {
-		case *xgoast.FuncDecl:
+		case *ast.FuncDecl:
 			obj := ctx.typeInfo.ObjectOf(n.Name)
 			if obj == nil {
 				continue
 			}
-			fun, ok := obj.(*types.Func)
+			fun, ok := obj.(*gotypes.Func)
 			if !ok {
 				continue
 			}
-			return fun.Type().(*types.Signature)
-		case *xgoast.FuncLit:
+			return fun.Type().(*gotypes.Signature)
+		case *ast.FuncLit:
 			// For function literals, get the type from the type info directly.
 			if typ := ctx.typeInfo.TypeOf(n); xgoutil.IsValidType(typ) {
-				if sig, ok := typ.(*types.Signature); ok {
+				if sig, ok := typ.(*gotypes.Signature); ok {
 					return sig
 				}
 			}
@@ -928,7 +928,7 @@ func (ctx *completionContext) enclosingFunction(path []xgoast.Node) *types.Signa
 }
 
 // findReturnValueIndex finds the index of the return value at the current position.
-func (ctx *completionContext) findReturnValueIndex(ret *xgoast.ReturnStmt) int {
+func (ctx *completionContext) findReturnValueIndex(ret *ast.ReturnStmt) int {
 	if len(ret.Results) == 0 {
 		return 0
 	}
@@ -1038,7 +1038,7 @@ func (ctx *completionContext) collectGeneral() error {
 			isSpxFileMatch := ctx.spxFile == name+".spx" || (ctx.spxFile == ctx.result.mainSpxFile && name == "Game")
 			isMainScopeObj := isInMainScope && isSpxFileMatch
 			if isThis || isMainScopeObj {
-				named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
+				named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
 				if ok && xgoutil.IsNamedStructType(named) {
 					for _, def := range ctx.result.spxDefinitionsForNamedStruct(named) {
 						if ctx.inSpxEventHandler && def.ID.Name != nil {
@@ -1136,16 +1136,16 @@ func (ctx *completionContext) collectDot() error {
 		return nil
 	}
 
-	if ident, ok := ctx.selectorExpr.X.(*xgoast.Ident); ok {
+	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
 		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-			if pkgName, ok := obj.(*types.PkgName); ok {
+			if pkgName, ok := obj.(*gotypes.PkgName); ok {
 				return ctx.collectPackageMembers(pkgName.Imported())
 			}
 		}
 	}
 
 	typ := ctx.typeInfo.TypeOf(ctx.selectorExpr.X)
-	if ident, ok := ctx.selectorExpr.X.(*xgoast.Ident); ok {
+	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
 		if propertyLikeType := ctx.resolvePropertyLikeExprType(ident, typ); xgoutil.IsValidType(propertyLikeType) {
 			typ = propertyLikeType
 		}
@@ -1162,7 +1162,7 @@ func (ctx *completionContext) collectDot() error {
 		typ = named
 	}
 
-	if iface, ok := typ.Underlying().(*types.Interface); ok {
+	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
 		ctx.collectInterfaceMethodCompletions(iface, named, nil)
 	} else if named != nil && xgoutil.IsNamedStructType(named) {
 		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
@@ -1173,14 +1173,14 @@ func (ctx *completionContext) collectDot() error {
 // resolvePropertyLikeExprType returns the result type of a property-like
 // function reference. If type-checker information is unavailable, it falls back
 // to [completionContext.resolvePropertyLikeFuncResultType].
-func (ctx *completionContext) resolvePropertyLikeExprType(ident *xgoast.Ident, typ types.Type) types.Type {
+func (ctx *completionContext) resolvePropertyLikeExprType(ident *ast.Ident, typ gotypes.Type) gotypes.Type {
 	if ident == nil || ident.Name == "" {
 		return nil
 	}
 
-	if sig, ok := typ.(*types.Signature); ok && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+	if sig, ok := typ.(*gotypes.Signature); ok && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
 		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-			if fun, ok := obj.(*types.Func); ok {
+			if fun, ok := obj.(*gotypes.Func); ok {
 				if fun.Name() != ident.Name && xgoutil.ToLowerCamelCase(fun.Name()) == ident.Name {
 					return sig.Results().At(0).Type()
 				}
@@ -1197,17 +1197,17 @@ func (ctx *completionContext) resolvePropertyLikeExprType(ident *xgoast.Ident, t
 
 // resolvePropertyLikeFuncResultType resolves the result type of a property-like
 // function from the enclosing scopes.
-func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *xgoast.Ident) types.Type {
+func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *ast.Ident) gotypes.Type {
 	if ident == nil || ident.Name == "" {
 		return nil
 	}
 
-	for scope := ctx.innermostScope; scope != nil && scope != types.Universe; scope = scope.Parent() {
+	for scope := ctx.innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
 		isInnermost := scope == ctx.innermostScope
 		isPkgScope := ctx.typeInfo.Pkg != nil && scope == ctx.typeInfo.Pkg.Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
-			fun, ok := obj.(*types.Func)
+			fun, ok := obj.(*gotypes.Func)
 			if !ok || fun.Name() == ident.Name || xgoutil.ToLowerCamelCase(fun.Name()) != ident.Name {
 				continue
 			}
@@ -1215,7 +1215,7 @@ func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *xgoast.Id
 				continue
 			}
 
-			sig, ok := fun.Type().(*types.Signature)
+			sig, ok := fun.Type().(*gotypes.Signature)
 			if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 				continue
 			}
@@ -1229,12 +1229,12 @@ func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *xgoast.Id
 // interface type and all of its embedded interfaces. The selectorNamed tracks
 // the named interface whose methods should determine the completion definition
 // name. The visited prevents infinite recursion for cyclic embeddings.
-func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Interface, selectorNamed *types.Named, visited map[*types.Interface]struct{}) {
+func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.Interface, selectorNamed *gotypes.Named, visited map[*gotypes.Interface]struct{}) {
 	if iface == nil {
 		return
 	}
 	if visited == nil {
-		visited = make(map[*types.Interface]struct{})
+		visited = make(map[*gotypes.Interface]struct{})
 	}
 	if _, ok := visited[iface]; ok {
 		return
@@ -1259,26 +1259,26 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Int
 	}
 
 	for embedded := range iface.EmbeddedTypes() {
-		embedded = types.Unalias(embedded)
+		embedded = gotypes.Unalias(embedded)
 
 		var (
-			named          *types.Named
-			ifaceToRecurse *types.Interface
+			named          *gotypes.Named
+			ifaceToRecurse *gotypes.Interface
 		)
 
 		switch t := embedded.(type) {
-		case *types.Named:
+		case *gotypes.Named:
 			named = t
-			ifaceToRecurse, _ = t.Underlying().(*types.Interface)
-		case *types.Interface:
+			ifaceToRecurse, _ = t.Underlying().(*gotypes.Interface)
+		case *gotypes.Interface:
 			ctx.collectInterfaceMethodCompletions(t, selectorNamed, visited)
 			continue
-		case *types.Pointer:
-			elem := types.Unalias(t.Elem())
-			if n, ok := elem.(*types.Named); ok {
+		case *gotypes.Pointer:
+			elem := gotypes.Unalias(t.Elem())
+			if n, ok := elem.(*gotypes.Named); ok {
 				named = n
-				ifaceToRecurse, _ = n.Underlying().(*types.Interface)
-			} else if iface, ok := elem.(*types.Interface); ok {
+				ifaceToRecurse, _ = n.Underlying().(*gotypes.Interface)
+			} else if iface, ok := elem.(*gotypes.Interface); ok {
 				ctx.collectInterfaceMethodCompletions(iface, selectorNamed, visited)
 				continue
 			}
@@ -1295,7 +1295,7 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *types.Int
 }
 
 // collectPackageMembers collects members of a package.
-func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
+func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) error {
 	if pkg == nil {
 		return nil
 	}
@@ -1318,7 +1318,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *types.Package) error {
 
 // collectCall collects function call completions.
 func (ctx *completionContext) collectCall() error {
-	callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr)
+	callExpr, ok := ctx.enclosingNode.(*ast.CallExpr)
 	if !ok {
 		return nil
 	}
@@ -1326,7 +1326,7 @@ func (ctx *completionContext) collectCall() error {
 	if !xgoutil.IsValidType(typ) {
 		return ctx.collectGeneral()
 	}
-	sig, ok := typ.(*types.Signature)
+	sig, ok := typ.(*gotypes.Signature)
 	if !ok {
 		return ctx.collectGeneral()
 	}
@@ -1338,13 +1338,13 @@ func (ctx *completionContext) collectCall() error {
 	if fun := xgoutil.FuncFromCallExpr(ctx.typeInfo, callExpr); fun != nil {
 		funcOverloads := xgoutil.ExpandXGoOverloadableFunc(fun)
 		if len(funcOverloads) > 0 {
-			expectedTypes := make([]types.Type, 0, len(funcOverloads))
+			expectedTypes := make([]gotypes.Type, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				sig := funcOverload.Type().(*types.Signature)
+				sig := funcOverload.Type().(*gotypes.Signature)
 				if argIndex < sig.Params().Len() {
 					expectedTypes = append(expectedTypes, sig.Params().At(argIndex).Type())
 				} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
-					expectedTypes = append(expectedTypes, sig.Params().At(sig.Params().Len()-1).Type().(*types.Slice).Elem())
+					expectedTypes = append(expectedTypes, sig.Params().At(sig.Params().Len()-1).Type().(*gotypes.Slice).Elem())
 				}
 			}
 			ctx.expectedTypes = deduplicateTypes(expectedTypes)
@@ -1353,22 +1353,22 @@ func (ctx *completionContext) collectCall() error {
 	}
 
 	if argIndex < sig.Params().Len() {
-		ctx.expectedTypes = []types.Type{sig.Params().At(argIndex).Type()}
+		ctx.expectedTypes = []gotypes.Type{sig.Params().At(argIndex).Type()}
 	} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
-		ctx.expectedTypes = []types.Type{sig.Params().At(sig.Params().Len() - 1).Type().(*types.Slice).Elem()}
+		ctx.expectedTypes = []gotypes.Type{sig.Params().At(sig.Params().Len() - 1).Type().(*gotypes.Slice).Elem()}
 	}
 	return ctx.collectGeneral()
 }
 
-func deduplicateTypes(expectedTypes []types.Type) []types.Type {
+func deduplicateTypes(expectedTypes []gotypes.Type) []gotypes.Type {
 	if len(expectedTypes) <= 1 {
 		return expectedTypes
 	}
 
-	deduplicated := make([]types.Type, 0, len(expectedTypes))
+	deduplicated := make([]gotypes.Type, 0, len(expectedTypes))
 	for _, expectedType := range expectedTypes {
-		if slices.ContainsFunc(deduplicated, func(existing types.Type) bool {
-			return types.Identical(existing, expectedType)
+		if slices.ContainsFunc(deduplicated, func(existing gotypes.Type) bool {
+			return gotypes.Identical(existing, expectedType)
 		}) {
 			continue
 		}
@@ -1378,7 +1378,7 @@ func deduplicateTypes(expectedTypes []types.Type) []types.Type {
 }
 
 // getCurrentArgIndex gets the current argument index in a function call.
-func (ctx *completionContext) getCurrentArgIndex(callExpr *xgoast.CallExpr) int {
+func (ctx *completionContext) getCurrentArgIndex(callExpr *ast.CallExpr) int {
 	if len(callExpr.Args) == 0 {
 		return 0
 	}
@@ -1409,7 +1409,7 @@ func (ctx *completionContext) collectReturn() error {
 }
 
 // collectTypeSpecific collects type-specific completions.
-func (ctx *completionContext) collectTypeSpecific(typ types.Type) error {
+func (ctx *completionContext) collectTypeSpecific(typ gotypes.Type) error {
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
@@ -1507,8 +1507,8 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	return ctx.getCurrentFileSpxSpriteResource()
 }
 
-func (ctx *completionContext) getEnclosingCallExpr() *xgoast.CallExpr {
-	if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
+func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
+	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
 		return callExpr
 	}
 	return ctx.enclosingCallExpr
@@ -1526,11 +1526,11 @@ func (ctx *completionContext) getCurrentFileSpxSpriteResource() *SpxSpriteResour
 // back to the current file's type.
 func (ctx *completionContext) getPropertyTarget() string {
 	if ctx.kind == completionKindCall {
-		if callExpr, ok := ctx.enclosingNode.(*xgoast.CallExpr); ok {
+		if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
 			named := PropertyTargetNamedTypeForCall(ctx.typeInfo, callExpr, ctx.spxFile, ctx.result.mainSpxFile)
 			if named != nil {
 				// For explicit-receiver calls, only consider main-package types.
-				if _, hasSel := callExpr.Fun.(*xgoast.SelectorExpr); hasSel && !xgoutil.IsInMainPkg(named.Obj()) {
+				if _, hasSel := callExpr.Fun.(*ast.SelectorExpr); hasSel && !xgoutil.IsInMainPkg(named.Obj()) {
 					return ""
 				}
 				return named.Obj().Name()
@@ -1555,24 +1555,24 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 	if obj == nil {
 		return
 	}
-	typeName, ok := obj.(*types.TypeName)
+	typeName, ok := obj.(*gotypes.TypeName)
 	if !ok {
 		return
 	}
-	typ := types.Unalias(typeName.Type())
+	typ := gotypes.Unalias(typeName.Type())
 	typ = xgoutil.DerefType(typ)
-	namedType, ok := typ.(*types.Named)
+	namedType, ok := typ.(*gotypes.Named)
 	if !ok {
 		return
 	}
 
 	mainPkgDoc, _ := ctx.proj.PkgDoc()
-	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc, make(map[*types.Named]bool), make(map[string]bool))
+	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc, make(map[*gotypes.Named]bool), make(map[string]bool))
 }
 
 // collectPropertyNamesFromNamedType collects property name completion items
 // from the given named type (including embedded types) using walkPropertyMembers.
-func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *types.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*types.Named]bool, seenNames map[string]bool) {
+func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*gotypes.Named]bool, seenNames map[string]bool) {
 	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
 		insertText := m.Name
 		if !ctx.inStringLit {
@@ -1606,10 +1606,10 @@ func (ctx *completionContext) collectStructLit() error {
 	seenFields := make(map[string]struct{})
 
 	// Collect already used fields.
-	if composite, ok := ctx.enclosingNode.(*xgoast.CompositeLit); ok {
+	if composite, ok := ctx.enclosingNode.(*ast.CompositeLit); ok {
 		for _, elem := range composite.Elts {
-			if kv, ok := elem.(*xgoast.KeyValueExpr); ok {
-				if ident, ok := kv.Key.(*xgoast.Ident); ok {
+			if kv, ok := elem.(*ast.KeyValueExpr); ok {
+				if ident, ok := kv.Key.(*ast.Ident); ok {
 					seenFields[ident.Name] = struct{}{}
 				}
 			}
@@ -1638,7 +1638,7 @@ func (ctx *completionContext) collectStructLit() error {
 func (ctx *completionContext) collectSwitchCase() error {
 	if ctx.switchTag == nil {
 		for _, name := range []string{"int", "string", "bool", "error"} {
-			if obj := types.Universe.Lookup(name); obj != nil {
+			if obj := gotypes.Universe.Lookup(name); obj != nil {
 				ctx.itemSet.addSpxDefs(GetSpxDefinitionForBuiltinObj(obj))
 			}
 		}
@@ -1669,12 +1669,12 @@ func (ctx *completionContext) collectSwitchCase() error {
 	scope := pkg.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
-		c, ok := obj.(*types.Const)
+		c, ok := obj.(*gotypes.Const)
 		if !ok {
 			continue
 		}
 
-		if types.Identical(c.Type(), typ) {
+		if gotypes.Identical(c.Type(), typ) {
 			ctx.itemSet.addSpxDefs(GetSpxDefinitionForConst(c, pkgDoc))
 		}
 	}
@@ -1731,10 +1731,10 @@ type completionItemSet struct {
 	items                         []CompletionItem
 	seenSpxDefs                   map[string]struct{}
 	supportedKinds                map[CompletionItemKind]struct{}
-	isCompatibleWithExpectedTypes func(typ types.Type) bool
+	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
 	disallowVoidFuncs             bool
 	expectedFuncResultCount       int
-	expectedTypes                 []types.Type
+	expectedTypes                 []gotypes.Type
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
@@ -1771,13 +1771,13 @@ func (s *completionItemSet) setExpectedFuncResultCount(count int) {
 }
 
 // setExpectedTypes sets the expected types for the completion items.
-func (s *completionItemSet) setExpectedTypes(expectedTypes []types.Type) {
+func (s *completionItemSet) setExpectedTypes(expectedTypes []gotypes.Type) {
 	if len(expectedTypes) == 0 {
 		return
 	}
 
 	s.expectedTypes = expectedTypes
-	s.isCompatibleWithExpectedTypes = func(typ types.Type) bool {
+	s.isCompatibleWithExpectedTypes = func(typ gotypes.Type) bool {
 		for _, expectedType := range expectedTypes {
 			if xgoutil.IsValidType(expectedType) {
 				// First check direct compatibility.
@@ -1810,7 +1810,7 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 	for _, spxDef := range spxDefs {
 		if s.expectedFuncResultCount > 0 {
-			if sig, ok := spxDef.TypeHint.(*types.Signature); ok {
+			if sig, ok := spxDef.TypeHint.(*gotypes.Signature); ok {
 				resultCount := sig.Results().Len()
 				// Exclude multi-return functions with mismatched count.
 				// Single-return functions are allowed to fall through for further type checks.
@@ -1820,13 +1820,13 @@ func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 			}
 		}
 		if s.disallowVoidFuncs && spxDef.CompletionItemKind == FunctionCompletion {
-			if sig, ok := spxDef.TypeHint.(*types.Signature); ok && sig.Results().Len() == 0 {
+			if sig, ok := spxDef.TypeHint.(*gotypes.Signature); ok && sig.Results().Len() == 0 {
 				continue
 			}
 		}
 		if s.isCompatibleWithExpectedTypes != nil {
 			typeToCompare := spxDef.TypeHint
-			if sig, ok := typeToCompare.(*types.Signature); ok {
+			if sig, ok := typeToCompare.(*gotypes.Signature); ok {
 				switch sig.Results().Len() {
 				case 0:
 					// Void functions are not compatible with any expected type.

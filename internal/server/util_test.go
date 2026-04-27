@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -223,13 +223,13 @@ func TestFromPosition(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		code     string
-		position xgotoken.Position
+		position token.Position
 		want     Position
 	}{
 		{
 			name: "FirstCharacterOfFile",
 			code: "package main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 1,
 			},
@@ -241,7 +241,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "MiddleOfFirstLine",
 			code: "package main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 8,
 			},
@@ -253,7 +253,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "EndOfFirstLine",
 			code: "package main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 13,
 			},
@@ -265,7 +265,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "SecondLineStart",
 			code: "package main\nimport \"fmt\"",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   2,
 				Column: 1,
 			},
@@ -277,7 +277,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "SecondLineMiddle",
 			code: "package main\nimport \"fmt\"",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   2,
 				Column: 7,
 			},
@@ -289,7 +289,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "WithCJKCharacters",
 			code: "// 世界\npackage main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 4, // After "// "
 			},
@@ -301,7 +301,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "AfterCJKCharacters",
 			code: "// 世界\npackage main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 8, // After "// 世界" (UTF-8: 3 + 3 + 3 = 9 bytes, but column is 8)
 			},
@@ -313,7 +313,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "WithEmoji",
 			code: "// 😀\npackage main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 4, // After "// "
 			},
@@ -325,7 +325,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "AfterEmoji",
 			code: "// 😀\npackage main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 8, // After "// 😀" (UTF-8: 3 + 4 = 7 bytes, column would be 8)
 			},
@@ -337,7 +337,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "EmptyLine",
 			code: "package main\n\nfunc main() {}",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   2,
 				Column: 1,
 			},
@@ -349,7 +349,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "WithTabs",
 			code: "\tpackage main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 2,
 			},
@@ -361,7 +361,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ColumnExceedsLineLength",
 			code: "abc",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 10, // Beyond the line length
 			},
@@ -373,7 +373,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ZeroLineAndColumn",
 			code: "package main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   0, // Invalid line (will be corrected to 1)
 				Column: 0, // Invalid column (will be corrected to 1)
 			},
@@ -385,7 +385,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "NegativeLineAndColumn",
 			code: "package main",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   -1, // Invalid line (will be corrected to 1)
 				Column: -1, // Invalid column (will be corrected to 1)
 			},
@@ -397,7 +397,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ColumnExceedsLineLengthWithNewline",
 			code: "abc\ndef",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 10, // Beyond the first line length
 			},
@@ -409,7 +409,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ColumnExceedsLineLengthMultiLine",
 			code: "first\nsecond line\nthird",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 20, // Way beyond the first line
 			},
@@ -421,7 +421,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ColumnExactlyAtNewline",
 			code: "test\nnext",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 5, // Points to the newline character position
 			},
@@ -433,7 +433,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "ColumnAfterNewline",
 			code: "line1\nline2",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 6, // Points after the newline character
 			},
@@ -445,7 +445,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "LastLineWithoutNewline",
 			code: "first\nlast",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   2,
 				Column: 5, // Points to end of last line (no newline after it)
 			},
@@ -457,7 +457,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "LineExceedsFileLineCount",
 			code: "line1\nline2",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   5, // File only has 2 lines
 				Column: 1,
 			},
@@ -469,7 +469,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "MultiByteCharacterMidLine",
 			code: "var café = 1",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 5, // After "var "
 			},
@@ -481,7 +481,7 @@ func TestFromPosition(t *testing.T) {
 		{
 			name: "AfterAccentedCharacter",
 			code: "var café = 1",
-			position: xgotoken.Position{
+			position: token.Position{
 				Line:   1,
 				Column: 9, // After "var café"
 			},
@@ -492,7 +492,7 @@ func TestFromPosition(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			fset := xgotoken.NewFileSet()
+			fset := token.NewFileSet()
 			files := map[string]*xgo.File{
 				"test.gop": {Content: []byte(tt.code)},
 			}

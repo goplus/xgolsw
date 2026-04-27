@@ -28,6 +28,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireMapStringAny(t *testing.T, data any) map[string]any {
+	t.Helper()
+
+	result, ok := data.(map[string]any)
+	require.True(t, ok, "want map[string]any, got %T", data)
+	return result
+}
+
 func TestProjectRegisterCacheBuilder(t *testing.T) {
 	t.Run("RegisterNewCacheBuilder", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
@@ -145,7 +153,7 @@ func TestProjectRegisterCacheBuilder(t *testing.T) {
 		data, err := proj.Cache(testCacheKind{})
 		require.NoError(t, err)
 
-		result := data.(map[string]any)
+		result := requireMapStringAny(t, data)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
 		assert.Equal(t, 2, result["file_count"])
 	})
@@ -277,7 +285,7 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
 		require.NoError(t, err)
 
-		result := data.(map[string]any)
+		result := requireMapStringAny(t, data)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
 		assert.Equal(t, "test.go", result["file_path"])
 		assert.Equal(t, len("package test\n\nfunc test() {}"), result["content_len"])
@@ -440,11 +448,11 @@ func TestProjectCache(t *testing.T) {
 		data, err := proj.Cache(testCacheKind{})
 		require.NoError(t, err)
 
-		result := data.(map[string]any)
+		result := requireMapStringAny(t, data)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
 		assert.Equal(t, 2, result["file_count"])
-		expectedSize := len("package main") + len("package main\n\nfunc test() {}")
-		assert.Equal(t, expectedSize, result["total_size"])
+		wantSize := len("package main") + len("package main\n\nfunc test() {}")
+		assert.Equal(t, wantSize, result["total_size"])
 	})
 
 	t.Run("ConcurrentCacheBuildingPreventsDuplication", func(t *testing.T) {
@@ -724,7 +732,7 @@ func TestProjectFileCache(t *testing.T) {
 		data, err := proj.FileCache(testCacheKind{}, "test.go")
 		require.NoError(t, err)
 
-		result := data.(map[string]any)
+		result := requireMapStringAny(t, data)
 		assert.Equal(t, "example.com/test", result["pkg_path"])
 		assert.Equal(t, "test.go", result["file_path"])
 		assert.Equal(t, "package test\n\nfunc test() {}", result["content"])

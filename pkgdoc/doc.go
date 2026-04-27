@@ -17,11 +17,11 @@
 package pkgdoc
 
 import (
-	"go/ast"
-	"go/doc"
-	"go/token"
+	goast "go/ast"
+	godoc "go/doc"
 	"strings"
 
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -56,8 +56,8 @@ type TypeDoc struct {
 }
 
 // NewGo creates a new [PkgDoc] from the given Go [ast.Package].
-func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
-	docPkg := doc.New(pkg, pkgPath, doc.AllDecls|doc.AllMethods|doc.PreserveAST)
+func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
+	docPkg := godoc.New(pkg, pkgPath, godoc.AllDecls|godoc.AllMethods|godoc.PreserveAST)
 	pkgDoc := &PkgDoc{
 		Doc:    docPkg.Doc,
 		Path:   pkgPath,
@@ -111,17 +111,17 @@ func NewGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		typeDoc := pkgDoc.typeDoc(t.Name)
 		typeDoc.Doc = t.Doc
 		for _, spec := range t.Decl.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
+			typeSpec, ok := spec.(*goast.TypeSpec)
 			if !ok {
 				continue
 			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
+			structType, ok := typeSpec.Type.(*goast.StructType)
 			if !ok {
 				continue
 			}
 			for _, field := range structType.Fields.List {
 				if len(field.Names) == 0 {
-					if ident, ok := field.Type.(*ast.Ident); ok && token.IsExported(ident.Name) {
+					if ident, ok := field.Type.(*goast.Ident); ok && token.IsExported(ident.Name) {
 						typeDoc.Fields[ident.Name] = field.Doc.Text()
 					}
 				} else {

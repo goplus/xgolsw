@@ -1,28 +1,28 @@
 package server
 
 import (
-	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"testing"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestResolvedNamedType(t *testing.T) {
-	pkg := types.NewPackage("example.com/pkg", "pkg")
-	named := types.NewNamed(types.NewTypeName(token.NoPos, pkg, "Point", nil), types.NewStruct(nil, nil), nil)
-	aliasToNamed := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "PointAlias", nil), named)
-	aliasChainToNamed := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "PointAliasChain", nil), aliasToNamed)
-	aliasToBasic := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "StringAlias", nil), types.Typ[types.String])
-	aliasToPointerNamed := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "PointPtrAlias", nil), types.NewPointer(named))
-	aliasChainToPointerNamed := types.NewAlias(types.NewTypeName(token.NoPos, pkg, "PointPtrAliasChain", nil), aliasToPointerNamed)
+	pkg := gotypes.NewPackage("example.com/pkg", "pkg")
+	named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Point", nil), gotypes.NewStruct(nil, nil), nil)
+	aliasToNamed := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "PointAlias", nil), named)
+	aliasChainToNamed := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "PointAliasChain", nil), aliasToNamed)
+	aliasToBasic := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "StringAlias", nil), gotypes.Typ[gotypes.String])
+	aliasToPointerNamed := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "PointPtrAlias", nil), gotypes.NewPointer(named))
+	aliasChainToPointerNamed := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "PointPtrAliasChain", nil), aliasToPointerNamed)
 
 	for _, tt := range []struct {
 		name string
-		typ  types.Type
-		want *types.Named
+		typ  gotypes.Type
+		want *gotypes.Named
 	}{
 		{
 			name: "Nil",
@@ -36,7 +36,7 @@ func TestResolvedNamedType(t *testing.T) {
 		},
 		{
 			name: "PointerToNamed",
-			typ:  types.NewPointer(named),
+			typ:  gotypes.NewPointer(named),
 			want: named,
 		},
 		{
@@ -46,7 +46,7 @@ func TestResolvedNamedType(t *testing.T) {
 		},
 		{
 			name: "PointerToAliasToNamed",
-			typ:  types.NewPointer(aliasToNamed),
+			typ:  gotypes.NewPointer(aliasToNamed),
 			want: named,
 		},
 		{
@@ -56,7 +56,7 @@ func TestResolvedNamedType(t *testing.T) {
 		},
 		{
 			name: "Basic",
-			typ:  types.Typ[types.Int],
+			typ:  gotypes.Typ[gotypes.Int],
 			want: nil,
 		},
 		{
@@ -87,29 +87,29 @@ func TestResolvedNamedType(t *testing.T) {
 }
 
 func TestPropertyTargetNamedTypeForCall(t *testing.T) {
-	newNamed := func(pkg *types.Package, name string) *types.Named {
-		return types.NewNamed(types.NewTypeName(token.NoPos, pkg, name, nil), types.NewStruct(nil, nil), nil)
+	newNamed := func(pkg *gotypes.Package, name string) *gotypes.Named {
+		return gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, name, nil), gotypes.NewStruct(nil, nil), nil)
 	}
 
 	for _, tt := range []struct {
 		name       string
-		build      func() (*xgotypes.Info, *xgoast.CallExpr, string, string)
+		build      func() (*types.Info, *ast.CallExpr, string, string)
 		wantName   string
 		wantResult bool
 	}{
 		{
 			name: "SelectorReceiverNamed",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 				sprite := newNamed(pkg, "Sprite")
 
-				recvIdent := &xgoast.Ident{Name: "sprite"}
-				info := &xgotypes.Info{Pkg: pkg}
-				info.Types = map[xgoast.Expr]types.TypeAndValue{
+				recvIdent := &ast.Ident{Name: "sprite"}
+				info := &types.Info{Pkg: pkg}
+				info.Types = map[ast.Expr]gotypes.TypeAndValue{
 					recvIdent: {Type: sprite},
 				}
 
-				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: recvIdent, Sel: &ast.Ident{Name: "Show"}}}
 				return info, call, "Sprite.spx", "main.spx"
 			},
 			wantName:   "Sprite",
@@ -117,17 +117,17 @@ func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 		},
 		{
 			name: "SelectorReceiverPointer",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 				sprite := newNamed(pkg, "Sprite")
 
-				recvIdent := &xgoast.Ident{Name: "sprite"}
-				info := &xgotypes.Info{Pkg: pkg}
-				info.Types = map[xgoast.Expr]types.TypeAndValue{
-					recvIdent: {Type: types.NewPointer(sprite)},
+				recvIdent := &ast.Ident{Name: "sprite"}
+				info := &types.Info{Pkg: pkg}
+				info.Types = map[ast.Expr]gotypes.TypeAndValue{
+					recvIdent: {Type: gotypes.NewPointer(sprite)},
 				}
 
-				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: recvIdent, Sel: &ast.Ident{Name: "Show"}}}
 				return info, call, "Sprite.spx", "main.spx"
 			},
 			wantName:   "Sprite",
@@ -135,17 +135,17 @@ func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 		},
 		{
 			name: "SelectorReceiverCallExpr",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 				sprite := newNamed(pkg, "Sprite")
 
-				getSprite := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "getSprite"}}
-				info := &xgotypes.Info{Pkg: pkg}
-				info.Types = map[xgoast.Expr]types.TypeAndValue{
+				getSprite := &ast.CallExpr{Fun: &ast.Ident{Name: "getSprite"}}
+				info := &types.Info{Pkg: pkg}
+				info.Types = map[ast.Expr]gotypes.TypeAndValue{
 					getSprite: {Type: sprite},
 				}
 
-				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: getSprite, Sel: &xgoast.Ident{Name: "Show"}}}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: getSprite, Sel: &ast.Ident{Name: "Show"}}}
 				return info, call, "Sprite.spx", "main.spx"
 			},
 			wantName:   "Sprite",
@@ -153,42 +153,42 @@ func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 		},
 		{
 			name: "SelectorReceiverMissingType",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 
-				recvIdent := &xgoast.Ident{Name: "sprite"}
-				info := &xgotypes.Info{Pkg: pkg}
+				recvIdent := &ast.Ident{Name: "sprite"}
+				info := &types.Info{Pkg: pkg}
 
-				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: recvIdent, Sel: &ast.Ident{Name: "Show"}}}
 				return info, call, "Sprite.spx", "main.spx"
 			},
 			wantResult: false,
 		},
 		{
 			name: "SelectorReceiverNonNamedType",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 
-				recvIdent := &xgoast.Ident{Name: "s"}
-				info := &xgotypes.Info{Pkg: pkg}
-				info.Types = map[xgoast.Expr]types.TypeAndValue{
-					recvIdent: {Type: types.Typ[types.String]},
+				recvIdent := &ast.Ident{Name: "s"}
+				info := &types.Info{Pkg: pkg}
+				info.Types = map[ast.Expr]gotypes.TypeAndValue{
+					recvIdent: {Type: gotypes.Typ[gotypes.String]},
 				}
 
-				call := &xgoast.CallExpr{Fun: &xgoast.SelectorExpr{X: recvIdent, Sel: &xgoast.Ident{Name: "Show"}}}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: recvIdent, Sel: &ast.Ident{Name: "Show"}}}
 				return info, call, "Sprite.spx", "main.spx"
 			},
 			wantResult: false,
 		},
 		{
 			name: "ImplicitMainSpxResolvesGame",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 				game := newNamed(pkg, "Game")
 				_ = pkg.Scope().Insert(game.Obj())
 
-				info := &xgotypes.Info{Pkg: pkg}
-				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				info := &types.Info{Pkg: pkg}
+				call := &ast.CallExpr{Fun: &ast.Ident{Name: "showVar"}}
 				return info, call, "dir/main.spx", "main.spx"
 			},
 			wantName:   "Game",
@@ -196,13 +196,13 @@ func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 		},
 		{
 			name: "ImplicitSpriteFileResolvesTypeByFileName",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
 				hero := newNamed(pkg, "Hero")
 				_ = pkg.Scope().Insert(hero.Obj())
 
-				info := &xgotypes.Info{Pkg: pkg}
-				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				info := &types.Info{Pkg: pkg}
+				call := &ast.CallExpr{Fun: &ast.Ident{Name: "showVar"}}
 				return info, call, "dir/Hero.spx", "main.spx"
 			},
 			wantName:   "Hero",
@@ -210,22 +210,22 @@ func TestPropertyTargetNamedTypeForCall(t *testing.T) {
 		},
 		{
 			name: "ImplicitLookupNotTypeName",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
-				_ = pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Enemy", types.Typ[types.Int]))
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
+				_ = pkg.Scope().Insert(gotypes.NewVar(token.NoPos, pkg, "Enemy", gotypes.Typ[gotypes.Int]))
 
-				info := &xgotypes.Info{Pkg: pkg}
-				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+				info := &types.Info{Pkg: pkg}
+				call := &ast.CallExpr{Fun: &ast.Ident{Name: "showVar"}}
 				return info, call, "dir/Enemy.spx", "main.spx"
 			},
 			wantResult: false,
 		},
 		{
 			name: "ImplicitEmptyTypeName",
-			build: func() (*xgotypes.Info, *xgoast.CallExpr, string, string) {
-				pkg := types.NewPackage("example.com/test", "test")
-				info := &xgotypes.Info{Pkg: pkg}
-				call := &xgoast.CallExpr{Fun: &xgoast.Ident{Name: "showVar"}}
+			build: func() (*types.Info, *ast.CallExpr, string, string) {
+				pkg := gotypes.NewPackage("example.com/test", "test")
+				info := &types.Info{Pkg: pkg}
+				call := &ast.CallExpr{Fun: &ast.Ident{Name: "showVar"}}
 				return info, call, "dir/.spx", "main.spx"
 			},
 			wantResult: false,

@@ -332,7 +332,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameBackdropResource(result, id.(SpxBackdropResourceID), "backdrop2")
+		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -378,7 +378,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameBackdropResource(result, id.(SpxBackdropResourceID), "backdrop2")
+		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -393,7 +393,7 @@ onStart => {
 		})
 
 		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 0)
+		require.Empty(t, mySpriteSpxChanges)
 	})
 
 	t.Run("TypedConstantName", func(t *testing.T) {
@@ -417,7 +417,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameBackdropResource(result, id.(SpxBackdropResourceID), "backdrop2")
+		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -464,7 +464,7 @@ onBackdrop "backdrop1", func() {}
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameBackdropResource(result, id.(SpxBackdropResourceID), "backdrop2")
+		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.EqualError(t, err, `backdrop resource "backdrop2" already exists`)
 		require.Nil(t, changes)
 	})
@@ -493,7 +493,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSoundResource(result, id.(SpxSoundResourceID), "Sound2")
+		changes, err := s.spxRenameSoundResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -535,7 +535,7 @@ play "Sound1"
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSoundResource(result, id.(SpxSoundResourceID), "Sound2")
+		changes, err := s.spxRenameSoundResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
 		require.EqualError(t, err, `sound resource "Sound2" already exists`)
 		require.Nil(t, changes)
 	})
@@ -563,7 +563,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteResource(result, id.(SpxSpriteResourceID), "Sprite2")
+		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -616,7 +616,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteResource(result, id.(SpxSpriteResourceID), "Sprite2")
+		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
 		require.EqualError(t, err, `sprite resource "Sprite2" already exists`)
 		require.Nil(t, changes)
 	})
@@ -646,7 +646,7 @@ func invalidFunc() {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteResource(result, id.(SpxSpriteResourceID), "Sprite2")
+		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -684,7 +684,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteCostumeResource(result, id.(SpxSpriteCostumeResourceID), "costume2")
+		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -730,7 +730,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteCostumeResource(result, id.(SpxSpriteCostumeResourceID), "costume2")
+		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
 		require.EqualError(t, err, `sprite costume resource "costume2" already exists`)
 		require.Nil(t, changes)
 	})
@@ -756,7 +756,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/costumes/costume1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteCostumeResource(result, id.(SpxSpriteCostumeResourceID), "costume2")
+		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
 		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
 		require.Nil(t, changes)
 	})
@@ -784,7 +784,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteAnimationResource(result, id.(SpxSpriteAnimationResourceID), "anim2")
+		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -830,7 +830,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteAnimationResource(result, id.(SpxSpriteAnimationResourceID), "anim2")
+		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
 		require.EqualError(t, err, `sprite animation resource "anim2" already exists`)
 		require.Nil(t, changes)
 	})
@@ -856,7 +856,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/animations/anim1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameSpriteAnimationResource(result, id.(SpxSpriteAnimationResourceID), "anim2")
+		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
 		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
 		require.Nil(t, changes)
 	})
@@ -882,7 +882,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameWidgetResource(result, id.(SpxWidgetResourceID), "widget2")
+		changes, err := s.spxRenameWidgetResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -916,7 +916,7 @@ onStart => {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
 		require.NoError(t, err)
 
-		changes, err := s.spxRenameWidgetResource(result, id.(SpxWidgetResourceID), "widget2")
+		changes, err := s.spxRenameWidgetResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
 		require.EqualError(t, err, `widget resource "widget2" already exists`)
 		require.Nil(t, changes)
 	})

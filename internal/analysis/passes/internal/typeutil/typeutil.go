@@ -1,19 +1,19 @@
 package typeutil
 
 import (
-	"go/types"
+	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // Callee returns the named target of a function call, if any:
 // a function, method, builtin, or variable.
 //
 // Functions and methods may potentially have type parameters.
-func Callee(info *xgotypes.Info, call *ast.CallExpr) types.Object {
+func Callee(info *types.Info, call *ast.CallExpr) gotypes.Object {
 	fun := astutil.Unparen(call.Fun)
 
 	// Look through type instantiation if necessary.
@@ -27,7 +27,7 @@ func Callee(info *xgotypes.Info, call *ast.CallExpr) types.Object {
 		fun, _, _, _ = UnpackIndexExpr(fun)
 	}
 
-	var obj types.Object
+	var obj gotypes.Object
 	switch fun := fun.(type) {
 	case *ast.Ident:
 		obj = info.Uses[fun] // type, var, builtin, or declared func
@@ -38,11 +38,11 @@ func Callee(info *xgotypes.Info, call *ast.CallExpr) types.Object {
 			obj = info.Uses[fun.Sel] // qualified identifier?
 		}
 	}
-	if _, ok := obj.(*types.TypeName); ok {
+	if _, ok := obj.(*gotypes.TypeName); ok {
 		return nil // T(x) is a conversion, not a call
 	}
 	// A Func is required to match instantiations.
-	if _, ok := obj.(*types.Func); isInstance && !ok {
+	if _, ok := obj.(*gotypes.Func); isInstance && !ok {
 		return nil // Was not a Func.
 	}
 	return obj
@@ -53,8 +53,8 @@ func Callee(info *xgotypes.Info, call *ast.CallExpr) types.Object {
 //
 // Note: for calls of instantiated functions and methods, StaticCallee returns
 // the corresponding generic function or method on the generic type.
-func StaticCallee(info *xgotypes.Info, call *ast.CallExpr) *types.Func {
-	if f, ok := Callee(info, call).(*types.Func); ok && !interfaceMethod(f) {
+func StaticCallee(info *types.Info, call *ast.CallExpr) *gotypes.Func {
+	if f, ok := Callee(info, call).(*gotypes.Func); ok && !interfaceMethod(f) {
 		return f
 	}
 	return nil
@@ -79,7 +79,7 @@ func UnpackIndexExpr(n ast.Node) (x ast.Expr, lbrack token.Pos, indices []ast.Ex
 	return nil, token.NoPos, nil, token.NoPos
 }
 
-func interfaceMethod(f *types.Func) bool {
-	recv := f.Type().(*types.Signature).Recv()
-	return recv != nil && types.IsInterface(recv.Type())
+func interfaceMethod(f *gotypes.Func) bool {
+	recv := f.Type().(*gotypes.Signature).Recv()
+	return recv != nil && gotypes.IsInterface(recv.Type())
 }

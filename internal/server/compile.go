@@ -2,7 +2,7 @@ package server
 
 import (
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"path"
 	"slices"
 	"strconv"
@@ -10,9 +10,9 @@ import (
 	"sync"
 
 	"github.com/goplus/gogen"
-	xgoast "github.com/goplus/xgo/ast"
-	xgoscanner "github.com/goplus/xgo/scanner"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
@@ -37,7 +37,7 @@ type compileResult struct {
 	mainSpxFile string
 
 	// spxSpriteTypes stores the spx sprite types.
-	spxSpriteTypes map[types.Type]struct{}
+	spxSpriteTypes map[gotypes.Type]struct{}
 
 	// spxResourceSet is the set of spx resources.
 	spxResourceSet SpxResourceSet
@@ -50,7 +50,7 @@ type compileResult struct {
 	seenSpxResourceRefs map[SpxResourceRef]struct{}
 
 	// spxSpriteResourceAutoBindings stores spx sprite resource auto-bindings.
-	spxSpriteResourceAutoBindings map[types.Object]struct{}
+	spxSpriteResourceAutoBindings map[gotypes.Object]struct{}
 
 	// diagnostics stores diagnostic messages for each document.
 	diagnostics map[DocumentURI][]Diagnostic
@@ -67,8 +67,8 @@ type compileResult struct {
 func newCompileResult(proj *xgo.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
-		spxSpriteTypes:                make(map[types.Type]struct{}),
-		spxSpriteResourceAutoBindings: make(map[types.Object]struct{}),
+		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
+		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
 	}
 }
@@ -76,7 +76,7 @@ func newCompileResult(proj *xgo.Project) *compileResult {
 // spxDefinitionsFor returns all spx definitions for the given object. It
 // returns multiple definitions only if the object is an XGo overloadable
 // function.
-func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName string) []SpxDefinition {
+func (r *compileResult) spxDefinitionsFor(obj gotypes.Object, selectorTypeName string) []SpxDefinition {
 	if obj == nil {
 		return nil
 	}
@@ -94,15 +94,15 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 
 	typeInfo, _ := r.proj.TypeInfo()
 	switch obj := obj.(type) {
-	case *types.Var:
+	case *gotypes.Var:
 		astPkg, _ := r.proj.ASTPackage()
 		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, obj)
 		return []SpxDefinition{GetSpxDefinitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
-	case *types.Const:
+	case *gotypes.Const:
 		return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
-	case *types.TypeName:
+	case *gotypes.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
-	case *types.Func:
+	case *gotypes.Func:
 		if typeInfo != nil {
 			if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil && defIdent.Implicit() {
 				return nil
@@ -119,7 +119,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 			return defs
 		}
 		return []SpxDefinition{GetSpxDefinitionForFunc(obj, selectorTypeName, pkgDoc)}
-	case *types.PkgName:
+	case *gotypes.PkgName:
 		return []SpxDefinition{GetSpxDefinitionForPkg(obj, pkgDoc)}
 	}
 	return nil
@@ -128,7 +128,7 @@ func (r *compileResult) spxDefinitionsFor(obj types.Object, selectorTypeName str
 // spxDefinitionsForIdent returns all spx definitions for the given identifier.
 // It returns multiple definitions only if the identifier is an XGo
 // overloadable function.
-func (r *compileResult) spxDefinitionsForIdent(ident *xgoast.Ident) []SpxDefinition {
+func (r *compileResult) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefinition {
 	if ident.Name == "_" {
 		return nil
 	}
@@ -141,9 +141,9 @@ func (r *compileResult) spxDefinitionsForIdent(ident *xgoast.Ident) []SpxDefinit
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
 // struct type.
-func (r *compileResult) spxDefinitionsForNamedStruct(named *types.Named) []SpxDefinition {
+func (r *compileResult) spxDefinitionsForNamedStruct(named *gotypes.Named) []SpxDefinition {
 	var defs []SpxDefinition
-	xgoutil.WalkStruct(named, func(member types.Object, selector *types.Named) bool {
+	xgoutil.WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
 		defs = append(defs, r.spxDefinitionsFor(member, selector.Obj().Name())...)
 		return true
 	})
@@ -152,7 +152,7 @@ func (r *compileResult) spxDefinitionsForNamedStruct(named *types.Named) []SpxDe
 
 // spxDefinitionForField returns the spx definition for the given field and
 // optional selector type name.
-func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName string) SpxDefinition {
+func (r *compileResult) spxDefinitionForField(field *gotypes.Var, selectorTypeName string) SpxDefinition {
 	var (
 		forceVar bool
 		pkgDoc   *pkgdoc.PkgDoc
@@ -176,7 +176,7 @@ func (r *compileResult) spxDefinitionForField(field *types.Var, selectorTypeName
 
 // spxDefinitionForMethod returns the spx definition for the given method and
 // optional selector type name.
-func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeName string) SpxDefinition {
+func (r *compileResult) spxDefinitionForMethod(method *gotypes.Func, selectorTypeName string) SpxDefinition {
 	var pkgDoc *pkgdoc.PkgDoc
 	if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
 		if defIdent := typeInfo.ObjToDef[method]; defIdent != nil {
@@ -198,7 +198,7 @@ func (r *compileResult) spxDefinitionForMethod(method *types.Func, selectorTypeN
 
 // isInSpxEventHandler checks if the given position is inside an spx event
 // handler callback.
-func (r *compileResult) isInSpxEventHandler(pos xgotoken.Pos) bool {
+func (r *compileResult) isInSpxEventHandler(pos token.Pos) bool {
 	astPkg, _ := r.proj.ASTPackage()
 	astFile := xgoutil.PosASTFile(r.proj.Fset, astPkg, pos)
 	if astFile == nil {
@@ -210,12 +210,12 @@ func (r *compileResult) isInSpxEventHandler(pos xgotoken.Pos) bool {
 	}
 
 	var isIn bool
-	xgoutil.WalkPathEnclosingInterval(astFile, pos-1, pos, false, func(node xgoast.Node) bool {
-		callExpr, ok := node.(*xgoast.CallExpr)
+	xgoutil.WalkPathEnclosingInterval(astFile, pos-1, pos, false, func(node ast.Node) bool {
+		callExpr, ok := node.(*ast.CallExpr)
 		if !ok || len(callExpr.Args) == 0 {
 			return true
 		}
-		funcIdent, ok := callExpr.Fun.(*xgoast.Ident)
+		funcIdent, ok := callExpr.Fun.(*ast.Ident)
 		if !ok {
 			return true
 		}
@@ -230,7 +230,7 @@ func (r *compileResult) isInSpxEventHandler(pos xgotoken.Pos) bool {
 }
 
 // spxResourceRefAtPosition returns the spx resource reference at the given position.
-func (r *compileResult) spxResourceRefAtPosition(position xgotoken.Position) *SpxResourceRef {
+func (r *compileResult) spxResourceRefAtPosition(position token.Position) *SpxResourceRef {
 	var (
 		bestRef      *SpxResourceRef
 		bestNodeSpan int
@@ -256,7 +256,7 @@ func (r *compileResult) spxResourceRefAtPosition(position xgotoken.Position) *Sp
 }
 
 // spxImportsAtASTFilePosition returns the import at the given position in the given AST file.
-func (r *compileResult) spxImportsAtASTFilePosition(astFile *xgoast.File, position xgotoken.Position) *SpxReferencePkg {
+func (r *compileResult) spxImportsAtASTFilePosition(astFile *ast.File, position token.Position) *SpxReferencePkg {
 	fset := r.proj.Fset
 	for _, imp := range astFile.Imports {
 		nodePos := fset.Position(imp.Pos())
@@ -286,14 +286,14 @@ func (r *compileResult) spxImportsAtASTFilePosition(astFile *xgoast.File, positi
 }
 
 // hasSpxSpriteType reports whether the given type is an spx sprite type.
-func (r *compileResult) hasSpxSpriteType(typ types.Type) bool {
+func (r *compileResult) hasSpxSpriteType(typ gotypes.Type) bool {
 	_, ok := r.spxSpriteTypes[typ]
 	return ok
 }
 
 // hasSpxSpriteResourceAutoBinding reports whether the given object is an spx
 // resource auto-binding.
-func (r *compileResult) hasSpxSpriteResourceAutoBinding(obj types.Object) bool {
+func (r *compileResult) hasSpxSpriteResourceAutoBinding(obj gotypes.Object) bool {
 	_, ok := r.spxSpriteResourceAutoBindings[obj]
 	return ok
 }
@@ -370,7 +370,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		astFile, err := snapshot.ASTFile(spxFile)
 		if err != nil {
 			var (
-				errorList xgoscanner.ErrorList
+				errorList scanner.ErrorList
 				codeError *gogen.CodeError
 			)
 			if errors.As(err, &errorList) && astFile.Pos().IsValid() {
@@ -460,7 +460,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		spriteName := strings.TrimSuffix(path.Base(file), ".spx")
 		obj := pkg.Scope().Lookup(spriteName)
 		if obj != nil {
-			named, ok := xgoutil.DerefType(obj.Type()).(*types.Named)
+			named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
 			if ok {
 				result.spxSpriteTypes[named] = struct{}{}
 			}
@@ -477,7 +477,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 // compileAndGetASTFileForDocumentURI handles common compilation and file
 // retrieval logic for a given document URI. The returned astFile is probably
 // nil even if the compilation succeeded.
-func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *compileResult, spxFile string, astFile *xgoast.File, err error) {
+func (s *Server) compileAndGetASTFileForDocumentURI(uri DocumentURI) (result *compileResult, spxFile string, astFile *ast.File, err error) {
 	spxFile, err = s.fromDocumentURI(uri)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to get file path from document URI %q: %w", uri, err)
@@ -543,11 +543,11 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
 		// because a cached nil (unknown target → skip validation) must be
 		// distinguished from a missing entry.
-		propertyNamesCached := make(map[*xgoast.CallExpr]struct{})
-		propertyNamesCache := make(map[*xgoast.CallExpr][]string)
+		propertyNamesCached := make(map[*ast.CallExpr]struct{})
+		propertyNamesCache := make(map[*ast.CallExpr][]string)
 		pass := &protocol.Pass{
 			Fset:      fset,
-			Files:     []*xgoast.File{astFile},
+			Files:     []*ast.File{astFile},
 			Pkg:       typeInfo.Pkg,
 			TypesInfo: typeInfo,
 			Report: func(d protocol.Diagnostic) {
@@ -558,10 +558,10 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 				})
 			},
 			ResultOf: map[*protocol.Analyzer]any{
-				inspect.Analyzer: inspector.New([]*xgoast.File{astFile}),
+				inspect.Analyzer: inspector.New([]*ast.File{astFile}),
 			},
 			IsPropertyNameType: IsSpxPropertyNameType,
-			GetPropertyNamesForCall: func(call *xgoast.CallExpr) []string {
+			GetPropertyNamesForCall: func(call *ast.CallExpr) []string {
 				if _, ok := propertyNamesCached[call]; ok {
 					return propertyNamesCache[call]
 				}
@@ -571,7 +571,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 					return nil
 				}
 				var names []string
-				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*types.Named]bool), make(map[string]bool), func(m propertyMember) {
+				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*gotypes.Named]bool), make(map[string]bool), func(m propertyMember) {
 					names = append(names, m.Name)
 				})
 				propertyNamesCache[call] = names
@@ -612,11 +612,11 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 		}
 
 		switch obj.(type) {
-		case *types.Const, *types.Var:
+		case *gotypes.Const, *gotypes.Var:
 			if ident.Obj == nil {
 				break
 			}
-			valueSpec, ok := ident.Obj.Decl.(*xgoast.ValueSpec)
+			valueSpec, ok := ident.Obj.Decl.(*ast.ValueSpec)
 			if !ok {
 				break
 			}
@@ -637,8 +637,8 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 		}
 
 		switch expr := expr.(type) {
-		case *xgoast.BasicLit:
-			if expr.Kind == xgotoken.STRING {
+		case *ast.BasicLit:
+			if expr.Kind == token.STRING {
 				if returnType := s.resolveReturnTypeForExpr(result, expr); returnType != nil {
 					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
@@ -653,7 +653,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 					s.inspectSpxResourceRefForTypeAtExpr(result, expr, xgoutil.DerefType(tv.Type), nil)
 				}
 			}
-		case *xgoast.Ident:
+		case *ast.Ident:
 			typ := xgoutil.DerefType(tv.Type)
 			switch typ {
 			case GetSpxBackdropNameType(),
@@ -662,7 +662,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 				GetSpxWidgetNameType():
 				s.inspectSpxResourceRefForTypeAtExpr(result, s.resolveIdentifierToAssignedExpr(result, expr), typ, nil)
 			}
-		case *xgoast.CallExpr:
+		case *ast.CallExpr:
 			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
 			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
 				continue
@@ -671,11 +671,11 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
+			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 				param := params.At(paramIndex)
 				paramType := xgoutil.DerefType(param.Type())
 
-				if sliceLit, ok := arg.(*xgoast.SliceLit); ok {
+				if sliceLit, ok := arg.(*ast.SliceLit); ok {
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
@@ -700,16 +700,16 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 	if gameObj == nil {
 		return
 	}
-	gameType, ok := gameObj.Type().(*types.Named)
+	gameType, ok := gameObj.Type().(*gotypes.Named)
 	if !ok || !xgoutil.IsNamedStructType(gameType) {
 		return
 	}
-	xgoutil.WalkStruct(gameType, func(member types.Object, selector *types.Named) bool {
-		field, ok := member.(*types.Var)
+	xgoutil.WalkStruct(gameType, func(member gotypes.Object, selector *gotypes.Named) bool {
+		field, ok := member.(*gotypes.Var)
 		if !ok {
 			return true
 		}
-		fieldType, ok := xgoutil.DerefType(field.Type()).(*types.Named)
+		fieldType, ok := xgoutil.DerefType(field.Type()).(*gotypes.Named)
 		if !ok {
 			return true
 		}
@@ -731,21 +731,21 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 
 // resolveIdentifierToAssignedExpr resolves an identifier to its assigned
 // expression by looking for assignment statements in the AST.
-func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *xgoast.Ident) xgoast.Expr {
+func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *ast.Ident) ast.Expr {
 	astPkg, _ := result.proj.ASTPackage()
 	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, ident)
 	if astFile == nil {
 		return ident
 	}
 
-	var resolvedExpr xgoast.Expr = ident
-	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), false, func(node xgoast.Node) bool {
-		assignStmt, ok := node.(*xgoast.AssignStmt)
+	var resolvedExpr ast.Expr = ident
+	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), false, func(node ast.Node) bool {
+		assignStmt, ok := node.(*ast.AssignStmt)
 		if !ok {
 			return true
 		}
 
-		idx := slices.IndexFunc(assignStmt.Lhs, func(lhs xgoast.Expr) bool {
+		idx := slices.IndexFunc(assignStmt.Lhs, func(lhs ast.Expr) bool {
 			return lhs == ident
 		})
 		if idx < 0 || idx >= len(assignStmt.Rhs) {
@@ -759,7 +759,7 @@ func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *x
 
 // resolveReturnTypeForExpr resolves the function return type for an expression
 // when it appears in a return statement.
-func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr xgoast.Expr) types.Type {
+func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr ast.Expr) gotypes.Type {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
@@ -795,7 +795,7 @@ func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr xgoast.Exp
 }
 
 // resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.
-func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) *SpxSpriteResource {
+func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, callExpr *ast.CallExpr) *SpxSpriteResource {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
@@ -805,7 +805,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 	if !xgoutil.IsValidType(funcType) {
 		return nil
 	}
-	funcSig, ok := funcType.(*types.Signature)
+	funcSig, ok := funcType.(*gotypes.Signature)
 	if !ok {
 		return nil
 	}
@@ -820,11 +820,11 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 	}
 
 	switch fun := callExpr.Fun.(type) {
-	case *xgoast.Ident:
+	case *ast.Ident:
 		spxSpriteName := strings.TrimSuffix(path.Base(xgoutil.NodeFilename(result.proj.Fset, callExpr)), ".spx")
 		return result.spxResourceSet.Sprite(spxSpriteName)
-	case *xgoast.SelectorExpr:
-		ident, ok := fun.X.(*xgoast.Ident)
+	case *ast.SelectorExpr:
+		ident, ok := fun.X.(*ast.Ident)
 		if !ok {
 			return nil
 		}
@@ -845,7 +845,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 
 // inspectSpxResourceRefForTypeAtExpr inspects an spx resource reference for a
 // given type at an expression.
-func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr xgoast.Expr, typ types.Type, getSpriteContext func() *SpxSpriteResource) {
+func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr ast.Expr, typ gotypes.Type, getSpriteContext func() *SpxSpriteResource) {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return
@@ -857,7 +857,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 		return
 	}
 	spxResourceRefKind := SpxResourceRefKindStringLiteral
-	if _, ok := expr.(*xgoast.Ident); ok {
+	if _, ok := expr.(*ast.Ident); ok {
 		spxResourceRefKind = SpxResourceRefKindConstantReference
 	}
 
@@ -962,7 +962,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 }
 
 // addEmptySpxResourceNameDiagnostic adds a diagnostic for empty spx resource name.
-func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr xgoast.Expr, resourceType string) {
+func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr ast.Expr, resourceType string) {
 	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
 		Severity: SeverityError,
 		Range:    RangeForNode(result.proj, expr),
@@ -971,7 +971,7 @@ func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr x
 }
 
 // addSpxResourceNotFoundDiagnostic adds a diagnostic for spx resource not found.
-func (s *Server) addSpxResourceNotFoundDiagnostic(result *compileResult, expr xgoast.Expr, resourceType, resourceName, contextSpriteName string) {
+func (s *Server) addSpxResourceNotFoundDiagnostic(result *compileResult, expr ast.Expr, resourceType, resourceName, contextSpriteName string) {
 	message := fmt.Sprintf("%s resource %q not found", resourceType, resourceName)
 	if contextSpriteName != "" {
 		message = fmt.Sprintf("%s in sprite %q", message, contextSpriteName)

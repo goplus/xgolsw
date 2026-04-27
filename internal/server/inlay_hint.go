@@ -2,11 +2,11 @@ package server
 
 import (
 	"cmp"
-	"go/types"
+	gotypes "go/types"
 	"slices"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -31,14 +31,14 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 // collectInlayHints collects inlay hints from the given AST file. If
 // rangeStart and rangeEnd positions are provided (non-zero), only hints within
 // the range are included.
-func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, rangeEnd xgotoken.Pos) []InlayHint {
+func collectInlayHints(result *compileResult, astFile *ast.File, rangeStart, rangeEnd token.Pos) []InlayHint {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
 
 	var inlayHints []InlayHint
-	xgoast.Inspect(astFile, func(node xgoast.Node) bool {
+	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil || !node.Pos().IsValid() || !node.End().IsValid() {
 			return true
 		}
@@ -51,12 +51,12 @@ func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, 
 		}
 
 		switch node := node.(type) {
-		case *xgoast.BranchStmt:
+		case *ast.BranchStmt:
 			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
 				hints := collectInlayHintsFromCallExpr(result, callExpr)
 				inlayHints = append(inlayHints, hints...)
 			}
-		case *xgoast.CallExpr:
+		case *ast.CallExpr:
 			hints := collectInlayHintsFromCallExpr(result, node)
 			inlayHints = append(inlayHints, hints...)
 		}
@@ -67,7 +67,7 @@ func collectInlayHints(result *compileResult, astFile *xgoast.File, rangeStart, 
 }
 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
-func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallExpr) []InlayHint {
+func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) []InlayHint {
 	astPkg, _ := result.proj.ASTPackage()
 	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, callExpr)
 	if astFile == nil {
@@ -79,14 +79,14 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *xgoast.CallE
 	}
 
 	var inlayHints []InlayHint
-	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *types.Func, params *types.Tuple, paramIndex int, arg xgoast.Expr, argIndex int) bool {
+	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
 		if paramIndex < argIndex {
 			// Stop processing variadic arguments beyond the declared parameters.
 			return false
 		}
 
 		switch arg.(type) {
-		case *xgoast.LambdaExpr, *xgoast.LambdaExpr2:
+		case *ast.LambdaExpr, *ast.LambdaExpr2:
 			// Skip lambda expressions.
 			return true
 		}

@@ -3,12 +3,12 @@ package protocol
 import (
 	"flag"
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"reflect"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -90,14 +90,14 @@ type Pass struct {
 	Analyzer *Analyzer // the identity of the current analyzer
 
 	// syntax and type information
-	Fset         *token.FileSet // file position information; Run may add new files
-	Files        []*ast.File    // the abstract syntax tree of each file
-	OtherFiles   []string       // names of non-Go files of this package
-	IgnoredFiles []string       // names of ignored source files in this package
-	Pkg          *types.Package // type information about the package
-	TypesInfo    *xgotypes.Info // type information about the syntax trees
-	TypesSizes   types.Sizes    // function for computing sizes of types
-	TypeErrors   []types.Error  // type errors (only if Analyzer.RunDespiteErrors)
+	Fset         *token.FileSet   // file position information; Run may add new files
+	Files        []*ast.File      // the abstract syntax tree of each file
+	OtherFiles   []string         // names of non-Go files of this package
+	IgnoredFiles []string         // names of ignored source files in this package
+	Pkg          *gotypes.Package // type information about the package
+	TypesInfo    *types.Info      // type information about the syntax trees
+	TypesSizes   gotypes.Sizes    // function for computing sizes of types
+	TypeErrors   []gotypes.Error  // type errors (only if Analyzer.RunDespiteErrors)
 
 	// Report reports a Diagnostic, a finding about a specific location
 	// in the analyzed source code such as a potential mistake.
@@ -115,7 +115,7 @@ type Pass struct {
 	// property name type (i.e., a type whose string value must be a valid
 	// property name). This is provided by the driver and keeps analyzers
 	// decoupled from spx-specific knowledge.
-	IsPropertyNameType func(typ types.Type) bool
+	IsPropertyNameType func(typ gotypes.Type) bool
 
 	// GetPropertyNamesForCall, if non-nil, returns the set of valid property
 	// names for the receiver of the given call expression. The driver is
@@ -145,12 +145,12 @@ type Pass struct {
 	//
 	// ImportObjectFact panics if called after the pass is complete.
 	// ImportObjectFact is not concurrency-safe.
-	ImportObjectFact func(obj types.Object, fact Fact) bool
+	ImportObjectFact func(obj gotypes.Object, fact Fact) bool
 
 	// ImportPackageFact retrieves a fact associated with package pkg,
 	// which must be this package or one of its dependencies.
 	// See comments for ImportObjectFact.
-	ImportPackageFact func(pkg *types.Package, fact Fact) bool
+	ImportPackageFact func(pkg *gotypes.Package, fact Fact) bool
 
 	// ExportObjectFact associates a fact of type *T with the obj,
 	// replacing any previous fact of that type.
@@ -158,7 +158,7 @@ type Pass struct {
 	// ExportObjectFact panics if it is called after the pass is
 	// complete, or if obj does not belong to the package being analyzed.
 	// ExportObjectFact is not concurrency-safe.
-	ExportObjectFact func(obj types.Object, fact Fact)
+	ExportObjectFact func(obj gotypes.Object, fact Fact)
 
 	// ExportPackageFact associates a fact with the current package.
 	// See comments for ExportObjectFact.
@@ -177,13 +177,13 @@ type Pass struct {
 
 // PackageFact is a package together with an associated fact.
 type PackageFact struct {
-	Package *types.Package
+	Package *gotypes.Package
 	Fact    Fact
 }
 
 // ObjectFact is an object together with an associated fact.
 type ObjectFact struct {
-	Object types.Object
+	Object gotypes.Object
 	Fact   Fact
 }
 

@@ -2,10 +2,10 @@ package internal
 
 import (
 	"fmt"
-	"go/types"
+	gotypes "go/types"
 	"sync"
 
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"golang.org/x/tools/go/gcexportdata"
 )
@@ -13,22 +13,22 @@ import (
 // importer implements [types.Importer].
 type importer struct {
 	mu     sync.Mutex
-	fset   *xgotoken.FileSet
-	loaded map[string]*types.Package
+	fset   *token.FileSet
+	loaded map[string]*gotypes.Package
 }
 
 // newImporter creates a new instance of [importer].
 func newImporter() *importer {
-	loaded := make(map[string]*types.Package)
-	loaded["unsafe"] = types.Unsafe
+	loaded := make(map[string]*gotypes.Package)
+	loaded["unsafe"] = gotypes.Unsafe
 	return &importer{
-		fset:   xgotoken.NewFileSet(),
+		fset:   token.NewFileSet(),
 		loaded: loaded,
 	}
 }
 
 // Import implements [types.Importer].
-func (imp *importer) Import(path string) (*types.Package, error) {
+func (imp *importer) Import(path string) (*gotypes.Package, error) {
 	imp.mu.Lock()
 	defer imp.mu.Unlock()
 

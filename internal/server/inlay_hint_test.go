@@ -137,7 +137,7 @@ onStart => {
 		inlayHints, err := s.textDocumentInlayHint(params)
 		require.NoError(t, err)
 		require.NotNil(t, inlayHints)
-		assert.Equal(t, 2, len(inlayHints))
+		assert.Len(t, inlayHints, 2)
 
 		for _, hint := range inlayHints {
 			assert.True(t, hint.Position.Line >= 7 && hint.Position.Line <= 11)
@@ -451,7 +451,7 @@ func TestSortInlayHints(t *testing.T) {
 		l5Hints := slices.DeleteFunc(slices.Clone(hints), func(h InlayHint) bool {
 			return h.Position.Line != 5
 		})
-		require.Equal(t, 3, len(l5Hints))
+		require.Len(t, l5Hints, 3)
 		assert.Equal(t, uint32(5), l5Hints[0].Position.Character)
 		assert.Equal(t, uint32(15), l5Hints[1].Position.Character)
 		assert.Equal(t, uint32(20), l5Hints[2].Position.Character)
@@ -459,7 +459,7 @@ func TestSortInlayHints(t *testing.T) {
 		l7Hints := slices.DeleteFunc(slices.Clone(hints), func(h InlayHint) bool {
 			return h.Position.Line != 7
 		})
-		require.Equal(t, 2, len(l7Hints))
+		require.Len(t, l7Hints, 2)
 		assert.Equal(t, uint32(10), l7Hints[0].Position.Character)
 		assert.Equal(t, "B2", l7Hints[0].Label)
 		assert.Equal(t, uint32(30), l7Hints[1].Position.Character)
@@ -482,7 +482,7 @@ func TestSortInlayHints(t *testing.T) {
 		l5c10Hints := slices.DeleteFunc(slices.Clone(hints), func(hint InlayHint) bool {
 			return hint.Position.Line != 5 || hint.Position.Character != 10
 		})
-		require.Equal(t, 3, len(l5c10Hints))
+		require.Len(t, l5c10Hints, 3)
 		assert.Equal(t, "A", l5c10Hints[0].Label)
 		assert.Equal(t, "M", l5c10Hints[1].Label)
 		assert.Equal(t, "Z", l5c10Hints[2].Label)

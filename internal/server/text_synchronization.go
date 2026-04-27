@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/goplus/gogen"
-	xgoscanner "github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
@@ -203,7 +203,7 @@ func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
 	astFile, err := proj.ASTFile(path)
 	if err != nil {
 		var (
-			errorList xgoscanner.ErrorList
+			errorList scanner.ErrorList
 			codeError *gogen.CodeError
 		)
 		if errors.As(err, &errorList) {

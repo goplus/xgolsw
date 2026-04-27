@@ -20,12 +20,12 @@ import (
 	"path"
 	"strings"
 
-	xgoast "github.com/goplus/xgo/ast"
-	xgotoken "github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 )
 
 // NewXGo creates a new [PkgDoc] for an XGo package.
-func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
+func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 	pkgDoc := &PkgDoc{
 		Path:   pkgPath,
 		Name:   pkg.Name,
@@ -51,26 +51,26 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 		}
 		spxBaseSelectorTypeDoc := pkgDoc.typeDoc(spxBaseSelectorTypeName)
 
-		var firstVarBlock *xgoast.GenDecl
+		var firstVarBlock *ast.GenDecl
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
-			case *xgoast.GenDecl:
-				if firstVarBlock == nil && decl.Tok == xgotoken.VAR {
+			case *ast.GenDecl:
+				if firstVarBlock == nil && decl.Tok == token.VAR {
 					firstVarBlock = decl
 				}
 
 				for _, spec := range decl.Specs {
 					var doc string
 					switch spec := spec.(type) {
-					case *xgoast.ValueSpec:
+					case *ast.ValueSpec:
 						if spec.Doc != nil {
 							doc = spec.Doc.Text()
 						}
-					case *xgoast.TypeSpec:
+					case *ast.TypeSpec:
 						if spec.Doc != nil {
 							doc = spec.Doc.Text()
 						}
-					case *xgoast.ImportSpec:
+					case *ast.ImportSpec:
 						if spec.Doc != nil {
 							doc = spec.Doc.Text()
 						}
@@ -80,21 +80,21 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 					}
 
 					switch spec := spec.(type) {
-					case *xgoast.ValueSpec:
+					case *ast.ValueSpec:
 						for _, name := range spec.Names {
 							switch decl.Tok {
-							case xgotoken.VAR:
+							case token.VAR:
 								if decl == firstVarBlock {
 									spxBaseSelectorTypeDoc.Fields[name.Name] = doc
 								} else {
 									pkgDoc.Vars[name.Name] = doc
 								}
-							case xgotoken.CONST:
+							case token.CONST:
 								pkgDoc.Consts[name.Name] = doc
 							}
 						}
-					case *xgoast.TypeSpec:
-						if structType, ok := spec.Type.(*xgoast.StructType); ok {
+					case *ast.TypeSpec:
+						if structType, ok := spec.Type.(*ast.StructType); ok {
 							typeDoc := pkgDoc.typeDoc(spec.Name.Name)
 							typeDoc.Doc = doc
 							for _, field := range structType.Fields.List {
@@ -104,7 +104,7 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 								}
 
 								if len(field.Names) == 0 {
-									ident, ok := field.Type.(*xgoast.Ident)
+									ident, ok := field.Type.(*ast.Ident)
 									if !ok {
 										continue
 									}
@@ -118,7 +118,7 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 						}
 					}
 				}
-			case *xgoast.FuncDecl:
+			case *ast.FuncDecl:
 				if decl.Shadow {
 					continue
 				}
@@ -133,10 +133,10 @@ func NewXGo(pkgPath string, pkg *xgoast.Package) *PkgDoc {
 					recvTypeDoc = spxBaseSelectorTypeDoc
 				} else if len(decl.Recv.List) == 1 {
 					recvType := decl.Recv.List[0].Type
-					if star, ok := recvType.(*xgoast.StarExpr); ok {
+					if star, ok := recvType.(*ast.StarExpr); ok {
 						recvType = star.X
 					}
-					if recvIdent, ok := recvType.(*xgoast.Ident); ok {
+					if recvIdent, ok := recvType.(*ast.Ident); ok {
 						recvTypeDoc = pkgDoc.typeDoc(recvIdent.Name)
 					}
 				}

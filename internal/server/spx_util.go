@@ -1,14 +1,14 @@
 package server
 
 import (
-	"go/types"
+	gotypes "go/types"
 	"path"
 	"regexp"
 	"strings"
 
-	xgoast "github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
-	xgotypes "github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -23,14 +23,14 @@ func IsSpxEventHandlerFuncName(name string) bool {
 }
 
 // IsInSpxPkg reports whether the given object is defined in the spx package.
-func IsInSpxPkg(obj types.Object) bool {
+func IsInSpxPkg(obj gotypes.Object) bool {
 	return obj != nil && obj.Pkg() == GetSpxPkg()
 }
 
 // GetSimplifiedTypeString returns the string representation of the given type,
 // with the spx package name omitted while other packages use their short names.
-func GetSimplifiedTypeString(typ types.Type) string {
-	return types.TypeString(typ, func(p *types.Package) string {
+func GetSimplifiedTypeString(typ gotypes.Type) string {
+	return gotypes.TypeString(typ, func(p *gotypes.Package) string {
 		if p == GetSpxPkg() {
 			return ""
 		}
@@ -40,19 +40,19 @@ func GetSimplifiedTypeString(typ types.Type) string {
 
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.
-func resolvedNamedType(typ types.Type) *types.Named {
-	seen := make(map[types.Type]struct{})
+func resolvedNamedType(typ gotypes.Type) *gotypes.Named {
+	seen := make(map[gotypes.Type]struct{})
 	for typ != nil {
 		if _, ok := seen[typ]; ok {
 			return nil
 		}
 		seen[typ] = struct{}{}
 
-		typ = types.Unalias(typ)
+		typ = gotypes.Unalias(typ)
 		switch t := typ.(type) {
-		case *types.Named:
+		case *gotypes.Named:
 			return t
-		case *types.Pointer:
+		case *gotypes.Pointer:
 			typ = t.Elem()
 		default:
 			return nil
@@ -63,7 +63,7 @@ func resolvedNamedType(typ types.Type) *types.Named {
 
 // SelectorTypeNameForIdent returns the selector type name for the given
 // identifier. It returns empty string if no selector can be inferred.
-func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
+func SelectorTypeNameForIdent(proj *xgo.Project, ident *ast.Ident) string {
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return ""
@@ -89,7 +89,7 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *xgoast.Ident) string {
 }
 
 // tryGetSpxImplicitReceiver handles spx package's special implicit receiver semantics.
-func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *xgoast.File, ident *xgoast.Ident, obj types.Object) string {
+func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *ast.File, ident *ast.Ident, obj gotypes.Object) string {
 	if !IsInSpxPkg(obj) {
 		return ""
 	}
@@ -115,15 +115,15 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *xgoast.File, ident *x
 }
 
 // getTypeFromObject infers type from the identifier's object.
-func getTypeFromObject(typeInfo *xgotypes.Info, obj types.Object) string {
+func getTypeFromObject(typeInfo *types.Info, obj gotypes.Object) string {
 	switch obj := obj.(type) {
-	case *types.Var:
+	case *gotypes.Var:
 		if !obj.IsField() {
 			return ""
 		}
 		return findFieldOwnerType(typeInfo, obj)
-	case *types.Func:
-		sig, ok := obj.Type().(*types.Signature)
+	case *gotypes.Func:
+		sig, ok := obj.Type().(*gotypes.Signature)
 		if !ok {
 			return ""
 		}
@@ -137,16 +137,16 @@ func getTypeFromObject(typeInfo *xgotypes.Info, obj types.Object) string {
 }
 
 // extractTypeName extracts a clean type name from a types.Type.
-func extractTypeName(typ types.Type) string {
+func extractTypeName(typ gotypes.Type) string {
 	switch typ := typ.(type) {
-	case *types.Named:
+	case *gotypes.Named:
 		obj := typ.Obj()
 		typeName := obj.Name()
 		if IsInSpxPkg(obj) && typeName == "SpriteImpl" {
 			return "Sprite"
 		}
 		return typeName
-	case *types.Interface:
+	case *gotypes.Interface:
 		if typ.String() == "interface{}" {
 			return ""
 		}
@@ -156,7 +156,7 @@ func extractTypeName(typ types.Type) string {
 }
 
 // findFieldOwnerType finds the type that owns a given field.
-func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
+func findFieldOwnerType(typeInfo *types.Info, field *gotypes.Var) string {
 	if !field.IsField() {
 		return ""
 	}
@@ -170,12 +170,12 @@ func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
 	scope := fieldPkg.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
-		typeName, ok := obj.(*types.TypeName)
+		typeName, ok := obj.(*gotypes.TypeName)
 		if !ok {
 			continue
 		}
 
-		named, ok := xgoutil.DerefType(typeName.Type()).(*types.Named)
+		named, ok := xgoutil.DerefType(typeName.Type()).(*gotypes.Named)
 		if !ok || !xgoutil.IsNamedStructType(named) {
 			continue
 		}
@@ -191,13 +191,13 @@ func findFieldOwnerType(typeInfo *xgotypes.Info, field *types.Var) string {
 }
 
 // checkStructForField checks if a struct type contains the given field.
-func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.Package) string {
-	selection, ok := types.LookupSelection(named, false, fieldPkg, field.Name())
+func checkStructForField(named *gotypes.Named, field *gotypes.Var, fieldPkg *gotypes.Package) string {
+	selection, ok := gotypes.LookupSelection(named, false, fieldPkg, field.Name())
 	if !ok {
 		return ""
 	}
 
-	foundField, ok := selection.Obj().(*types.Var)
+	foundField, ok := selection.Obj().(*gotypes.Var)
 	if !ok || foundField != field {
 		return ""
 	}
@@ -225,8 +225,8 @@ func checkStructForField(named *types.Named, field *types.Var, fieldPkg *types.P
 // mainSpxFile is the main entry file (e.g. "main.spx").
 //
 // Returns nil when the target cannot be determined.
-func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallExpr, spxFile, mainSpxFile string) *types.Named {
-	if sel, ok := call.Fun.(*xgoast.SelectorExpr); ok {
+func PropertyTargetNamedTypeForCall(typeInfo *types.Info, call *ast.CallExpr, spxFile, mainSpxFile string) *gotypes.Named {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 		if tv, ok := typeInfo.Types[sel.X]; ok && tv.Type != nil {
 			return resolvedNamedType(tv.Type)
 		}
@@ -247,7 +247,7 @@ func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallEx
 	if obj == nil {
 		return nil
 	}
-	tn, ok := obj.(*types.TypeName)
+	tn, ok := obj.(*gotypes.TypeName)
 	if !ok {
 		return nil
 	}
@@ -255,14 +255,14 @@ func PropertyTargetNamedTypeForCall(typeInfo *xgotypes.Info, call *xgoast.CallEx
 }
 
 // searchAllDefsForField is a fallback method that searches all type definitions.
-func searchAllDefsForField(typeInfo *xgotypes.Info, field *types.Var) string {
+func searchAllDefsForField(typeInfo *types.Info, field *gotypes.Var) string {
 	fieldPkg := field.Pkg()
 	for _, def := range typeInfo.Defs {
 		if def == nil || def.Pkg() != fieldPkg {
 			continue
 		}
 
-		named, ok := xgoutil.DerefType(def.Type()).(*types.Named)
+		named, ok := xgoutil.DerefType(def.Type()).(*gotypes.Named)
 		if !ok || !xgoutil.IsNamedStructType(named) {
 			continue
 		}
