@@ -23,7 +23,7 @@ type propertynameCallbacks struct {
 }
 
 func TestPropertyname(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name      string
 		src       string
 		callbacks propertynameCallbacks
@@ -220,9 +220,7 @@ func run() {
 			},
 			wantDiag: true,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			diagnostics := runPropertynameAnalyzer(t, tt.src, tt.callbacks)
 			if tt.wantDiag {
