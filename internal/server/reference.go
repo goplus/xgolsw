@@ -33,7 +33,7 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 
 	locations = append(locations, s.findReferenceLocations(result, obj)...)
 
-	if fn, ok := obj.(*gotypes.Func); ok && fn.Type().(*gotypes.Signature).Recv() != nil {
+	if fn, ok := obj.(*gotypes.Func); ok && fn.Signature().Recv() != nil {
 		locations = append(locations, s.handleMethodReferences(result, fn)...)
 		locations = append(locations, s.handleEmbeddedFieldReferences(result, obj)...)
 	}
@@ -77,7 +77,7 @@ func (s *Server) findReferenceLocations(result *compileResult, obj gotypes.Objec
 // implementations and interface method references.
 func (s *Server) handleMethodReferences(result *compileResult, fn *gotypes.Func) []Location {
 	var locations []Location
-	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	recvType := fn.Signature().Recv().Type()
 	if gotypes.IsInterface(recvType) {
 		iface, ok := recvType.(*gotypes.Interface)
 		if !ok {
@@ -180,7 +180,7 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *gotype
 		return nil
 	}
 	var locations []Location
-	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	recvType := fn.Signature().Recv().Type()
 	seenIfaces := make(map[*gotypes.Interface]bool)
 	astPkg, _ := result.proj.ASTPackage()
 
@@ -218,7 +218,7 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj gotype
 	}
 	var locations []Location
 	if fn, ok := obj.(*gotypes.Func); ok {
-		recv := fn.Type().(*gotypes.Signature).Recv()
+		recv := fn.Signature().Recv()
 		if recv == nil {
 			return nil
 		}

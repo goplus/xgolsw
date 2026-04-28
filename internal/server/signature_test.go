@@ -25,20 +25,121 @@ onStart => {
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
-		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+		fmtHelp, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 				Position:     Position{Line: 2, Character: 10},
 			},
 		})
 		require.NoError(t, err)
+		require.NotNil(t, fmtHelp)
+		require.Len(t, fmtHelp.Signatures, 1)
+		assert.Equal(t, SignatureInformation{
+			Label: "println(a ...any) (n int, err error)",
+			Parameters: []ParameterInformation{
+				{
+					Label: "a ...any",
+				},
+			},
+		}, fmtHelp.Signatures[0])
+
+		turnHelp, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, turnHelp)
+		require.Len(t, turnHelp.Signatures, 1)
+		assert.Equal(t, SignatureInformation{
+			Label: "turn(dir Direction)",
+			Parameters: []ParameterInformation{
+				{
+					Label: "dir Direction",
+				},
+			},
+		}, turnHelp.Signatures[0])
+	})
+
+	t.Run("SingleResult", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func answer() int { return 42 }
+
+onStart => {
+	answer
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 4},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, "answer() int", help.Signatures[0].Label)
+		assert.Empty(t, help.Signatures[0].Parameters)
+	})
+
+	t.Run("SingleNamedResult", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func answer() (n int) { return 42 }
+
+onStart => {
+	answer
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 4},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, "answer() (n int)", help.Signatures[0].Label)
+		assert.Empty(t, help.Signatures[0].Parameters)
+	})
+
+	t.Run("XGoxMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	getWidget Monitor, "myWidget"
+}
+`),
+			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 1},
+			},
+		})
+		require.NoError(t, err)
 		require.NotNil(t, help)
 		require.Len(t, help.Signatures, 1)
 		assert.Equal(t, SignatureInformation{
-			Label: "Println(a []any) (int, error)",
+			Label: "getWidget(T Type, name WidgetName) *T",
 			Parameters: []ParameterInformation{
 				{
-					Label: "a []any",
+					Label: "T Type",
+				},
+				{
+					Label: "name WidgetName",
 				},
 			},
 		}, help.Signatures[0])

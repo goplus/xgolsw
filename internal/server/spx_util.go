@@ -123,11 +123,7 @@ func getTypeFromObject(typeInfo *types.Info, obj gotypes.Object) string {
 		}
 		return findFieldOwnerType(typeInfo, obj)
 	case *gotypes.Func:
-		sig, ok := obj.Type().(*gotypes.Signature)
-		if !ok {
-			return ""
-		}
-		recv := sig.Recv()
+		recv := obj.Signature().Recv()
 		if recv == nil {
 			return ""
 		}

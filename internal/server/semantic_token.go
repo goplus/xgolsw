@@ -175,7 +175,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				tokenType = VariableType
 				modifiers = append(modifiers, ModStatic, ModReadonly)
 			case *gotypes.Func:
-				if obj.Type().(*gotypes.Signature).Recv() != nil {
+				if obj.Signature().Recv() != nil {
 					tokenType = MethodType
 				} else {
 					tokenType = FunctionType

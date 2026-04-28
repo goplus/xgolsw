@@ -32,42 +32,27 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if !ok {
 		return nil, nil
 	}
-	sig, ok := fun.Type().(*gotypes.Signature)
-	if !ok {
-		return nil, nil
-	}
 
-	var paramsInfo []ParameterInformation
-	for param := range sig.Params().Variables() {
-		paramsInfo = append(paramsInfo, ParameterInformation{
-			Label: param.Name() + " " + GetSimplifiedTypeString(param.Type()),
+	return &SignatureHelp{
+		Signatures: []SignatureInformation{signatureHelpInformation(fun)},
+	}, nil
+}
+
+// signatureHelpInformation returns signature information for fun.
+func signatureHelpInformation(fun *gotypes.Func) SignatureInformation {
+	sig := fun.Signature()
+	_, displayedName, _, isXGotMethod := displayedFuncName(fun)
+	paramLabels := displayedFuncParamLabels(sig, isXGotMethod)
+	paramInfos := make([]ParameterInformation, 0, len(paramLabels))
+	for _, paramLabel := range paramLabels {
+		paramInfos = append(paramInfos, ParameterInformation{
+			Label: paramLabel,
 			// TODO: Add documentation.
 		})
 	}
 
-	label := fun.Name() + "("
-	if sig.Params().Len() > 0 {
-		var paramLabels []string
-		for _, p := range paramsInfo {
-			paramLabels = append(paramLabels, p.Label)
-		}
-		label += strings.Join(paramLabels, ", ")
+	return SignatureInformation{
+		Label:      displayedName + "(" + strings.Join(paramLabels, ", ") + ")" + displayedFuncResults(sig.Results()),
+		Parameters: paramInfos,
 	}
-	label += ")"
-
-	if results := sig.Results(); results != nil && results.Len() > 0 {
-		var returnTypes []string
-		for result := range results.Variables() {
-			returnTypes = append(returnTypes, GetSimplifiedTypeString(result.Type()))
-		}
-		label += " (" + strings.Join(returnTypes, ", ") + ")"
-	}
-
-	return &SignatureHelp{
-		Signatures: []SignatureInformation{{
-			Label: label,
-			// TODO: Add documentation.
-			Parameters: paramsInfo,
-		}},
-	}, nil
 }

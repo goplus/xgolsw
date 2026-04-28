@@ -844,29 +844,21 @@ func GetSpxDefinitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkg
 	return
 }
 
-// makeSpxDefinitionOverviewForFunc makes an overview string for a function that
-// is used in [SpxDefinition].
-func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
+// displayedFuncName resolves the source-facing function display name used by
+// spx UI surfaces.
+func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string, overloadID *string, isXGotMethod bool) {
 	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
 	name := fun.Name()
-	sig := fun.Type().(*gotypes.Signature)
+	sig := fun.Signature()
 
-	var sb strings.Builder
-	sb.WriteString("func ")
-
-	var isXGotMethod bool
 	if recv := sig.Recv(); recv != nil {
 		recvType := xgoutil.DerefType(recv.Type())
 		if named, ok := recvType.(*gotypes.Named); ok {
 			parsedRecvTypeName = named.Obj().Name()
 		}
-	} else if isXGoPkg {
-		switch {
-		case strings.HasPrefix(name, xgoutil.XGotPrefix):
-			recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(name, true)
-			if !ok {
-				break
-			}
+	} else if isXGoPkg && strings.HasPrefix(name, xgoutil.XGotPrefix) {
+		recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(name, true)
+		if ok {
 			parsedRecvTypeName = recvTypeName
 			name = methodName
 			isXGotMethod = true
@@ -879,8 +871,39 @@ func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTy
 	} else if !xgoutil.IsInMainPkg(fun) {
 		parsedName = xgoutil.ToLowerCamelCase(parsedName)
 	}
-	sb.WriteString(parsedName)
-	sb.WriteString("(")
+	return
+}
+
+// displayedFuncResults formats the source-facing result list for function
+// signatures shown in spx UI surfaces.
+func displayedFuncResults(results *gotypes.Tuple) string {
+	if results.Len() == 0 {
+		return ""
+	}
+	if results.Len() == 1 && results.At(0).Name() == "" {
+		return " " + GetSimplifiedTypeString(results.At(0).Type())
+	}
+
+	var sb strings.Builder
+	sb.WriteString(" (")
+	for i := range results.Len() {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		result := results.At(i)
+		if name := result.Name(); name != "" {
+			sb.WriteString(name)
+			sb.WriteString(" ")
+		}
+		sb.WriteString(GetSimplifiedTypeString(result.Type()))
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// displayedFuncParamLabels formats the source-facing parameter list for
+// function signatures shown in spx UI surfaces.
+func displayedFuncParamLabels(sig *gotypes.Signature, isXGotMethod bool) []string {
 	params := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
 	for typeParam := range sig.TypeParams().TypeParams() {
 		params = append(params, typeParam.Obj().Name()+" Type")
@@ -889,43 +912,39 @@ func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTy
 		if isXGotMethod && i == 0 {
 			continue
 		}
-		param := sig.Params().At(i)
-		paramType := param.Type()
-		paramTypeName := GetSimplifiedTypeString(paramType)
-
-		// Check if this is a variadic parameter.
-		if sig.Variadic() && i == sig.Params().Len()-1 {
-			if slice, ok := paramType.(*gotypes.Slice); ok {
-				elemTypeName := GetSimplifiedTypeString(slice.Elem())
-				paramTypeName = "..." + elemTypeName
-			}
-		}
-
-		params = append(params, param.Name()+" "+paramTypeName)
+		params = append(params, displayedFuncParamLabel(sig, i))
 	}
-	sb.WriteString(strings.Join(params, ", "))
+	return params
+}
+
+// displayedFuncParamLabel formats one source-facing function parameter label.
+func displayedFuncParamLabel(sig *gotypes.Signature, paramIndex int) string {
+	param := sig.Params().At(paramIndex)
+	paramType := param.Type()
+	paramTypeName := GetSimplifiedTypeString(paramType)
+
+	if sig.Variadic() && paramIndex == sig.Params().Len()-1 {
+		if slice, ok := paramType.(*gotypes.Slice); ok {
+			paramTypeName = "..." + GetSimplifiedTypeString(slice.Elem())
+		}
+	}
+
+	return param.Name() + " " + paramTypeName
+}
+
+// makeSpxDefinitionOverviewForFunc makes an overview string for a function that
+// is used in [SpxDefinition].
+func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
+	sig := fun.Signature()
+	parsedRecvTypeName, parsedName, overloadID, isXGotMethod := displayedFuncName(fun)
+
+	var sb strings.Builder
+	sb.WriteString("func ")
+	sb.WriteString(parsedName)
+	sb.WriteString("(")
+	sb.WriteString(strings.Join(displayedFuncParamLabels(sig, isXGotMethod), ", "))
 	sb.WriteString(")")
-
-	if results := sig.Results(); results.Len() > 0 {
-		if results.Len() == 1 {
-			sb.WriteString(" ")
-			sb.WriteString(GetSimplifiedTypeString(results.At(0).Type()))
-		} else {
-			sb.WriteString(" (")
-			for i := range results.Len() {
-				if i > 0 {
-					sb.WriteString(", ")
-				}
-				result := results.At(i)
-				if name := result.Name(); name != "" {
-					sb.WriteString(name)
-					sb.WriteString(" ")
-				}
-				sb.WriteString(GetSimplifiedTypeString(result.Type()))
-			}
-			sb.WriteString(")")
-		}
-	}
+	sb.WriteString(displayedFuncResults(sig.Results()))
 
 	overview = sb.String()
 	return
@@ -993,11 +1012,7 @@ func HasSpxResourceNameTypeParams(fun *gotypes.Func) (has bool) {
 		}()
 	}
 
-	funcSig, ok := fun.Type().(*gotypes.Signature)
-	if !ok {
-		return false
-	}
-
+	funcSig := fun.Signature()
 	for param := range funcSig.Params().Variables() {
 		paramType := xgoutil.DerefType(param.Type())
 		if slice, ok := paramType.(*gotypes.Slice); ok {

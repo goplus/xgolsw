@@ -2520,22 +2520,15 @@ func onStart() {
 			}
 		}
 
-		// Test with a free function (helper function without receiver)
 		helperFuncObj := pkg.Scope().Lookup("helperFunction")
 		if helperFuncObj != nil {
 			funcObj, ok := helperFuncObj.(*gotypes.Func)
-			if ok {
-				// Check if it has a receiver
-				sig, ok := funcObj.Type().(*gotypes.Signature)
-				if ok && sig.Recv() == nil {
-					// Test findEnclosingType with free function
-					enclosingType := findEnclosingType(funcObj)
-					assert.Nil(t, enclosingType, "findEnclosingType for free function should return nil")
+			if ok && funcObj.Signature().Recv() == nil {
+				enclosingType := findEnclosingType(funcObj)
+				assert.Nil(t, enclosingType, "findEnclosingType for free function should return nil")
 
-					// Test findEnclosingTypeForMethod directly with free function
-					enclosingType = findEnclosingTypeForMethod(funcObj)
-					assert.Nil(t, enclosingType, "findEnclosingTypeForMethod for free function should return nil")
-				}
+				enclosingType = findEnclosingTypeForMethod(funcObj)
+				assert.Nil(t, enclosingType, "findEnclosingTypeForMethod for free function should return nil")
 			}
 		}
 	})
