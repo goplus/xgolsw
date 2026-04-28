@@ -608,10 +608,10 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
 
 		callCount := 0
-		ResolvedCallExprArgs(typeInfo, expr)(func(ResolvedCallExprArg) bool {
+		for range ResolvedCallExprArgs(typeInfo, expr) {
 			callCount++
-			return false
-		})
+			break
+		}
 		assert.Equal(t, 1, callCount)
 	})
 

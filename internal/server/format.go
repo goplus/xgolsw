@@ -635,17 +635,16 @@ func getFuncAndOverloadsType(proj *xgo.Project, funIdent *ast.Ident) (fun *gotyp
 		return
 	}
 	var underlineFunType *gotypes.Func
-	xgoutil.WalkStruct(recvNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-		method, ok := member.(*gotypes.Func)
+	for structMember := range xgoutil.StructMembers(recvNamed) {
+		method, ok := structMember.Member.(*gotypes.Func)
 		if !ok {
-			return true
+			continue
 		}
 		if pn, overloadID := xgoutil.ParseXGoFuncName(method.Name()); pn == funIdent.Name && overloadID == nil {
 			underlineFunType = method
-			return false
+			break
 		}
-		return true
-	})
+	}
 	if underlineFunType == nil {
 		return
 	}
