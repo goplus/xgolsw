@@ -44,39 +44,70 @@ func TestIsMarkedAsXGoPackage(t *testing.T) {
 		assert.False(t, IsMarkedAsXGoPackage(pkg))
 	})
 
-	t.Run("PackageWithXGoPackageMarker", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		markAsXGoPackage(pkg)
-		assert.True(t, IsMarkedAsXGoPackage(pkg))
+	for _, tt := range []struct {
+		name   string
+		marker string
+		typ    gotypes.Type
+		val    constant.Value
+		want   bool
+	}{
+		{name: "XGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(true), want: true},
+		{name: "LegacyGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(true), want: true},
+		{name: "WrongTypeXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1)},
+		{name: "WrongTypeGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1)},
+		{name: "WrongValueXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false)},
+		{name: "WrongValueGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false)},
+		{name: "NilValueXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool]},
+		{name: "NilValueGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool]},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("test", "test")
+			pkg.Scope().Insert(gotypes.NewConst(0, pkg, tt.marker, tt.typ, tt.val))
+			assert.Equal(t, tt.want, IsMarkedAsXGoPackage(pkg))
+		})
+	}
+
+	for _, marker := range []string{XGoPackage, GopPackage} {
+		t.Run("NonConst"+marker+"Marker", func(t *testing.T) {
+			pkg := gotypes.NewPackage("test", "test")
+			pkg.Scope().Insert(gotypes.NewVar(0, pkg, marker, gotypes.Typ[gotypes.UntypedBool]))
+			assert.False(t, IsMarkedAsXGoPackage(pkg))
+		})
+	}
+}
+
+func TestIsXGoPackageMarkerName(t *testing.T) {
+	t.Run("XGoPackageMarker", func(t *testing.T) {
+		assert.True(t, IsXGoPackageMarkerName(XGoPackage))
 	})
 
-	t.Run("PackageWithWrongTypeXGoPackageMarker", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(gotypes.NewConst(0, pkg, XGoPackage, gotypes.Typ[gotypes.Int], constant.MakeInt64(1)))
-		assert.False(t, IsMarkedAsXGoPackage(pkg))
+	t.Run("LegacyGopPackageMarker", func(t *testing.T) {
+		assert.True(t, IsXGoPackageMarkerName(GopPackage))
 	})
 
-	t.Run("PackageWithWrongValueXGoPackageMarker", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(gotypes.NewConst(0, pkg, XGoPackage, gotypes.Typ[gotypes.UntypedBool], constant.MakeBool(false)))
-		assert.False(t, IsMarkedAsXGoPackage(pkg))
+	t.Run("OtherName", func(t *testing.T) {
+		assert.False(t, IsXGoPackageMarkerName("OtherPackage"))
 	})
+}
 
-	t.Run("PackageWithNilValueXGoPackageMarker", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(gotypes.NewConst(0, pkg, XGoPackage, gotypes.Typ[gotypes.UntypedBool], nil))
-		assert.False(t, IsMarkedAsXGoPackage(pkg))
-	})
-
-	t.Run("PackageWithNonConstXGoPackageMarker", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		scope := pkg.Scope()
-		scope.Insert(gotypes.NewVar(0, pkg, XGoPackage, gotypes.Typ[gotypes.UntypedBool]))
-		assert.False(t, IsMarkedAsXGoPackage(pkg))
-	})
+func TestIsXGoInternalName(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want bool
+	}{
+		{name: XGoPackage, want: true},
+		{name: GopPackage, want: true},
+		{name: "XGo_Init", want: true},
+		{name: "Gop_Init", want: true},
+		{name: "__xgo_optional_arg", want: true},
+		{name: "__gop_optional_arg", want: true},
+		{name: "XGot_Game_Main", want: false},
+		{name: "normalName", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsXGoInternalName(tt.name))
+		})
+	}
 }
 
 func TestPkgPath(t *testing.T) {

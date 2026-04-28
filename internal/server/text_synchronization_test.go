@@ -36,7 +36,7 @@ func strPtr(s string) *string {
 }
 
 func TestModifyFiles(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name    string
 		initial map[string]*xgo.File
 		changes []FileChange
@@ -124,9 +124,7 @@ func TestModifyFiles(t *testing.T) {
 				"file3.go": "content3",
 			},
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create new project with initial files
 			proj := xgo.NewProject(token.NewFileSet(), tt.initial, xgo.FeatAll)
@@ -159,7 +157,7 @@ func TestModifyFiles(t *testing.T) {
 
 // TestDidOpen tests the didOpen handler functionality
 func TestDidOpen(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name        string
 		params      *protocol.DidOpenTextDocumentParams
 		wantPath    string
@@ -229,9 +227,7 @@ func TestDidOpen(t *testing.T) {
 			wantContent: "",
 			wantErr:     false,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment with real Project instead of MockProject
 			proj := xgo.NewProject(token.NewFileSet(), make(map[string]*xgo.File), 0)
@@ -268,7 +264,7 @@ func TestDidOpen(t *testing.T) {
 
 // TestDidChange tests the didChange handler functionality
 func TestDidChange(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name           string
 		initialContent string
 		params         *protocol.DidChangeTextDocumentParams
@@ -377,9 +373,7 @@ func TestDidChange(t *testing.T) {
 			},
 			wantErr: true,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment with initial file content
 			files := make(map[string]*xgo.File)
@@ -423,7 +417,7 @@ func TestDidChange(t *testing.T) {
 
 // TestDidSave tests the didSave handler functionality
 func TestDidSave(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name           string
 		initialContent string
 		params         *protocol.DidSaveTextDocumentParams
@@ -469,9 +463,7 @@ func TestDidSave(t *testing.T) {
 			contentChanged: false,
 			wantErr:        true,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := token.NewFileSet()
@@ -515,7 +507,7 @@ func TestDidSave(t *testing.T) {
 
 // TestDidClose tests the didClose handler functionality
 func TestDidClose(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name    string
 		params  *protocol.DidCloseTextDocumentParams
 		wantErr bool
@@ -529,9 +521,7 @@ func TestDidClose(t *testing.T) {
 			},
 			wantErr: false,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := token.NewFileSet()
@@ -568,7 +558,7 @@ func TestDidClose(t *testing.T) {
 
 // TestChangedText tests the changedText function for processing document content changes
 func TestChangedText(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name           string
 		initialContent string
 		changes        []protocol.TextDocumentContentChangeEvent
@@ -660,9 +650,7 @@ func TestChangedText(t *testing.T) {
 			want:    "",
 			wantErr: true,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := token.NewFileSet()
@@ -705,7 +693,7 @@ func TestChangedText(t *testing.T) {
 
 // TestApplyIncrementalChanges tests the applyIncrementalChanges function
 func TestApplyIncrementalChanges(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name           string
 		initialContent string
 		changes        []protocol.TextDocumentContentChangeEvent
@@ -799,9 +787,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 			want:    "",
 			wantErr: true,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := token.NewFileSet()
@@ -846,7 +832,7 @@ func TestApplyIncrementalChanges(t *testing.T) {
 
 // TestGetDiagnostics tests the getDiagnostics function for generating diagnostic information
 func TestGetDiagnostics(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name           string
 		content        string
 		path           string
@@ -894,9 +880,7 @@ func TestGetDiagnostics(t *testing.T) {
 			wantSeverities: []protocol.DiagnosticSeverity{SeverityError},
 			wantErr:        false,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup test environment
 			fset := token.NewFileSet()

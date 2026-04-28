@@ -1071,7 +1071,7 @@ func TestDataOrErr(t *testing.T) {
 	})
 
 	t.Run("EncodeDecodeZeroValues", func(t *testing.T) {
-		testCases := []struct {
+		for _, tc := range []struct {
 			name string
 			data any
 		}{
@@ -1080,9 +1080,7 @@ func TestDataOrErr(t *testing.T) {
 			{"FalseBool", false},
 			{"EmptySlice", []string{}},
 			{"EmptyMap", map[string]any{}},
-		}
-
-		for _, tc := range testCases {
+		} {
 			t.Run(tc.name, func(t *testing.T) {
 				originalData := tc.data
 				originalErr := error(nil)

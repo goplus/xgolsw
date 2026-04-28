@@ -18,7 +18,7 @@ import (
 )
 
 func TestAppends(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name     string
 		src      string
 		wantDiag bool
@@ -39,9 +39,7 @@ _ = append(s, 1)
 `,
 			wantDiag: false,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create file set and parse source
 			fset := token.NewFileSet()

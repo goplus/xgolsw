@@ -177,15 +177,13 @@ echo x
 		replier := &mockReplier{}
 		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
 
-		testCases := []struct {
+		for _, tc := range []struct {
 			name string
 			id   any
 		}{
 			{"InvalidType", []int{1, 2, 3}},
 			{"EmptyMap", map[string]string{}},
-		}
-
-		for _, tc := range testCases {
+		} {
 			t.Run(tc.name, func(t *testing.T) {
 				err := s.cancelRequest(&CancelParams{ID: tc.id})
 				// Should return an error for invalid ID
@@ -197,7 +195,7 @@ echo x
 }
 
 func TestHandleMessageCall(t *testing.T) {
-	testCases := []struct {
+	for _, tc := range []struct {
 		name   string
 		method string
 		params any
@@ -488,9 +486,7 @@ fmt.Println("Hello, World!")
 			},
 			msgNum: 2,
 		},
-	}
-
-	for _, tc := range testCases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
@@ -518,7 +514,7 @@ fmt.Println("Hello, World!")
 }
 
 func TestHandleMessageNotification(t *testing.T) {
-	testCases := []struct {
+	for _, tc := range []struct {
 		name   string
 		method string
 		params any
@@ -618,9 +614,7 @@ func TestHandleMessageNotification(t *testing.T) {
 			params: nil,
 			msgNum: 0,
 		},
-	}
-
-	for _, tc := range testCases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})

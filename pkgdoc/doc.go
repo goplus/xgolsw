@@ -81,7 +81,7 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		for _, name := range c.Names {
 			if token.IsExported(name) {
 				pkgDoc.Consts[name] = c.Doc
-				if name == xgoutil.XGoPackage {
+				if xgoutil.IsXGoPackageMarkerName(name) {
 					isXGoPackage = true
 				}
 			}

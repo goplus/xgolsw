@@ -144,6 +144,40 @@ assert.Equal(t, expected, string(bytes))
 assert.Equal(t, expected, string(v.([]byte)))
 ```
 
+### Table-driven tests
+
+When a test case table is used by a single loop, write the anonymous slice inline in the `range` clause instead of
+assigning it to a separate local variable.
+
+```go
+// Good
+for _, tt := range []struct {
+    name string
+    want bool
+}{
+    {name: "Enabled", want: true},
+    {name: "Disabled"},
+} {
+    t.Run(tt.name, func(t *testing.T) {
+        assert.Equal(t, tt.want, got)
+    })
+}
+
+// Bad
+tests := []struct {
+    name string
+    want bool
+}{
+    {name: "Enabled", want: true},
+    {name: "Disabled"},
+}
+for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        assert.Equal(t, tt.want, got)
+    })
+}
+```
+
 ### Subtest independence
 
 Each subtest should be independent and not share mutable state with other subtests. Use `t.Cleanup()` for cleanup and

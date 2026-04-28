@@ -12,7 +12,7 @@ import (
 func TestTranslatorTranslate(t *testing.T) {
 	translator := NewTranslator()
 
-	tests := []struct {
+	for _, tt := range []struct {
 		name string
 		msg  string
 		lang Language
@@ -101,9 +101,7 @@ func TestTranslatorTranslate(t *testing.T) {
 			lang: LanguageCN,
 			want: `some random error message`,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			result := translator.Translate(tt.msg, tt.lang)
 			assert.Equal(t, tt.want, result)
@@ -129,7 +127,7 @@ func TestTranslateGlobalFunction(t *testing.T) {
 // - Flexible pattern matching that logs differences rather than failing on exact matches
 // - Real compilation errors ensure patterns stay relevant as xgo evolves
 func TestCodeBasedErrorTranslation(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		name        string
 		code        string
 		wantEnError string // Want complete English error message
@@ -547,9 +545,7 @@ func main() {
 			wantEnError: `invalid operation: a[1] (type bool does not support indexing)`,
 			wantCnError: `无效操作: a[1] (类型 bool 不支持 indexing)`,
 		},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Compile the code and get the actual error message
 			actualError := compileAndGetError(tt.code)

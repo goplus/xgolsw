@@ -19,12 +19,21 @@ package xgoutil
 import (
 	"go/constant"
 	gotypes "go/types"
+	"strings"
 )
 
-// XGoPackage indicates an XGo package.
-const XGoPackage = "GopPackage"
+const (
+	// XGoPackage indicates an XGo package.
+	XGoPackage = "XGoPackage"
+
+	// GopPackage indicates an XGo package using the legacy marker name.
+	//
+	// Deprecated: Use XGoPackage for new packages. GopPackage is retained for backwards compatibility.
+	GopPackage = "GopPackage"
+)
 
 // IsMarkedAsXGoPackage reports whether the given package is marked as an XGo package.
+// It recognizes both the current XGoPackage marker and the legacy GopPackage marker.
 func IsMarkedAsXGoPackage(pkg *gotypes.Package) bool {
 	if pkg == nil {
 		return false
@@ -33,7 +42,27 @@ func IsMarkedAsXGoPackage(pkg *gotypes.Package) bool {
 	if scope == nil {
 		return false
 	}
-	obj := scope.Lookup(XGoPackage)
+	return isXGoPackageMarker(scope.Lookup(XGoPackage)) || isXGoPackageMarker(scope.Lookup(GopPackage))
+}
+
+// IsXGoPackageMarkerName reports whether name is a supported XGo package marker name.
+func IsXGoPackageMarkerName(name string) bool {
+	return name == XGoPackage || name == GopPackage
+}
+
+// IsXGoInternalName reports whether name is reserved for XGo-generated internals.
+func IsXGoInternalName(name string) bool {
+	if IsXGoPackageMarkerName(name) {
+		return true
+	}
+	return strings.HasPrefix(name, "XGo_") ||
+		strings.HasPrefix(name, "Gop_") ||
+		strings.HasPrefix(name, "__xgo_") ||
+		strings.HasPrefix(name, "__gop_")
+}
+
+// isXGoPackageMarker reports whether the object is a truthy XGo package marker.
+func isXGoPackageMarker(obj gotypes.Object) bool {
 	if obj == nil {
 		return false
 	}

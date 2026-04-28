@@ -347,15 +347,14 @@ func isPropertyField(field *gotypes.Var) bool {
 
 // isPropertyMethod checks if a method should be included as a property.
 // Returns true if:
-//   - The method name does not start with "XGo_" (internal methods)
+//   - The method name is not reserved for XGo-generated internals
 //   - The method name starts with an uppercase letter
 //   - The method has no parameters
 //   - The method has exactly one return value
 //   - The return type is a basic type (int, float64, string, etc.), or a named
 //     type from github.com/goplus/spx/v2 named "Value" or "List"
 func isPropertyMethod(method *gotypes.Func) bool {
-	// Skip XGo_ methods (internal methods)
-	if strings.HasPrefix(method.Name(), "XGo_") {
+	if xgoutil.IsXGoInternalName(method.Name()) {
 		return false
 	}
 	// Check if the method name starts with a lowercase letter
@@ -734,9 +733,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 
 			switch {
 			case name == "this",
-				name == xgoutil.XGoPackage,
-				strings.HasPrefix(name, "Gop_"),
-				strings.HasPrefix(name, "__gop_"):
+				xgoutil.IsXGoInternalName(name):
 				return
 			}
 		case *gotypes.Func:
