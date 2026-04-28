@@ -16,7 +16,19 @@
 
 package xgoutil
 
-import gotypes "go/types"
+import (
+	gotypes "go/types"
+	"iter"
+)
+
+// StructMember describes a resolved struct member and the selector type used
+// to refer to it.
+type StructMember struct {
+	// Member is the field or method object yielded from the traversal.
+	Member gotypes.Object
+	// Selector is the named type used to select Member.
+	Selector *gotypes.Named
+}
 
 // IsNamedStructType reports whether the given named type is a struct type.
 func IsNamedStructType(named *gotypes.Named) bool {
@@ -52,72 +64,73 @@ func IsXGoClassStructType(named *gotypes.Named) bool {
 	return false
 }
 
-// WalkStruct walks a struct and calls the given onMember for each field and
-// method. If onMember returns false, the walk is stopped.
-func WalkStruct(named *gotypes.Named, onMember func(member gotypes.Object, selector *gotypes.Named) bool) {
-	if named == nil {
-		return
-	}
-	walked := make(map[*gotypes.Named]struct{})
-	seenMembers := make(map[string]struct{})
-	var walk func(named *gotypes.Named, namedPath []*gotypes.Named) bool
-	walk = func(named *gotypes.Named, namedPath []*gotypes.Named) bool {
-		if _, ok := walked[named]; ok {
+// StructMembers returns an iterator over exported struct fields and methods. It
+// includes embedded struct members in depth-first order and skips shadowed
+// member names.
+func StructMembers(named *gotypes.Named) iter.Seq[StructMember] {
+	return func(yield func(StructMember) bool) {
+		if named == nil {
+			return
+		}
+		walked := make(map[*gotypes.Named]struct{})
+		seenMembers := make(map[string]struct{})
+		var walk func(named *gotypes.Named, namedPath []*gotypes.Named) bool
+		walk = func(named *gotypes.Named, namedPath []*gotypes.Named) bool {
+			if _, ok := walked[named]; ok {
+				return true
+			}
+			walked[named] = struct{}{}
+
+			st, ok := named.Underlying().(*gotypes.Struct)
+			if !ok {
+				return true
+			}
+
+			selector := named
+			for _, named := range namedPath {
+				if !IsExportedOrInMainPkg(named.Obj()) {
+					break
+				}
+				selector = named
+				if IsXGoClassStructType(selector) {
+					break
+				}
+			}
+			yieldMember := func(member gotypes.Object) bool {
+				if _, ok := seenMembers[member.Name()]; ok || !IsExportedOrInMainPkg(member) {
+					return true
+				}
+				seenMembers[member.Name()] = struct{}{}
+
+				return yield(StructMember{Member: member, Selector: selector})
+			}
+
+			for field := range st.Fields() {
+				if !yieldMember(field) {
+					return false
+				}
+			}
+			for method := range named.Methods() {
+				if !yieldMember(method) {
+					return false
+				}
+			}
+			for field := range st.Fields() {
+				if !field.Embedded() {
+					continue
+				}
+				fieldType := DerefType(field.Type())
+				namedField, ok := fieldType.(*gotypes.Named)
+				if !ok || !IsNamedStructType(namedField) {
+					continue
+				}
+
+				if !walk(namedField, append(namedPath, namedField)) {
+					return false
+				}
+			}
 			return true
 		}
-		walked[named] = struct{}{}
-
-		st, ok := named.Underlying().(*gotypes.Struct)
-		if !ok {
-			return true
-		}
-
-		selector := named
-		for _, named := range namedPath {
-			if !IsExportedOrInMainPkg(named.Obj()) {
-				break
-			}
-			selector = named
-			if IsXGoClassStructType(selector) {
-				break
-			}
-		}
-
-		for field := range st.Fields() {
-			if _, ok := seenMembers[field.Name()]; ok || !IsExportedOrInMainPkg(field) {
-				continue
-			}
-			seenMembers[field.Name()] = struct{}{}
-
-			if !onMember(field, selector) {
-				return false
-			}
-		}
-		for method := range named.Methods() {
-			if _, ok := seenMembers[method.Name()]; ok || !IsExportedOrInMainPkg(method) {
-				continue
-			}
-			seenMembers[method.Name()] = struct{}{}
-
-			if !onMember(method, selector) {
-				return false
-			}
-		}
-		for field := range st.Fields() {
-			if !field.Embedded() {
-				continue
-			}
-			fieldType := DerefType(field.Type())
-			namedField, ok := fieldType.(*gotypes.Named)
-			if !ok || !IsNamedStructType(namedField) {
-				continue
-			}
-
-			if !walk(namedField, append(namedPath, namedField)) {
-				return false
-			}
-		}
-		return true
+		walk(named, []*gotypes.Named{named})
 	}
-	walk(named, []*gotypes.Named{named})
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"slices"
 	"strconv"
 	"strings"
@@ -191,9 +192,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 
 	mainPkgDoc, _ := proj.PkgDoc()
 
-	properties := []XGoProperty{}
-	seenNames := make(map[string]bool)
-	collectPropertiesFromNamedType(namedType, mainPkgDoc, make(map[*gotypes.Named]bool), seenNames, &properties)
+	properties := collectPropertiesFromNamedType(namedType, mainPkgDoc)
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -218,73 +217,85 @@ type propertyMember struct {
 	SpxDef SpxDefinition
 }
 
-// walkPropertyMembers recursively walks namedType and its embedded types,
-// calling onMember for each property field or property method in depth-first,
-// outer-scope-first order. Outer (less deeply nested) members shadow embedded
-// ones with the same name. visited prevents infinite recursion for cyclic
-// embeddings; seenNames tracks already-yielded property names.
-func walkPropertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc, visited map[*gotypes.Named]bool, seenNames map[string]bool, onMember func(propertyMember)) {
-	if visited[namedType] {
-		return
-	}
-	visited[namedType] = true
-
-	structType, ok := namedType.Underlying().(*gotypes.Struct)
-	if !ok {
-		return
-	}
-
-	selectorTypeName := namedType.Obj().Name()
-
-	// Single pass over fields: yield direct property fields and collect
-	// embedded types for later recursion, so each field is visited only once.
-	var embeddedTypes []*gotypes.Named
-	for field := range structType.Fields() {
-		if field.Embedded() {
-			embeddedType := gotypes.Unalias(xgoutil.DerefType(field.Type()))
-			if embNamed, ok := embeddedType.(*gotypes.Named); ok {
-				embeddedTypes = append(embeddedTypes, embNamed)
+// propertyMembers returns an iterator over property fields and property methods
+// in depth-first, outer-scope-first order. Outer members shadow embedded ones
+// with the same name.
+func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) iter.Seq[propertyMember] {
+	return func(yield func(propertyMember) bool) {
+		visited := make(map[*gotypes.Named]bool)
+		seenNames := make(map[string]bool)
+		var walk func(namedType *gotypes.Named) bool
+		walk = func(namedType *gotypes.Named) bool {
+			if visited[namedType] {
+				return true
 			}
-			continue
-		}
-		if !isPropertyField(field) {
-			continue
-		}
-		name := field.Name()
-		if seenNames[name] {
-			continue
-		}
-		seenNames[name] = true
-		onMember(propertyMember{
-			Name:   name,
-			Type:   field.Type(),
-			Kind:   XGoPropertyKindField,
-			SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDocFor(field.Pkg())),
-		})
-	}
+			visited[namedType] = true
 
-	// Collect methods defined directly on this type.
-	for method := range namedType.Methods() {
-		if !isPropertyMethod(method) {
-			continue
-		}
-		name := xgoutil.ToLowerCamelCase(method.Name())
-		if seenNames[name] {
-			continue
-		}
-		seenNames[name] = true
-		sig := method.Signature()
-		onMember(propertyMember{
-			Name:   name,
-			Type:   sig.Results().At(0).Type(),
-			Kind:   XGoPropertyKindMethod,
-			SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDocFor(method.Pkg())),
-		})
-	}
+			structType, ok := namedType.Underlying().(*gotypes.Struct)
+			if !ok {
+				return true
+			}
 
-	// Recurse into embedded types collected during the field pass.
-	for _, embNamed := range embeddedTypes {
-		walkPropertyMembers(embNamed, pkgDocFor, visited, seenNames, onMember)
+			selectorTypeName := namedType.Obj().Name()
+			yieldProperty := func(member propertyMember) bool {
+				if seenNames[member.Name] {
+					return true
+				}
+				seenNames[member.Name] = true
+				return yield(member)
+			}
+
+			// Single pass over fields: yield direct property fields and collect
+			// embedded types for later recursion, so each field is visited only once.
+			var embeddedTypes []*gotypes.Named
+			for field := range structType.Fields() {
+				if field.Embedded() {
+					embeddedType := gotypes.Unalias(xgoutil.DerefType(field.Type()))
+					if embNamed, ok := embeddedType.(*gotypes.Named); ok {
+						embeddedTypes = append(embeddedTypes, embNamed)
+					}
+					continue
+				}
+				if !isPropertyField(field) {
+					continue
+				}
+				name := field.Name()
+				if !yieldProperty(propertyMember{
+					Name:   name,
+					Type:   field.Type(),
+					Kind:   XGoPropertyKindField,
+					SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDocFor(field.Pkg())),
+				}) {
+					return false
+				}
+			}
+
+			// Collect methods defined directly on this type.
+			for method := range namedType.Methods() {
+				if !isPropertyMethod(method) {
+					continue
+				}
+				name := xgoutil.ToLowerCamelCase(method.Name())
+				sig := method.Signature()
+				if !yieldProperty(propertyMember{
+					Name:   name,
+					Type:   sig.Results().At(0).Type(),
+					Kind:   XGoPropertyKindMethod,
+					SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDocFor(method.Pkg())),
+				}) {
+					return false
+				}
+			}
+
+			// Recurse into embedded types collected during the field pass.
+			for _, embNamed := range embeddedTypes {
+				if !walk(embNamed) {
+					return false
+				}
+			}
+			return true
+		}
+		walk(namedType)
 	}
 }
 
@@ -301,18 +312,19 @@ func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc) func(*gotypes.Package) *pkgdoc.Pkg
 	}
 }
 
-// collectPropertiesFromNamedType recursively collects properties from a named
-// type into properties, using walkPropertyMembers for the traversal.
-func collectPropertiesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*gotypes.Named]bool, seenNames map[string]bool, properties *[]XGoProperty) {
-	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
-		*properties = append(*properties, XGoProperty{
+// collectPropertiesFromNamedType recursively collects properties from a named type.
+func collectPropertiesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc) []XGoProperty {
+	var properties []XGoProperty
+	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc)) {
+		properties = append(properties, XGoProperty{
 			Name:       m.Name,
 			Type:       GetSimplifiedTypeString(m.Type),
 			Kind:       m.Kind,
 			Doc:        m.SpxDef.Detail,
 			Definition: m.SpxDef.ID,
 		})
-	})
+	}
+	return properties
 }
 
 // isPropertyField checks if a field should be included as a property.
@@ -334,13 +346,8 @@ func isPropertyField(field *gotypes.Var) bool {
 	}
 
 	// Allow spx.Value and spx.List
-	if named, ok := fieldType.(*gotypes.Named); ok {
-		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == SpxPkgPath {
-			name := named.Obj().Name()
-			if name == "Value" || name == "List" {
-				return true
-			}
-		}
+	if named, ok := fieldType.(*gotypes.Named); ok && isSpxValueOrListType(named) {
+		return true
 	}
 
 	return false
@@ -373,13 +380,23 @@ func isPropertyMethod(method *gotypes.Func) bool {
 	if _, ok := retType.(*gotypes.Basic); ok {
 		return true
 	}
-	if named, ok := retType.(*gotypes.Named); ok {
-		if pkg := named.Obj().Pkg(); pkg != nil && pkg.Path() == SpxPkgPath {
-			name := named.Obj().Name()
-			if name == "Value" || name == "List" {
-				return true
-			}
-		}
+	if named, ok := retType.(*gotypes.Named); ok && isSpxValueOrListType(named) {
+		return true
+	}
+	return false
+}
+
+// isSpxValueOrListType reports whether named is spx.Value or spx.List.
+func isSpxValueOrListType(named *gotypes.Named) bool {
+	obj := named.Obj()
+	pkg := obj.Pkg()
+	if pkg == nil || pkg.Path() != SpxPkgPath {
+		return false
+	}
+
+	switch obj.Name() {
+	case "Value", "List":
+		return true
 	}
 	return false
 }
@@ -396,12 +413,8 @@ func isPropertyOfEnclosingType(obj gotypes.Object) bool {
 	// Check if the current object is a property (field or method)
 	switch obj := obj.(type) {
 	case *gotypes.Var:
-		if obj.IsField() {
-			// Check if this field is a property
-			return isPropertyField(obj)
-		}
+		return obj.IsField() && isPropertyField(obj)
 	case *gotypes.Func:
-		// Check if this method is a property
 		return isPropertyMethod(obj)
 	}
 
@@ -522,6 +535,11 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 			inputSlots = append(inputSlots, slot)
 		}
 	}
+	addInputSlot := func(slot *SpxInputSlot) {
+		if slot != nil {
+			addInputSlots(*slot)
+		}
+	}
 
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil {
@@ -538,26 +556,13 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 			slots := findInputSlotsFromCallExpr(result, node)
 			addInputSlots(slots...)
 		case *ast.BinaryExpr:
-			leftSlot := checkValueInputSlot(result, node.X, nil)
-			if leftSlot != nil {
-				addInputSlots(*leftSlot)
-			}
-
-			rightSlot := checkValueInputSlot(result, node.Y, nil)
-			if rightSlot != nil {
-				addInputSlots(*rightSlot)
-			}
+			addInputSlot(checkValueInputSlot(result, node.X, nil))
+			addInputSlot(checkValueInputSlot(result, node.Y, nil))
 		case *ast.UnaryExpr:
-			slot := checkValueInputSlot(result, node.X, nil)
-			if slot != nil {
-				addInputSlots(*slot)
-			}
+			addInputSlot(checkValueInputSlot(result, node.X, nil))
 		case *ast.AssignStmt:
 			for _, lhs := range node.Lhs {
-				slot := checkAddressInputSlot(result, lhs)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkAddressInputSlot(result, lhs))
 			}
 
 			for i, rhs := range node.Rhs {
@@ -566,34 +571,22 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 					declaredType = typeInfo.TypeOf(node.Lhs[i])
 				}
 
-				slot := checkValueInputSlot(result, rhs, declaredType)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, rhs, declaredType))
 			}
 		case *ast.ForStmt:
 			if node.Init != nil {
 				if expr, ok := node.Init.(*ast.ExprStmt); ok {
-					slot := checkValueInputSlot(result, expr.X, nil)
-					if slot != nil {
-						addInputSlots(*slot)
-					}
+					addInputSlot(checkValueInputSlot(result, expr.X, nil))
 				}
 			}
 
 			if node.Cond != nil {
-				slot := checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool])
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool]))
 			}
 
 			if node.Post != nil {
 				if expr, ok := node.Post.(*ast.ExprStmt); ok {
-					slot := checkValueInputSlot(result, expr.X, nil)
-					if slot != nil {
-						addInputSlots(*slot)
-					}
+					addInputSlot(checkValueInputSlot(result, expr.X, nil))
 				}
 			}
 		case *ast.ValueSpec:
@@ -609,61 +602,34 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 					}
 				}
 
-				slot := checkValueInputSlot(result, value, declaredType)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, value, declaredType))
 			}
 		case *ast.ReturnStmt:
 			for _, res := range node.Results {
-				slot := checkValueInputSlot(result, res, nil)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, res, nil))
 			}
 		case *ast.IfStmt:
-			slot := checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool])
-			if slot != nil {
-				addInputSlots(*slot)
-			}
+			addInputSlot(checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool]))
 		case *ast.SwitchStmt:
 			if node.Tag != nil {
-				slot := checkValueInputSlot(result, node.Tag, nil)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, node.Tag, nil))
 			}
 		case *ast.CaseClause:
 			for _, expr := range node.List {
-				slot := checkValueInputSlot(result, expr, nil)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkValueInputSlot(result, expr, nil))
 			}
 		case *ast.RangeStmt:
 			if node.Key != nil && !isBlank(node.Key) {
-				slot := checkAddressInputSlot(result, node.Key)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkAddressInputSlot(result, node.Key))
 			}
 
 			if node.Value != nil && !isBlank(node.Value) {
-				slot := checkAddressInputSlot(result, node.Value)
-				if slot != nil {
-					addInputSlots(*slot)
-				}
+				addInputSlot(checkAddressInputSlot(result, node.Value))
 			}
 
-			slot := checkValueInputSlot(result, node.X, nil)
-			if slot != nil {
-				addInputSlots(*slot)
-			}
+			addInputSlot(checkValueInputSlot(result, node.X, nil))
 		case *ast.IncDecStmt:
-			slot := checkAddressInputSlot(result, node.X)
-			if slot != nil {
-				addInputSlots(*slot)
-			}
+			addInputSlot(checkAddressInputSlot(result, node.X))
 		}
 		return true
 	})
@@ -770,8 +736,8 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 					continue
 				}
 
-				xgoutil.WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-					switch member := member.(type) {
+				for structMember := range xgoutil.StructMembers(named) {
+					switch member := structMember.Member.(type) {
 					case *gotypes.Var:
 						if !member.Origin().Embedded() {
 							addNameOf(member)
@@ -784,8 +750,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 							addNameOf(member)
 						}
 					}
-					return true
-				})
+				}
 			}
 		}
 	}
@@ -1189,29 +1154,29 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node ast.Node) *
 	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, node)
 
 	var spxSpriteResource *SpxSpriteResource
-	xgoutil.WalkPathEnclosingInterval(astFile, node.Pos(), node.End(), false, func(node ast.Node) bool {
-		if node == nil {
-			return true
+	for pathNode := range xgoutil.PathEnclosingIntervalNodes(astFile, node.Pos(), node.End(), false) {
+		if pathNode == nil {
+			continue
 		}
 
-		callExpr, ok := node.(*ast.CallExpr)
+		callExpr, ok := pathNode.(*ast.CallExpr)
 		if !ok {
-			return true
+			continue
 		}
 
 		var spxSpriteName string
 		if sel, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
 			ident, ok := sel.X.(*ast.Ident)
 			if !ok {
-				return false
+				break
 			}
 			obj := typeInfo.ObjectOf(ident)
 			if obj == nil {
-				return false
+				break
 			}
 			named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
 			if !ok {
-				return false
+				break
 			}
 
 			if named == GetSpxSpriteType() {
@@ -1223,8 +1188,8 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node ast.Node) *
 			spxSpriteName = strings.TrimSuffix(spxFile, ".spx")
 		}
 		spxSpriteResource = result.spxResourceSet.sprites[spxSpriteName]
-		return false
-	})
+		break
+	}
 	return spxSpriteResource
 }
 

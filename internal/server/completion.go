@@ -1567,13 +1567,13 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 	}
 
 	mainPkgDoc, _ := ctx.proj.PkgDoc()
-	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc, make(map[*gotypes.Named]bool), make(map[string]bool))
+	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc)
 }
 
 // collectPropertyNamesFromNamedType collects property name completion items
-// from the given named type (including embedded types) using walkPropertyMembers.
-func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc, visited map[*gotypes.Named]bool, seenNames map[string]bool) {
-	walkPropertyMembers(namedType, makePkgDocFor(mainPkgDoc), visited, seenNames, func(m propertyMember) {
+// from the given named type, including embedded types.
+func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc) {
+	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc)) {
 		insertText := m.Name
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(m.Name)
@@ -1589,7 +1589,7 @@ func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotyp
 		def.CompletionItemInsertText = insertText
 		def.CompletionItemInsertTextFormat = PlainTextTextFormat
 		ctx.itemSet.addSpxDefs(def)
-	})
+	}
 }
 
 // collectStructLit collects struct literal completions.
