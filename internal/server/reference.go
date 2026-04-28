@@ -110,15 +110,15 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *g
 		}
 		seenIfaces[current] = true
 
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+		for spec := range xgoutil.ASTSpecs(astPkg, token.TYPE) {
 			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				return
+				continue
 			}
 			embedIface, ok := typeName.Type().Underlying().(*gotypes.Interface)
 			if !ok {
-				return
+				continue
 			}
 
 			for typ := range embedIface.EmbeddedTypes() {
@@ -133,7 +133,7 @@ func (s *Server) findEmbeddedInterfaceReferences(result *compileResult, iface *g
 					find(embedIface)
 				}
 			}
-		})
+		}
 	}
 	find(iface)
 	return locations
@@ -148,27 +148,27 @@ func (s *Server) findImplementingMethodReferences(result *compileResult, iface *
 	}
 	var locations []Location
 	astPkg, _ := result.proj.ASTPackage()
-	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+	for spec := range xgoutil.ASTSpecs(astPkg, token.TYPE) {
 		typeSpec := spec.(*ast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
-			return
+			continue
 		}
 		named, ok := typeName.Type().(*gotypes.Named)
 		if !ok || !gotypes.Implements(named, iface) {
-			return
+			continue
 		}
 
 		selection, ok := gotypes.LookupSelection(named, false, named.Obj().Pkg(), methodName)
 		if !ok {
-			return
+			continue
 		}
 		method, ok := selection.Obj().(*gotypes.Func)
 		if !ok {
-			return
+			continue
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
-	})
+	}
 	return locations
 }
 
@@ -184,29 +184,29 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *gotype
 	seenIfaces := make(map[*gotypes.Interface]bool)
 	astPkg, _ := result.proj.ASTPackage()
 
-	xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+	for spec := range xgoutil.ASTSpecs(astPkg, token.TYPE) {
 		typeSpec := spec.(*ast.TypeSpec)
 		typeName := typeInfo.ObjectOf(typeSpec.Name)
 		if typeName == nil {
-			return
+			continue
 		}
 		ifaceType, ok := typeName.Type().Underlying().(*gotypes.Interface)
 		if !ok || !gotypes.Implements(recvType, ifaceType) || seenIfaces[ifaceType] {
-			return
+			continue
 		}
 		seenIfaces[ifaceType] = true
 
 		selection, ok := gotypes.LookupSelection(ifaceType, false, typeName.Pkg(), fn.Name())
 		if !ok {
-			return
+			continue
 		}
 		method, ok := selection.Obj().(*gotypes.Func)
 		if !ok {
-			return
+			continue
 		}
 		locations = append(locations, s.findReferenceLocations(result, method)...)
 		locations = append(locations, s.findEmbeddedInterfaceReferences(result, ifaceType, fn.Name())...)
-	})
+	}
 	return locations
 }
 
@@ -225,19 +225,19 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj gotype
 
 		seenTypes := make(map[gotypes.Type]bool)
 		astPkg, _ := result.proj.ASTPackage()
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+		for spec := range xgoutil.ASTSpecs(astPkg, token.TYPE) {
 			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				return
+				continue
 			}
 			named, ok := typeName.Type().(*gotypes.Named)
 			if !ok {
-				return
+				continue
 			}
 
 			locations = append(locations, s.findEmbeddedMethodReferences(result, fn, named, recv.Type(), seenTypes)...)
-		})
+		}
 	}
 	return locations
 }
@@ -286,19 +286,19 @@ func (s *Server) findEmbeddedMethodReferences(result *compileResult, fn *gotypes
 			return nil
 		}
 		astPkg, _ := result.proj.ASTPackage()
-		xgoutil.RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
+		for spec := range xgoutil.ASTSpecs(astPkg, token.TYPE) {
 			typeSpec := spec.(*ast.TypeSpec)
 			typeName := typeInfo.ObjectOf(typeSpec.Name)
 			if typeName == nil {
-				return
+				continue
 			}
 			named, ok := typeName.Type().(*gotypes.Named)
 			if !ok {
-				return
+				continue
 			}
 
 			locations = append(locations, s.findEmbeddedMethodReferences(result, fn, named, named, seenTypes)...)
-		})
+		}
 	}
 	return locations
 }

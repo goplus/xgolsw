@@ -171,16 +171,15 @@ func TestIsXGoClassStructType(t *testing.T) {
 	})
 }
 
-func TestWalkStruct(t *testing.T) {
+func TestStructMembers(t *testing.T) {
 	t.Run("NilNamedType", func(t *testing.T) {
 		var (
 			named  *gotypes.Named
 			called bool
 		)
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
+		for range StructMembers(named) {
 			called = true
-			return true
-		})
+		}
 		assert.False(t, called)
 	})
 
@@ -190,10 +189,9 @@ func TestWalkStruct(t *testing.T) {
 		named := gotypes.NewNamed(typeName, gotypes.Typ[gotypes.Int], nil)
 
 		var called bool
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
+		for range StructMembers(named) {
 			called = true
-			return true
-		})
+		}
 		assert.False(t, called)
 	})
 
@@ -204,10 +202,9 @@ func TestWalkStruct(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var called bool
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
+		for range StructMembers(named) {
 			called = true
-			return true
-		})
+		}
 		assert.False(t, called)
 	})
 
@@ -223,11 +220,10 @@ func TestWalkStruct(t *testing.T) {
 			members   []gotypes.Object
 			selectors []*gotypes.Named
 		)
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			selectors = append(selectors, selector)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+			selectors = append(selectors, structMember.Selector)
+		}
 		require.Len(t, members, 2)
 		assert.Equal(t, "Field1", members[0].Name())
 		assert.Equal(t, "Field2", members[1].Name())
@@ -250,10 +246,9 @@ func TestWalkStruct(t *testing.T) {
 		named.AddMethod(method)
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+		}
 		require.Len(t, members, 1)
 		assert.Equal(t, "Method1", members[0].Name())
 	})
@@ -269,10 +264,10 @@ func TestWalkStruct(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "Method2", signature))
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return false
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+			break
+		}
 
 		require.Len(t, members, 1)
 		assert.Equal(t, "Method1", members[0].Name())
@@ -289,10 +284,9 @@ func TestWalkStruct(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "unexportedMethod", signature))
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+		}
 
 		require.Len(t, members, 1)
 		assert.Equal(t, "ExportedMethod", members[0].Name())
@@ -314,10 +308,9 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(mainNamed) {
+			members = append(members, structMember.Member)
+		}
 		require.Len(t, members, 3)
 		memberNames := make([]string, len(members))
 		for i, member := range members {
@@ -337,10 +330,10 @@ func TestWalkStruct(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return len(members) < 1 // Stop after first member.
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+			break
+		}
 		require.Len(t, members, 1)
 		assert.Equal(t, "Field1", members[0].Name())
 	})
@@ -369,10 +362,9 @@ func TestWalkStruct(t *testing.T) {
 		namedB.SetUnderlying(structBTypeWithA)
 
 		var callCount int
-		WalkStruct(namedA, func(member gotypes.Object, selector *gotypes.Named) bool {
+		for range StructMembers(namedA) {
 			callCount++
-			return true
-		})
+		}
 		assert.GreaterOrEqual(t, callCount, 0) // Should not cause infinite recursion.
 	})
 
@@ -385,10 +377,9 @@ func TestWalkStruct(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+		}
 
 		// Only exported field should be included.
 		require.Len(t, members, 1)
@@ -411,10 +402,9 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(mainNamed) {
+			members = append(members, structMember.Member)
+		}
 
 		// Should see SameName (first occurrence) and EmbeddedStruct, but not the duplicate SameName.
 		require.Len(t, members, 2)
@@ -449,10 +439,9 @@ func TestWalkStruct(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "SameName", signature))
 
 		var members []gotypes.Object
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			members = append(members, structMember.Member)
+		}
 
 		require.Len(t, members, 1)
 		assert.Equal(t, "SameName", members[0].Name())
@@ -472,10 +461,9 @@ func TestWalkStruct(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var selectors []*gotypes.Named
-		WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-			selectors = append(selectors, selector)
-			return true
-		})
+		for structMember := range StructMembers(named) {
+			selectors = append(selectors, structMember.Selector)
+		}
 		require.Len(t, selectors, 1)
 		assert.Equal(t, named, selectors[0])
 	})
@@ -497,10 +485,9 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(mainNamed) {
+			members = append(members, structMember.Member)
+		}
 		require.Len(t, members, 3)
 		memberNames := make([]string, len(members))
 		for i, member := range members {
@@ -525,12 +512,11 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var selectorForInnerField *gotypes.Named
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			if member.Name() == "ExportedField" {
-				selectorForInnerField = selector
+		for structMember := range StructMembers(mainNamed) {
+			if structMember.Member.Name() == "ExportedField" {
+				selectorForInnerField = structMember.Selector
 			}
-			return true
-		})
+		}
 
 		require.NotNil(t, selectorForInnerField)
 		assert.Equal(t, mainNamed, selectorForInnerField)
@@ -550,16 +536,15 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member)
-			return true
-		})
+		for structMember := range StructMembers(mainNamed) {
+			members = append(members, structMember.Member)
+		}
 
 		require.Len(t, members, 1)
 		assert.Equal(t, "EmbeddedInt", members[0].Name())
 	})
 
-	t.Run("EmbeddedWalkEarlyTermination", func(t *testing.T) {
+	t.Run("EmbeddedEarlyTermination", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 
 		embeddedField := gotypes.NewField(token.NoPos, pkg, "EmbeddedField", gotypes.Typ[gotypes.String], false)
@@ -574,10 +559,12 @@ func TestWalkStruct(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []string
-		WalkStruct(mainNamed, func(member gotypes.Object, selector *gotypes.Named) bool {
-			members = append(members, member.Name())
-			return member.Name() != "EmbeddedField"
-		})
+		for structMember := range StructMembers(mainNamed) {
+			members = append(members, structMember.Member.Name())
+			if structMember.Member.Name() == "EmbeddedField" {
+				break
+			}
+		}
 
 		assert.Equal(t, []string{"MainField", "EmbeddedStruct", "EmbeddedField"}, members)
 	})

@@ -699,13 +699,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr ast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, expr)
 
 			got := checkValueInputSlot(result, expr, nil)
@@ -778,13 +777,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr ast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, expr)
 
 			got := checkAddressInputSlot(result, expr)
@@ -897,13 +895,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var lit *ast.BasicLit
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.BasicLit); ok {
 					lit = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, lit)
 
 			got := createValueInputSlotFromBasicLit(result, lit, tt.declaredType)
@@ -1061,13 +1058,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var ident *ast.Ident
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.Ident); ok {
 					ident = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, ident)
 
 			got := createValueInputSlotFromIdent(result, ident, nil)
@@ -1105,13 +1101,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var ident *ast.Ident
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.Ident); ok && node.Name == "mySound" {
 				ident = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, ident)
 
 		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
@@ -1216,13 +1211,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var unaryExpr *ast.UnaryExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if expr, ok := node.(*ast.UnaryExpr); ok {
 					unaryExpr = expr
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, unaryExpr)
 
 			got := createValueInputSlotFromUnaryExpr(result, unaryExpr, nil)
@@ -1291,13 +1285,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var callExpr *ast.CallExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.CallExpr); ok {
 					callExpr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, callExpr)
 
 			got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
@@ -1520,13 +1513,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
@@ -1545,13 +1537,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
@@ -1570,13 +1561,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)

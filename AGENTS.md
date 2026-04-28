@@ -9,6 +9,10 @@ features (completion, diagnostics, hover, etc.) for XGo source files.
 
 ## Code conventions
 
+### Iterator conventions
+
+For traversal helpers, prefer `iter.Seq` or `iter.Seq2` with `for range` over walker-style callbacks.
+
 ### Import alias conventions
 
 When a `github.com/goplus/xgo/*` package corresponds to a standard library `go/*` package, prefer the XGo package and
