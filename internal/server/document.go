@@ -53,14 +53,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 			return
 		}
 		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {
-			identRange := RangeForNode(result.proj, ident)
-			for _, spxDef := range spxDefs {
-				target := URI(spxDef.ID.String())
-				links = append(links, DocumentLink{
-					Range:  identRange,
-					Target: &target,
-				})
-			}
+			links = appendSpxDefinitionDocumentLinks(links, RangeForNode(result.proj, ident), spxDefs)
 		}
 	}
 	for ident := range typeInfo.Defs {
@@ -69,8 +62,55 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	for ident := range typeInfo.Uses {
 		addLinksForIdent(ident)
 	}
+	links = append(links, kwargDocumentLinks(result, astFile)...)
 	sortDocumentLinks(links)
 	return links, nil
+}
+
+// kwargDocumentLinks returns spx definition links for kwarg names in astFile.
+func kwargDocumentLinks(result *compileResult, astFile *ast.File) []DocumentLink {
+	typeInfo, _ := result.proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
+
+	var links []DocumentLink
+	ast.Inspect(astFile, func(node ast.Node) bool {
+		callExpr, ok := node.(*ast.CallExpr)
+		if !ok || len(callExpr.Kwargs) == 0 {
+			return true
+		}
+
+		for _, kwarg := range callExpr.Kwargs {
+			for _, target := range lookupCallExprKwargTargets(result.proj, typeInfo, callExpr, kwarg.Name.Name) {
+				var spxDefs []SpxDefinition
+				switch {
+				case target.Field != nil:
+					spxDefs = result.spxDefinitionsFor(target.Field, getTypeFromObject(typeInfo, target.Field))
+				case target.Method != nil:
+					spxDefs = result.spxDefinitionsFor(target.Method, getTypeFromObject(typeInfo, target.Method))
+				default:
+					continue
+				}
+				links = appendSpxDefinitionDocumentLinks(links, RangeForNode(result.proj, kwarg.Name), spxDefs)
+			}
+		}
+		return true
+	})
+	return links
+}
+
+// appendSpxDefinitionDocumentLinks appends document links for spxDefs at
+// linkRange.
+func appendSpxDefinitionDocumentLinks(links []DocumentLink, linkRange Range, spxDefs []SpxDefinition) []DocumentLink {
+	for _, spxDef := range spxDefs {
+		target := URI(spxDef.ID.String())
+		links = append(links, DocumentLink{
+			Range:  linkRange,
+			Target: &target,
+		})
+	}
+	return links
 }
 
 // sortDocumentLinks sorts the given document links in a stable manner.

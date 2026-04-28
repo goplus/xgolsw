@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"path"
 	"slices"
 	"strconv"
@@ -114,6 +115,7 @@ type completionContext struct {
 	returnIndex        int
 
 	inStringLit             bool
+	inCallKwargName         bool
 	inSpxEventHandler       bool
 	valueExpression         bool
 	expectedFuncResultCount int
@@ -135,6 +137,10 @@ func (ctx *completionContext) analyze() {
 				ctx.kind = completionKindDot
 				ctx.selectorExpr = node
 			}
+		case *ast.KwargExpr:
+			if ctx.pos <= node.Name.End() {
+				ctx.inCallKwargName = true
+			}
 		case *ast.CallExpr:
 			if ctx.enclosingCallExpr == nil {
 				ctx.enclosingCallExpr = node
@@ -154,42 +160,15 @@ func (ctx *completionContext) analyze() {
 			// where we want general completions.
 			if shouldSetCallContext {
 				for _, arg := range node.Args {
-					// Check for SliceLit (XGo-style slice literals)
-					if sl, ok := arg.(*ast.SliceLit); ok {
-						if sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
-							shouldSetCallContext = false
-							break
-						}
+					if !ctx.callArgKeepsCallContext(arg) {
+						shouldSetCallContext = false
+						break
 					}
-
-					comp, ok := arg.(*ast.CompositeLit)
-					if !ok {
-						continue
-					}
-					if comp.Pos() <= ctx.pos && ctx.pos <= comp.End() {
-						// Don't set call context for map literals.
-						if ctx.isMapLiteral(comp) {
+				}
+				if shouldSetCallContext {
+					for _, kwarg := range node.Kwargs {
+						if !ctx.callArgKeepsCallContext(kwarg.Value) {
 							shouldSetCallContext = false
-							break
-						}
-
-						// Don't set call context for slice or array literals.
-						if ctx.isSliceOrArrayLiteral(comp) {
-							shouldSetCallContext = false
-							break
-						}
-
-						// Also don't set call context if we're in a struct literal
-						// field value position.
-						for _, elt := range comp.Elts {
-							if kv, ok := elt.(*ast.KeyValueExpr); ok {
-								if kv.Colon < ctx.pos {
-									shouldSetCallContext = false
-									break
-								}
-							}
-						}
-						if !shouldSetCallContext {
 							break
 						}
 					}
@@ -487,6 +466,29 @@ func (ctx *completionContext) analyze() {
 	}
 
 	ctx.inSpxEventHandler = ctx.result.isInSpxEventHandler(ctx.pos)
+}
+
+// callArgKeepsCallContext reports whether arg should keep completion in the
+// enclosing call context.
+func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
+	// XGo-style slice literals should use general completions.
+	if sl, ok := arg.(*ast.SliceLit); ok && sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
+		return false
+	}
+
+	comp, ok := arg.(*ast.CompositeLit)
+	if !ok || ctx.pos < comp.Pos() || ctx.pos > comp.End() {
+		return true
+	}
+	if ctx.isMapLiteral(comp) || ctx.isSliceOrArrayLiteral(comp) {
+		return false
+	}
+	for _, elt := range comp.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok && kv.Colon < ctx.pos {
+			return false
+		}
+	}
+	return true
 }
 
 // isInDisabledIdentifierContext reports whether the completion position is
@@ -914,7 +916,7 @@ func (ctx *completionContext) enclosingFunction(path []ast.Node) *gotypes.Signat
 			if !ok {
 				continue
 			}
-			return fun.Type().(*gotypes.Signature)
+			return fun.Signature()
 		case *ast.FuncLit:
 			// For function literals, get the type from the type info directly.
 			if typ := ctx.typeInfo.TypeOf(n); xgoutil.IsValidType(typ) {
@@ -1215,8 +1217,8 @@ func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *ast.Ident
 				continue
 			}
 
-			sig, ok := fun.Type().(*gotypes.Signature)
-			if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+			sig := fun.Signature()
+			if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 				continue
 			}
 			return sig.Results().At(0).Type()
@@ -1322,6 +1324,17 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
+	if ctx.inCallKwargName {
+		return ctx.collectCallKwargNames(callExpr)
+	}
+	if resolvedArg, ok := ctx.getCurrentResolvedCallArg(callExpr); ok {
+		if xgoutil.IsValidType(resolvedArg.ExpectedType) {
+			ctx.expectedTypes = []gotypes.Type{resolvedArg.ExpectedType}
+		} else {
+			ctx.expectedTypes = ctx.overloadExpectedTypes(callExpr, resolvedArg)
+		}
+		return ctx.collectGeneral()
+	}
 	typ := ctx.typeInfo.TypeOf(callExpr.Fun)
 	if !xgoutil.IsValidType(typ) {
 		return ctx.collectGeneral()
@@ -1340,7 +1353,7 @@ func (ctx *completionContext) collectCall() error {
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]gotypes.Type, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				sig := funcOverload.Type().(*gotypes.Signature)
+				sig := funcOverload.Signature()
 				if argIndex < sig.Params().Len() {
 					expectedTypes = append(expectedTypes, sig.Params().At(argIndex).Type())
 				} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
@@ -1360,6 +1373,7 @@ func (ctx *completionContext) collectCall() error {
 	return ctx.collectGeneral()
 }
 
+// deduplicateTypes removes duplicate expected types while preserving order.
 func deduplicateTypes(expectedTypes []gotypes.Type) []gotypes.Type {
 	if len(expectedTypes) <= 1 {
 		return expectedTypes
@@ -1391,6 +1405,129 @@ func (ctx *completionContext) getCurrentArgIndex(callExpr *ast.CallExpr) int {
 		return len(callExpr.Args)
 	}
 	return -1
+}
+
+// getCurrentResolvedCallArg returns the resolved call argument that contains
+// the current cursor position.
+func (ctx *completionContext) getCurrentResolvedCallArg(callExpr *ast.CallExpr) (xgoutil.ResolvedCallExprArg, bool) {
+	if arg, ok := ctx.currentResolvedCallArg(xgoutil.ResolvedCallExprArgs(ctx.typeInfo, callExpr)); ok {
+		return arg, true
+	}
+	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)))
+}
+
+// currentResolvedCallArg returns the call argument in args that contains the
+// current cursor position.
+func (ctx *completionContext) currentResolvedCallArg(args iter.Seq[xgoutil.ResolvedCallExprArg]) (xgoutil.ResolvedCallExprArg, bool) {
+	for arg := range args {
+		if ctx.pos >= arg.Arg.Pos() && ctx.pos <= arg.Arg.End() {
+			return arg, true
+		}
+		if arg.Kind != xgoutil.ResolvedCallExprArgKeyword {
+			continue
+		}
+		if ctx.pos > arg.Kwarg.Name.End() && ctx.pos <= arg.Kwarg.End() {
+			return arg, true
+		}
+	}
+	return xgoutil.ResolvedCallExprArg{}, false
+}
+
+// overloadExpectedTypes returns expected argument types from overloads that
+// still match callExpr.
+func (ctx *completionContext) overloadExpectedTypes(callExpr *ast.CallExpr, resolvedArg xgoutil.ResolvedCallExprArg) []gotypes.Type {
+	overloads := callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)
+	if len(overloads) == 0 {
+		return nil
+	}
+
+	expectedTypes := make([]gotypes.Type, 0, len(overloads))
+	for _, overload := range overloads {
+		if !overloadMatchesCallExpr(ctx.typeInfo, callExpr, overload, resolvedArg.ArgIndex) {
+			continue
+		}
+		expectedType := overloadResolvedCallExprArgType(ctx.typeInfo, callExpr, overload, resolvedArg)
+		if xgoutil.IsValidType(expectedType) {
+			expectedTypes = append(expectedTypes, expectedType)
+		}
+	}
+	return deduplicateTypes(expectedTypes)
+}
+
+// collectCallKwargNames collects completion items for available keyword
+// argument names at the current call site.
+func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr) error {
+	kwargs := resolveCallExprKwargs(ctx.proj, ctx.typeInfo, callExpr, ctx.currentCallKwargArgIndex(callExpr))
+	if len(kwargs) == 0 {
+		return nil
+	}
+
+	usedTargets := make(map[gotypes.Object]struct{})
+	for _, kwarg := range kwargs {
+		for _, kwargExpr := range callExpr.Kwargs {
+			target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, kwargExpr.Name.Name)
+			if target == nil {
+				continue
+			}
+			if field := target.Field; field != nil {
+				usedTargets[field] = struct{}{}
+			}
+			if method := target.Method; method != nil {
+				usedTargets[method] = struct{}{}
+			}
+		}
+	}
+
+	for _, kwarg := range kwargs {
+		selectorTypeName := kwargSelectorTypeName(kwarg)
+		for _, target := range xgoutil.ListResolvedCallExprKwargTargets(kwarg) {
+			var spxDef SpxDefinition
+			switch {
+			case target.Field != nil:
+				if _, ok := usedTargets[target.Field]; ok {
+					continue
+				}
+				spxDef = ctx.result.spxDefinitionForField(target.Field, selectorTypeName)
+			case target.Method != nil:
+				if _, ok := usedTargets[target.Method]; ok {
+					continue
+				}
+				spxDef = ctx.result.spxDefinitionForMethod(target.Method, selectorTypeName)
+			default:
+				continue
+			}
+			spxDef.CompletionItemLabel = target.Name
+			spxDef.CompletionItemInsertText = target.Name + " = ${1:}"
+			spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
+			ctx.itemSet.addSpxDefs(spxDef)
+		}
+	}
+	return nil
+}
+
+// currentCallKwargArgIndex returns the argument index for the kwarg name under
+// the current cursor position.
+func (ctx *completionContext) currentCallKwargArgIndex(callExpr *ast.CallExpr) int {
+	for i, kwarg := range callExpr.Kwargs {
+		if ctx.pos >= kwarg.Name.Pos() && ctx.pos <= kwarg.Name.End() {
+			return len(callExpr.Args) + i
+		}
+	}
+	return -1
+}
+
+// kwargSelectorTypeName returns the selector type name used for kwarg
+// completion metadata.
+func kwargSelectorTypeName(kwarg *xgoutil.ResolvedCallExprKwarg) string {
+	named := resolvedNamedType(xgoutil.DerefType(kwarg.Param.Type()))
+	if named == nil {
+		return ""
+	}
+	selectorTypeName := named.Obj().Name()
+	if IsInSpxPkg(named.Obj()) && selectorTypeName == "SpriteImpl" {
+		return "Sprite"
+	}
+	return selectorTypeName
 }
 
 // collectAssignOrDefine collects completions for assignments and definitions.
@@ -1507,6 +1644,8 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 	return ctx.getCurrentFileSpxSpriteResource()
 }
 
+// getEnclosingCallExpr returns the closest call expression in the current
+// completion context.
 func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
 	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
 		return callExpr
@@ -1514,6 +1653,8 @@ func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
 	return ctx.enclosingCallExpr
 }
 
+// getCurrentFileSpxSpriteResource returns the sprite resource represented by
+// the current spx file.
 func (ctx *completionContext) getCurrentFileSpxSpriteResource() *SpxSpriteResource {
 	if ctx.spxFile == "" || path.Base(ctx.spxFile) == path.Base(ctx.result.mainSpxFile) {
 		return nil

@@ -25,6 +25,7 @@ const (
 	CommandXGoGetProperties   = "xgo.getProperties"
 )
 
+// xgoPropertyKindPriority defines the presentation order for XGo properties.
 var xgoPropertyKindPriority = map[XGoPropertyKind]int{
 	XGoPropertyKindField:  0,
 	XGoPropertyKindMethod: 1,
@@ -272,7 +273,7 @@ func walkPropertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Packa
 			continue
 		}
 		seenNames[name] = true
-		sig := method.Type().(*gotypes.Signature)
+		sig := method.Signature()
 		onMember(propertyMember{
 			Name:   name,
 			Type:   sig.Results().At(0).Type(),
@@ -361,10 +362,7 @@ func isPropertyMethod(method *gotypes.Func) bool {
 	if method.Name() != "" && unicode.IsLower(rune(method.Name()[0])) {
 		return false
 	}
-	sig, ok := method.Type().(*gotypes.Signature)
-	if !ok {
-		return false
-	}
+	sig := method.Signature()
 	// Only include methods with no parameters and exactly one return value
 	if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 		return false
@@ -453,11 +451,9 @@ func findEnclosingTypeForField(field *gotypes.Var) *gotypes.Named {
 			continue
 		}
 
-		// Check if this struct directly contains the field
-		// Use pointer equality for field comparison (most efficient)
-		numFields := structType.NumFields()
-		for i := 0; i < numFields; i++ {
-			if structType.Field(i) == field {
+		// Check if this struct directly contains the field by pointer equality.
+		for structField := range structType.Fields() {
+			if structField == field {
 				return namedType
 			}
 		}
@@ -474,14 +470,7 @@ func findEnclosingTypeForMethod(method *gotypes.Func) *gotypes.Named {
 		return nil
 	}
 
-	// Note: According to go/types documentation, Func.Type() is always a *Signature.
-	// This check is defensive programming for potential internal errors.
-	sig, ok := method.Type().(*gotypes.Signature)
-	if !ok {
-		return nil
-	}
-
-	recv := sig.Recv()
+	recv := method.Signature().Recv()
 	if recv == nil {
 		return nil
 	}
@@ -691,23 +680,21 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 	}
 
 	var inputSlots []SpxInputSlot
-	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-		param := params.At(paramIndex)
-		if !param.Pos().IsValid() {
-			return true
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
+		if resolvedArg.Kind == xgoutil.ResolvedCallExprArgKeyword && resolvedArg.KwargTarget == nil {
+			continue
 		}
 
-		declaredType := xgoutil.DerefType(param.Type())
+		declaredType := xgoutil.DerefType(resolvedArg.ExpectedType)
 		if sliceType, ok := declaredType.(*gotypes.Slice); ok {
 			declaredType = xgoutil.DerefType(sliceType.Elem())
 		}
 
-		slot := checkValueInputSlot(result, arg, declaredType)
+		slot := checkValueInputSlot(result, resolvedArg.Arg, declaredType)
 		if slot != nil {
 			inputSlots = append(inputSlots, *slot)
 		}
-		return true
-	})
+	}
 	return inputSlots
 }
 
@@ -725,7 +712,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 	seenNames := make(map[string]struct{})
 	addNameOf := func(obj gotypes.Object) {
 		name := obj.Name()
-		switch obj.(type) {
+		switch obj := obj.(type) {
 		case *gotypes.Var, *gotypes.Const:
 			if typ := obj.Type(); typ != nil && declaredType != nil && !gotypes.AssignableTo(typ, declaredType) {
 				return
@@ -740,7 +727,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 			if declaredType != nil {
 				// For functions with no parameters and exactly one return value,
 				// check if the return type is assignable to the declared type.
-				funcSig := obj.Type().(*gotypes.Signature)
+				funcSig := obj.Signature()
 				if funcSig.Params().Len() != 0 || funcSig.Results().Len() != 1 {
 					return
 				}
@@ -793,7 +780,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 					case *gotypes.Func:
 						// Add methods with no parameters and exactly one return value.
 						// For example, the method `Game.BackdropName` can be used in `echo backdropname`.
-						funcSig := member.Type().(*gotypes.Signature)
+						funcSig := member.Signature()
 						if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
 							addNameOf(member)
 						}

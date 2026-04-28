@@ -34,13 +34,191 @@ onStart => {
 		require.NoError(t, err)
 		require.NotNil(t, help)
 		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
 		assert.Equal(t, SignatureInformation{
-			Label: "Println(a []any) (int, error)",
+			Label: "println(a ...any) (n int, err error)",
 			Parameters: []ParameterInformation{
 				{
-					Label: "a []any",
+					Label: "a ...any",
 				},
 			},
 		}, help.Signatures[0])
+	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 13},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
+		assert.Equal(t, SignatureInformation{
+			Label: "configure(opts main.Options)",
+			Parameters: []ParameterInformation{
+				{
+					Label: "opts main.Options",
+				},
+			},
+		}, help.Signatures[0])
+	})
+
+	t.Run("OverloadKwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+	Count int
+}
+
+type NameOptions struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts CountOptions?) {}
+func (w *Worker) handleName(opts NameOptions?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+	(Worker).handleName
+)
+
+onStart => {
+	worker.handle count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 22, Character: 18},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
+		assert.Equal(t, SignatureInformation{
+			Label: "handle(opts main.CountOptions)",
+			Parameters: []ParameterInformation{
+				{
+					Label: "opts main.CountOptions",
+				},
+			},
+		}, help.Signatures[0])
+	})
+
+	t.Run("OverloadIncompleteKwargName", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+	Count int
+}
+
+type NameOptions struct {
+	Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts CountOptions?) {}
+func (w *Worker) handleName(opts NameOptions?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+	(Worker).handleName
+)
+
+onStart => {
+	worker.handle cou = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 22, Character: 16},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 2)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
+		assert.Equal(t, "handle(opts main.CountOptions)", help.Signatures[0].Label)
+		assert.Equal(t, "handle(opts main.NameOptions)", help.Signatures[1].Label)
+	})
+
+	t.Run("VariadicKwargActiveParameter", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func process(opts map[string]string?, args ...int) {}
+
+onStart => {
+    process 1, name = "x"
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		positionalHelp, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, positionalHelp)
+		require.Len(t, positionalHelp.Signatures, 1)
+		assert.Equal(t, uint32(1), positionalHelp.ActiveParameter)
+		assert.Equal(t, SignatureInformation{
+			Label: "process(opts map[string]string, args ...int)",
+			Parameters: []ParameterInformation{
+				{
+					Label: "opts map[string]string",
+				},
+				{
+					Label: "args ...int",
+				},
+			},
+		}, positionalHelp.Signatures[0])
+
+		kwargHelp, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 23},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, kwargHelp)
+		require.Len(t, kwargHelp.Signatures, 1)
+		assert.Equal(t, uint32(0), kwargHelp.ActiveParameter)
+		assert.Equal(t, positionalHelp.Signatures[0], kwargHelp.Signatures[0])
 	})
 }

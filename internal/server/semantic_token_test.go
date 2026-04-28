@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,4 +56,73 @@ onStart => {
 			0, 1, 1, 13, 0, // }
 		}, mySpriteTokens.Data)
 	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{
+			line:      8,
+			character: 11,
+			length:    5,
+			tokenType: PropertyType,
+		})
+	})
+}
+
+type decodedSemanticToken struct {
+	line      uint32
+	character uint32
+	length    uint32
+	tokenType SemanticTokenTypes
+}
+
+func decodeSemanticTokens(data []uint32) []decodedSemanticToken {
+	if len(data)%5 != 0 {
+		return nil
+	}
+
+	var (
+		line      uint32
+		character uint32
+		tokens    []decodedSemanticToken
+	)
+	for tokenData := range slices.Chunk(data, 5) {
+		line += tokenData[0]
+		if tokenData[0] == 0 {
+			character += tokenData[1]
+		} else {
+			character = tokenData[1]
+		}
+
+		tokenTypeIndex := tokenData[3]
+		if int(tokenTypeIndex) >= len(semanticTokenTypesLegend) {
+			continue
+		}
+		tokens = append(tokens, decodedSemanticToken{
+			line:      line,
+			character: character,
+			length:    tokenData[2],
+			tokenType: semanticTokenTypesLegend[tokenTypeIndex],
+		})
+	}
+	return tokens
 }

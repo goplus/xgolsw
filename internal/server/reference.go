@@ -23,8 +23,7 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	if typeInfo == nil {
 		return nil, nil
 	}
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
-	obj := typeInfo.ObjectOf(ident)
+	_, obj, _ := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if obj == nil {
 		return nil, nil
 	}
@@ -32,21 +31,16 @@ func (s *Server) textDocumentReferences(params *ReferenceParams) ([]Location, er
 	var locations []Location
 
 	locations = append(locations, s.findReferenceLocations(result, obj)...)
+	locations = append(locations, s.kwargReferenceLocations(result, obj)...)
 
-	if fn, ok := obj.(*gotypes.Func); ok && fn.Type().(*gotypes.Signature).Recv() != nil {
+	if fn, ok := obj.(*gotypes.Func); ok && fn.Signature().Recv() != nil {
 		locations = append(locations, s.handleMethodReferences(result, fn)...)
 		locations = append(locations, s.handleEmbeddedFieldReferences(result, obj)...)
 	}
 
 	if params.Context.IncludeDeclaration {
-		defIdent := typeInfo.ObjToDef[obj]
-		if defIdent == nil {
-			objPos := obj.Pos()
-			if xgoutil.PosTokenFile(result.proj.Fset, objPos) != nil {
-				locations = append(locations, s.locationForPos(result.proj, objPos))
-			}
-		} else if xgoutil.NodeTokenFile(result.proj.Fset, defIdent) != nil {
-			locations = append(locations, s.locationForNode(result.proj, defIdent))
+		if loc := s.objectDefinitionLocation(result.proj, typeInfo, obj); loc != nil {
+			locations = append(locations, *loc)
 		}
 	}
 
@@ -77,7 +71,7 @@ func (s *Server) findReferenceLocations(result *compileResult, obj gotypes.Objec
 // implementations and interface method references.
 func (s *Server) handleMethodReferences(result *compileResult, fn *gotypes.Func) []Location {
 	var locations []Location
-	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	recvType := fn.Signature().Recv().Type()
 	if gotypes.IsInterface(recvType) {
 		iface, ok := recvType.(*gotypes.Interface)
 		if !ok {
@@ -180,7 +174,7 @@ func (s *Server) findInterfaceMethodReferences(result *compileResult, fn *gotype
 		return nil
 	}
 	var locations []Location
-	recvType := fn.Type().(*gotypes.Signature).Recv().Type()
+	recvType := fn.Signature().Recv().Type()
 	seenIfaces := make(map[*gotypes.Interface]bool)
 	astPkg, _ := result.proj.ASTPackage()
 
@@ -218,7 +212,7 @@ func (s *Server) handleEmbeddedFieldReferences(result *compileResult, obj gotype
 	}
 	var locations []Location
 	if fn, ok := obj.(*gotypes.Func); ok {
-		recv := fn.Type().(*gotypes.Signature).Recv()
+		recv := fn.Signature().Recv()
 		if recv == nil {
 			return nil
 		}

@@ -20,17 +20,17 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	if typeInfo == nil {
 		return nil, nil
 	}
-	ident := xgoutil.IdentAtPosition(result.proj.Fset, typeInfo, astFile, position)
-
-	obj := typeInfo.ObjectOf(ident)
+	_, obj, _ := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}
 
-	if method, ok := obj.(*gotypes.Func); ok && method.Type().(*gotypes.Signature).Recv() != nil {
-		if recv := method.Type().(*gotypes.Signature).Recv().Type(); gotypes.IsInterface(recv) {
-			locations := s.findImplementingMethodDefinitions(result, recv.(*gotypes.Interface), method.Name())
-			return DedupeLocations(locations), nil
+	if method, ok := obj.(*gotypes.Func); ok {
+		if recv := method.Signature().Recv(); recv != nil {
+			if recvType := recv.Type(); gotypes.IsInterface(recvType) {
+				locations := s.findImplementingMethodDefinitions(result, recvType.(*gotypes.Interface), method.Name())
+				return DedupeLocations(locations), nil
+			}
 		}
 	}
 

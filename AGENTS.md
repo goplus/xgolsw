@@ -9,6 +9,23 @@ features (completion, diagnostics, hover, etc.) for XGo source files.
 
 ## Code conventions
 
+### Go version and language features
+
+Follow the Go version declared in `go.mod`. Prefer recent Go features already used by this repository when they improve
+readability, especially iterator-style APIs in code that already uses Go iterators.
+
+### Doc comments
+
+Top-level production Go functions, types, and nontrivial variables should have doc comments, including unexported
+declarations. Test-only declarations are exempt. Do not add boilerplate comments for self-explanatory const values or
+enum entries.
+
+### Defensive checks
+
+Do not add defensive nil checks, fallbacks, or retries unless they protect a real external boundary, incomplete AST or
+type information, or a concrete known failure mode. Inside resolved helper paths, prefer relying on established local
+invariants.
+
 ### Import alias conventions
 
 When a `github.com/goplus/xgo/*` package corresponds to a standard library `go/*` package, prefer the XGo package and
@@ -40,7 +57,21 @@ node. `github.com/goplus/xgo/token.Token` is a distinct XGo token type.
 Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes`. Apply the same convention in both production code and
 unit tests.
 
+## Generated data
+
+After changing dependencies in `go.mod`, regenerate `internal/pkgdata/pkgdata.zip` by running:
+
+```sh
+go generate ./internal/pkgdata
+```
+
 ## Testing conventions
+
+### XGo fixtures
+
+Test snippets for XGo behavior should match the existing XGo and classfile fixture style used in this repository. Do not
+write XGo-specific fixtures as pure Go. Do not overfit fixtures to the full XGo spec when nearby tests intentionally use
+a narrower syntax subset.
 
 ### assert vs require
 
@@ -64,7 +95,7 @@ assert.NoError(t, err)  // If this fails, next line will panic
 assert.Equal(t, "Alice", user.Name)
 ```
 
-Never use `t.Fatal`, `t.Fatalf`, `t.Error`, or `t.Errorf` directly — always use `require` or `assert` instead.
+Never use `t.Fatal`, `t.Fatalf`, `t.Error`, or `t.Errorf` directly. Always use `require` or `assert` instead.
 
 ```go
 // Good
@@ -138,10 +169,10 @@ Always check the `ok` value when using type assertions and use `require.True(t, 
 // Good
 bytes, ok := v.([]byte)
 require.True(t, ok)
-assert.Equal(t, expected, string(bytes))
+assert.Equal(t, want, string(bytes))
 
 // Bad
-assert.Equal(t, expected, string(v.([]byte)))
+assert.Equal(t, want, string(v.([]byte)))
 ```
 
 ### Table-driven tests
