@@ -390,6 +390,153 @@ onStart => {
 		}
 	})
 
+	t.Run("SoundResourceNotFoundInKwargs", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Sound SoundName
+}
+
+func configure(opts Options?) {}
+
+func configureMap(opts map[string]SoundName?) {}
+
+type Player interface {
+	Sound(sound SoundName) Player
+}
+
+type Client struct{}
+
+func (c Client) Player() Player { return nil }
+
+func (c Client) play(params Player?) {}
+
+var client Client
+
+onStart => {
+	configure sound = "MissingStructSound"
+	configureMap sound = "MissingMapSound"
+	client.play sound = "MissingInterfaceSound"
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+		require.Len(t, report.Items, 1)
+		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
+		require.Len(t, fullReport.Items, 3)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `sound resource "MissingStructSound" not found`,
+			Range: Range{
+				Start: Position{Line: 22, Character: 19},
+				End:   Position{Line: 22, Character: 39},
+			},
+		})
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `sound resource "MissingMapSound" not found`,
+			Range: Range{
+				Start: Position{Line: 23, Character: 22},
+				End:   Position{Line: 23, Character: 39},
+			},
+		})
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `sound resource "MissingInterfaceSound" not found`,
+			Range: Range{
+				Start: Position{Line: 24, Character: 21},
+				End:   Position{Line: 24, Character: 44},
+			},
+		})
+	})
+
+	t.Run("SoundResourceNotFoundInOverloadKwargs", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Sound SoundName
+}
+
+var worker Worker
+
+func (w *Worker) playSound(opts Options?) {}
+
+func (Worker).play = (
+	(Worker).playSound
+)
+
+onStart => {
+	worker.play sound = "MissingOverloadSound"
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+		require.Len(t, report.Items, 1)
+		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
+		require.Len(t, fullReport.Items, 1)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `sound resource "MissingOverloadSound" not found`,
+			Range: Range{
+				Start: Position{Line: 16, Character: 21},
+				End:   Position{Line: 16, Character: 43},
+			},
+		})
+	})
+
+	t.Run("PropertyNameNotFoundInOverloadKwargs", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Name PropertyName
+}
+
+var worker Worker
+
+func (w *Worker) configureOptions(opts Options?) {}
+
+func (Worker).configure = (
+	(Worker).configureOptions
+)
+
+onStart => {
+	worker.configure name = "unknownProperty"
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+		require.Len(t, report.Items, 1)
+		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
+		require.Len(t, fullReport.Items, 1)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `unknown property "unknownProperty"`,
+			Range: Range{
+				Start: Position{Line: 16, Character: 25},
+				End:   Position{Line: 16, Character: 42},
+			},
+		})
+	})
+
 	t.Run("BackdropResourceNotFound", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

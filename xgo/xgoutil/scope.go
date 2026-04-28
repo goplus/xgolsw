@@ -37,7 +37,7 @@ func InnermostScopeAt(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Pac
 	}
 
 	var scope *gotypes.Scope
-	WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+	for node := range PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 		scope = typeInfo.Scopes[node]
 		if scope == nil {
 			// NOTE: For function declarations and literals without
@@ -55,7 +55,9 @@ func InnermostScopeAt(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Pac
 				}
 			}
 		}
-		return scope == nil // Stop at the first non-nil scope.
-	})
+		if scope != nil {
+			break
+		}
+	}
 	return scope
 }

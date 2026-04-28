@@ -1,15 +1,32 @@
-# AGENTS.md
-
-Guidelines for AI coding agents working on this project.
-
-## Project overview
+# Project overview
 
 This project is the language server implementation for [XBuilder](https://github.com/goplus/builder), providing LSP
 features (completion, diagnostics, hover, etc.) for XGo source files.
 
-## Code conventions
+# Code conventions
 
-### Import alias conventions
+## Go version and language features
+
+Follow the Go version declared in `go.mod`. Prefer recent Go features already used by this repository when they improve
+readability, especially iterator-style APIs in code that already uses Go iterators.
+
+## Iterator conventions
+
+For traversal helpers, prefer `iter.Seq` or `iter.Seq2` with `for range` over walker-style callbacks.
+
+## Doc comments
+
+Top-level production Go functions, types, and nontrivial variables should have doc comments, including unexported
+declarations. Test-only declarations are exempt. Do not add boilerplate comments for self-explanatory const values or
+enum entries.
+
+## Defensive checks
+
+Do not add defensive nil checks, fallbacks, or retries unless they protect a real external boundary, incomplete AST or
+type information, or a concrete known failure mode. Inside resolved helper paths, prefer relying on established local
+invariants.
+
+## Import alias conventions
 
 When a `github.com/goplus/xgo/*` package corresponds to a standard library `go/*` package, prefer the XGo package and
 keep it as the simple package name.
@@ -40,9 +57,23 @@ node. `github.com/goplus/xgo/token.Token` is a distinct XGo token type.
 Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes`. Apply the same convention in both production code and
 unit tests.
 
-## Testing conventions
+# Generated data
 
-### assert vs require
+After changing dependencies in `go.mod`, regenerate `internal/pkgdata/pkgdata.zip` by running:
+
+```sh
+go generate ./internal/pkgdata
+```
+
+# Testing conventions
+
+## XGo fixtures
+
+Test snippets for XGo behavior should match the existing XGo and classfile fixture style used in this repository. Do not
+write XGo-specific fixtures as pure Go. Do not overfit fixtures to the full XGo spec when nearby tests intentionally use
+a narrower syntax subset.
+
+## assert vs require
 
 Use `require` when subsequent code depends on the assertion passing (e.g., dereferencing a pointer, accessing array
 elements, calling methods on the value). Use `assert` for independent checks.
@@ -64,7 +95,7 @@ assert.NoError(t, err)  // If this fails, next line will panic
 assert.Equal(t, "Alice", user.Name)
 ```
 
-Never use `t.Fatal`, `t.Fatalf`, `t.Error`, or `t.Errorf` directly — always use `require` or `assert` instead.
+Never use `t.Fatal`, `t.Fatalf`, `t.Error`, or `t.Errorf` directly. Always use `require` or `assert` instead.
 
 ```go
 // Good
@@ -76,7 +107,7 @@ if err != nil {
 }
 ```
 
-### Naming conventions
+## Naming conventions
 
 Use `want` instead of `expected` in variable names and messages:
 
@@ -90,7 +121,7 @@ expectedDiag := true
 assert.Equal(t, expectedDiag, len(diagnostics) > 0)
 ```
 
-### Semantic assertions
+## Semantic assertions
 
 Use semantic assertion methods for clarity:
 
@@ -106,7 +137,7 @@ assert.Equal(t, 3, len(items))
 assert.True(t, errors.Is(err, ErrNotFound))
 ```
 
-### Helper functions
+## Helper functions
 
 Use `t.Helper()` as the first line in test helper functions so that failure messages show the correct caller location:
 
@@ -117,7 +148,7 @@ func runAnalyzer(t *testing.T, src string) []protocol.Diagnostic {
 }
 ```
 
-### Resource cleanup
+## Resource cleanup
 
 Use `t.Cleanup()` instead of `defer` for resource cleanup. `t.Cleanup()` ensures cleanup runs even if the test panics,
 and cleanup functions registered in subtests run after the subtest completes.
@@ -130,7 +161,7 @@ t.Cleanup(server.Close)
 defer server.Close()
 ```
 
-### Type assertions
+## Type assertions
 
 Always check the `ok` value when using type assertions and use `require.True(t, ok)` before using the value:
 
@@ -138,13 +169,13 @@ Always check the `ok` value when using type assertions and use `require.True(t, 
 // Good
 bytes, ok := v.([]byte)
 require.True(t, ok)
-assert.Equal(t, expected, string(bytes))
+assert.Equal(t, want, string(bytes))
 
 // Bad
-assert.Equal(t, expected, string(v.([]byte)))
+assert.Equal(t, want, string(v.([]byte)))
 ```
 
-### Table-driven tests
+## Table-driven tests
 
 When a test case table is used by a single loop, write the anonymous slice inline in the `range` clause instead of
 assigning it to a separate local variable.
@@ -178,7 +209,7 @@ for _, tt := range tests {
 }
 ```
 
-### Subtest independence
+## Subtest independence
 
 Each subtest should be independent and not share mutable state with other subtests. Use `t.Cleanup()` for cleanup and
 create fresh resources in each subtest.

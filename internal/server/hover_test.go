@@ -757,4 +757,102 @@ this = 1
 			}
 		}
 	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	// Count is a kwarg field.
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Equal(t, &Hover{
+			Contents: MarkupContent{
+				Kind:  Markdown,
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Options.Count\" overview=\"field Count int\">\nCount is a kwarg field.\n</pre>\n",
+			},
+			Range: Range{
+				Start: Position{Line: 9, Character: 11},
+				End:   Position{Line: 9, Character: 16},
+			},
+		}, hover)
+	})
+
+	t.Run("MapKwargHasNoHover", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func configure(opts map[string]int?) {}
+
+onStart => {
+	configure count = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		assert.Nil(t, hover)
+	})
+
+	t.Run("KwargInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	// MaxTokens limits the response length.
+	MaxTokens(n int64) Params
+}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxTokens = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 15, Character: 25},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Equal(t, Range{
+			Start: Position{Line: 15, Character: 23},
+			End:   Position{Line: 15, Character: 32},
+		}, hover.Range)
+		assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?interface%7BMaxTokens%28n+int64%29+main.Params%7D.MaxTokens"`)
+		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) main.Params"`)
+	})
 }

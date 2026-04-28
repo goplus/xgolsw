@@ -28,16 +28,20 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
-// RangeASTSpecs iterates all XGo AST specs.
-func RangeASTSpecs(astPkg *ast.Package, tok token.Token, f func(spec ast.Spec)) {
-	if astPkg == nil {
-		return
-	}
-	for _, file := range astPkg.Files {
-		for _, decl := range file.Decls {
-			if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
-				for _, spec := range decl.Specs {
-					f(spec)
+// ASTSpecs returns an iterator over all XGo AST specs matching tok.
+func ASTSpecs(astPkg *ast.Package, tok token.Token) iter.Seq[ast.Spec] {
+	return func(yield func(ast.Spec) bool) {
+		if astPkg == nil {
+			return
+		}
+		for _, file := range astPkg.Files {
+			for _, decl := range file.Decls {
+				if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == tok {
+					for _, spec := range decl.Specs {
+						if !yield(spec) {
+							return
+						}
+					}
 				}
 			}
 		}
@@ -65,20 +69,22 @@ func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPk
 	return defIdent.Pos() >= decl.Pos() && defIdent.End() <= decl.End()
 }
 
-// WalkPathEnclosingInterval calls walkFn for each node in the AST path
-// enclosing the given [start, end) interval, starting from the innermost node
-// and walking outward. The walk stops if walkFn returns false.
-func WalkPathEnclosingInterval(root *ast.File, start, end token.Pos, backward bool, walkFn func(node ast.Node) bool) {
-	path, _ := PathEnclosingInterval(root, start, end)
-	var seq iter.Seq2[int, ast.Node]
-	if backward {
-		seq = slices.Backward(path)
-	} else {
-		seq = slices.All(path)
-	}
-	for _, node := range seq {
-		if !walkFn(node) {
-			break
+// PathEnclosingIntervalNodes returns an iterator over nodes in the AST path
+// enclosing the given [start, end) interval. It starts from the innermost node
+// and walks outward unless backward is true.
+func PathEnclosingIntervalNodes(root *ast.File, start, end token.Pos, backward bool) iter.Seq[ast.Node] {
+	return func(yield func(ast.Node) bool) {
+		path, _ := PathEnclosingInterval(root, start, end)
+		var seq iter.Seq2[int, ast.Node]
+		if backward {
+			seq = slices.Backward(path)
+		} else {
+			seq = slices.All(path)
+		}
+		for _, node := range seq {
+			if !yield(node) {
+				return
+			}
 		}
 	}
 }
