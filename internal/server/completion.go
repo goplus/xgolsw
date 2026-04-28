@@ -914,7 +914,7 @@ func (ctx *completionContext) enclosingFunction(path []ast.Node) *gotypes.Signat
 			if !ok {
 				continue
 			}
-			return fun.Type().(*gotypes.Signature)
+			return fun.Signature()
 		case *ast.FuncLit:
 			// For function literals, get the type from the type info directly.
 			if typ := ctx.typeInfo.TypeOf(n); xgoutil.IsValidType(typ) {
@@ -1215,8 +1215,8 @@ func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *ast.Ident
 				continue
 			}
 
-			sig, ok := fun.Type().(*gotypes.Signature)
-			if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+			sig := fun.Signature()
+			if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 				continue
 			}
 			return sig.Results().At(0).Type()
@@ -1340,7 +1340,7 @@ func (ctx *completionContext) collectCall() error {
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]gotypes.Type, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				sig := funcOverload.Type().(*gotypes.Signature)
+				sig := funcOverload.Signature()
 				if argIndex < sig.Params().Len() {
 					expectedTypes = append(expectedTypes, sig.Params().At(argIndex).Type())
 				} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {

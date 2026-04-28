@@ -27,10 +27,12 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 		return nil, nil
 	}
 
-	if method, ok := obj.(*gotypes.Func); ok && method.Type().(*gotypes.Signature).Recv() != nil {
-		if recv := method.Type().(*gotypes.Signature).Recv().Type(); gotypes.IsInterface(recv) {
-			locations := s.findImplementingMethodDefinitions(result, recv.(*gotypes.Interface), method.Name())
-			return DedupeLocations(locations), nil
+	if method, ok := obj.(*gotypes.Func); ok {
+		if recv := method.Signature().Recv(); recv != nil {
+			if recvType := recv.Type(); gotypes.IsInterface(recvType) {
+				locations := s.findImplementingMethodDefinitions(result, recvType.(*gotypes.Interface), method.Name())
+				return DedupeLocations(locations), nil
+			}
 		}
 	}
 
