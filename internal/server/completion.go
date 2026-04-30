@@ -962,6 +962,10 @@ func (ctx *completionContext) collect() error {
 
 // collectGeneral collects general completions.
 func (ctx *completionContext) collectGeneral() error {
+	if ctx.collectXGoUnitCompletions(xgoUnitExpectedTypesAtPosition(ctx.proj, ctx.typeInfo, ctx.astFile, ctx.pos)) {
+		return nil
+	}
+
 	for _, expectedType := range ctx.expectedTypes {
 		if err := ctx.collectTypeSpecific(expectedType); err != nil {
 			return err
@@ -1611,6 +1615,66 @@ func (ctx *completionContext) collectTypeSpecific(typ gotypes.Type) error {
 	return nil
 }
 
+// collectXGoUnitCompletions collects unit suffix completions for number literals.
+func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.Type) bool {
+	completionRange, ok := ctx.currentXGoUnitCompletionRange()
+	if !ok {
+		return false
+	}
+
+	seen := make(map[string]struct{})
+	hasUnit := false
+	for _, expectedType := range expectedTypes {
+		for _, spec := range xgoUnitSpecsForType(expectedType) {
+			if _, ok := seen[spec.Name]; ok {
+				continue
+			}
+			seen[spec.Name] = struct{}{}
+			hasUnit = true
+			ctx.itemSet.add(CompletionItem{
+				Label:  spec.Name,
+				Kind:   UnitCompletion,
+				Detail: GetSimplifiedTypeString(spec.SourceType),
+				Documentation: &Or_CompletionItem_documentation{Value: MarkupContent{
+					Kind:  Markdown,
+					Value: "Multiplier: `" + spec.Factor + "`",
+				}},
+				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
+					Range:   completionRange,
+					NewText: spec.Name,
+				}},
+			})
+		}
+	}
+	return hasUnit
+}
+
+// currentXGoUnitCompletionRange returns the unit suffix replacement range at
+// the completion position.
+func (ctx *completionContext) currentXGoUnitCompletionRange() (Range, bool) {
+	path, _ := xgoutil.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
+	for _, node := range path {
+		switch lit := node.(type) {
+		case *ast.NumberUnitLit:
+			if !isXGoUnitNumberKind(lit.Kind) {
+				return Range{}, false
+			}
+			unitStart := xgoUnitStart(lit)
+			if ctx.pos >= unitStart && ctx.pos <= lit.End() {
+				return RangeForPosEnd(ctx.proj, unitStart, lit.End()), true
+			}
+			return Range{}, false
+		case *ast.BasicLit:
+			if !isXGoUnitNumberKind(lit.Kind) || ctx.pos != lit.End() {
+				continue
+			}
+			return RangeForPosEnd(ctx.proj, lit.End(), lit.End()), true
+		}
+	}
+	return Range{}, false
+}
+
 // getSpxSpriteResource returns a [SpxSpriteResource] for the current context.
 // It returns nil if no [SpxSpriteResource] can be inferred.
 func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
@@ -1827,10 +1891,11 @@ var completionItemKindPriority = map[CompletionItemKind]int{
 	MethodCompletion:    4,
 	FunctionCompletion:  5,
 	ConstantCompletion:  6,
-	ClassCompletion:     7,
-	InterfaceCompletion: 8,
-	ModuleCompletion:    9,
-	KeywordCompletion:   10,
+	UnitCompletion:      7,
+	ClassCompletion:     8,
+	InterfaceCompletion: 9,
+	ModuleCompletion:    10,
+	KeywordCompletion:   11,
 }
 
 // sortedItems returns the sorted items.

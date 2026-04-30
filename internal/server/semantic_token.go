@@ -215,6 +215,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					}
 				}
 			}
+		case *ast.NumberUnitLit:
+			if isXGoUnitNumberKind(node.Kind) {
+				addToken(node.ValuePos, node.ValuePos+token.Pos(len(node.Value)), NumberType, nil)
+			}
 		case *ast.CompositeLit:
 			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
 			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)

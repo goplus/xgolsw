@@ -855,4 +855,43 @@ onStart => {
 		assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?interface%7BMaxTokens%28n+int64%29+main.Params%7D.MaxTokens"`)
 		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) main.Params"`)
 	})
+
+	t.Run("XGoUnit", func(t *testing.T) {
+		s := newXGoUnitTestServer(xgoUnitCompletionSource)
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 15, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Equal(t, Range{
+			Start: Position{Line: 15, Character: 7},
+			End:   Position{Line: 15, Character: 8},
+		}, hover.Range)
+		assert.Contains(t, hover.Contents.Value, "unit `m`")
+		assert.Contains(t, hover.Contents.Value, "time.Duration")
+		assert.Contains(t, hover.Contents.Value, "Multiplier: `60000000000`")
+	})
+
+	t.Run("XGoUnicodeUnit", func(t *testing.T) {
+		s := newXGoUnitTestServer("import \"time\"\n\nfunc wait(d time.Duration) {}\n\nonStart => {\n\twait 1\u00b5s\n}\n")
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Equal(t, Range{
+			Start: Position{Line: 5, Character: 7},
+			End:   Position{Line: 5, Character: 9},
+		}, hover.Range)
+		assert.Contains(t, hover.Contents.Value, "unit `\u00b5s`")
+		assert.Contains(t, hover.Contents.Value, "Multiplier: `1000`")
+	})
 }

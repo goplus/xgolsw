@@ -37,6 +37,9 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if typeInfo == nil {
 		return nil, nil
 	}
+	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position); hover != nil {
+		return hover, nil
+	}
 	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
 		return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident), nil

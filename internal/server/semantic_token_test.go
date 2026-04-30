@@ -86,6 +86,30 @@ onStart => {
 			tokenType: PropertyType,
 		})
 	})
+
+	t.Run("XGoUnit", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+func wait(d time.Duration) {}
+
+onStart => {
+	wait 1m
+}
+`)
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{
+			line:      5,
+			character: 6,
+			length:    1,
+			tokenType: NumberType,
+		})
+	})
 }
 
 type decodedSemanticToken struct {

@@ -410,6 +410,117 @@ onStart => {
 		unknownSlot := findInputSlot(inputSlots, int64(9), "", SpxInputTypeInteger, SpxInputKindInPlace)
 		assert.Nil(t, unknownSlot)
 	})
+
+	t.Run("XGoUnitValue", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+func wait(d time.Duration) {}
+
+onStart => {
+	wait 1m
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 5, Character: 6},
+			End:   Position{Line: 5, Character: 7},
+		})
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Input.Type)
+		assert.Equal(t, int64(1), slot.Input.Value)
+	})
+
+	t.Run("XGoUnitInterfaceKwargValue", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+type Params interface {
+	Delay(time.Duration) Params
+}
+
+type Client struct{}
+
+func (c *Client) Params() Params { return nil }
+func (c *Client) Run(params Params) {}
+
+var c Client
+
+onStart => {
+	c.Run delay = 1ms
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 14, Character: 15},
+			End:   Position{Line: 14, Character: 16},
+		})
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Input.Type)
+		assert.Equal(t, int64(1), slot.Input.Value)
+	})
+
+	t.Run("XGoUnitUnsupportedContexts", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+type Options struct {
+	Delay time.Duration
+}
+
+func waitPtr(d *time.Duration) {}
+func configure(opts *Options) {}
+
+func duration() time.Duration {
+	return 1m
+}
+
+onStart => {
+	waitPtr 1m
+	configure delay = 1m
+	var delay time.Duration = 1m
+	delay = 1m
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 10, Character: 8},
+			End:   Position{Line: 10, Character: 9},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 14, Character: 9},
+			End:   Position{Line: 14, Character: 10},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 15, Character: 19},
+			End:   Position{Line: 15, Character: 20},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 16, Character: 27},
+			End:   Position{Line: 16, Character: 28},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 17, Character: 9},
+			End:   Position{Line: 17, Character: 10},
+		}))
+	})
 }
 
 func TestFindInputSlots(t *testing.T) {
@@ -1847,6 +1958,15 @@ func findInputSlot(inputSlots []SpxInputSlot, value any, name string, inputType 
 			} else if kind == SpxInputKindPredefined && slot.Input.Name == name && slot.Input.Type == inputType {
 				return &slot
 			}
+		}
+	}
+	return nil
+}
+
+func findInputSlotByRange(inputSlots []SpxInputSlot, inputRange Range) *SpxInputSlot {
+	for i := range inputSlots {
+		if inputSlots[i].Range == inputRange {
+			return &inputSlots[i]
 		}
 	}
 	return nil
