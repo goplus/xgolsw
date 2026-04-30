@@ -57,6 +57,7 @@ const (
 	nKeyValueExpr
 	nLabeledStmt
 	nMapType
+	nNumberUnitLit
 	nPackage
 	nParenExpr
 	nRangeStmt
@@ -181,6 +182,8 @@ func typeOf(n ast.Node) uint64 {
 		return 1 << nLabeledStmt
 	case *ast.MapType:
 		return 1 << nMapType
+	case *ast.NumberUnitLit:
+		return 1 << nNumberUnitLit
 	case *ast.Package:
 		return 1 << nPackage
 	case *ast.ParenExpr:
