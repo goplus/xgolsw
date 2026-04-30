@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"path"
 	"slices"
 	"strconv"
@@ -143,10 +144,9 @@ func (r *compileResult) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefinition
 // struct type.
 func (r *compileResult) spxDefinitionsForNamedStruct(named *gotypes.Named) []SpxDefinition {
 	var defs []SpxDefinition
-	xgoutil.WalkStruct(named, func(member gotypes.Object, selector *gotypes.Named) bool {
-		defs = append(defs, r.spxDefinitionsFor(member, selector.Obj().Name())...)
-		return true
-	})
+	for structMember := range xgoutil.StructMembers(named) {
+		defs = append(defs, r.spxDefinitionsFor(structMember.Member, structMember.Selector.Obj().Name())...)
+	}
 	return defs
 }
 
@@ -210,22 +210,24 @@ func (r *compileResult) isInSpxEventHandler(pos token.Pos) bool {
 	}
 
 	var isIn bool
-	xgoutil.WalkPathEnclosingInterval(astFile, pos-1, pos, false, func(node ast.Node) bool {
+	for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos-1, pos, false) {
 		callExpr, ok := node.(*ast.CallExpr)
 		if !ok || len(callExpr.Args) == 0 {
-			return true
+			continue
 		}
 		funcIdent, ok := callExpr.Fun.(*ast.Ident)
 		if !ok {
-			return true
+			continue
 		}
 		funcObj := typeInfo.ObjectOf(funcIdent)
 		if !IsInSpxPkg(funcObj) {
-			return true
+			continue
 		}
 		isIn = IsSpxEventHandlerFuncName(funcIdent.Name)
-		return !isIn // Stop walking if we found a match.
-	})
+		if isIn {
+			break
+		}
+	}
 	return isIn
 }
 
@@ -541,7 +543,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 		var diagnostics []Diagnostic
 		// propertyNamesCached / propertyNamesCache together memoize
 		// GetPropertyNamesForCall results per CallExpr. Two maps are needed
-		// because a cached nil (unknown target → skip validation) must be
+		// because a cached nil result for an unknown target must be
 		// distinguished from a missing entry.
 		propertyNamesCached := make(map[*ast.CallExpr]struct{})
 		propertyNamesCache := make(map[*ast.CallExpr][]string)
@@ -570,12 +572,15 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 				if named == nil {
 					return nil
 				}
-				var names []string
-				walkPropertyMembers(named, makePkgDocFor(pkgDoc), make(map[*gotypes.Named]bool), make(map[string]bool), func(m propertyMember) {
+				names := make([]string, 0)
+				for m := range propertyMembers(named, makePkgDocFor(pkgDoc)) {
 					names = append(names, m.Name)
-				})
+				}
 				propertyNamesCache[call] = names
 				return names
+			},
+			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
+				return resolvedCallExprArgs(result.proj, typeInfo, call)
 			},
 		}
 
@@ -664,26 +669,29 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			}
 		case *ast.CallExpr:
 			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil || !HasSpxResourceNameTypeParams(fun) {
+			funcOverloads := callExprFuncOverloads(result.proj, typeInfo, expr)
+			if fun == nil || (!HasSpxResourceNameTypeParams(fun) && len(expr.Kwargs) == 0 && len(funcOverloads) == 0) {
 				continue
 			}
 
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-				param := params.At(paramIndex)
-				paramType := xgoutil.DerefType(param.Type())
+			for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, expr) {
+				if resolvedArg.ExpectedType == nil {
+					continue
+				}
+				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
 
-				if sliceLit, ok := arg.(*ast.SliceLit); ok {
+				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
+					paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
 				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, arg, paramType, getSpriteContext)
+					s.inspectSpxResourceRefForTypeAtExpr(result, resolvedArg.Arg, paramType, getSpriteContext)
 				}
-				return true
-			})
+			}
 		}
 	}
 }
@@ -704,20 +712,19 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 	if !ok || !xgoutil.IsNamedStructType(gameType) {
 		return
 	}
-	xgoutil.WalkStruct(gameType, func(member gotypes.Object, selector *gotypes.Named) bool {
-		field, ok := member.(*gotypes.Var)
+	for structMember := range xgoutil.StructMembers(gameType) {
+		field, ok := structMember.Member.(*gotypes.Var)
 		if !ok {
-			return true
+			continue
 		}
 		fieldType, ok := xgoutil.DerefType(field.Type()).(*gotypes.Named)
 		if !ok {
-			return true
+			continue
 		}
 		if fieldType == GetSpxSpriteType() || result.hasSpxSpriteType(fieldType) {
-			result.spxSpriteResourceAutoBindings[member] = struct{}{}
+			result.spxSpriteResourceAutoBindings[structMember.Member] = struct{}{}
 		}
-		return true
-	})
+	}
 	for ident, obj := range typeInfo.Uses {
 		if result.hasSpxSpriteResourceAutoBinding(obj) && !ident.Implicit() {
 			result.addSpxResourceRef(SpxResourceRef{
@@ -739,21 +746,21 @@ func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *a
 	}
 
 	var resolvedExpr ast.Expr = ident
-	xgoutil.WalkPathEnclosingInterval(astFile, ident.Pos(), ident.End(), false, func(node ast.Node) bool {
+	for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
 		assignStmt, ok := node.(*ast.AssignStmt)
 		if !ok {
-			return true
+			continue
 		}
 
 		idx := slices.IndexFunc(assignStmt.Lhs, func(lhs ast.Expr) bool {
 			return lhs == ident
 		})
 		if idx < 0 || idx >= len(assignStmt.Rhs) {
-			return true
+			continue
 		}
 		resolvedExpr = assignStmt.Rhs[idx]
-		return false
-	})
+		break
+	}
 	return resolvedExpr
 }
 
@@ -861,7 +868,7 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 		spxResourceRefKind = SpxResourceRefKindConstantReference
 	}
 
-	switch typ {
+	switch canonicalSpxResourceNameType(typ) {
 	case GetSpxBackdropNameType():
 		const resourceType = "backdrop"
 

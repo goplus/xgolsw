@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"reflect"
 
 	"github.com/goplus/xgo/ast"
@@ -123,6 +124,11 @@ type Pass struct {
 	// receiver (if any) or from the current file's implicit receiver type.
 	// Returns nil when the target cannot be determined.
 	GetPropertyNamesForCall func(call *ast.CallExpr) []string
+
+	// ResolvedCallExprArgs, if non-nil, returns call arguments resolved by the
+	// driver. Analyzers fall back to [xgoutil.ResolvedCallExprArgs] when this is
+	// nil.
+	ResolvedCallExprArgs func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg]
 
 	// ReadFile returns the contents of the named file.
 	//

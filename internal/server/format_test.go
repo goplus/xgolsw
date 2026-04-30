@@ -1,9 +1,13 @@
 package server
 
 import (
+	gotypes "go/types"
 	"io/fs"
 	"testing"
 
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -311,6 +315,86 @@ onKey [KeyLeft, KeyRight], () => {
 
 onKey [KeyLeft, KeyRight], (key) => {
 	println key
+}
+`,
+		})
+	})
+
+	t.Run("WithUnusedLambdaParamsInKwarg", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Worker struct{}
+
+type Options0 struct {
+	Handler func()
+}
+
+type Options1 struct {
+	Handler func(int)
+}
+
+var worker Worker
+
+func (w *Worker) handle0(opts Options0?) {}
+func (w *Worker) handle1(opts Options1?) {}
+
+func (Worker).handle = (
+	(Worker).handle0
+	(Worker).handle1
+)
+
+onStart => {
+	worker.handle handler = (n) => {
+		echo "hi"
+	}
+	worker.handle handler = (n) => {
+		echo n
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits, TextEdit{
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 28, Character: 0},
+			},
+			NewText: `type Worker struct{}
+
+type Options0 struct {
+	Handler func()
+}
+
+type Options1 struct {
+	Handler func(int)
+}
+
+func (w *Worker) handle0(opts Options0?) {}
+
+func (w *Worker) handle1(opts Options1?) {}
+
+func (Worker).handle = (
+	(Worker).handle0
+	(Worker).handle1
+)
+
+var (
+	worker Worker
+)
+
+onStart => {
+	worker.handle handler = () => {
+		echo "hi"
+	}
+	worker.handle handler = (n) => {
+		echo n
+	}
 }
 `,
 		})
@@ -764,4 +848,140 @@ onStart => {
 		require.NoError(t, err)
 		require.Empty(t, edits)
 	})
+}
+
+func TestOverloadResolvedCallExprArgType(t *testing.T) {
+	pkg := gotypes.NewPackage("main", "main")
+	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	handlerField := gotypes.NewField(token.NoPos, pkg, "Handler", handlerType, false)
+	optionsType := gotypes.NewNamed(
+		gotypes.NewTypeName(token.NoPos, pkg, "Options", nil),
+		gotypes.NewStruct([]*gotypes.Var{handlerField}, nil),
+		nil,
+	)
+	overload := gotypes.NewFunc(token.NoPos, pkg, "handle", gotypes.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "name", gotypes.Typ[gotypes.String]),
+			gotypes.NewParam(token.NoPos, pkg, "opts", optionsType),
+		),
+		nil,
+		false,
+	))
+	kwarg := &ast.KwargExpr{
+		Name:  &ast.Ident{Name: "handler"},
+		Value: &ast.Ident{Name: "callback"},
+	}
+
+	t.Run("Keyword", func(t *testing.T) {
+		callExpr := &ast.CallExpr{
+			Args:   []ast.Expr{&ast.BasicLit{Kind: token.STRING, Value: `"first"`}},
+			Kwargs: []*ast.KwargExpr{kwarg},
+		}
+
+		got := overloadResolvedCallExprArgType(nil, callExpr, overload, xgoutil.ResolvedCallExprArg{
+			Kind:       xgoutil.ResolvedCallExprArgKeyword,
+			Kwarg:      kwarg,
+			ParamIndex: 0,
+		})
+		assert.True(t, gotypes.Identical(handlerType, got))
+	})
+
+	t.Run("PositionalAfterVariadicKwargParam", func(t *testing.T) {
+		variadicOverload := gotypes.NewFunc(token.NoPos, pkg, "handle", gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(
+				gotypes.NewParam(token.NoPos, pkg, "opts", optionsType),
+				gotypes.NewParam(token.NoPos, pkg, "values", gotypes.NewSlice(gotypes.Typ[gotypes.Int])),
+			),
+			nil,
+			true,
+		))
+		callExpr := &ast.CallExpr{
+			Args:   []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "1"}},
+			Kwargs: []*ast.KwargExpr{kwarg},
+		}
+
+		got := overloadResolvedCallExprArgType(nil, callExpr, variadicOverload, xgoutil.ResolvedCallExprArg{
+			Kind:       xgoutil.ResolvedCallExprArgPositional,
+			ArgIndex:   0,
+			ParamIndex: 0,
+		})
+		assert.True(t, gotypes.Identical(gotypes.Typ[gotypes.Int], got))
+	})
+}
+
+func TestOverloadMatchesCallExpr(t *testing.T) {
+	t.Run("LambdaArity", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		overload := gotypes.NewFunc(token.NoPos, pkg, "handle", gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(
+				gotypes.NewParam(token.NoPos, pkg, "handler", handlerType),
+				gotypes.NewParam(token.NoPos, pkg, "values", gotypes.NewSlice(gotypes.Typ[gotypes.Int])),
+			),
+			nil,
+			true,
+		))
+		callExpr := &ast.CallExpr{
+			Args: []ast.Expr{&ast.LambdaExpr2{}},
+		}
+
+		assert.True(t, overloadMatchesCallExpr(nil, callExpr, overload, -1))
+	})
+
+	t.Run("SkippedUnknownKwarg", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		countField := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		optionsType := gotypes.NewNamed(
+			gotypes.NewTypeName(token.NoPos, pkg, "Options", nil),
+			gotypes.NewStruct([]*gotypes.Var{countField}, nil),
+			nil,
+		)
+		overload := gotypes.NewFunc(token.NoPos, pkg, "handle", gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "opts", optionsType)),
+			nil,
+			false,
+		))
+		callExpr := &ast.CallExpr{
+			Kwargs: []*ast.KwargExpr{{
+				Name:  &ast.Ident{Name: "unknown"},
+				Value: &ast.Ident{Name: "value"},
+			}},
+		}
+
+		assert.True(t, overloadMatchesCallExpr(nil, callExpr, overload, 0))
+		assert.False(t, overloadMatchesCallExpr(nil, callExpr, overload, -1))
+	})
+}
+
+func TestOverloadCallExprArgType(t *testing.T) {
+	pkg := gotypes.NewPackage("main", "main")
+	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	sig := gotypes.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "name", gotypes.Typ[gotypes.String]),
+			gotypes.NewParam(token.NoPos, pkg, "handlers", gotypes.NewSlice(handlerType)),
+		),
+		nil,
+		true,
+	)
+
+	assert.Equal(t, gotypes.Typ[gotypes.String], overloadCallExprArgType(sig, 0))
+	assert.True(t, gotypes.Identical(handlerType, overloadCallExprArgType(sig, 1)))
+	assert.True(t, gotypes.Identical(handlerType, overloadCallExprArgType(sig, 2)))
+	assert.Nil(t, overloadCallExprArgType(sig, -1))
 }

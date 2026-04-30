@@ -215,6 +215,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					}
 				}
 			}
+		case *ast.NumberUnitLit:
+			if isXGoUnitNumberKind(node.Kind) {
+				addToken(node.ValuePos, node.ValuePos+token.Pos(len(node.Value)), NumberType, nil)
+			}
 		case *ast.CompositeLit:
 			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
 			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
@@ -260,6 +264,14 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
 			if node.Ellipsis.IsValid() {
 				addToken(node.Ellipsis, node.Ellipsis+3, OperatorType, nil)
+			}
+			if len(node.Kwargs) > 0 {
+				for _, kwarg := range node.Kwargs {
+					if len(lookupCallExprKwargTargets(result.proj, typeInfo, node, kwarg.Name.Name)) == 0 {
+						continue
+					}
+					addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
+				}
 			}
 		case *ast.KeyValueExpr:
 			addToken(node.Colon, node.Colon+1, OperatorType, nil)

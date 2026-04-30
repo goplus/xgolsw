@@ -2,7 +2,6 @@ package server
 
 import (
 	"cmp"
-	gotypes "go/types"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -77,24 +76,36 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 	if typeInfo == nil {
 		return nil
 	}
+	_, _, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	hasResolvedSignature := resolvedParams != nil
 
 	var inlayHints []InlayHint
-	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-		if paramIndex < argIndex {
-			// Stop processing variadic arguments beyond the declared parameters.
-			return false
+	variadicParamSeen := false
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
+		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
+			continue
+		}
+		variadicArg := resolvedArg.Fun.Signature().Variadic() && resolvedArg.ParamIndex == resolvedArg.Params.Len()-1
+		if variadicArg {
+			if variadicParamSeen {
+				break
+			}
+			variadicParamSeen = true
 		}
 
-		switch arg.(type) {
+		switch resolvedArg.Arg.(type) {
 		case *ast.LambdaExpr, *ast.LambdaExpr2:
 			// Skip lambda expressions.
-			return true
+			continue
+		}
+		if !hasResolvedSignature && !xgoutil.IsValidType(typeInfo.TypeOf(resolvedArg.Arg)) {
+			continue
 		}
 
 		// Create an inlay hint with the parameter name before the argument.
-		position := result.proj.Fset.Position(arg.Pos())
-		label := params.At(paramIndex).Name()
-		if fun.Signature().Variadic() && argIndex == params.Len()-1 {
+		position := result.proj.Fset.Position(resolvedArg.Arg.Pos())
+		label := xgoutil.SourceParamName(resolvedArg.Param)
+		if variadicArg {
 			label += "..."
 		}
 		hint := InlayHint{
@@ -103,8 +114,7 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 			Kind:     Parameter,
 		}
 		inlayHints = append(inlayHints, hint)
-		return true
-	})
+	}
 	return inlayHints
 }
 

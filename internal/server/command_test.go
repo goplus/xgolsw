@@ -314,6 +314,213 @@ func (Foo) Bar`),
 		require.NoError(t, err)
 		assert.Nil(t, inputSlots)
 	})
+
+	t.Run("KwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 5
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, int64(5), slot.Input.Value)
+	})
+
+	t.Run("OverloadKwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Count int
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts Options?) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+)
+
+onStart => {
+	worker.handle count = 5
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, int64(5), slot.Input.Value)
+	})
+
+	t.Run("UnknownKwargValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 5
+	configure unknown = 9
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		countSlot := findInputSlot(inputSlots, int64(5), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, countSlot)
+		assert.Equal(t, SpxInputSlotKindValue, countSlot.Kind)
+
+		unknownSlot := findInputSlot(inputSlots, int64(9), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		assert.Nil(t, unknownSlot)
+	})
+
+	t.Run("XGoUnitValue", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+func wait(d time.Duration) {}
+
+onStart => {
+	wait 1m
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 5, Character: 6},
+			End:   Position{Line: 5, Character: 7},
+		})
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Input.Type)
+		assert.Equal(t, int64(1), slot.Input.Value)
+	})
+
+	t.Run("XGoUnitInterfaceKwargValue", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+type Params interface {
+	Delay(time.Duration) Params
+}
+
+type Client struct{}
+
+func (c *Client) Params() Params { return nil }
+func (c *Client) Run(params Params) {}
+
+var c Client
+
+onStart => {
+	c.Run delay = 1ms
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+		require.NotNil(t, inputSlots)
+
+		slot := findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 14, Character: 15},
+			End:   Position{Line: 14, Character: 16},
+		})
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, SpxInputKindInPlace, slot.Input.Kind)
+		assert.Equal(t, SpxInputTypeInteger, slot.Input.Type)
+		assert.Equal(t, int64(1), slot.Input.Value)
+	})
+
+	t.Run("XGoUnitUnsupportedContexts", func(t *testing.T) {
+		s := newXGoUnitTestServer(`import "time"
+
+type Options struct {
+	Delay time.Duration
+}
+
+func waitPtr(d *time.Duration) {}
+func configure(opts *Options) {}
+
+func duration() time.Duration {
+	return 1m
+}
+
+onStart => {
+	waitPtr 1m
+	configure delay = 1m
+	var delay time.Duration = 1m
+	delay = 1m
+}
+`)
+
+		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
+		inputSlots, err := s.spxGetInputSlots(params)
+		require.NoError(t, err)
+
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 10, Character: 8},
+			End:   Position{Line: 10, Character: 9},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 14, Character: 9},
+			End:   Position{Line: 14, Character: 10},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 15, Character: 19},
+			End:   Position{Line: 15, Character: 20},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 16, Character: 27},
+			End:   Position{Line: 16, Character: 28},
+		}))
+		assert.Nil(t, findInputSlotByRange(inputSlots, Range{
+			Start: Position{Line: 17, Character: 9},
+			End:   Position{Line: 17, Character: 10},
+		}))
+	})
 }
 
 func TestFindInputSlots(t *testing.T) {
@@ -699,13 +906,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr ast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, expr)
 
 			got := checkValueInputSlot(result, expr, nil)
@@ -778,13 +984,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var expr ast.Expr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
 					expr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, expr)
 
 			got := checkAddressInputSlot(result, expr)
@@ -897,13 +1102,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var lit *ast.BasicLit
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.BasicLit); ok {
 					lit = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, lit)
 
 			got := createValueInputSlotFromBasicLit(result, lit, tt.declaredType)
@@ -1061,13 +1265,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var ident *ast.Ident
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.Ident); ok {
 					ident = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, ident)
 
 			got := createValueInputSlotFromIdent(result, ident, nil)
@@ -1105,13 +1308,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var ident *ast.Ident
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.Ident); ok && node.Name == "mySound" {
 				ident = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, ident)
 
 		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
@@ -1216,13 +1418,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var unaryExpr *ast.UnaryExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if expr, ok := node.(*ast.UnaryExpr); ok {
 					unaryExpr = expr
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, unaryExpr)
 
 			got := createValueInputSlotFromUnaryExpr(result, unaryExpr, nil)
@@ -1291,13 +1492,12 @@ onStart => {
 			require.True(t, pos.IsValid())
 
 			var callExpr *ast.CallExpr
-			xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 				if node, ok := node.(*ast.CallExpr); ok {
 					callExpr = node
-					return false
+					break
 				}
-				return true
-			})
+			}
 			require.NotNil(t, callExpr)
 
 			got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
@@ -1520,13 +1720,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
@@ -1545,13 +1744,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
@@ -1570,13 +1768,12 @@ onStart => {
 		require.True(t, pos.IsValid())
 
 		var callExpr *ast.CallExpr
-		xgoutil.WalkPathEnclosingInterval(astFile, pos, pos, false, func(node ast.Node) bool {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
 			if node, ok := node.(*ast.CallExpr); ok {
 				callExpr = node
-				return false
+				break
 			}
-			return true
-		})
+		}
 		require.NotNil(t, callExpr)
 
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
@@ -1761,6 +1958,15 @@ func findInputSlot(inputSlots []SpxInputSlot, value any, name string, inputType 
 			} else if kind == SpxInputKindPredefined && slot.Input.Name == name && slot.Input.Type == inputType {
 				return &slot
 			}
+		}
+	}
+	return nil
+}
+
+func findInputSlotByRange(inputSlots []SpxInputSlot, inputRange Range) *SpxInputSlot {
+	for i := range inputSlots {
+		if inputSlots[i].Range == inputRange {
+			return &inputSlots[i]
 		}
 	}
 	return nil

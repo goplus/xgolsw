@@ -51,6 +51,7 @@ type (
 	CompletionItemKind              = protocol.CompletionItemKind
 	CompletionItem                  = protocol.CompletionItem
 	Or_CompletionItem_documentation = protocol.Or_CompletionItem_documentation
+	Or_CompletionItem_textEdit      = protocol.Or_CompletionItem_textEdit
 
 	DocumentLinkParams = protocol.DocumentLinkParams
 	DocumentLink       = protocol.DocumentLink
@@ -105,6 +106,7 @@ const (
 	StructCompletion    = protocol.StructCompletion
 	VariableCompletion  = protocol.VariableCompletion
 	ConstantCompletion  = protocol.ConstantCompletion
+	UnitCompletion      = protocol.UnitCompletion
 	KeywordCompletion   = protocol.KeywordCompletion
 	FieldCompletion     = protocol.FieldCompletion
 	MethodCompletion    = protocol.MethodCompletion
