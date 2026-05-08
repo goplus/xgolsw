@@ -286,10 +286,10 @@ type XGoInputSlotAccept =
       /**
        * The input type accepted by the slot.
        */
-      type: XGoInputType.SpxResourceName
+      type: XGoInputType.SpxResourceName | XGoInputType.SpxSpriteInstance
 
       /**
-       * The resource context for the resource name input type.
+       * The resource context for the resource-backed input type.
        */
       resourceContext: XGoResourceContextUri
     }
@@ -329,6 +329,11 @@ enum XGoInputType {
    * Resource name (`SpriteName`, `SoundName`, etc.) in spx.
    */
   SpxResourceName = 'spx-resource-name',
+
+  /**
+   * Sprite instance resource references in spx.
+   */
+  SpxSpriteInstance = 'spx-sprite-instance',
 
   /**
    * Direction values in spx.
@@ -395,6 +400,7 @@ type XGoInputTypedValue =
   | { type: XGoInputType.Boolean; value: boolean }
   | { type: XGoInputType.Unknown; value: void }
   | { type: XGoInputType.SpxResourceName; value: XGoResourceUri }
+  | { type: XGoInputType.SpxSpriteInstance; value: XGoResourceUri }
   | { type: XGoInputType.SpxDirection; value: number }
   | { type: XGoInputType.SpxLayerAction; value: string }
   | { type: XGoInputType.SpxDirAction; value: string }

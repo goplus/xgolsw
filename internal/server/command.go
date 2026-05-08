@@ -913,7 +913,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 
 	input := SpxInput{
 		Kind: SpxInputKindPredefined,
-		Type: inferSpxInputTypeFromType(typ),
+		Type: inferSpxInputTypeFromTypeInProject(result, typ),
 		Name: ident.Name,
 	}
 	switch input.Type {
@@ -950,9 +950,10 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 
 	accept := SpxInputSlotAccept{Type: input.Type}
 	if declaredType != nil {
-		accept.Type = inferSpxInputTypeFromType(declaredType)
+		accept.Type = inferSpxInputTypeFromTypeInProject(result, declaredType)
 	}
-	if accept.Type == SpxInputTypeResourceName {
+	switch accept.Type {
+	case SpxInputTypeResourceName:
 		switch canonicalSpxResourceNameType(declaredType) {
 		case GetSpxBackdropNameType():
 			accept.ResourceContext = ToPtr(SpxBackdropResourceContextURI)
@@ -977,6 +978,13 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		default:
 			return nil
 		}
+	case SpxInputTypeSpriteInstance:
+		accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
+		if spxSpriteResource := spxSpriteResourceForObject(result, typeInfo.ObjectOf(ident)); spxSpriteResource != nil {
+			input.Kind = SpxInputKindInPlace
+			input.Value = spxSpriteResource.ID.URI()
+			input.Name = ""
+		}
 	}
 
 	return &SpxInputSlot{
@@ -986,6 +994,41 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		PredefinedNames: collectPredefinedNames(result, ident, declaredType),
 		Range:           RangeForNode(result.proj, ident),
 	}
+}
+
+// inferSpxInputTypeFromTypeInProject attempts to infer the input type from typ
+// using project sprite type metadata.
+func inferSpxInputTypeFromTypeInProject(result *compileResult, typ gotypes.Type) SpxInputType {
+	if isSpxSpriteInstanceType(result, typ) {
+		return SpxInputTypeSpriteInstance
+	}
+	return inferSpxInputTypeFromType(typ)
+}
+
+// isSpxSpriteInstanceType reports whether the given type represents an spx
+// sprite instance.
+func isSpxSpriteInstanceType(result *compileResult, typ gotypes.Type) bool {
+	if typ == nil {
+		return false
+	}
+	typ = xgoutil.DerefType(typ)
+	if typ == GetSpxSpriteType() {
+		return true
+	}
+	if result != nil && result.hasSpxSpriteType(typ) {
+		return true
+	}
+	return gotypes.AssignableTo(typ, GetSpxSpriteType())
+}
+
+// spxSpriteResourceForObject returns the spx sprite resource for obj if it is an
+// auto-bound sprite. It returns nil if obj is nil, obj has no auto-binding, or
+// the corresponding sprite resource is not found in the resource set.
+func spxSpriteResourceForObject(result *compileResult, obj gotypes.Object) *SpxSpriteResource {
+	if obj == nil || !result.hasSpxSpriteResourceAutoBinding(obj) {
+		return nil
+	}
+	return result.spxResourceSet.Sprite(obj.Name())
 }
 
 // createValueInputSlotFromUnaryExpr creates a value input slot from a unary expression.
