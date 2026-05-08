@@ -671,19 +671,20 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
 			})
-			xgoutil.WalkCallExprArgs(typeInfo, expr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-				param := params.At(paramIndex)
-				paramType := xgoutil.DerefType(param.Type())
+			for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, expr) {
+				if resolvedArg.ExpectedType == nil {
+					continue
+				}
+				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
 
-				if sliceLit, ok := arg.(*ast.SliceLit); ok {
+				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
 					for _, elt := range sliceLit.Elts {
 						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
 					}
 				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, arg, paramType, getSpriteContext)
+					s.inspectSpxResourceRefForTypeAtExpr(result, resolvedArg.Arg, paramType, getSpriteContext)
 				}
-				return true
-			})
+			}
 		}
 	}
 }

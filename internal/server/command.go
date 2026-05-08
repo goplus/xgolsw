@@ -679,23 +679,21 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 	}
 
 	var inputSlots []SpxInputSlot
-	xgoutil.WalkCallExprArgs(typeInfo, callExpr, func(fun *gotypes.Func, params *gotypes.Tuple, paramIndex int, arg ast.Expr, argIndex int) bool {
-		param := params.At(paramIndex)
-		if !param.Pos().IsValid() {
-			return true
+	for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
+		if resolvedArg.ExpectedType == nil || resolvedArg.IsTypeArg() {
+			continue
 		}
 
-		declaredType := xgoutil.DerefType(param.Type())
+		declaredType := xgoutil.DerefType(resolvedArg.ExpectedType)
 		if sliceType, ok := declaredType.(*gotypes.Slice); ok {
 			declaredType = xgoutil.DerefType(sliceType.Elem())
 		}
 
-		slot := checkValueInputSlot(result, arg, declaredType)
+		slot := checkValueInputSlot(result, resolvedArg.Arg, declaredType)
 		if slot != nil {
 			inputSlots = append(inputSlots, *slot)
 		}
-		return true
-	})
+	}
 	return inputSlots
 }
 
