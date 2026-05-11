@@ -38,6 +38,7 @@ onStart => {
 
 	// Spx resource name.
 	MySprite.stepTo "OtherSprite"
+	MySprite.stepTo OtherSprite
 }
 `),
 			"MySprite.spx":                          []byte(``),
@@ -142,6 +143,14 @@ onStart => {
 					shouldExist: true,
 				},
 				{
+					name:        "SpxSpriteInstance",
+					value:       SpxResourceURI("spx://resources/sprites/OtherSprite"),
+					acceptType:  SpxInputTypeSpriteInstance,
+					inputType:   SpxInputTypeSpriteInstance,
+					inputKind:   SpxInputKindInPlace,
+					shouldExist: true,
+				},
+				{
 					name:        "NonExistentValue",
 					value:       int64(999),
 					acceptType:  SpxInputTypeInteger,
@@ -166,6 +175,19 @@ onStart => {
 					}
 				})
 			}
+		})
+
+		t.Run("SpxSpriteInstanceContext", func(t *testing.T) {
+			slot := findInputSlot(
+				inputSlots,
+				SpxResourceURI("spx://resources/sprites/OtherSprite"),
+				"",
+				SpxInputTypeSpriteInstance,
+				SpxInputKindInPlace,
+			)
+			require.NotNil(t, slot)
+			assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+			assert.Contains(t, slot.PredefinedNames, "OtherSprite")
 		})
 
 		t.Run("PredefinedValues", func(t *testing.T) {
@@ -279,6 +301,41 @@ var (
 		assert.ErrorContains(t, err, "only supports one document")
 	})
 
+	t.Run("SpxSpriteInstanceVariable", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+var target Sprite
+
+onStart => {
+	target = OtherSprite
+	MySprite.stepTo target
+}
+`),
+			"MySprite.spx":                          []byte(``),
+			"OtherSprite.spx":                       []byte(``),
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/MySprite/index.json":    []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		inputSlots, err := s.spxGetInputSlots([]SpxGetInputSlotsParams{
+			{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}},
+		})
+		require.NoError(t, err)
+
+		slot := findInputSlot(inputSlots, nil, "target", SpxInputTypeSpriteInstance, SpxInputKindPredefined)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputTypeSpriteInstance, slot.Accept.Type)
+		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Contains(t, slot.PredefinedNames, "target")
+		assert.Contains(t, slot.PredefinedNames, "OtherSprite")
+		assert.Equal(t, Range{
+			Start: Position{Line: 5, Character: 17},
+			End:   Position{Line: 5, Character: 23},
+		}, slot.Range)
+	})
+
 	t.Run("EmptyParams", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`var a = 1`),
@@ -376,6 +433,7 @@ onStart => {
 
 	// Spx resource name
 	MySprite.stepTo "OtherSprite"
+	MySprite.stepTo OtherSprite
 
 	// Other commands
 	MySprite.turn MySprite.heading
@@ -456,6 +514,12 @@ onStart => {
 				wantInputType:  SpxInputTypeResourceName,
 			},
 			{
+				name:           "SpxSpriteInstance",
+				value:          SpxResourceURI("spx://resources/sprites/OtherSprite"),
+				wantAcceptType: SpxInputTypeSpriteInstance,
+				wantInputType:  SpxInputTypeSpriteInstance,
+			},
+			{
 				name:           "BinaryExprResult",
 				value:          int64(10),
 				wantAcceptType: SpxInputTypeInteger,
@@ -489,6 +553,19 @@ onStart => {
 				assert.NotEmpty(t, slot.Range)
 			})
 		}
+	})
+
+	t.Run("SpxSpriteInstanceContext", func(t *testing.T) {
+		slot := findInputSlot(
+			inputSlots,
+			SpxResourceURI("spx://resources/sprites/OtherSprite"),
+			"",
+			SpxInputTypeSpriteInstance,
+			SpxInputKindInPlace,
+		)
+		require.NotNil(t, slot)
+		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Contains(t, slot.PredefinedNames, "OtherSprite")
 	})
 
 	t.Run("AddressSlots", func(t *testing.T) {

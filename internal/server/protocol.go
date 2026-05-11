@@ -309,8 +309,9 @@ type XGoInputSlotAccept struct {
 	// Type of input accepted by the slot.
 	Type XGoInputType `json:"type"`
 
-	// Resource context for XGoInputTypeSpxResourceName.
-	// Only valid when Type is XGoInputTypeSpxResourceName.
+	// Resource context for resource-backed input types.
+	// Only valid when Type is [XGoInputTypeSpxResourceName] or
+	// [XGoInputTypeSpxSpriteInstance].
 	ResourceContext *XGoResourceContextURI `json:"resourceContext,omitempty"`
 }
 
@@ -319,21 +320,22 @@ type XGoInputType string
 
 // XGoInputType constants.
 const (
-	XGoInputTypeString           XGoInputType = "string"
-	XGoInputTypeInteger          XGoInputType = "integer"
-	XGoInputTypeDecimal          XGoInputType = "decimal"
-	XGoInputTypeBoolean          XGoInputType = "boolean"
-	XGoInputTypeUnknown          XGoInputType = "unknown"
-	XGoInputTypeSpxResourceName  XGoInputType = "spx-resource-name"
-	XGoInputTypeSpxDirection     XGoInputType = "spx-direction"
-	XGoInputTypeSpxLayerAction   XGoInputType = "spx-layer-action"
-	XGoInputTypeSpxDirAction     XGoInputType = "spx-dir-action"
-	XGoInputTypeSpxColor         XGoInputType = "spx-color"
-	XGoInputTypeSpxEffectKind    XGoInputType = "spx-effect-kind"
-	XGoInputTypeSpxKey           XGoInputType = "spx-key"
-	XGoInputTypeSpxSpecialObj    XGoInputType = "spx-special-obj"
-	XGoInputTypeSpxRotationStyle XGoInputType = "spx-rotation-style"
-	XGoInputTypeSpxPropertyName  XGoInputType = "spx-property-name"
+	XGoInputTypeString            XGoInputType = "string"
+	XGoInputTypeInteger           XGoInputType = "integer"
+	XGoInputTypeDecimal           XGoInputType = "decimal"
+	XGoInputTypeBoolean           XGoInputType = "boolean"
+	XGoInputTypeUnknown           XGoInputType = "unknown"
+	XGoInputTypeSpxResourceName   XGoInputType = "spx-resource-name"
+	XGoInputTypeSpxSpriteInstance XGoInputType = "spx-sprite-instance"
+	XGoInputTypeSpxDirection      XGoInputType = "spx-direction"
+	XGoInputTypeSpxLayerAction    XGoInputType = "spx-layer-action"
+	XGoInputTypeSpxDirAction      XGoInputType = "spx-dir-action"
+	XGoInputTypeSpxColor          XGoInputType = "spx-color"
+	XGoInputTypeSpxEffectKind     XGoInputType = "spx-effect-kind"
+	XGoInputTypeSpxKey            XGoInputType = "spx-key"
+	XGoInputTypeSpxSpecialObj     XGoInputType = "spx-special-obj"
+	XGoInputTypeSpxRotationStyle  XGoInputType = "spx-rotation-style"
+	XGoInputTypeSpxPropertyName   XGoInputType = "spx-property-name"
 )
 
 // XGoInputTypeSpxColorConstructor represents the name for color constructors.
@@ -421,21 +423,22 @@ type SpxInputType = XGoInputType
 
 // Deprecated: use XGoInputType*.
 const (
-	SpxInputTypeString        SpxInputType = XGoInputTypeString
-	SpxInputTypeInteger       SpxInputType = XGoInputTypeInteger
-	SpxInputTypeDecimal       SpxInputType = XGoInputTypeDecimal
-	SpxInputTypeBoolean       SpxInputType = XGoInputTypeBoolean
-	SpxInputTypeUnknown       SpxInputType = XGoInputTypeUnknown
-	SpxInputTypeResourceName  SpxInputType = XGoInputTypeSpxResourceName
-	SpxInputTypeDirection     SpxInputType = XGoInputTypeSpxDirection
-	SpxInputTypeLayerAction   SpxInputType = XGoInputTypeSpxLayerAction
-	SpxInputTypeDirAction     SpxInputType = XGoInputTypeSpxDirAction
-	SpxInputTypeColor         SpxInputType = XGoInputTypeSpxColor
-	SpxInputTypeEffectKind    SpxInputType = XGoInputTypeSpxEffectKind
-	SpxInputTypeKey           SpxInputType = XGoInputTypeSpxKey
-	SpxInputTypeSpecialObj    SpxInputType = XGoInputTypeSpxSpecialObj
-	SpxInputTypeRotationStyle SpxInputType = XGoInputTypeSpxRotationStyle
-	SpxInputTypePropertyName  SpxInputType = XGoInputTypeSpxPropertyName
+	SpxInputTypeString         SpxInputType = XGoInputTypeString
+	SpxInputTypeInteger        SpxInputType = XGoInputTypeInteger
+	SpxInputTypeDecimal        SpxInputType = XGoInputTypeDecimal
+	SpxInputTypeBoolean        SpxInputType = XGoInputTypeBoolean
+	SpxInputTypeUnknown        SpxInputType = XGoInputTypeUnknown
+	SpxInputTypeResourceName   SpxInputType = XGoInputTypeSpxResourceName
+	SpxInputTypeSpriteInstance SpxInputType = XGoInputTypeSpxSpriteInstance
+	SpxInputTypeDirection      SpxInputType = XGoInputTypeSpxDirection
+	SpxInputTypeLayerAction    SpxInputType = XGoInputTypeSpxLayerAction
+	SpxInputTypeDirAction      SpxInputType = XGoInputTypeSpxDirAction
+	SpxInputTypeColor          SpxInputType = XGoInputTypeSpxColor
+	SpxInputTypeEffectKind     SpxInputType = XGoInputTypeSpxEffectKind
+	SpxInputTypeKey            SpxInputType = XGoInputTypeSpxKey
+	SpxInputTypeSpecialObj     SpxInputType = XGoInputTypeSpxSpecialObj
+	SpxInputTypeRotationStyle  SpxInputType = XGoInputTypeSpxRotationStyle
+	SpxInputTypePropertyName   SpxInputType = XGoInputTypeSpxPropertyName
 )
 
 // Deprecated: use XGoInputTypeSpxColorConstructor.
