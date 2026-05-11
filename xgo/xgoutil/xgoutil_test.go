@@ -163,16 +163,13 @@ func markAsXGoPackage(pkg *gotypes.Package) {
 	pkg.Scope().Insert(cnst)
 }
 
-func TestRangeASTSpecs(t *testing.T) {
+func TestASTSpecs(t *testing.T) {
 	t.Run("SingleTypeSpec", func(t *testing.T) {
 		_, astFile, err := newTestFile("main.xgo", "type A = int")
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
 		require.Len(t, specs, 1)
 		ts := requireTypeSpec(t, specs[0])
@@ -193,10 +190,7 @@ type (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
 		require.Len(t, specs, 3)
 		names := make([]string, len(specs))
@@ -219,10 +213,7 @@ var (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.VAR, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.VAR))
 
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
@@ -244,10 +235,7 @@ const (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.CONST, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.CONST))
 
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
@@ -270,10 +258,7 @@ const (
 			"other.xgo": otherFile,
 		})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
 		require.Len(t, specs, 2)
 		names := make([]string, len(specs))
@@ -290,10 +275,7 @@ const (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
 		assert.Empty(t, specs)
 	})
@@ -301,10 +283,7 @@ const (
 	t.Run("EmptyPackage", func(t *testing.T) {
 		astPkg := newTestPackage(nil)
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
 		assert.Empty(t, specs)
 	})
@@ -318,20 +297,11 @@ func myFunc() {}`)
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var typeSpecs []ast.Spec
-		RangeASTSpecs(astPkg, token.TYPE, func(spec ast.Spec) {
-			typeSpecs = append(typeSpecs, spec)
-		})
+		typeSpecs := slices.Collect(ASTSpecs(astPkg, token.TYPE))
 
-		var varSpecs []ast.Spec
-		RangeASTSpecs(astPkg, token.VAR, func(spec ast.Spec) {
-			varSpecs = append(varSpecs, spec)
-		})
+		varSpecs := slices.Collect(ASTSpecs(astPkg, token.VAR))
 
-		var constSpecs []ast.Spec
-		RangeASTSpecs(astPkg, token.CONST, func(spec ast.Spec) {
-			constSpecs = append(constSpecs, spec)
-		})
+		constSpecs := slices.Collect(ASTSpecs(astPkg, token.CONST))
 
 		require.Len(t, typeSpecs, 1)
 		require.Len(t, varSpecs, 1)
@@ -352,10 +322,7 @@ import (
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 
-		var specs []ast.Spec
-		RangeASTSpecs(astPkg, token.IMPORT, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(astPkg, token.IMPORT))
 
 		require.Len(t, specs, 2)
 		paths := make([]string, len(specs))
@@ -368,10 +335,7 @@ import (
 	})
 
 	t.Run("NilPackage", func(t *testing.T) {
-		var specs []ast.Spec
-		RangeASTSpecs(nil, token.TYPE, func(spec ast.Spec) {
-			specs = append(specs, spec)
-		})
+		specs := slices.Collect(ASTSpecs(nil, token.TYPE))
 
 		assert.Empty(t, specs)
 	})
@@ -476,8 +440,8 @@ func test() {
 	})
 }
 
-func TestWalkPathEnclosingInterval(t *testing.T) {
-	t.Run("WalkFunction", func(t *testing.T) {
+func TestPathEnclosingIntervalNodes(t *testing.T) {
+	t.Run("Function", func(t *testing.T) {
 		_, astFile, err := newTestFile("main.xgo", "func test() { println(1) }")
 		require.NoError(t, err)
 		var funcDecl *ast.FuncDecl
@@ -491,16 +455,15 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 		require.NotNil(t, funcDecl)
 
 		var nodes []ast.Node
-		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false) {
 			nodes = append(nodes, node)
-			return true
-		})
+		}
 		require.NotEmpty(t, nodes)
 		assert.IsType(t, &ast.BlockStmt{}, nodes[0])
 		assert.IsType(t, &ast.File{}, nodes[len(nodes)-1])
 	})
 
-	t.Run("WalkSinglePosition", func(t *testing.T) {
+	t.Run("SinglePosition", func(t *testing.T) {
 		_, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)
 
@@ -510,10 +473,9 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 		require.NotEqual(t, token.NoPos, identPos)
 
 		var nodes []ast.Node
-		WalkPathEnclosingInterval(astFile, identPos, identPos+1, false, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, identPos, identPos+1, false) {
 			nodes = append(nodes, node)
-			return true
-		})
+		}
 		require.NotEmpty(t, nodes)
 		assert.True(t, slices.ContainsFunc(nodes, func(node ast.Node) bool {
 			if ident, ok := node.(*ast.Ident); ok && ident.Name == "x" {
@@ -538,10 +500,10 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 		require.NotNil(t, funcDecl)
 
 		var nodes []ast.Node
-		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false) {
 			nodes = append(nodes, node)
-			return false // Stop after first node.
-		})
+			break
+		}
 		require.Len(t, nodes, 1)
 	})
 
@@ -550,14 +512,13 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 		require.NoError(t, err)
 
 		var nodes []ast.Node
-		WalkPathEnclosingInterval(astFile, token.NoPos, token.NoPos, false, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, token.NoPos, token.NoPos, false) {
 			nodes = append(nodes, node)
-			return true
-		})
+		}
 		require.Len(t, nodes, 1) // Should still return at least the file node.
 	})
 
-	t.Run("WalkBackward", func(t *testing.T) {
+	t.Run("Backward", func(t *testing.T) {
 		_, astFile, err := newTestFile("main.xgo", "func test() { x := 1; y := 2 }")
 		require.NoError(t, err)
 
@@ -572,16 +533,14 @@ func TestWalkPathEnclosingInterval(t *testing.T) {
 		require.NotNil(t, funcDecl)
 
 		var forwardNodes []ast.Node
-		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), false) {
 			forwardNodes = append(forwardNodes, node)
-			return true
-		})
+		}
 
 		var backwardNodes []ast.Node
-		WalkPathEnclosingInterval(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), true, func(node ast.Node) bool {
+		for node := range PathEnclosingIntervalNodes(astFile, funcDecl.Body.Pos(), funcDecl.Body.End(), true) {
 			backwardNodes = append(backwardNodes, node)
-			return true
-		})
+		}
 
 		require.NotEmpty(t, forwardNodes)
 		require.NotEmpty(t, backwardNodes)
