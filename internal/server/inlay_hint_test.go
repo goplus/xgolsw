@@ -390,6 +390,116 @@ onStart => {
 		require.Nil(t, inlayHints)
 	})
 
+	t.Run("FunctionArgumentWithUnresolvedValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func handle(count int) {}
+
+onStart => {
+	handle unknown
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.Len(t, inlayHints, 1)
+		assert.Equal(t, InlayHint{
+			Position: Position{Line: 4, Character: 8},
+			Label:    "count",
+			Kind:     Parameter,
+		}, inlayHints[0])
+	})
+
+	t.Run("OverloadFunctionArguments", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+var worker Worker
+
+func (w *Worker) handleCount(count int) {}
+
+func (Worker).handle = (
+	(Worker).handleCount
+)
+
+onStart => {
+	worker.handle 5
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.Len(t, inlayHints, 1)
+		assert.Equal(t, InlayHint{
+			Position: Position{Line: 12, Character: 15},
+			Label:    "count",
+			Kind:     Parameter,
+		}, inlayHints[0])
+	})
+
+	t.Run("SpxStepToWithAmbiguousArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"MySprite.spx": []byte(`
+onStart => {
+	stepToWith 1,
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		assert.Empty(t, inlayHints)
+	})
+
+	t.Run("SpxStepToWithPositionArguments", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"MySprite.spx": []byte(`
+onStart => {
+	stepToWith 1, 2
+}
+`),
+			"assets/index.json":                  []byte(`{}`),
+			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.Len(t, inlayHints, 2)
+		assert.Equal(t, InlayHint{
+			Position: Position{Line: 2, Character: 12},
+			Label:    "x",
+			Kind:     Parameter,
+		}, inlayHints[0])
+		assert.Equal(t, InlayHint{
+			Position: Position{Line: 2, Character: 15},
+			Label:    "y",
+			Kind:     Parameter,
+		}, inlayHints[1])
+	})
+
 	t.Run("VariadicFunctionArguments", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -410,6 +520,31 @@ onStart => {
 		require.Len(t, inlayHints, 2)
 		assert.Equal(t, "a...", inlayHints[0].Label)
 		assert.Equal(t, "a...", inlayHints[1].Label)
+	})
+
+	t.Run("VariadicArgumentAfterKwargsParameter", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func process(opts map[string]string?, args ...int) {}
+
+onStart => {
+	process 1, name = "x"
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		require.Len(t, inlayHints, 1)
+		assert.Equal(t, InlayHint{
+			Position: Position{Line: 4, Character: 9},
+			Label:    "args...",
+			Kind:     Parameter,
+		}, inlayHints[0])
 	})
 }
 

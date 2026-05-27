@@ -108,4 +108,180 @@ onStart => {
 		require.NoError(t, err)
 		assert.Nil(t, refs)
 	})
+
+	t.Run("KwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Count int
+}
+
+func configure(opts Options?) {}
+
+onStart => {
+	configure count = 1
+	configure count = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		refs, err := s.textDocumentReferences(&ReferenceParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 4},
+			},
+			Context: ReferenceContext{
+				IncludeDeclaration: true,
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, refs)
+		require.Len(t, refs, 3)
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 2, Character: 1},
+				End:   Position{Line: 2, Character: 6},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 8, Character: 11},
+				End:   Position{Line: 8, Character: 16},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 9, Character: 11},
+				End:   Position{Line: 9, Character: 16},
+			},
+		})
+	})
+
+	t.Run("OverloadKwargField", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type CountOptions struct {
+    Count int
+}
+
+type NameOptions struct {
+    Name string
+}
+
+var worker Worker
+
+func (w *Worker) handleCount(opts CountOptions?) {}
+func (w *Worker) handleName(opts NameOptions?) {}
+
+func (Worker).handle = (
+    (Worker).handleCount
+    (Worker).handleName
+)
+
+onStart => {
+    worker.handle count = 1
+    worker.handle count = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		refs, err := s.textDocumentReferences(&ReferenceParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 5},
+			},
+			Context: ReferenceContext{
+				IncludeDeclaration: true,
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, refs)
+		require.Len(t, refs, 3)
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 4, Character: 4},
+				End:   Position{Line: 4, Character: 9},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 22, Character: 18},
+				End:   Position{Line: 22, Character: 23},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 23, Character: 18},
+				End:   Position{Line: 23, Character: 23},
+			},
+		})
+	})
+
+	t.Run("KwargInterfaceMethod", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Client struct{}
+
+type Params interface {
+	MaxTokens(n int64) Params
+}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+var client Client
+
+onStart => {
+	client.complete "hi", maxTokens = 1
+	client.complete "bye", maxTokens = 2
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		refs, err := s.textDocumentReferences(&ReferenceParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 14, Character: 25},
+			},
+			Context: ReferenceContext{
+				IncludeDeclaration: true,
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, refs)
+		require.Len(t, refs, 3)
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 4, Character: 1},
+				End:   Position{Line: 4, Character: 10},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 14, Character: 23},
+				End:   Position{Line: 14, Character: 32},
+			},
+		})
+		assert.Contains(t, refs, Location{
+			URI: "file:///main.spx",
+			Range: Range{
+				Start: Position{Line: 15, Character: 24},
+				End:   Position{Line: 15, Character: 33},
+			},
+		})
+	})
 }

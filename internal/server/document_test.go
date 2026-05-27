@@ -181,6 +181,159 @@ onStart => {
 		})
 	})
 
+	t.Run("KwargDefinitions", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+    Count int
+}
+
+type Params interface {
+    MaxTokens(n int64) Params
+}
+
+type Client struct{}
+
+func (c Client) Params() Params { return nil }
+
+func (c Client) complete(prompt string, params Params?) {}
+
+func configure(opts Options?) {}
+
+var client Client
+
+onStart => {
+    configure count = 1
+    client.complete "hi", maxTokens = 1
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 20, Character: 14},
+				End:   Position{Line: 20, Character: 19},
+			},
+			Target: toURI("xgo:main?Options.Count"),
+		})
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 21, Character: 26},
+				End:   Position{Line: 21, Character: 35},
+			},
+			Target: toURI("xgo:main?interface%7BMaxTokens%28n+int64%29+main.Params%7D.MaxTokens"),
+		})
+	})
+
+	t.Run("KwargResourceReferences", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+    Sound SoundName
+    Sounds []SoundName
+    Alias Clip
+}
+
+type Clip = SoundName
+
+type Player interface {
+    Sound(sound SoundName) Player
+}
+
+type Client struct{}
+
+func (c Client) Player() Player { return nil }
+
+func (c Client) play(params Player?) {}
+
+func configure(opts Options?) {}
+
+func configureMap(opts map[string]SoundName?) {}
+
+var client Client
+
+onStart => {
+    configure sound = "StructSound"
+    configure sounds = ["SliceSound"]
+    configure alias = "AliasSound"
+    configureMap sound = "MapSound"
+    client.play sound = "InterfaceSound"
+}
+`),
+			"assets/index.json":                       []byte(`{}`),
+			"assets/sounds/StructSound/index.json":    []byte(`{}`),
+			"assets/sounds/SliceSound/index.json":     []byte(`{}`),
+			"assets/sounds/AliasSound/index.json":     []byte(`{}`),
+			"assets/sounds/MapSound/index.json":       []byte(`{}`),
+			"assets/sounds/InterfaceSound/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+
+		targets := make([]string, 0, len(links))
+		for _, link := range links {
+			if link.Target != nil {
+				targets = append(targets, string(*link.Target))
+			}
+		}
+		assert.Contains(t, targets, "spx://resources/sounds/StructSound")
+		assert.Contains(t, targets, "spx://resources/sounds/SliceSound")
+		assert.Contains(t, targets, "spx://resources/sounds/AliasSound")
+		assert.Contains(t, targets, "spx://resources/sounds/MapSound")
+		assert.Contains(t, targets, "spx://resources/sounds/InterfaceSound")
+	})
+
+	t.Run("OverloadKwargResourceReferences", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Worker struct{}
+
+type Options struct {
+	Sound SoundName
+}
+
+var worker Worker
+
+func (w *Worker) playSound(opts Options?) {}
+
+func (Worker).play = (
+	(Worker).playSound
+)
+
+onStart => {
+	worker.play sound = "OverloadSound"
+}
+`),
+			"assets/index.json":                          []byte(`{}`),
+			"assets/sounds/OverloadSound/index.json":     []byte(`{}`),
+			"assets/sounds/UnreferencedSound/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+
+		targets := make([]string, 0, len(links))
+		for _, link := range links {
+			if link.Target != nil {
+				targets = append(targets, string(*link.Target))
+			}
+		}
+		assert.Contains(t, targets, "spx://resources/sounds/OverloadSound")
+		assert.NotContains(t, targets, "spx://resources/sounds/UnreferencedSound")
+	})
+
 	t.Run("NonSpxFile", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.xgo": []byte(`echo "Hello, XGo!"`),
@@ -462,6 +615,37 @@ func getMixedTypesMySprite() (int, SpriteCostumeName, string, SpriteAnimationNam
 				End:   Position{Line: 18, Character: 40},
 			},
 			Target: toURI("spx://resources/sprites/MySprite/animations/anim1"),
+			Data: SpxResourceRefDocumentLinkData{
+				Kind: SpxResourceRefKindStringLiteral,
+			},
+		})
+	})
+
+	t.Run("SpxResourceInKwarg", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+type Options struct {
+	Backdrop BackdropName
+}
+
+func setup(opts Options) {}
+
+setup backdrop = "backdrop1"
+`),
+			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1"}]}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, links, DocumentLink{
+			Range: Range{
+				Start: Position{Line: 7, Character: 17},
+				End:   Position{Line: 7, Character: 28},
+			},
+			Target: toURI("spx://resources/backdrops/backdrop1"),
 			Data: SpxResourceRefDocumentLinkData{
 				Kind: SpxResourceRefKindStringLiteral,
 			},

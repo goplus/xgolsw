@@ -40,22 +40,18 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 	astPkg, _ := proj.ASTPackage()
 
-	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
-	if ident == nil || xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+	ident, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
+	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-
-	obj := typeInfo.ObjectOf(ident)
-	if !xgoutil.IsInMainPkg(obj) || !obj.Pos().IsValid() {
+	if obj == nil {
 		return nil, nil
 	}
-
-	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil {
-		// Fall back to the start position of the object identifier in declaration.
-		return s.locationForPos(proj, obj.Pos()), nil
+	loc := s.objectDefinitionLocation(proj, typeInfo, obj)
+	if loc == nil {
+		return nil, nil
 	}
-	return s.locationForNode(proj, defIdent), nil
+	return *loc, nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
@@ -78,9 +74,7 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 	if typeInfo == nil {
 		return nil, nil
 	}
-	ident := xgoutil.IdentAtPosition(proj.Fset, typeInfo, astFile, position)
-
-	obj := typeInfo.ObjectOf(ident)
+	_, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
 	if !xgoutil.IsInMainPkg(obj) {
 		return nil, nil
 	}

@@ -645,7 +645,7 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 	}
 
 	var inputSlots []SpxInputSlot
-	for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
 		if resolvedArg.ExpectedType == nil || resolvedArg.IsTypeArg() {
 			continue
 		}

@@ -76,10 +76,26 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 	if typeInfo == nil {
 		return nil
 	}
+	_, _, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	hasResolvedSignature := resolvedParams != nil
 
 	var inlayHints []InlayHint
+	type hintKey struct {
+		line      uint32
+		character uint32
+		kind      InlayHintKind
+	}
+	hintKeyFor := func(hint InlayHint) hintKey {
+		return hintKey{
+			line:      hint.Position.Line,
+			character: hint.Position.Character,
+			kind:      hint.Kind,
+		}
+	}
+	hintsByKey := make(map[hintKey]InlayHint)
+	ambiguousHintKeys := make(map[hintKey]struct{})
 	variadicParamSeen := false
-	for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}
@@ -96,6 +112,9 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 			// Skip lambda expressions.
 			continue
 		}
+		if !hasResolvedSignature && !xgoutil.IsValidType(typeInfo.TypeOf(resolvedArg.Arg)) {
+			continue
+		}
 
 		// Create an inlay hint with the parameter name before the argument.
 		position := result.proj.Fset.Position(resolvedArg.Arg.Pos())
@@ -108,9 +127,20 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 			Label:    label,
 			Kind:     Parameter,
 		}
+		key := hintKeyFor(hint)
+		if existingHint, ok := hintsByKey[key]; ok {
+			if existingHint.Label != hint.Label {
+				ambiguousHintKeys[key] = struct{}{}
+			}
+			continue
+		}
+		hintsByKey[key] = hint
 		inlayHints = append(inlayHints, hint)
 	}
-	return inlayHints
+	return slices.DeleteFunc(inlayHints, func(hint InlayHint) bool {
+		_, ok := ambiguousHintKeys[hintKeyFor(hint)]
+		return ok
+	})
 }
 
 // sortInlayHints sorts the given inlay hints in a stable manner.
