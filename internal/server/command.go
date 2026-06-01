@@ -650,12 +650,23 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 			continue
 		}
 
-		declaredType := xgoutil.DerefType(resolvedArg.ExpectedType)
+		expectedType := resolvedArg.ExpectedType
+		declaredType := xgoutil.DerefType(expectedType)
 		if sliceType, ok := declaredType.(*gotypes.Slice); ok {
 			declaredType = xgoutil.DerefType(sliceType.Elem())
 		}
 
-		slot := checkValueInputSlot(result, resolvedArg.Arg, declaredType)
+		var slot *SpxInputSlot
+		if lit, ok := resolvedArg.Arg.(*ast.NumberUnitLit); ok {
+			unitExpectedType := xgoUnitExpectedTypeForResolvedArg(resolvedArg)
+			if len(xgoUnitSpecsForType(unitExpectedType)) == 0 {
+				continue
+			}
+			declaredType = xgoutil.DerefType(unitExpectedType)
+			slot = createValueInputSlotFromNumberUnitLit(result, lit, declaredType)
+		} else {
+			slot = checkValueInputSlot(result, resolvedArg.Arg, declaredType)
+		}
 		if slot != nil {
 			inputSlots = append(inputSlots, *slot)
 		}
@@ -861,6 +872,45 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *ast.BasicLit, 
 		Input:           input,
 		PredefinedNames: collectPredefinedNames(result, lit, declaredType),
 		Range:           RangeForNode(result.proj, lit),
+	}
+}
+
+// createValueInputSlotFromNumberUnitLit creates a value input slot from a
+// number-with-unit literal.
+func createValueInputSlotFromNumberUnitLit(result *compileResult, lit *ast.NumberUnitLit, declaredType gotypes.Type) *SpxInputSlot {
+	input := SpxInput{Kind: SpxInputKindInPlace}
+	switch lit.Kind {
+	case token.INT:
+		input.Type = SpxInputTypeInteger
+		v, err := strconv.ParseInt(lit.Value, 0, 64)
+		if err != nil {
+			return nil
+		}
+		input.Value = v
+	case token.FLOAT:
+		input.Type = SpxInputTypeDecimal
+		v, err := strconv.ParseFloat(lit.Value, 64)
+		if err != nil {
+			return nil
+		}
+		input.Value = v
+	default:
+		return nil
+	}
+
+	accept := SpxInputSlotAccept{Type: input.Type}
+	if declaredType != nil {
+		if acceptType := inferSpxInputTypeFromType(declaredType); acceptType != SpxInputTypeUnknown {
+			accept.Type = acceptType
+		}
+	}
+
+	return &SpxInputSlot{
+		Kind:            SpxInputSlotKindValue,
+		Accept:          accept,
+		Input:           input,
+		PredefinedNames: collectPredefinedNames(result, lit, declaredType),
+		Range:           RangeForPosEnd(result.proj, lit.ValuePos, xgoUnitStart(lit)),
 	}
 }
 
