@@ -5,16 +5,16 @@ go 1.25.0
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
-	github.com/goplus/gogen v1.23.0-pre.3.0.20260414234848-6641c10c9d6f
+	github.com/goplus/gogen v1.23.0-pre.5
 	github.com/goplus/mod v0.20.2
 	github.com/goplus/spx/v2 v2.0.3
-	github.com/goplus/xgo v1.7.2-0.20260414235301-df19f4a1b7c2
-	github.com/qiniu/x v1.17.0
+	github.com/goplus/xgo v1.7.2
+	github.com/qiniu/x v1.18.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/mod v0.36.0
-	golang.org/x/sync v0.20.0
-	golang.org/x/text v0.37.0
-	golang.org/x/tools v0.45.0
+	golang.org/x/mod v0.37.0
+	golang.org/x/sync v0.21.0
+	golang.org/x/text v0.38.0
+	golang.org/x/tools v0.46.0
 )
 
 require (
