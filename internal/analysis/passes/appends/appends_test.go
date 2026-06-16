@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
@@ -39,6 +40,17 @@ _ = append(s, 1)
 `,
 			wantDiag: false,
 		},
+		{
+			name: "ShadowedAppend",
+			src: `
+func append(s []int) []int {
+	return s
+}
+var s []int
+_ = append(s)
+`,
+			wantDiag: false,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create file set and parse source
@@ -48,9 +60,10 @@ _ = append(s, 1)
 
 			info := &types.Info{
 				Info: typesutil.Info{
-					Types: make(map[ast.Expr]gotypes.TypeAndValue),
-					Defs:  make(map[*ast.Ident]gotypes.Object),
-					Uses:  make(map[*ast.Ident]gotypes.Object),
+					Types:     make(map[ast.Expr]gotypes.TypeAndValue),
+					Defs:      make(map[*ast.Ident]gotypes.Object),
+					Uses:      make(map[*ast.Ident]gotypes.Object),
+					Overloads: make(map[*ast.Ident]gotypes.Object),
 				},
 			}
 
@@ -91,4 +104,73 @@ _ = append(s, 1)
 			}
 		})
 	}
+}
+
+func TestIsBuiltinAppend(t *testing.T) {
+	builtinPkg := gotypes.NewPackage("", "")
+	otherPkg := gotypes.NewPackage("example.com/other", "other")
+
+	for _, tt := range []struct {
+		name string
+		obj  gotypes.Object
+		want bool
+	}{
+		{
+			name: "Nil",
+		},
+		{
+			name: "GoBuiltin",
+			obj:  gotypes.Universe.Lookup("append"),
+			want: true,
+		},
+		{
+			name: "XGoTemplateFunc",
+			obj:  newTestTemplateFunc(builtinPkg, "append"),
+			want: true,
+		},
+		{
+			name: "XGoOverloadFunc",
+			obj: gogen.NewOverloadFunc(
+				token.NoPos,
+				builtinPkg,
+				"append",
+				newTestTemplateFunc(builtinPkg, "append"),
+			),
+			want: true,
+		},
+		{
+			name: "ShadowedTemplateFunc",
+			obj:  newTestTemplateFunc(otherPkg, "append"),
+		},
+		{
+			name: "PlainFunc",
+			obj: gotypes.NewFunc(
+				token.NoPos,
+				builtinPkg,
+				"append",
+				gotypes.NewSignatureType(nil, nil, nil, nil, nil, false),
+			),
+		},
+		{
+			name: "InvalidFuncType",
+			obj:  gotypes.NewFunc(token.NoPos, builtinPkg, "append", nil),
+		},
+		{
+			name: "WrongTemplateOverload",
+			obj: gogen.NewOverloadFunc(
+				token.NoPos,
+				builtinPkg,
+				"append",
+				newTestTemplateFunc(builtinPkg, "len"),
+			),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isBuiltinAppend(tt.obj))
+		})
+	}
+}
+
+func newTestTemplateFunc(pkg *gotypes.Package, name string) *gogen.TemplateFunc {
+	return gogen.NewTemplateFunc(token.NoPos, pkg, name, gogen.NewTemplateSignature(nil, nil, nil, nil, false))
 }
