@@ -47,9 +47,10 @@ type (
 	PublishDiagnosticsParams              = protocol.PublishDiagnosticsParams
 	PropertyRenamedParams                 = protocol.PropertyRenamedParams
 
-	CompletionParams                = protocol.CompletionParams
-	CompletionItemKind              = protocol.CompletionItemKind
 	CompletionItem                  = protocol.CompletionItem
+	CompletionItemKind              = protocol.CompletionItemKind
+	CompletionList                  = protocol.CompletionList
+	CompletionParams                = protocol.CompletionParams
 	Or_CompletionItem_documentation = protocol.Or_CompletionItem_documentation
 	Or_CompletionItem_textEdit      = protocol.Or_CompletionItem_textEdit
 

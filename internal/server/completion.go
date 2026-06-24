@@ -22,7 +22,7 @@ import (
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_completion
-func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionItem, error) {
+func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	result, spxFile, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,14 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) ([]CompletionI
 	if err := ctx.collect(); err != nil {
 		return nil, fmt.Errorf("failed to collect completion items: %w", err)
 	}
-	return ctx.sortedItems(), nil
+	items := ctx.sortedItems()
+	if ctx.isIncomplete {
+		return CompletionList{
+			IsIncomplete: true,
+			Items:        items,
+		}, nil
+	}
+	return items, nil
 }
 
 // completionKind represents different kinds of completion contexts.
@@ -119,6 +126,9 @@ type completionContext struct {
 	inSpxEventHandler       bool
 	valueExpression         bool
 	expectedFuncResultCount int
+
+	// isIncomplete is set by collectors whose results depend on continued typing.
+	isIncomplete bool
 }
 
 // analyze analyzes the completion context to determine the kind of completion needed.
@@ -1664,6 +1674,9 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 				}},
 			})
 		}
+	}
+	if hasUnit {
+		ctx.isIncomplete = true
 	}
 	return hasUnit
 }
