@@ -8,6 +8,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -66,8 +67,54 @@ func getSemanticTokenModifiersMask(modifiers []SemanticTokenModifiers) uint32 {
 type semanticTokenInfo struct {
 	startPos       token.Pos
 	endPos         token.Pos
+	line           uint32
+	character      uint32
+	length         uint32
 	tokenType      SemanticTokenTypes
 	tokenModifiers []SemanticTokenModifiers
+}
+
+// semanticTokenTypesLegendStrings returns the semantic token type legend used
+// by the token encoder.
+func semanticTokenTypesLegendStrings() []string {
+	tokenTypes := make([]string, len(semanticTokenTypesLegend))
+	for i, tokenType := range semanticTokenTypesLegend {
+		tokenTypes[i] = string(tokenType)
+	}
+	return tokenTypes
+}
+
+// semanticTokenModifiersLegendStrings returns the semantic token modifier
+// legend used by the token encoder.
+func semanticTokenModifiersLegendStrings() []string {
+	tokenModifiers := make([]string, len(semanticTokenModifiersLegend))
+	for i, tokenModifier := range semanticTokenModifiersLegend {
+		tokenModifiers[i] = string(tokenModifier)
+	}
+	return tokenModifiers
+}
+
+// semanticTokenRange returns the LSP semantic token position fields for a token
+// range using the server's UTF-16 position encoding.
+func semanticTokenRange(proj *xgo.Project, astFile *ast.File, startPos, endPos token.Pos) (uint32, uint32, uint32, bool) {
+	if !startPos.IsValid() || !endPos.IsValid() {
+		return 0, 0, 0, false
+	}
+
+	start := proj.Fset.Position(startPos)
+	end := proj.Fset.Position(endPos)
+	if start.Line <= 0 || start.Column <= 0 || end.Offset <= start.Offset {
+		return 0, 0, 0, false
+	}
+	if start.Offset < 0 || start.Offset > len(astFile.Code) || end.Offset > len(astFile.Code) {
+		return 0, 0, 0, false
+	}
+
+	position := FromPosition(proj, astFile, start)
+	return position.Line,
+		position.Character,
+		uint32(UTF16Len(string(astFile.Code[start.Offset:end.Offset]))),
+		true
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_semanticTokens
@@ -84,22 +131,19 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		return nil, nil
 	}
 
-	fset := result.proj.Fset
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos token.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
-		if !startPos.IsValid() || !endPos.IsValid() {
-			return
-		}
-
-		start := fset.Position(startPos)
-		end := fset.Position(endPos)
-		if start.Line <= 0 || start.Column <= 0 || end.Offset <= start.Offset {
+		line, character, length, ok := semanticTokenRange(result.proj, astFile, startPos, endPos)
+		if !ok {
 			return
 		}
 
 		tokenInfos = append(tokenInfos, semanticTokenInfo{
 			startPos:       startPos,
 			endPos:         endPos,
+			line:           line,
+			character:      character,
+			length:         length,
 			tokenType:      tokenType,
 			tokenModifiers: tokenModifiers,
 		})
@@ -154,7 +198,6 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *gotypes.Var:
 				switch obj.Kind() {
 				case gotypes.FieldVar:
-					typeInfo, _ := result.proj.TypeInfo()
 					astPkg, _ := result.proj.ASTPackage()
 					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
 						tokenType = VariableType
@@ -485,31 +528,26 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	})
 
 	var (
-		tokensData         = make([]uint32, 0, len(tokenInfos))
+		tokensData         = make([]uint32, 0, len(tokenInfos)*5)
 		prevLine, prevChar uint32
 	)
 	for _, info := range tokenInfos {
-		start := fset.Position(info.startPos)
-		end := fset.Position(info.endPos)
-
-		line := uint32(start.Line - 1)
-		char := uint32(start.Column - 1)
-		length := uint32(end.Offset - start.Offset)
-		if line < prevLine || (line == prevLine && char < prevChar) {
+		if info.line < prevLine || (info.line == prevLine && info.character < prevChar) {
 			continue
 		}
 
 		typeIndex := getSemanticTokenTypeIndex(info.tokenType)
 		modifiersMask := getSemanticTokenModifiersMask(info.tokenModifiers)
 
-		if line == prevLine {
-			tokensData = append(tokensData, 0, char-prevChar, length, typeIndex, modifiersMask)
-		} else {
-			tokensData = append(tokensData, line-prevLine, char, length, typeIndex, modifiersMask)
+		deltaLine := info.line - prevLine
+		deltaCharacter := info.character
+		if deltaLine == 0 {
+			deltaCharacter -= prevChar
 		}
+		tokensData = append(tokensData, deltaLine, deltaCharacter, info.length, typeIndex, modifiersMask)
 
-		prevLine = line
-		prevChar = char
+		prevLine = info.line
+		prevChar = info.character
 	}
 	return &SemanticTokens{
 		Data: tokensData,

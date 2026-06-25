@@ -17,8 +17,9 @@ type (
 	Range       = protocol.Range
 	Location    = protocol.Location
 
-	TextEdit      = protocol.TextEdit
-	WorkspaceEdit = protocol.WorkspaceEdit
+	TextEdit          = protocol.TextEdit
+	WorkspaceEdit     = protocol.WorkspaceEdit
+	InsertReplaceEdit = protocol.InsertReplaceEdit
 
 	TextDocumentPositionParams = protocol.TextDocumentPositionParams
 	TextDocumentIdentifier     = protocol.TextDocumentIdentifier
@@ -26,6 +27,7 @@ type (
 	InsertTextFormat = protocol.InsertTextFormat
 
 	MarkupContent = protocol.MarkupContent
+	MarkupKind    = protocol.MarkupKind
 
 	DocumentHighlightParams = protocol.DocumentHighlightParams
 	DocumentHighlight       = protocol.DocumentHighlight
@@ -49,6 +51,7 @@ type (
 
 	CompletionItem                  = protocol.CompletionItem
 	CompletionItemKind              = protocol.CompletionItemKind
+	CompletionClientCapabilities    = protocol.CompletionClientCapabilities
 	CompletionList                  = protocol.CompletionList
 	CompletionParams                = protocol.CompletionParams
 	Or_CompletionItem_documentation = protocol.Or_CompletionItem_documentation
@@ -64,8 +67,9 @@ type (
 	ReferenceParams  = protocol.ReferenceParams
 	ReferenceContext = protocol.ReferenceContext
 
-	HoverParams = protocol.HoverParams
-	Hover       = protocol.Hover
+	HoverParams             = protocol.HoverParams
+	Hover                   = protocol.Hover
+	HoverClientCapabilities = protocol.HoverClientCapabilities
 
 	ImplementationParams = protocol.ImplementationParams
 
@@ -83,6 +87,7 @@ type (
 	InitializeResult     = protocol.InitializeResult
 	ServerCapabilities   = protocol.ServerCapabilities
 	ServerInfo           = protocol.ServerInfo
+	ClientCapabilities   = protocol.ClientCapabilities
 	InitializedParams    = protocol.InitializedParams
 	ExecuteCommandParams = protocol.ExecuteCommandParams
 	CancelParams         = protocol.CancelParams
@@ -114,11 +119,13 @@ const (
 	PropertyCompletion  = protocol.PropertyCompletion
 	FunctionCompletion  = protocol.FunctionCompletion
 	ModuleCompletion    = protocol.ModuleCompletion
+	ReferenceCompletion = protocol.ReferenceCompletion
 
 	DiagnosticFull = protocol.DiagnosticFull
 
-	Markdown = protocol.Markdown
-	Text     = protocol.Text
+	Markdown  = protocol.Markdown
+	PlainText = protocol.PlainText
+	Text      = protocol.Text
 
 	Write = protocol.Write
 	Read  = protocol.Read
@@ -153,7 +160,8 @@ const (
 	Type      = protocol.Type
 	Parameter = protocol.Parameter
 
-	RequestCancelled = protocol.RequestCancelled
+	ServerNotInitialized = protocol.ServerNotInitialized
+	RequestCancelled     = protocol.RequestCancelled
 )
 
 // UnmarshalJSON unmarshals msg into the variable pointed to by params.

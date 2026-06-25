@@ -8,6 +8,7 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -3977,6 +3978,113 @@ func TestCompletionContextResolvePropertyLikeFuncResultType(t *testing.T) {
 		got := ctx.resolvePropertyLikeFuncResultType(ident)
 		assert.Nil(t, got)
 	})
+}
+
+func TestAdaptCompletionItemsForClient(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		capabilities CompletionClientCapabilities
+		items        []CompletionItem
+		want         []CompletionItem
+	}{
+		{
+			name: "DowngradesUnsupportedSnippetAndKind",
+			items: []CompletionItem{{
+				Label:            "count",
+				Kind:             ConstantCompletion,
+				InsertText:       "count = ${1:}",
+				InsertTextFormat: ToPtr(SnippetTextFormat),
+				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
+					Range: Range{
+						Start: Position{Line: 1, Character: 2},
+						End:   Position{Line: 1, Character: 4},
+					},
+					NewText: "count = ${1:}",
+				}},
+			}},
+			want: []CompletionItem{{
+				Label:            "count",
+				Kind:             TextCompletion,
+				InsertText:       "count",
+				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
+					Range: Range{
+						Start: Position{Line: 1, Character: 2},
+						End:   Position{Line: 1, Character: 4},
+					},
+					NewText: "count",
+				}},
+			}},
+		},
+		{
+			name: "KeepsSnippetAndKindWhenSupported",
+			capabilities: CompletionClientCapabilities{
+				CompletionItem: protocol.ClientCompletionItemOptions{
+					SnippetSupport: true,
+				},
+				CompletionItemKind: &protocol.ClientCompletionItemOptionsKind{
+					ValueSet: []CompletionItemKind{ConstantCompletion},
+				},
+			},
+			items: []CompletionItem{{
+				Label:            "count",
+				Kind:             ConstantCompletion,
+				InsertText:       "count = ${1:}",
+				InsertTextFormat: ToPtr(SnippetTextFormat),
+			}},
+			want: []CompletionItem{{
+				Label:            "count",
+				Kind:             ConstantCompletion,
+				InsertText:       "count = ${1:}",
+				InsertTextFormat: ToPtr(SnippetTextFormat),
+			}},
+		},
+		{
+			name: "DowngradesUnsupportedSnippetInsertReplaceEdit",
+			items: []CompletionItem{{
+				Label:            "move",
+				Kind:             FunctionCompletion,
+				InsertTextFormat: ToPtr(SnippetTextFormat),
+				TextEdit: &Or_CompletionItem_textEdit{Value: InsertReplaceEdit{
+					NewText: "move ${1:steps}",
+					Insert:  Range{Start: Position{Line: 1, Character: 2}, End: Position{Line: 1, Character: 4}},
+					Replace: Range{
+						Start: Position{Line: 1, Character: 2},
+						End:   Position{Line: 1, Character: 6},
+					},
+				}},
+			}},
+			want: []CompletionItem{{
+				Label:            "move",
+				Kind:             FunctionCompletion,
+				InsertText:       "move",
+				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				TextEdit: &Or_CompletionItem_textEdit{Value: InsertReplaceEdit{
+					NewText: "move",
+					Insert:  Range{Start: Position{Line: 1, Character: 2}, End: Position{Line: 1, Character: 4}},
+					Replace: Range{
+						Start: Position{Line: 1, Character: 2},
+						End:   Position{Line: 1, Character: 6},
+					},
+				}},
+			}},
+		},
+		{
+			name: "KeepsInitialProtocolKindWithoutValueSet",
+			items: []CompletionItem{{
+				Label: "ref",
+				Kind:  ReferenceCompletion,
+			}},
+			want: []CompletionItem{{
+				Label: "ref",
+				Kind:  ReferenceCompletion,
+			}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, adaptCompletionItemsForClient(tt.capabilities, tt.items))
+		})
+	}
 }
 
 func newPropertyLikeTestCompletionContext(pkg *gotypes.Package, innermostScope *gotypes.Scope, uses map[*ast.Ident]gotypes.Object) *completionContext {

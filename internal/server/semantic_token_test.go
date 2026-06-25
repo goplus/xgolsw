@@ -110,6 +110,34 @@ onStart => {
 			tokenType: NumberType,
 		})
 	})
+
+	t.Run("UTF16Encoding", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`var café = "😀"
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      0,
+			character: 4,
+			length:    4,
+			tokenType: VariableType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      0,
+			character: 11,
+			length:    4,
+			tokenType: StringType,
+		})
+	})
 }
 
 type decodedSemanticToken struct {
