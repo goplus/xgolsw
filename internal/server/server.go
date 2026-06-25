@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	gotypes "go/types"
 	"maps"
@@ -53,6 +52,9 @@ type Server struct {
 	cancelCauseFuncs sync.Map      // Map of request IDs to cancel functions (with cause).
 	scheduler        Scheduler
 	language         i18n.Language // Current language for error message translation
+	initMu           sync.Mutex
+	initializeCalled bool
+	initialized      bool
 }
 
 func (s *Server) getProj() *xgo.Project {
@@ -75,7 +77,6 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 	proj.Mod = mod
 	proj.Importer = internal.Importer
 	return &Server{
-		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
 		replier:          replier,
@@ -114,9 +115,24 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
+		if err := s.beginInitialize(); err != nil {
+			return s.replyError(c.ID(), err)
+		}
 		s.runForCall(c, func() (any, error) {
-			return s.initialize(&params)
+			result, err := s.initialize(&params)
+			if err == nil {
+				s.finishInitialize()
+			}
+			return result, err
 		})
+		return nil
+	}
+
+	if !s.isInitialized() {
+		return s.replyError(c.ID(), serverNotInitialized)
+	}
+
+	switch c.Method() {
 	case "shutdown":
 		s.runForCall(c, func() (any, error) {
 			return nil, nil // Protocol conformance only.
@@ -274,23 +290,23 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 // handleNotification handles a notification message.
 func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 	switch n.Method() {
+	case "exit":
+		return nil
+	case "$/cancelRequest":
+		return s.handleCancelRequestNotification(n)
+	}
+	if !s.isInitialized() {
+		return nil
+	}
+
+	switch n.Method() {
 	case "initialized":
 		var params InitializedParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
 			return fmt.Errorf("failed to parse initialized params: %w", err)
 		}
 		s.runForNotification(n, func() error {
-			return errors.New("TODO")
-		})
-	case "exit":
-		// Protocol conformance only.
-	case "$/cancelRequest":
-		var params CancelParams
-		if err := UnmarshalJSON(n.Params(), &params); err != nil {
-			return fmt.Errorf("failed to parse cancelRequest params: %w", err)
-		}
-		s.runForNotification(n, func() error {
-			return s.cancelRequest(&params)
+			return nil
 		})
 	case "textDocument/didOpen":
 		var params DidOpenTextDocumentParams
@@ -326,6 +342,58 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 		})
 	}
 	return nil
+}
+
+// handleCancelRequestNotification handles a $/cancelRequest notification.
+func (s *Server) handleCancelRequestNotification(n *jsonrpc2.Notification) error {
+	if !s.isInitializeStarted() {
+		return nil
+	}
+	var params CancelParams
+	if err := UnmarshalJSON(n.Params(), &params); err != nil {
+		return fmt.Errorf("failed to parse cancelRequest params: %w", err)
+	}
+	if !s.isInitialized() {
+		return s.cancelRequest(&params)
+	}
+	s.runForNotification(n, func() error {
+		return s.cancelRequest(&params)
+	})
+	return nil
+}
+
+// isInitializeStarted reports whether an initialize request has been accepted.
+func (s *Server) isInitializeStarted() bool {
+	s.initMu.Lock()
+	initializeCalled := s.initializeCalled
+	s.initMu.Unlock()
+	return initializeCalled
+}
+
+// beginInitialize marks the initialize request as started.
+func (s *Server) beginInitialize() error {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	if s.initializeCalled {
+		return fmt.Errorf("%w: initialize request may only be sent once", jsonrpc2.ErrInvalidRequest)
+	}
+	s.initializeCalled = true
+	return nil
+}
+
+// finishInitialize marks the initialize request as completed.
+func (s *Server) finishInitialize() {
+	s.initMu.Lock()
+	s.initialized = true
+	s.initMu.Unlock()
+}
+
+// isInitialized reports whether the initialize request completed successfully.
+func (s *Server) isInitialized() bool {
+	s.initMu.Lock()
+	initialized := s.initialized
+	s.initMu.Unlock()
+	return initialized
 }
 
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
@@ -456,7 +524,12 @@ func (s *Server) runForNotification(notify *jsonrpc2.Notification, fn func() err
 	go wrap()
 }
 
-var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+var (
+	// serverNotInitialized is returned for requests received before initialize completes.
+	serverNotInitialized = jsonrpc2.NewError(int64(ServerNotInitialized), "Server not initialized")
+	// requestCancelled is returned when a request is cancelled before execution.
+	requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#cancelRequest
 func (s *Server) cancelRequest(params *CancelParams) error {

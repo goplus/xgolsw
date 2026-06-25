@@ -42,15 +42,17 @@ func (m *mockReplier) getMessages() []jsonrpc2.Message {
 	return result
 }
 
+func (m *mockReplier) clearMessages() {
+	m.mu.Lock()
+	m.messages = nil
+	m.mu.Unlock()
+}
+
 func (m *mockReplier) waitForMessages(count int, timeout time.Duration) []jsonrpc2.Message {
 	// For count=0, wait a short time to ensure no unexpected messages arrive
 	if count == 0 {
 		time.Sleep(10 * time.Millisecond)
-		m.mu.Lock()
-		result := make([]jsonrpc2.Message, len(m.messages))
-		copy(result, m.messages)
-		m.mu.Unlock()
-		return result
+		return m.getMessages()
 	}
 
 	m.mu.Lock()
@@ -75,11 +77,15 @@ func (m *mockReplier) waitForMessages(count int, timeout time.Duration) []jsonrp
 }
 
 func newProjectWithoutModTime(files map[string][]byte) *xgo.Project {
+	return xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
+}
+
+func newFileMap(files map[string][]byte) map[string]*xgo.File {
 	fileMap := make(map[string]*xgo.File)
 	for k, v := range files {
 		fileMap[k] = &xgo.File{Content: v}
 	}
-	return xgo.NewProject(nil, fileMap, xgo.FeatAll)
+	return fileMap
 }
 
 func requireValueAs[T any](t *testing.T, value any) T {
@@ -92,11 +98,7 @@ func requireValueAs[T any](t *testing.T, value any) T {
 
 func fileMapGetter(files map[string][]byte) func() map[string]*xgo.File {
 	return func() map[string]*xgo.File {
-		fileMap := make(map[string]*xgo.File)
-		for k, v := range files {
-			fileMap[k] = &xgo.File{Content: v}
-		}
-		return fileMap
+		return newFileMap(files)
 	}
 }
 
@@ -105,6 +107,153 @@ type MockScheduler struct{}
 
 func (s *MockScheduler) Sched() {
 	time.Sleep(1 * time.Millisecond)
+}
+
+type blockingScheduler struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingScheduler() *blockingScheduler {
+	return &blockingScheduler{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (s *blockingScheduler) Sched() {
+	s.once.Do(func() {
+		close(s.started)
+	})
+	<-s.release
+}
+
+func initializeServerForTest(t *testing.T, server *Server, replier *mockReplier) {
+	t.Helper()
+
+	call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{
+		XInitializeParams: protocol.XInitializeParams{
+			RootURI: "file:///",
+			Capabilities: protocol.ClientCapabilities{
+				TextDocument: protocol.TextDocumentClientCapabilities{
+					Rename: &protocol.RenameClientCapabilities{
+						PrepareSupport: true,
+					},
+					SignatureHelp: &protocol.SignatureHelpClientCapabilities{
+						ContextSupport: true,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, server.HandleMessage(call))
+	messages := replier.waitForMessages(2, 5*time.Second)
+	require.Len(t, messages, 2)
+	require.NoError(t, requireResponseForID(t, messages, call.ID()).Err())
+	replier.clearMessages()
+}
+
+func requireResponseForID(t *testing.T, messages []jsonrpc2.Message, id jsonrpc2.ID) *jsonrpc2.Response {
+	t.Helper()
+
+	for _, message := range messages {
+		response, ok := message.(*jsonrpc2.Response)
+		if ok && response.ID() == id {
+			return response
+		}
+	}
+	require.Failf(t, "missing response", "missing response for id %q", id)
+	return nil
+}
+
+func TestHandleMessageInitialization(t *testing.T) {
+	t.Run("RequestBeforeInitialize", func(t *testing.T) {
+		replier := newMockReplier()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("hover"), "textDocument/hover", HoverParams{})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(call))
+
+		messages := replier.waitForMessages(1, 5*time.Second)
+		response := requireResponseForID(t, messages, call.ID())
+		require.Error(t, response.Err())
+		var wireErr *jsonrpc2.WireError
+		require.True(t, errors.As(response.Err(), &wireErr))
+		assert.Equal(t, int64(ServerNotInitialized), wireErr.Code)
+	})
+
+	t.Run("NotificationBeforeInitialize", func(t *testing.T) {
+		replier := newMockReplier()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		notification, err := jsonrpc2.NewNotification("textDocument/didOpen", DidOpenTextDocumentParams{})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(notification))
+		assert.Empty(t, replier.waitForMessages(0, time.Second))
+	})
+
+	t.Run("CancelRequestBeforeInitialize", func(t *testing.T) {
+		replier := newMockReplier()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		notification, err := jsonrpc2.NewNotification("$/cancelRequest", CancelParams{ID: "initialize"})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(notification))
+		assert.Empty(t, replier.waitForMessages(0, time.Second))
+	})
+
+	t.Run("CancelInitialize", func(t *testing.T) {
+		replier := newMockReplier()
+		scheduler := newBlockingScheduler()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), scheduler)
+		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(call))
+
+		select {
+		case <-scheduler.started:
+		case <-time.After(5 * time.Second):
+			require.Fail(t, "initialize did not start")
+		}
+
+		notification, err := jsonrpc2.NewNotification("$/cancelRequest", CancelParams{ID: "initialize"})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(notification))
+		close(scheduler.release)
+
+		messages := replier.waitForMessages(1, 5*time.Second)
+		response := requireResponseForID(t, messages, call.ID())
+		require.Error(t, response.Err())
+		var wireErr *jsonrpc2.WireError
+		require.True(t, errors.As(response.Err(), &wireErr))
+		assert.Equal(t, int64(RequestCancelled), wireErr.Code)
+		assert.False(t, server.isInitialized())
+	})
+
+	t.Run("ExitBeforeInitialize", func(t *testing.T) {
+		replier := newMockReplier()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		notification, err := jsonrpc2.NewNotification("exit", nil)
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(notification))
+		assert.Empty(t, replier.waitForMessages(0, time.Second))
+	})
+
+	t.Run("InitializeOnlyOnce", func(t *testing.T) {
+		replier := newMockReplier()
+		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		initializeServerForTest(t, server, replier)
+
+		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize-again"), "initialize", InitializeParams{})
+		require.NoError(t, err)
+		require.NoError(t, server.HandleMessage(call))
+		messages := replier.waitForMessages(1, 5*time.Second)
+		response := requireResponseForID(t, messages, call.ID())
+		require.Error(t, response.Err())
+		var wireErr *jsonrpc2.WireError
+		require.True(t, errors.As(response.Err(), &wireErr))
+		assert.Equal(t, int64(protocol.InvalidRequest), wireErr.Code)
+	})
 }
 
 func TestServerCancellation(t *testing.T) {
@@ -121,14 +270,14 @@ echo x
 		call1, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-1"), "$/cancelRequest", &CancelParams{ID: "test-request-1"})
 		call2, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-2"), "$/cancelRequest", &CancelParams{ID: "test-request-2"})
 
-		var request1Runned bool
-		var request2Runned bool
+		var request1Ran bool
+		var request2Ran bool
 		s.runForCall(call1, func() (any, error) {
-			request1Runned = true
+			request1Ran = true
 			return "should not reach here", nil
 		})
 		s.runForCall(call2, func() (any, error) {
-			request2Runned = true
+			request2Ran = true
 			return "should not reach here either", nil
 		})
 
@@ -139,21 +288,12 @@ echo x
 
 		messages := replier.waitForMessages(2, 5*time.Second)
 
-		assert.False(t, request1Runned, "Function should not have been executed for cancelled request")
-		assert.False(t, request2Runned, "Function should not have been executed for cancelled request")
+		assert.False(t, request1Ran, "Function should not have been executed for cancelled request")
+		assert.False(t, request2Ran, "Function should not have been executed for cancelled request")
 		require.Len(t, messages, 2)
 
-		var response1, response2 *jsonrpc2.Response
-		require.Len(t, messages, 2, "Should receive two Response messages")
-		for _, v := range messages {
-			response, ok := v.(*jsonrpc2.Response)
-			require.True(t, ok, "Should receive a Response message")
-			if response.ID() == call1.ID() {
-				response1 = response
-			} else if response.ID() == call2.ID() {
-				response2 = response
-			}
-		}
+		response1 := requireResponseForID(t, messages, call1.ID())
+		response2 := requireResponseForID(t, messages, call2.ID())
 
 		assert.Equal(t, call1.ID(), response1.ID())
 		assert.NotNil(t, response1.Err())
@@ -490,6 +630,7 @@ fmt.Println("Hello, World!")
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			initializeServerForTest(t, server, replier)
 
 			var params json.RawMessage
 			if tc.params != nil {
@@ -531,7 +672,7 @@ func TestHandleMessageNotification(t *testing.T) {
 			name:   "Exit",
 			method: "exit",
 			params: nil,
-			msgNum: 0, // exit 不发送任何消息
+			msgNum: 0, // exit does not send any messages
 		},
 		{
 			name:   "CancelRequest",
@@ -618,6 +759,7 @@ func TestHandleMessageNotification(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
 			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			initializeServerForTest(t, server, replier)
 
 			var params json.RawMessage
 			if tc.params != nil {

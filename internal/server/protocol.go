@@ -153,7 +153,8 @@ const (
 	Type      = protocol.Type
 	Parameter = protocol.Parameter
 
-	RequestCancelled = protocol.RequestCancelled
+	ServerNotInitialized = protocol.ServerNotInitialized
+	RequestCancelled     = protocol.RequestCancelled
 )
 
 // UnmarshalJSON unmarshals msg into the variable pointed to by params.
