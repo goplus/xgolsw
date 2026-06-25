@@ -33,8 +33,6 @@ func (s *Server) didOpen(params *DidOpenTextDocumentParams) error {
 
 // didChange handles the textDocument/didChange notification from the LSP client.
 // It applies document changes to the project and publishes updated diagnostics.
-// For simplicity, this implementation only uses the latest content change
-// rather than applying incremental changes.
 func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 	path, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {

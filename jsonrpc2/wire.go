@@ -91,8 +91,9 @@ type wireVersionTag struct{}
 
 // ID is a Request identifier.
 type ID struct {
-	name   string
-	number int64
+	name     string
+	number   int64
+	isString bool
 }
 
 func NewError(code int64, message string) error {
@@ -145,7 +146,7 @@ func MakeID(v any) (ID, error) {
 func NewIntID(v int64) ID { return ID{number: v} }
 
 // NewStringID returns a new string request ID.
-func NewStringID(v string) ID { return ID{name: v} }
+func NewStringID(v string) ID { return ID{name: v, isString: true} }
 
 // Format writes the ID to the formatter.
 // If the rune is q the representation is non ambiguous,
@@ -155,25 +156,30 @@ func (id ID) Format(f fmt.State, r rune) {
 	if r == 'q' {
 		numF, strF = `#%d`, `%q`
 	}
-	switch {
-	case id.name != "":
+	if id.isString {
 		fmt.Fprintf(f, strF, id.name)
-	default:
-		fmt.Fprintf(f, numF, id.number)
+		return
 	}
+	fmt.Fprintf(f, numF, id.number)
 }
 
 func (id *ID) MarshalJSON() ([]byte, error) {
-	if id.name != "" {
+	if id.isString {
 		return json.Marshal(id.name)
 	}
 	return json.Marshal(id.number)
 }
 
 func (id *ID) UnmarshalJSON(data []byte) error {
-	*id = ID{}
-	if err := json.Unmarshal(data, &id.number); err == nil {
+	var number int64
+	if err := json.Unmarshal(data, &number); err == nil {
+		*id = NewIntID(number)
 		return nil
 	}
-	return json.Unmarshal(data, &id.name)
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+	*id = NewStringID(name)
+	return nil
 }

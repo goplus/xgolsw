@@ -73,6 +73,15 @@ type semanticTokenInfo struct {
 	tokenModifiers []SemanticTokenModifiers
 }
 
+// semanticTokenLegendStrings converts a semantic token legend to protocol strings.
+func semanticTokenLegendStrings[T ~string](legend []T) []string {
+	values := make([]string, len(legend))
+	for i, value := range legend {
+		values[i] = string(value)
+	}
+	return values
+}
+
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_semanticTokens
 func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*SemanticTokens, error) {
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)

@@ -37,10 +37,27 @@ func (def SpxDefinition) HTML() string {
 
 // CompletionItem constructs a [CompletionItem] from the definition.
 func (def SpxDefinition) CompletionItem() CompletionItem {
+	return def.completionItem(Markdown)
+}
+
+// markupContent constructs markup content from the definition.
+func (def SpxDefinition) markupContent(kind MarkupKind) MarkupContent {
+	plainText := def.Overview
+	if detail := strings.TrimSpace(def.Detail); detail != "" {
+		if plainText != "" {
+			plainText += "\n\n"
+		}
+		plainText += detail
+	}
+	return markupContent(kind, def.HTML(), plainText)
+}
+
+// completionItem constructs a [CompletionItem] from the definition.
+func (def SpxDefinition) completionItem(documentationKind MarkupKind) CompletionItem {
 	return CompletionItem{
 		Label:            def.CompletionItemLabel,
 		Kind:             def.CompletionItemKind,
-		Documentation:    &Or_CompletionItem_documentation{Value: MarkupContent{Kind: Markdown, Value: def.HTML()}},
+		Documentation:    completionDocumentation(def.markupContent(documentationKind)),
 		InsertText:       def.CompletionItemInsertText,
 		InsertTextFormat: &def.CompletionItemInsertTextFormat,
 		Data: &CompletionItemData{
