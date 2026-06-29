@@ -67,6 +67,17 @@ func UTF16PosToUTF8Offset(s string, utf16Pos int) int {
 	return utf8Bytes
 }
 
+// trimLineEnding returns content without a trailing line ending.
+func trimLineEnding(content []byte) []byte {
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		content = content[:len(content)-1]
+	}
+	if len(content) > 0 && content[len(content)-1] == '\r' {
+		content = content[:len(content)-1]
+	}
+	return content
+}
+
 // PositionOffset converts an LSP position (line, character) to a byte offset in the document.
 // It calculates the offset by:
 //  1. Finding the starting byte offset of the requested line
@@ -113,6 +124,7 @@ func PositionOffset(content []byte, position Position) int {
 	}
 
 	lineContent := content[lineOffset:min(lineEndOffset, len(content))]
+	lineContent = trimLineEnding(lineContent)
 
 	// Convert UTF-16 character offset to UTF-8 byte offset
 	utf8Offset := UTF16PosToUTF8Offset(string(lineContent), int(position.Character))
@@ -138,9 +150,7 @@ func FromPosition(proj *xgo.Project, astFile *ast.File, position token.Position)
 	lineEnd := max(min(relLineStart+column-1, lineEndOffset), relLineStart)
 
 	lineContent := astFile.Code[relLineStart:lineEnd]
-	if len(lineContent) > 0 && lineContent[len(lineContent)-1] == '\n' {
-		lineContent = lineContent[:len(lineContent)-1]
-	}
+	lineContent = trimLineEnding(lineContent)
 
 	return Position{
 		Line:      uint32(line - 1),
@@ -159,6 +169,7 @@ func ToPosition(proj *xgo.Project, astFile *ast.File, position Position) token.P
 	if i := bytes.IndexByte(lineContent, '\n'); i >= 0 {
 		lineContent = lineContent[:i]
 	}
+	lineContent = trimLineEnding(lineContent)
 	utf8Offset := UTF16PosToUTF8Offset(string(lineContent), int(position.Character))
 	column := utf8Offset + 1
 
