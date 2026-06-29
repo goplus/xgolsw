@@ -1,9 +1,10 @@
 package server
 
 import (
+	"bytes"
+	"cmp"
 	gotypes "go/types"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/goplus/xgo/ast"
@@ -104,6 +105,34 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			tokenModifiers: tokenModifiers,
 		})
 	}
+	addStringToken := func(node *ast.BasicLit) {
+		endPos := node.End()
+		if node.Extra == nil || len(node.Extra.Parts) == 0 {
+			addToken(node.Pos(), endPos, StringType, nil)
+			return
+		}
+
+		partPos := node.ValuePos + 1
+		stringStart := node.ValuePos
+		for _, part := range node.Extra.Parts {
+			switch v := part.(type) {
+			case string:
+				partPos = ast.NextPartPos(partPos, v)
+			case ast.Expr:
+				if stringStart < v.Pos() {
+					addToken(stringStart, v.Pos(), StringType, nil)
+				}
+				if v.End() < endPos {
+					addToken(v.End(), v.End()+1, StringType, nil)
+				}
+				partPos = v.End() + 1
+				stringStart = partPos
+			}
+		}
+		if stringStart < endPos {
+			addToken(stringStart, endPos, StringType, nil)
+		}
+	}
 
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil || !node.Pos().IsValid() {
@@ -200,20 +229,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case token.INT, token.FLOAT, token.IMAG, token.RAT:
 				tokenType = NumberType
 			}
-			addToken(node.ValuePos, node.ValuePos+token.Pos(len(node.Value)), tokenType, nil)
-
-			if node.Extra != nil && len(node.Extra.Parts) > 0 {
-				pos := node.ValuePos
-				for _, part := range node.Extra.Parts {
-					switch v := part.(type) {
-					case string:
-						nextPos := ast.NextPartPos(pos, v)
-						addToken(pos, nextPos, StringType, nil)
-						pos = nextPos
-					case ast.Expr:
-						pos = v.End()
-					}
-				}
+			if tokenType == StringType {
+				addStringToken(node)
+			} else {
+				addToken(node.Pos(), node.End(), tokenType, nil)
 			}
 		case *ast.NumberUnitLit:
 			if isXGoUnitNumberKind(node.Kind) {
@@ -477,41 +496,164 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		return true
 	})
 
-	sort.Slice(tokenInfos, func(i, j int) bool {
-		if tokenInfos[i].startPos != tokenInfos[j].startPos {
-			return tokenInfos[i].startPos < tokenInfos[j].startPos
+	slices.SortFunc(tokenInfos, func(a, b semanticTokenInfo) int {
+		if a.startPos != b.startPos {
+			return cmp.Compare(a.startPos, b.startPos)
 		}
-		return tokenInfos[i].endPos < tokenInfos[j].endPos
+		return cmp.Compare(a.endPos, b.endPos)
 	})
 
+	type semanticTokenDataSegment struct {
+		semanticTokenSegment
+		typeIndex     uint32
+		modifiersMask uint32
+	}
+
 	var (
-		tokensData         = make([]uint32, 0, len(tokenInfos))
-		prevLine, prevChar uint32
+		lineLengths = semanticTokenLineLengths(astFile.Code)
+		segments    = make([]semanticTokenDataSegment, 0, len(tokenInfos))
 	)
 	for _, info := range tokenInfos {
 		start := fset.Position(info.startPos)
 		end := fset.Position(info.endPos)
 
-		line := uint32(start.Line - 1)
-		char := uint32(start.Column - 1)
-		length := uint32(end.Offset - start.Offset)
-		if line < prevLine || (line == prevLine && char < prevChar) {
-			continue
-		}
-
 		typeIndex := getSemanticTokenTypeIndex(info.tokenType)
 		modifiersMask := getSemanticTokenModifiersMask(info.tokenModifiers)
-
-		if line == prevLine {
-			tokensData = append(tokensData, 0, char-prevChar, length, typeIndex, modifiersMask)
-		} else {
-			tokensData = append(tokensData, line-prevLine, char, length, typeIndex, modifiersMask)
+		for _, segment := range semanticTokenSegments(
+			FromPosition(result.proj, astFile, start),
+			FromPosition(result.proj, astFile, end),
+			lineLengths,
+			semanticTokenFallbackLength(astFile.Code, start.Offset, end.Offset),
+		) {
+			segments = append(segments, semanticTokenDataSegment{
+				semanticTokenSegment: segment,
+				typeIndex:            typeIndex,
+				modifiersMask:        modifiersMask,
+			})
 		}
+	}
 
-		prevLine = line
-		prevChar = char
+	slices.SortStableFunc(segments, func(a, b semanticTokenDataSegment) int {
+		if a.line != b.line {
+			return cmp.Compare(a.line, b.line)
+		}
+		return cmp.Compare(a.char, b.char)
+	})
+
+	var (
+		tokensData         = make([]uint32, 0, len(segments)*5)
+		prevLine, prevChar uint32
+	)
+	for _, segment := range segments {
+		lineDelta := segment.line - prevLine
+		charDelta := segment.char
+		if lineDelta == 0 {
+			charDelta -= prevChar
+		}
+		tokensData = append(tokensData, lineDelta, charDelta, segment.length, segment.typeIndex, segment.modifiersMask)
+
+		prevLine = segment.line
+		prevChar = segment.char
 	}
 	return &SemanticTokens{
 		Data: tokensData,
 	}, nil
+}
+
+// semanticTokenSegment represents a single-line semantic token span encoded
+// with LSP UTF-16 positions.
+type semanticTokenSegment struct {
+	line   uint32
+	char   uint32
+	length uint32
+}
+
+// semanticTokenLineLengths returns the UTF-16 lengths of all source lines.
+func semanticTokenLineLengths(content []byte) []uint32 {
+	lines := bytes.Split(content, []byte("\n"))
+	lengths := make([]uint32, len(lines))
+	for i, line := range lines {
+		line = trimLineEnding(line)
+		lengths[i] = uint32(UTF16Len(string(line)))
+	}
+	return lengths
+}
+
+// semanticTokenFallbackLength returns a UTF-16 length for token.Pos spans
+// whose converted LSP start and end positions collapse to an empty range.
+func semanticTokenFallbackLength(content []byte, startOffset, endOffset int) uint32 {
+	if endOffset <= startOffset {
+		return 0
+	}
+	fallbackLength := uint32(endOffset - startOffset)
+	if startOffset < 0 || startOffset >= len(content) {
+		return fallbackLength
+	}
+
+	clippedEndOffset := min(endOffset, len(content))
+	if clippedEndOffset <= startOffset {
+		return fallbackLength
+	}
+	return uint32(UTF16Len(string(content[startOffset:clippedEndOffset])))
+}
+
+// semanticTokenSegments splits a semantic token range into single-line
+// segments encoded with LSP UTF-16 positions. The fallback length preserves
+// spans whose converted start and end positions collapse to an empty range.
+func semanticTokenSegments(start, end Position, lineLengths []uint32, fallbackLength uint32) []semanticTokenSegment {
+	fallbackSegment := semanticTokenSegment{
+		line:   start.Line,
+		char:   start.Character,
+		length: fallbackLength,
+	}
+	if start.Line > end.Line || (start.Line == end.Line && start.Character >= end.Character) {
+		if fallbackLength == 0 {
+			return nil
+		}
+		return []semanticTokenSegment{fallbackSegment}
+	}
+	if start.Line == end.Line {
+		return []semanticTokenSegment{{
+			line:   start.Line,
+			char:   start.Character,
+			length: end.Character - start.Character,
+		}}
+	}
+
+	segments := make([]semanticTokenSegment, 0, end.Line-start.Line+1)
+	if startLineLength := semanticTokenLineLength(lineLengths, start.Line); start.Character < startLineLength {
+		segments = append(segments, semanticTokenSegment{
+			line:   start.Line,
+			char:   start.Character,
+			length: startLineLength - start.Character,
+		})
+	}
+	for line := start.Line + 1; line < end.Line; line++ {
+		length := semanticTokenLineLength(lineLengths, line)
+		if length == 0 {
+			continue
+		}
+		segments = append(segments, semanticTokenSegment{
+			line:   line,
+			length: length,
+		})
+	}
+	if end.Character > 0 {
+		segments = append(segments, semanticTokenSegment{
+			line:   end.Line,
+			length: end.Character,
+		})
+	}
+	if len(segments) == 0 && fallbackLength > 0 {
+		return []semanticTokenSegment{fallbackSegment}
+	}
+	return segments
+}
+
+// semanticTokenLineLength returns the UTF-16 length of the given line.
+func semanticTokenLineLength(lineLengths []uint32, line uint32) uint32 {
+	if int(line) >= len(lineLengths) {
+		return 0
+	}
+	return lineLengths[line]
 }
