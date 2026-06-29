@@ -3,11 +3,33 @@ package server
 import (
 	"testing"
 
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testProjectFile creates a project containing a single test file.
+func testProjectFile(t *testing.T, code string) (*xgo.Project, *ast.File) {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	files := map[string]*xgo.File{
+		"test.gop": {Content: []byte(code)},
+	}
+	proj := xgo.NewProject(fset, files, xgo.FeatAll)
+
+	astPkg, err := proj.ASTPackage()
+	require.NoError(t, err)
+	require.NotNil(t, astPkg)
+
+	astFile, ok := astPkg.Files["test.gop"]
+	require.True(t, ok)
+	require.NotNil(t, astFile)
+
+	return proj, astFile
+}
 
 func TestUTF16Len(t *testing.T) {
 	for _, tt := range []struct {
@@ -219,6 +241,91 @@ func TestUTF16PosToUTF8Offset(t *testing.T) {
 	}
 }
 
+func TestPositionOffset(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		content  []byte
+		position Position
+		want     int
+	}{
+		{
+			name:     "LFEndOfLine",
+			content:  []byte("abc\ndef"),
+			position: Position{Line: 0, Character: 3},
+			want:     3,
+		},
+		{
+			name:     "CRLFEndOfLine",
+			content:  []byte("abc\r\ndef"),
+			position: Position{Line: 0, Character: 3},
+			want:     3,
+		},
+		{
+			name:     "CRLFBeyondEndOfLine",
+			content:  []byte("abc\r\ndef"),
+			position: Position{Line: 0, Character: 99},
+			want:     3,
+		},
+		{
+			name:     "CRLFSecondLine",
+			content:  []byte("abc\r\ndef"),
+			position: Position{Line: 1, Character: 1},
+			want:     6,
+		},
+		{
+			name:     "CRLFUTF16EndOfLine",
+			content:  []byte("世界\r\ndef"),
+			position: Position{Line: 0, Character: 2},
+			want:     6,
+		},
+		{
+			name:     "CRLFUTF16BeyondEndOfLine",
+			content:  []byte("世界\r\ndef"),
+			position: Position{Line: 0, Character: 99},
+			want:     6,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, PositionOffset(tt.content, tt.position))
+		})
+	}
+}
+
+func TestToPosition(t *testing.T) {
+	proj, astFile := testProjectFile(t, "package main\r\nvar x int")
+
+	for _, tt := range []struct {
+		name     string
+		position Position
+		want     token.Position
+	}{
+		{
+			name:     "CRLFBeyondEndOfLine",
+			position: Position{Line: 0, Character: 99},
+			want: token.Position{
+				Filename: "test.gop",
+				Offset:   12,
+				Line:     1,
+				Column:   13,
+			},
+		},
+		{
+			name:     "CRLFSecondLine",
+			position: Position{Line: 1, Character: 3},
+			want: token.Position{
+				Filename: "test.gop",
+				Offset:   17,
+				Line:     2,
+				Column:   4,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ToPosition(proj, astFile, tt.position))
+		})
+	}
+}
+
 func TestFromPosition(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
@@ -407,6 +514,18 @@ func TestFromPosition(t *testing.T) {
 			},
 		},
 		{
+			name: "ColumnExceedsLineLengthWithCRLF",
+			code: "package main\r\nvar x int",
+			position: token.Position{
+				Line:   1,
+				Column: 99, // Beyond the first line length
+			},
+			want: Position{
+				Line:      0,
+				Character: 12, // Should be clamped before the CRLF line ending
+			},
+		},
+		{
 			name: "ColumnExceedsLineLengthMultiLine",
 			code: "first\nsecond line\nthird",
 			position: token.Position{
@@ -492,20 +611,7 @@ func TestFromPosition(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			fset := token.NewFileSet()
-			files := map[string]*xgo.File{
-				"test.gop": {Content: []byte(tt.code)},
-			}
-			proj := xgo.NewProject(fset, files, xgo.FeatAll)
-
-			astPkg, err := proj.ASTPackage()
-			require.NoError(t, err)
-			require.NotNil(t, astPkg)
-
-			astFile, ok := astPkg.Files["test.gop"]
-			require.True(t, ok)
-			require.NotNil(t, astFile)
-
+			proj, astFile := testProjectFile(t, tt.code)
 			got := FromPosition(proj, astFile, tt.position)
 			assert.Equal(t, tt.want, got)
 		})

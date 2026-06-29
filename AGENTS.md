@@ -57,6 +57,12 @@ node. `github.com/goplus/xgo/token.Token` is a distinct XGo token type.
 Do not use aliases such as `xgoast`, `xgotoken`, or `xgotypes`. Apply the same convention in both production code and
 unit tests.
 
+## LSP position encoding
+
+LSP `Position`, `Range`, and semantic token coordinates must use UTF-16 code unit offsets unless the server explicitly
+negotiates another `PositionEncodingKind`. Do not expose Go byte offsets, `token.Position.Column`, or `len(string)` as
+LSP character counts. Use the existing UTF-16 conversion helpers in `internal/server/util.go`.
+
 # Generated data
 
 After changing dependencies in `go.mod`, regenerate `internal/pkgdata/pkgdata.zip` by running:
