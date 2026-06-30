@@ -34,9 +34,7 @@ package inspector
 // wrappers around a more generic traversal, but this was measured
 // and found to degrade performance significantly (30%).
 
-import (
-	"github.com/goplus/xgo/ast"
-)
+import "github.com/goplus/xgo/ast"
 
 // An Inspector provides methods for inspecting
 // (traversing) the syntax trees of a package.
@@ -70,16 +68,17 @@ func (in *Inspector) Preorder(types []ast.Node, f func(ast.Node)) {
 	// check, Preorder is almost twice as fast as Nodes. The two
 	// features seem to contribute similar slowdowns (~1.4x each).
 
-	mask := maskOf(types)
+	filter := newNodeTypeFilter(types)
+	all := len(types) == 0
 	for i := 0; i < len(in.events); {
 		ev := in.events[i]
 		if ev.index > i {
 			// push
-			if ev.typ&mask != 0 {
+			if all || filter.matches(ev.node, ev.typ) {
 				f(ev.node)
 			}
 			pop := ev.index
-			if in.events[pop].typ&mask == 0 {
+			if !all && in.events[pop].typ&filter.mask == 0 {
 				// Subtrees do not contain types: skip them and pop.
 				i = pop + 1
 				continue
@@ -100,19 +99,20 @@ func (in *Inspector) Preorder(types []ast.Node, f func(ast.Node)) {
 // events. The function f if is called only for nodes whose type
 // matches an element of the types slice.
 func (in *Inspector) Nodes(types []ast.Node, f func(n ast.Node, push bool) (proceed bool)) {
-	mask := maskOf(types)
+	filter := newNodeTypeFilter(types)
+	all := len(types) == 0
 	for i := 0; i < len(in.events); {
 		ev := in.events[i]
 		if ev.index > i {
 			// push
 			pop := ev.index
-			if ev.typ&mask != 0 {
+			if all || filter.matches(ev.node, ev.typ) {
 				if !f(ev.node, true) {
 					i = pop + 1 // jump to corresponding pop + 1
 					continue
 				}
 			}
-			if in.events[pop].typ&mask == 0 {
+			if !all && in.events[pop].typ&filter.mask == 0 {
 				// Subtrees do not contain types: skip them.
 				i = pop
 				continue
@@ -120,7 +120,7 @@ func (in *Inspector) Nodes(types []ast.Node, f func(n ast.Node, push bool) (proc
 		} else {
 			// pop
 			push := ev.index
-			if in.events[push].typ&mask != 0 {
+			if all || filter.matches(ev.node, in.events[push].typ) {
 				f(ev.node, false)
 			}
 		}
@@ -133,7 +133,8 @@ func (in *Inspector) Nodes(types []ast.Node, f func(n ast.Node, push bool) (proc
 // traversal stack. The stack's first element is the outermost node,
 // an *ast.File; its last is the innermost, n.
 func (in *Inspector) WithStack(types []ast.Node, f func(n ast.Node, push bool, stack []ast.Node) (proceed bool)) {
-	mask := maskOf(types)
+	filter := newNodeTypeFilter(types)
+	all := len(types) == 0
 	var stack []ast.Node
 	for i := 0; i < len(in.events); {
 		ev := in.events[i]
@@ -141,14 +142,14 @@ func (in *Inspector) WithStack(types []ast.Node, f func(n ast.Node, push bool, s
 			// push
 			pop := ev.index
 			stack = append(stack, ev.node)
-			if ev.typ&mask != 0 {
+			if all || filter.matches(ev.node, ev.typ) {
 				if !f(ev.node, true, stack) {
 					i = pop + 1
 					stack = stack[:len(stack)-1]
 					continue
 				}
 			}
-			if in.events[pop].typ&mask == 0 {
+			if !all && in.events[pop].typ&filter.mask == 0 {
 				// Subtrees does not contain types: skip them.
 				i = pop
 				continue
@@ -156,7 +157,7 @@ func (in *Inspector) WithStack(types []ast.Node, f func(n ast.Node, push bool, s
 		} else {
 			// pop
 			push := ev.index
-			if in.events[push].typ&mask != 0 {
+			if all || filter.matches(ev.node, in.events[push].typ) {
 				f(ev.node, false, stack)
 			}
 			stack = stack[:len(stack)-1]

@@ -246,6 +246,61 @@ onStart => {
 		})
 	})
 
+	t.Run("FuncDecorator", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func withCount(count int, fn func()) {}
+
+@withCount(3)
+func run() {}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		inputSlots, err := s.spxGetInputSlots([]SpxGetInputSlotsParams{{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}})
+		require.NoError(t, err)
+
+		slot := findInputSlot(inputSlots, int64(3), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, SpxInputTypeInteger, slot.Accept.Type)
+		assert.Equal(t, Range{
+			Start: Position{Line: 2, Character: 11},
+			End:   Position{Line: 2, Character: 12},
+		}, slot.Range)
+	})
+
+	t.Run("PartialXGoxFunction", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`import "example.com/typeargs"
+
+onStart => {
+	println typeargs.convert(string, 100)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
+
+		inputSlots, err := s.spxGetInputSlots([]SpxGetInputSlotsParams{{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}})
+		require.NoError(t, err)
+
+		slot := findInputSlot(inputSlots, int64(100), "", SpxInputTypeInteger, SpxInputKindInPlace)
+		require.NotNil(t, slot)
+		assert.Equal(t, Range{
+			Start: Position{Line: 3, Character: 34},
+			End:   Position{Line: 3, Character: 37},
+		}, slot.Range)
+		for _, slot := range inputSlots {
+			assert.NotEqual(t, Range{
+				Start: Position{Line: 3, Character: 26},
+				End:   Position{Line: 3, Character: 32},
+			}, slot.Range)
+		}
+	})
+
 	t.Run("InvalidSyntax", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -1848,8 +1903,14 @@ onStart => {
 	setCostume "costume1"
 }
 `),
-		"assets/index.json":                  []byte(`{}`),
-		"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
+		"DecoratedSprite.spx": []byte(`func withCostume(costume SpriteCostumeName, fn func()) {}
+
+@withCostume("costume1")
+func run() {}
+`),
+		"assets/index.json":                         []byte(`{}`),
+		"assets/sprites/MySprite/index.json":        []byte(`{"costumes":[{"name":"costume1"}]}`),
+		"assets/sprites/DecoratedSprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 	}
 	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
 
@@ -1899,6 +1960,27 @@ onStart => {
 		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
 		require.NotNil(t, spxSpriteResource)
 		assert.Equal(t, "MySprite", spxSpriteResource.Name)
+	})
+
+	t.Run("FuncDecorator", func(t *testing.T) {
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///DecoratedSprite.spx")
+		require.NoError(t, err)
+		require.False(t, result.hasErrorSeverityDiagnostic)
+		require.NotNil(t, astFile)
+
+		var costumeLit *ast.BasicLit
+		ast.Inspect(astFile, func(node ast.Node) bool {
+			if lit, ok := node.(*ast.BasicLit); ok && lit.Value == `"costume1"` {
+				costumeLit = lit
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, costumeLit)
+
+		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, costumeLit)
+		require.NotNil(t, spxSpriteResource)
+		assert.Equal(t, "DecoratedSprite", spxSpriteResource.Name)
 	})
 
 	t.Run("NonSpriteNode", func(t *testing.T) {

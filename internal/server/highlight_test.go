@@ -114,4 +114,50 @@ onStart => {
 			Kind: Read,
 		})
 	})
+
+	t.Run("FuncDecoratorArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func retry(times int, fn func()) {
+	fn()
+}
+
+@retry(times)
+func run(times int) {
+	println(times)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		highlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, highlights)
+		assert.Len(t, *highlights, 3)
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 4, Character: 7},
+				End:   Position{Line: 4, Character: 12},
+			},
+			Kind: Read,
+		})
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 5, Character: 9},
+				End:   Position{Line: 5, Character: 14},
+			},
+			Kind: Write,
+		})
+		assert.Contains(t, *highlights, DocumentHighlight{
+			Range: Range{
+				Start: Position{Line: 6, Character: 9},
+				End:   Position{Line: 6, Character: 14},
+			},
+			Kind: Read,
+		})
+	})
 }

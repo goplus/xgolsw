@@ -143,8 +143,7 @@ func (s *Server) formatSpxLambda(snapshot *xgo.Project, spxFile string) ([]byte,
 
 // formatSpxDecls formats an spx source file by reordering declarations.
 func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, error) {
-	var astFile *ast.File
-	astFile, _ = snapshot.ASTFile(spxFile)
+	astFile, _ := snapshot.ASTFile(spxFile)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -164,7 +163,7 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 		})
 	}
 
-	// Get the start position of the shadow entry if it exists and not empty.
+	// Get the start position of the shadow entry if it exists and is not empty.
 	var shadowEntryPos token.Pos
 	if astFile.ShadowEntry != nil &&
 		astFile.ShadowEntry.Pos().IsValid() &&
@@ -182,7 +181,7 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 		typeDecls         []ast.Decl
 		methodDecls       []ast.Decl
 		constDecls        []ast.Decl
-		varBlocks         []*ast.GenDecl
+		varDecl           *ast.GenDecl
 		funcDecls         []ast.Decl
 		otherDecls        []ast.Decl
 		processedComments = make(map[*ast.CommentGroup]struct{})
@@ -204,7 +203,10 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 			case token.CONST:
 				constDecls = append(constDecls, decl)
 			case token.VAR:
-				varBlocks = append(varBlocks, decl)
+				if varDecl != nil {
+					return nil, fmt.Errorf("multiple top-level var declarations in classfile")
+				}
+				varDecl = decl
 			default:
 				otherDecls = append(otherDecls, decl)
 			}
@@ -245,39 +247,14 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 		}
 	}
 
-	// Split var blocks into two groups: with initialization and without initialization.
-	var (
-		varBlocksWithInit    []*ast.GenDecl // Blocks with initialization
-		varBlocksWithoutInit []*ast.GenDecl // Blocks without initialization
-	)
-
-	for _, decl := range varBlocks {
-		// Check if the variable declaration has initialization expressions.
-		hasInit := slices.ContainsFunc(decl.Specs, func(spec ast.Spec) bool {
-			vs, ok := spec.(*ast.ValueSpec)
-			return ok && len(vs.Values) > 0
-		})
-
-		if hasInit {
-			varBlocksWithInit = append(varBlocksWithInit, decl)
-		} else {
-			varBlocksWithoutInit = append(varBlocksWithoutInit, decl)
-		}
-	}
-
-	// Reorder declarations: imports -> types -> consts -> vars (without init) -> vars (with init) -> funcs -> others.
+	// Reorder declarations: imports -> types -> methods -> consts -> vars -> funcs -> others.
 	sortedDecls := make([]ast.Decl, 0, len(astFile.Decls))
 	sortedDecls = append(sortedDecls, importDecls...)
 	sortedDecls = append(sortedDecls, typeDecls...)
 	sortedDecls = append(sortedDecls, methodDecls...)
 	sortedDecls = append(sortedDecls, constDecls...)
-	if len(varBlocksWithoutInit) > 0 {
-		// Add the first var block without initialization to reserve the correct position in declaration order.
-		sortedDecls = append(sortedDecls, varBlocksWithoutInit[0])
-	}
-	if len(varBlocksWithInit) > 0 {
-		// Add the first var block with initialization to reserve the correct position in declaration order.
-		sortedDecls = append(sortedDecls, varBlocksWithInit[0])
+	if varDecl != nil {
+		sortedDecls = append(sortedDecls, varDecl)
 	}
 	sortedDecls = append(sortedDecls, funcDecls...)
 	sortedDecls = append(sortedDecls, otherDecls...)
@@ -314,102 +291,70 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 	}
 
 	// Handle declarations and floating comments in order of their position.
-	processDecl := func(decl ast.Decl) error {
+	processDecl := func(decl ast.Decl) {
 		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.VAR {
-			currentVarBlocks := varBlocksWithoutInit
-			if len(currentVarBlocks) == 0 || currentVarBlocks[0] != genDecl {
-				currentVarBlocks = varBlocksWithInit
+			ensureTrailingNewlines(2)
+
+			var doc []byte
+			if genDecl.Doc != nil && len(genDecl.Doc.List) > 0 {
+				docStart := fset.Position(genDecl.Doc.Pos()).Offset
+				docEnd := fset.Position(genDecl.Doc.End()).Offset
+				doc = astFile.Code[docStart:docEnd]
 			}
 
-			// Process only the same type of var blocks (with or without initialization).
-			for i, varBlock := range currentVarBlocks {
-				ensureTrailingNewlines(2)
+			if doc != nil && genDecl.Lparen.IsValid() {
+				formattedBuf.Write(doc)
+				formattedBuf.WriteByte('\n')
+				doc = nil
+			}
 
-				var doc []byte
-				if varBlock.Doc != nil && len(varBlock.Doc.List) > 0 {
-					docStart := fset.Position(varBlock.Doc.Pos()).Offset
-					docEnd := fset.Position(varBlock.Doc.End()).Offset
-					doc = astFile.Code[docStart:docEnd]
-				}
+			formattedBuf.WriteString("var (")
+			if doc != nil {
+				formattedBuf.WriteByte('\n')
+				formattedBuf.Write(doc)
+				formattedBuf.WriteByte('\n')
+			}
 
-				if doc != nil && varBlock.Lparen.IsValid() && (i > 0 || len(currentVarBlocks) == 1) {
-					formattedBuf.Write(doc)
+			var bodyStartPos token.Pos
+			if genDecl.Lparen.IsValid() {
+				if cg := findInlineComments(genDecl.Lparen); cg != nil {
+					cgStart := fset.Position(cg.Pos()).Offset
+					cgEnd := fset.Position(cg.End()).Offset
+					formattedBuf.Write(astFile.Code[cgStart:cgEnd])
 					formattedBuf.WriteByte('\n')
-					doc = nil
-				}
-
-				if i == 0 {
-					formattedBuf.WriteString("var (")
-				}
-
-				if doc != nil {
-					if !varBlock.Lparen.IsValid() || len(currentVarBlocks) > 1 {
-						formattedBuf.WriteByte('\n')
-					}
-					formattedBuf.Write(doc)
-					formattedBuf.WriteByte('\n')
-				}
-
-				var bodyStartPos token.Pos
-				if varBlock.Lparen.IsValid() {
-					if cg := findInlineComments(varBlock.Lparen); cg != nil {
-						cgStart := fset.Position(cg.Pos()).Offset
-						cgEnd := fset.Position(cg.End()).Offset
-						formattedBuf.Write(astFile.Code[cgStart:cgEnd])
-						formattedBuf.WriteByte('\n')
-						if i > 0 {
-							formattedBuf.WriteByte('\n')
-						}
-
-						bodyStartPos = cg.End() + 1
-					} else {
-						bodyStartPos = varBlock.Lparen + 1
-					}
+					bodyStartPos = cg.End() + 1
 				} else {
-					bodyStartPos = varBlock.Pos() + token.Pos(len(varBlock.Tok.String())) + 1
+					bodyStartPos = genDecl.Lparen + 1
 				}
-				var bodyEndPos token.Pos
-				if varBlock.Rparen.IsValid() {
-					bodyEndPos = varBlock.Rparen - 1
-				} else {
-					bodyEndPos = varBlock.End()
-					if cg := findInlineComments(bodyEndPos); cg != nil {
-						bodyEndPos = cg.End()
-					}
+			} else {
+				bodyStartPos = genDecl.Pos() + token.Pos(len(genDecl.Tok.String())) + 1
+			}
+			var bodyEndPos token.Pos
+			if genDecl.Rparen.IsValid() {
+				bodyEndPos = genDecl.Rparen - 1
+			} else {
+				bodyEndPos = genDecl.End()
+				if cg := findInlineComments(bodyEndPos); cg != nil {
+					bodyEndPos = cg.End()
 				}
-				bodyStart := fset.Position(bodyStartPos).Offset
-				bodyEnd := fset.Position(bodyEndPos).Offset
+			}
+			bodyStart := fset.Position(bodyStartPos).Offset
+			bodyEnd := fset.Position(bodyEndPos).Offset
+			if bodyStart < bodyEnd {
 				formattedBuf.Write(astFile.Code[bodyStart:bodyEnd])
-				formattedBuf.WriteByte('\n')
-
-				var trailingComments []byte
-				if varBlock.Rparen.IsValid() {
-					if cg := findInlineComments(varBlock.Rparen); cg != nil {
-						cgStart := fset.Position(cg.Pos()).Offset
-						cgEnd := fset.Position(cg.End()).Offset
-						trailingComments = astFile.Code[cgStart:cgEnd]
-					}
-				}
-
-				if i == len(currentVarBlocks)-1 {
-					if i > 0 {
-						formattedBuf.WriteString("\n\t")
-						formattedBuf.Write(trailingComments)
-						formattedBuf.WriteByte('\n')
-						trailingComments = nil
-					}
-					formattedBuf.WriteString(")")
-					if trailingComments != nil {
-						formattedBuf.WriteByte(' ')
-						formattedBuf.Write(trailingComments)
-					}
-				} else if trailingComments != nil {
-					formattedBuf.WriteByte('\n')
-					formattedBuf.Write(trailingComments)
-				}
-				formattedBuf.WriteByte('\n')
 			}
+			formattedBuf.WriteByte('\n')
 
+			formattedBuf.WriteString(")")
+			if genDecl.Rparen.IsValid() {
+				if cg := findInlineComments(genDecl.Rparen); cg != nil {
+					cgStart := fset.Position(cg.Pos()).Offset
+					cgEnd := fset.Position(cg.End()).Offset
+					formattedBuf.WriteByte(' ')
+					formattedBuf.Write(astFile.Code[cgStart:cgEnd])
+				}
+			}
+			formattedBuf.WriteByte('\n')
 		} else {
 			startPos := decl.Pos()
 			if doc := getDeclDoc(decl); doc != nil {
@@ -427,7 +372,6 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 			formattedBuf.Write(astFile.Code[start:end])
 			ensureTrailingNewlines(1)
 		}
-		return nil
 	}
 
 	// Process all comments and declarations before shadow entry.
@@ -459,9 +403,7 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 				break
 			}
 
-			if err := processDecl(decl); err != nil {
-				return nil, err
-			}
+			processDecl(decl)
 		}
 
 		// Add the floating comment.
@@ -474,12 +416,10 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 
 	// Process remaining declarations before shadow entry.
 	for ; declIndex < len(sortedDecls); declIndex++ {
-		if err := processDecl(sortedDecls[declIndex]); err != nil {
-			return nil, err
-		}
+		processDecl(sortedDecls[declIndex])
 	}
 
-	// Add the shadow entry if it exists and not empty.
+	// Add the shadow entry if it exists and is not empty.
 	if shadowEntryPos.IsValid() {
 		ensureTrailingNewlines(2)
 		start := fset.Position(shadowEntryPos).Offset
@@ -526,8 +466,8 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 		return
 	}
 	ast.Inspect(astFile, func(n ast.Node) bool {
-		callExpr, ok := n.(*ast.CallExpr)
-		if !ok {
+		callExpr := callExprFromNode(n)
+		if callExpr == nil {
 			return true
 		}
 		funIdent := callExprFunIdent(callExpr)
@@ -683,8 +623,10 @@ func callKwargParamIndex(sig *gotypes.Signature, params *gotypes.Tuple, argCount
 // overloadMatchesCallExpr reports whether overloadType is still viable for
 // callExpr after checking every argument except the one at skipArgIndex.
 func overloadMatchesCallExpr(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, skipArgIndex int) bool {
-	sig := overloadType.Signature()
-	params := sig.Params()
+	sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
+	if sig == nil || params == nil {
+		return false
+	}
 	kwargParamIndex, hasKwargParam := 0, false
 	if len(callExpr.Kwargs) > 0 {
 		var ok bool
@@ -744,6 +686,9 @@ func formatArgMatchesType(typeInfo *types.Info, argExpr ast.Expr, expectedType g
 	if actualType == nil {
 		return true
 	}
+	if _, ok := expectedType.(*gotypes.TypeParam); ok {
+		return xgoutil.IsTypesCompatible(actualType, expectedType)
+	}
 	return gotypes.AssignableTo(actualType, expectedType)
 }
 
@@ -771,8 +716,10 @@ func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overl
 // overloadResolvedCallExprArgType returns the expected argument type for
 // resolvedArg when the same call is matched against overloadType.
 func overloadResolvedCallExprArgType(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, resolvedArg xgoutil.ResolvedCallExprArg) gotypes.Type {
-	overloadSig := overloadType.Signature()
-	params := overloadSig.Params()
+	overloadSig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
+	if overloadSig == nil || params == nil {
+		return nil
+	}
 	if resolvedArg.Kind == xgoutil.ResolvedCallExprArgKeyword {
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, overloadSig, params, len(callExpr.Args))
 		if kwarg == nil {

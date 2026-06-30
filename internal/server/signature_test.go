@@ -62,6 +62,59 @@ onStart => {
 		}, turnHelp.Signatures[0])
 	})
 
+	t.Run("FuncDecorator", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func retry(times int, fn func()) {
+	fn()
+}
+
+@retry(2)
+func run() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 8},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
+		assert.Equal(t, "retry(times int)", help.Signatures[0].Label)
+	})
+
+	t.Run("FuncDecoratorReturningError", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func log(fn func() error) {
+	_ = fn()
+}
+
+@log
+func run() error {
+	return nil
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 4, Character: 3},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, "log()", help.Signatures[0].Label)
+		assert.Empty(t, help.Signatures[0].Parameters)
+	})
+
 	t.Run("SingleResult", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -141,6 +194,42 @@ onStart => {
 				},
 				{
 					Label: "name WidgetName",
+				},
+			},
+		}, help.Signatures[0])
+	})
+
+	t.Run("PartialXGoxFunction", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`import "example.com/typeargs"
+
+onStart => {
+	println typeargs.convert(string, 100)
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 3, Character: 36},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(1), help.ActiveParameter)
+		assert.Equal(t, SignatureInformation{
+			Label: "convert(To Type, src From) To",
+			Parameters: []ParameterInformation{
+				{
+					Label: "To Type",
+				},
+				{
+					Label: "src From",
 				},
 			},
 		}, help.Signatures[0])

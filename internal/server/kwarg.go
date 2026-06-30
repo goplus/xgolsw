@@ -116,8 +116,10 @@ func resolvedCallExprArgs(proj *xgo.Project, typeInfo *types.Info, callExpr *ast
 // matching overload.
 func resolvedOverloadCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overload *gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
 	return func(yield func(xgoutil.ResolvedCallExprArg) bool) {
-		sig := overload.Signature()
-		params := sig.Params()
+		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
+		if sig == nil || params == nil {
+			return
+		}
 		var kwarg *xgoutil.ResolvedCallExprKwarg
 		if len(callExpr.Kwargs) > 0 {
 			kwarg = resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
@@ -200,8 +202,10 @@ func resolveCallExprKwargsAtArgCount(proj *xgo.Project, typeInfo *types.Info, ca
 
 	var kwargs []*xgoutil.ResolvedCallExprKwarg
 	for _, overload := range overloads {
-		sig := overload.Signature()
-		params := sig.Params()
+		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
+		if sig == nil || params == nil {
+			continue
+		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, argCount)
 		if kwarg == nil {
 			continue
@@ -272,8 +276,10 @@ func lookupCallExprKwargTargets(proj *xgo.Project, typeInfo *types.Info, callExp
 func lookupOverloadCallExprKwargTargets(proj *xgo.Project, typeInfo *types.Info, callExpr *ast.CallExpr, name string) []*xgoutil.ResolvedCallExprKwargTarget {
 	var targets []*xgoutil.ResolvedCallExprKwargTarget
 	for _, overload := range callExprFuncOverloads(proj, typeInfo, callExpr) {
-		sig := overload.Signature()
-		params := sig.Params()
+		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
+		if sig == nil || params == nil {
+			continue
+		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
 		if kwarg == nil {
 			continue

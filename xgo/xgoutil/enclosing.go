@@ -7,6 +7,7 @@ package xgoutil
 // This file defines utilities for working with source positions.
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/goplus/xgo/ast"
@@ -145,9 +146,7 @@ func PathEnclosingInterval(root *ast.File, start, end token.Pos) (path []ast.Nod
 		exact = visit(root)
 
 		// Reverse the path:
-		for i, l := 0, len(path); i < l/2; i++ {
-			path[i], path[l-1-i] = path[l-1-i], path[i]
-		}
+		slices.Reverse(path)
 	} else {
 		// Selection lies within whitespace preceding the
 		// first (or following the last) declaration in the file.
@@ -308,6 +307,17 @@ func childrenOf(n ast.Node) []ast.Node {
 		children = append(children,
 			tok(n.For, len("for")))
 
+	case *ast.FuncDecorator:
+		children = append(children, tok(n.At, len("@")))
+		if n.Lparen.IsValid() {
+			children = append(children,
+				tok(n.Lparen, len("(")),
+				tok(n.Rparen, len(")")))
+		}
+		if n.Ellipsis.IsValid() {
+			children = append(children, tok(n.Ellipsis, len("...")))
+		}
+
 	case *ast.FuncDecl:
 		// TODO(adonovan): FuncDecl.Comment?
 
@@ -324,6 +334,9 @@ func childrenOf(n ast.Node) []ast.Node {
 				children = append(children, v)
 			}
 			break
+		}
+		for _, decorator := range n.Decorators {
+			children = append(children, decorator)
 		}
 		children = append(children, tok(n.Type.Func, len("func")))
 		if n.Recv != nil {
@@ -405,6 +418,14 @@ func childrenOf(n ast.Node) []ast.Node {
 	case *ast.MapType:
 		children = append(children,
 			tok(n.Map, len("map")))
+
+	case *ast.MatrixLit:
+		children = append(children,
+			tok(n.Lbrack, len("[")),
+			tok(n.Rbrack, len("]")))
+
+	case *ast.ElemEllipsis:
+		children = append(children, tok(n.Ellipsis, len("...")))
 
 	case *ast.ParenExpr:
 		children = append(children,

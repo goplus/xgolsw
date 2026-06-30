@@ -77,6 +77,58 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 		assert.Empty(t, fullReport.Items)
 	})
 
+	t.Run("EmbeddedWorkClassFieldInitializer", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(``),
+			"Bar.spx":  []byte(``),
+			"Foo.spx": []byte(`var (
+	others = [Bar]
+)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///Foo.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
+		assert.Empty(t, fullReport.Items)
+	})
+
+	t.Run("FuncDecoratorResourceArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func withSound(sound SoundName, fn func()) {
+	fn()
+}
+
+@withSound("Missing")
+func run() {
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
+		assert.Contains(t, fullReport.Items, Diagnostic{
+			Severity: SeverityError,
+			Message:  `sound resource "Missing" not found`,
+			Range: Range{
+				Start: Position{Line: 4, Character: 11},
+				End:   Position{Line: 4, Character: 20},
+			},
+		})
+	})
+
 	t.Run("ParseError", func(t *testing.T) {
 		fileMap := newTestFileMap()
 		fileMap["main.spx"] = []byte(`

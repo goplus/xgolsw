@@ -1,12 +1,32 @@
 package server
 
 import (
+	gotypes "go/types"
 	"slices"
 	"testing"
 
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// semanticTokenPositionImporter returns an imported variable at a chosen position.
+type semanticTokenPositionImporter struct {
+	fallback gotypes.Importer
+	pos      token.Pos
+}
+
+// Import returns a package variable at a position from a separate file set.
+func (i semanticTokenPositionImporter) Import(path string) (*gotypes.Package, error) {
+	if path != "example.com/dep" {
+		return i.fallback.Import(path)
+	}
+	pkg := gotypes.NewPackage(path, "dep")
+	pkg.Scope().Insert(gotypes.NewVar(i.pos, pkg, "Value", gotypes.Typ[gotypes.Int]))
+	pkg.MarkComplete()
+	return pkg, nil
+}
 
 func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
@@ -175,6 +195,77 @@ done` + "`" + `
 			length:    4,
 			tokenType: StringType,
 		})
+	})
+
+	t.Run("FuncDecorator", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func retry(fn func()) {
+	fn()
+}
+
+@retry
+func run() {}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      4,
+			character: 0,
+			length:    1,
+			tokenType: OperatorType,
+		})
+	})
+
+	t.Run("ImportedPositionCollision", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`import "example.com/dep"
+
+var (
+	x = dep.Value
+)
+`),
+		}
+		proj := newProjectWithoutModTime(m)
+		astPkg, err := proj.ASTPackage()
+		require.NoError(t, err)
+
+		var referencePos token.Pos
+		ast.Inspect(astPkg.Files["main.spx"], func(node ast.Node) bool {
+			selector, ok := node.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "Value" {
+				referencePos = selector.Sel.Pos()
+			}
+			return true
+		})
+		require.True(t, referencePos.IsValid())
+
+		foreignFset := token.NewFileSet()
+		foreignFile := foreignFset.AddFile("dep.go", -1, int(referencePos))
+		foreignPos := foreignFile.Pos(int(referencePos) - 1)
+		require.Equal(t, referencePos, foreignPos)
+
+		s := New(proj, nil, fileMapGetter(m), &MockScheduler{})
+		s.workspaceRootFS.Importer = semanticTokenPositionImporter{
+			fallback: s.workspaceRootFS.Importer,
+			pos:      foreignPos,
+		}
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		want := decodedSemanticToken{line: 3, character: 9, length: 5, tokenType: VariableType}
+		assert.Contains(t, decodeSemanticTokens(tokens.Data), want)
+		assertSemanticTokenModifierMask(t, tokens.Data, want, 0)
 	})
 }
 
@@ -353,6 +444,34 @@ func decodeSemanticTokens(data []uint32) []decodedSemanticToken {
 		})
 	}
 	return tokens
+}
+
+func assertSemanticTokenModifierMask(
+	t *testing.T,
+	data []uint32,
+	want decodedSemanticToken,
+	wantMask uint32,
+) {
+	t.Helper()
+
+	var line, character uint32
+	for tokenData := range slices.Chunk(data, 5) {
+		line += tokenData[0]
+		if tokenData[0] == 0 {
+			character += tokenData[1]
+		} else {
+			character = tokenData[1]
+		}
+		if line != want.line ||
+			character != want.character ||
+			tokenData[2] != want.length ||
+			semanticTokenTypesLegend[tokenData[3]] != want.tokenType {
+			continue
+		}
+		assert.Equal(t, wantMask, tokenData[4])
+		return
+	}
+	assert.Failf(t, "semantic token not found", "%#v", want)
 }
 
 func assertNoOverlappingSemanticToken(t *testing.T, tokens []decodedSemanticToken, forbidden decodedSemanticToken) {

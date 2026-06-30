@@ -55,8 +55,8 @@ func collectInlayHints(result *compileResult, astFile *ast.File, rangeStart, ran
 				hints := collectInlayHintsFromCallExpr(result, callExpr)
 				inlayHints = append(inlayHints, hints...)
 			}
-		case *ast.CallExpr:
-			hints := collectInlayHintsFromCallExpr(result, node)
+		case *ast.CallExpr, *ast.FuncDecorator:
+			hints := collectInlayHintsFromCallExpr(result, callExprFromNode(node))
 			inlayHints = append(inlayHints, hints...)
 		}
 		return true

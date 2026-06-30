@@ -44,6 +44,9 @@ func IsTypesCompatible(got, want gotypes.Type) bool {
 	}
 
 	switch want := want.(type) {
+	case *gotypes.TypeParam:
+		constraint := want.Constraint().Underlying().(*gotypes.Interface)
+		return gotypes.Satisfies(got, constraint)
 	case *gotypes.Interface:
 		return gotypes.Implements(got, want)
 	case *gotypes.Pointer:

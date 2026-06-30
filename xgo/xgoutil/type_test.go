@@ -125,6 +125,19 @@ func TestIsTypesCompatible(t *testing.T) {
 		assert.False(t, IsTypesCompatible(gotypes.Typ[gotypes.Int], stringerIface))
 	})
 
+	t.Run("TypeParameters", func(t *testing.T) {
+		constraint := gotypes.NewInterfaceType(nil, []gotypes.Type{
+			gotypes.NewUnion([]*gotypes.Term{gotypes.NewTerm(true, gotypes.Typ[gotypes.String])}),
+		})
+		constraint.Complete()
+		typeParam := gotypes.NewTypeParam(gotypes.NewTypeName(0, nil, "T", nil), constraint)
+
+		assert.True(t, IsTypesCompatible(gotypes.Typ[gotypes.String], constraint))
+		assert.False(t, IsTypesCompatible(gotypes.Typ[gotypes.Int], constraint))
+		assert.True(t, IsTypesCompatible(gotypes.Typ[gotypes.String], typeParam))
+		assert.False(t, IsTypesCompatible(gotypes.Typ[gotypes.Int], typeParam))
+	})
+
 	t.Run("PointerTypes", func(t *testing.T) {
 		intPtr := gotypes.NewPointer(gotypes.Typ[gotypes.Int])
 		stringPtr := gotypes.NewPointer(gotypes.Typ[gotypes.String])
