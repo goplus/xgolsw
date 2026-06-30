@@ -50,15 +50,11 @@ func ASTSpecs(astPkg *ast.Package, tok token.Token) iter.Seq[ast.Spec] {
 
 // IsDefinedInClassFieldsDecl reports whether the given object is defined in the
 // class fields declaration of an AST file.
-func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Package, obj gotypes.Object) bool {
-	if fset == nil || typeInfo == nil || astPkg == nil || obj == nil {
+func IsDefinedInClassFieldsDecl(fset *token.FileSet, astPkg *ast.Package, obj gotypes.Object) bool {
+	if fset == nil || astPkg == nil || obj == nil || !obj.Pos().IsValid() {
 		return false
 	}
-	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil {
-		return false
-	}
-	astFile := NodeASTFile(fset, astPkg, defIdent)
+	astFile := PosASTFile(fset, astPkg, obj.Pos())
 	if astFile == nil {
 		return false
 	}
@@ -66,7 +62,7 @@ func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPk
 	if decl == nil {
 		return false
 	}
-	return defIdent.Pos() >= decl.Pos() && defIdent.End() <= decl.End()
+	return obj.Pos() >= decl.Pos() && obj.Pos() < decl.End()
 }
 
 // PathEnclosingIntervalNodes returns an iterator over nodes in the AST path

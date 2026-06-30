@@ -57,7 +57,9 @@ const (
 	nKeyValueExpr
 	nLabeledStmt
 	nMapType
+	nMatrixLit
 	nNumberUnitLit
+	nElemEllipsis
 	nPackage
 	nParenExpr
 	nRangeStmt
@@ -100,7 +102,7 @@ func typeOf(n ast.Node) uint64 {
 		return 1 << nIdent
 	}
 
-	// These cases include all nodes encountered by ast.Inspect.
+	// These cases include nodes that need precise type filtering.
 	switch n.(type) {
 	case *ast.ArrayType:
 		return 1 << nArrayType
@@ -182,8 +184,12 @@ func typeOf(n ast.Node) uint64 {
 		return 1 << nLabeledStmt
 	case *ast.MapType:
 		return 1 << nMapType
+	case *ast.MatrixLit:
+		return 1 << nMatrixLit
 	case *ast.NumberUnitLit:
 		return 1 << nNumberUnitLit
+	case *ast.ElemEllipsis:
+		return 1 << nElemEllipsis
 	case *ast.Package:
 		return 1 << nPackage
 	case *ast.ParenExpr:

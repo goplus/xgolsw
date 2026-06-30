@@ -116,7 +116,7 @@ type completionContext struct {
 	expectedTypes      []gotypes.Type
 	expectedStructType *gotypes.Struct
 	compositeLitType   *gotypes.Named
-	assignTargets      []*ast.Ident
+	assignTargets      []gotypes.Object
 	declValueSpec      *ast.ValueSpec
 	switchTag          ast.Expr
 	returnIndex        int
@@ -194,8 +194,8 @@ func (ctx *completionContext) analyze() {
 			// Skip FuncLit, as we want general completion inside function literals
 			// to allow access to all variables and identifiers.
 			continue
-		case *ast.SliceLit:
-			// Skip SliceLit, as XGo-style slice literals should allow general completion
+		case *ast.SliceLit, *ast.MatrixLit:
+			// Skip XGo collection literals, as they should allow general completion
 			// to access all variables and identifiers.
 			continue
 		case *ast.CompositeLit:
@@ -287,9 +287,8 @@ func (ctx *completionContext) analyze() {
 						ctx.expectedTypes = []gotypes.Type{typ}
 					}
 					if ident, ok := node.Lhs[j].(*ast.Ident); ok {
-						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
-						if defIdent != nil {
-							ctx.assignTargets = append(ctx.assignTargets, defIdent)
+						if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
+							ctx.assignTargets = append(ctx.assignTargets, obj)
 						}
 					}
 
@@ -331,13 +330,20 @@ func (ctx *completionContext) analyze() {
 			for j, result := range node.Results {
 				// Check for CompositeLit directly or within UnaryExpr (e.g., &Struct{}).
 				var comp *ast.CompositeLit
-				var sliceLit *ast.SliceLit
+				var xgoCollectionLit ast.Expr
 				switch expr := result.(type) {
 				case *ast.CompositeLit:
 					comp = expr
-				case *ast.SliceLit:
-					// Handle XGo-style slice literal [...].
-					sliceLit = expr
+				case *ast.SliceLit, *ast.MatrixLit:
+					// Handle XGo collection literals.
+					xgoCollectionLit = expr
+				case *ast.BadExpr:
+					if expr.Pos() <= ctx.pos && ctx.pos <= expr.End() {
+						ctx.itemSet.setDisallowVoidFuncs(true)
+						shouldSetReturnContext = false
+						ctx.valueExpression = true
+					}
+					continue
 				case *ast.UnaryExpr:
 					// Handle &Struct{...} case.
 					if c, ok := expr.X.(*ast.CompositeLit); ok {
@@ -345,9 +351,9 @@ func (ctx *completionContext) analyze() {
 					}
 				}
 
-				// Handle XGo-style slice literal.
-				if sliceLit != nil && sliceLit.Pos() <= ctx.pos && ctx.pos <= sliceLit.End() {
-					// For XGo-style slice literals, allow general completions.
+				// Handle XGo collection literals.
+				if xgoCollectionLit != nil && xgoCollectionLitAtPos(xgoCollectionLit, ctx.pos) {
+					// For XGo collection literals, allow general completions.
 					ctx.itemSet.setDisallowVoidFuncs(true)
 					shouldSetReturnContext = false
 					ctx.valueExpression = true
@@ -445,7 +451,11 @@ func (ctx *completionContext) analyze() {
 					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); xgoutil.IsValidType(typ) {
 						ctx.expectedTypes = []gotypes.Type{typ}
 					}
-					ctx.assignTargets = valueSpec.Names
+					for _, name := range valueSpec.Names {
+						if obj := ctx.typeInfo.ObjectOf(name); obj != nil {
+							ctx.assignTargets = append(ctx.assignTargets, obj)
+						}
+					}
 					ctx.declValueSpec = valueSpec
 					break
 				}
@@ -481,8 +491,8 @@ func (ctx *completionContext) analyze() {
 // callArgKeepsCallContext reports whether arg should keep completion in the
 // enclosing call context.
 func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
-	// XGo-style slice literals should use general completions.
-	if sl, ok := arg.(*ast.SliceLit); ok && sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
+	// XGo collection literals should use general completions.
+	if xgoCollectionLitAtPos(arg, ctx.pos) {
 		return false
 	}
 
@@ -499,6 +509,17 @@ func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
 		}
 	}
 	return true
+}
+
+// xgoCollectionLitAtPos reports whether expr is an XGo collection literal
+// covering pos.
+func xgoCollectionLitAtPos(expr ast.Expr, pos token.Pos) bool {
+	switch expr := expr.(type) {
+	case *ast.SliceLit, *ast.MatrixLit:
+		return expr.Pos() <= pos && pos <= expr.End()
+	default:
+		return false
+	}
 }
 
 // isInDisabledIdentifierContext reports whether the completion position is
@@ -1022,7 +1043,7 @@ func (ctx *completionContext) collectGeneral() error {
 				continue
 			}
 			if !ctx.valueExpression {
-				if defIdent := ctx.typeInfo.ObjToDef[obj]; defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+				if slices.Contains(ctx.assignTargets, obj) {
 					continue
 				}
 			}
