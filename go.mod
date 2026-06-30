@@ -5,11 +5,11 @@ go 1.25.0
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
-	github.com/goplus/gogen v1.23.0-pre.5
-	github.com/goplus/mod v0.20.2
+	github.com/goplus/gogen v1.23.4-0.20260623084408-4e0857017abd
+	github.com/goplus/mod v0.21.1
 	github.com/goplus/spx/v2 v2.0.4
-	github.com/goplus/xgo v1.7.2
-	github.com/qiniu/x v1.17.0
+	github.com/goplus/xgo v1.7.4-0.20260630062547-164ff1edf2e0
+	github.com/qiniu/x v1.18.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/mod v0.36.0
 	golang.org/x/sync v0.20.0
@@ -26,3 +26,5 @@ require (
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/goplus/xgo => github.com/aofei/fork.goplus.xgo v0.0.0-20260630094847-76bcb8556897

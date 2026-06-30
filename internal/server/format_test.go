@@ -121,38 +121,26 @@ var (
 		})
 	})
 
-	t.Run("WithFormatSpx", func(t *testing.T) {
+	t.Run("ClassFieldsDeclarationWithComments", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
-// The first var block.
+// Class fields.
 var (
-	// The aircraft.
-	MyAircraft MyAircraft // The only aircraft.
-) // Trailing comment for the first var block.
+    // The aircraft.
+    MyAircraft MyAircraft // The only aircraft.
 
-var Bullet Bullet // The first bullet.
+    Bullet Bullet // The first bullet.
+    // The second bullet.
+    Bullet2 Bullet
+    // The third bullet.
+    Bullet3 Bullet
+    Bullet4 Bullet // The fourth bullet.
+    // The fifth bullet.
+    Bullet5 Bullet
 
-// The second bullet.
-var Bullet2 Bullet
-
-var ( // Weirdly placed comment for the fourth var block.
-	// The third bullet.
-	Bullet3 Bullet
+    Bullet6 Bullet // The sixth bullet.
 )
-
-// The fifth var block.
-var (
-	Bullet4 Bullet // The fourth bullet.
-) // Trailing comment for the fifth var block.
-
-// The last var block.
-var (
-	// The fifth bullet.
-	Bullet5 Bullet
-
-	Bullet6 Bullet // The sixth bullet.
-) // Trailing comment for the last var block.
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -163,60 +151,36 @@ var (
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 30, Character: 0},
-			},
-			NewText: `// An spx game.
+		assert.Equal(t, `// An spx game.
 
+// Class fields.
 var (
-	// The first var block.
-
 	// The aircraft.
 	MyAircraft MyAircraft // The only aircraft.
-
-	// Trailing comment for the first var block.
 
 	Bullet Bullet // The first bullet.
-
 	// The second bullet.
 	Bullet2 Bullet
-
-	// Weirdly placed comment for the fourth var block.
-
 	// The third bullet.
 	Bullet3 Bullet
-
-	// The fifth var block.
-
 	Bullet4 Bullet // The fourth bullet.
-
-	// Trailing comment for the fifth var block.
-
-	// The last var block.
-
 	// The fifth bullet.
 	Bullet5 Bullet
 
 	Bullet6 Bullet // The sixth bullet.
-
-	// Trailing comment for the last var block.
 )
-`,
-		})
+`, edits[0].NewText)
 	})
 
-	t.Run("VarBlockWithoutDoc", func(t *testing.T) {
+	t.Run("ClassFieldsDeclarationWithoutDoc", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
-var (
-	// The aircraft.
-	MyAircraft MyAircraft // The only aircraft.
-)
-
-var Bullet Bullet
+	var (
+		// The aircraft.
+		MyAircraft MyAircraft // The only aircraft.
+		Bullet Bullet
+	)
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -227,21 +191,14 @@ var Bullet Bullet
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 8, Character: 0},
-			},
-			NewText: `// An spx game.
+		assert.Equal(t, `// An spx game.
 
 var (
 	// The aircraft.
 	MyAircraft MyAircraft // The only aircraft.
-
-	Bullet Bullet
+	Bullet     Bullet
 )
-`,
-		})
+`, edits[0].NewText)
 	})
 
 	t.Run("NoTypeSpriteVarDeclaration", func(t *testing.T) {
@@ -630,16 +587,14 @@ func Bar() {}
 		})
 	})
 
-	t.Run("VarBlocksWithAndWithoutInit", func(t *testing.T) {
+	t.Run("ClassFieldsDeclarationWithAndWithoutInit", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var (
 	dir int
 	snakeBodyParts []Sprite
-)
 
-var (
 	moveStep int = 20
 )
 
@@ -653,45 +608,27 @@ var (
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 11, Character: 0},
-			},
-			NewText: `// An spx game.
+		assert.Equal(t, `// An spx game.
 
 var (
 	dir            int
 	snakeBodyParts []Sprite
-)
 
-var (
 	moveStep int = 20
 )
-`,
-		})
+`, edits[0].NewText)
 	})
 
-	t.Run("MultipleVarBlocksWithMultipleTypes", func(t *testing.T) {
+	t.Run("DuplicateClassFieldsDeclaration", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
 var (
-    score int
-    highScore int
+	score int
 )
 
 var (
-    playerName string = "Player1"
-    gameStarted bool = false
-)
-
-var (
-    lives int
-)
-
-var (
-    gameSpeed int = 5
+	playerName string = "Player1"
 )
 
 `),
@@ -702,89 +639,56 @@ var (
 		}
 
 		edits, err := s.textDocumentFormatting(params)
-		require.NoError(t, err)
-		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 20, Character: 0},
-			},
-			NewText: `// An spx game.
-
-var (
-	score     int
-	highScore int
-
-	lives int
-)
-
-var (
-	playerName  string = "Player1"
-	gameStarted bool   = false
-
-	gameSpeed int = 5
-)
-`,
-		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple top-level var declarations in classfile")
+		assert.Nil(t, edits)
 	})
 
-	t.Run("MixedVarDeclarationsWithComments", func(t *testing.T) {
+	t.Run("ClassFieldsDeclarationWithMixedComments", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
-// Variables without initialization
-var (
-    // Score for the player
-    playerScore int
-    // Lives remaining
-    livesRemaining int
-)
-
-// Variables with initialization
-var (
-    // Game speed setting
-    speed int = 10
-    // Player name
-    name string = "DefaultPlayer"
-)
-
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		params := &DocumentFormattingParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		}
-
-		edits, err := s.textDocumentFormatting(params)
-		require.NoError(t, err)
-		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 18, Character: 0},
-			},
-			NewText: `// An spx game.
-
-// Variables without initialization
 var (
 	// Score for the player
 	playerScore int
 	// Lives remaining
 	livesRemaining int
-)
 
-// Variables with initialization
-var (
+	// Variables with initialization
 	// Game speed setting
 	speed int = 10
 	// Player name
 	name string = "DefaultPlayer"
 )
-`,
-		})
+
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		params := &DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		}
+
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Equal(t, `// An spx game.
+
+var (
+	// Score for the player
+	playerScore int
+	// Lives remaining
+	livesRemaining int
+
+	// Variables with initialization
+	// Game speed setting
+	speed int = 10
+	// Player name
+	name string = "DefaultPlayer"
+)
+`, edits[0].NewText)
 	})
 
-	t.Run("SingleVarDeclarationsWithMixedInit", func(t *testing.T) {
+	t.Run("DuplicateClassFieldsDeclarationWithoutParens", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`// An spx game.
 
@@ -801,28 +705,9 @@ var name string = "Player"
 		}
 
 		edits, err := s.textDocumentFormatting(params)
-		require.NoError(t, err)
-		require.Len(t, edits, 1)
-		assert.Contains(t, edits, TextEdit{
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 7, Character: 0},
-			},
-			NewText: `// An spx game.
-
-var (
-	x int
-
-	z string
-)
-
-var (
-	y int = 10
-
-	name string = "Player"
-)
-`,
-		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "multiple top-level var declarations in classfile")
+		assert.Nil(t, edits)
 	})
 
 	t.Run("WithShadowEntryComments", func(t *testing.T) {

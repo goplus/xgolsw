@@ -21,6 +21,7 @@ import (
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/qiniu/x/errors"
 )
@@ -93,18 +94,17 @@ func (r *compileResult) spxDefinitionsFor(obj gotypes.Object, selectorTypeName s
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 
-	typeInfo, _ := r.proj.TypeInfo()
 	switch obj := obj.(type) {
 	case *gotypes.Var:
 		astPkg, _ := r.proj.ASTPackage()
-		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, obj)
+		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, astPkg, obj)
 		return []SpxDefinition{GetSpxDefinitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
 	case *gotypes.Const:
 		return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
 	case *gotypes.TypeName:
 		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
 	case *gotypes.Func:
-		if typeInfo != nil {
+		if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
 			if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil && defIdent.Implicit() {
 				return nil
 			}
@@ -163,7 +163,7 @@ func (r *compileResult) spxDefinitionForField(field *gotypes.Var, selectorTypeNa
 				selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 			}
 			astPkg, _ := r.proj.ASTPackage()
-			forceVar = xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, field)
+			forceVar = xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, astPkg, field)
 			pkgDoc, _ = r.proj.PkgDoc()
 		}
 	} else {
@@ -665,35 +665,73 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 				GetSpxWidgetNameType():
 				s.inspectSpxResourceRefForTypeAtExpr(result, s.resolveIdentifierToAssignedExpr(result, expr), typ, nil)
 			}
-		case *ast.CallExpr:
-			fun := xgoutil.FuncFromCallExpr(typeInfo, expr)
-			if fun == nil {
-				continue
-			}
-			funcOverloads := callExprFuncOverloads(result.proj, typeInfo, expr)
-			if !HasSpxResourceNameTypeParams(fun) && len(expr.Kwargs) == 0 && len(funcOverloads) == 0 {
-				continue
-			}
-
-			getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-				return s.resolveSpxSpriteContextFromCallExpr(result, expr)
-			})
-			for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, expr) {
-				if resolvedArg.ExpectedType == nil {
-					continue
-				}
-				paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
-
-				if sliceLit, ok := resolvedArg.Arg.(*ast.SliceLit); ok {
-					paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
-					for _, elt := range sliceLit.Elts {
-						s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
-					}
-				} else {
-					s.inspectSpxResourceRefForTypeAtExpr(result, resolvedArg.Arg, paramType, getSpriteContext)
-				}
-			}
 		}
+	}
+
+	// Check call arguments from the AST, since calls containing invalid or
+	// partially typed arguments may be absent from typeInfo.Types.
+	astPkg, _ := result.proj.ASTPackage()
+	if astPkg == nil {
+		return
+	}
+	for _, file := range astPkg.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			s.inspectSpxResourceRefsForCallExpr(result, typeInfo, call)
+			return true
+		})
+	}
+}
+
+// inspectSpxResourceRefsForCallExpr inspects spx resource references in call
+// arguments.
+func (s *Server) inspectSpxResourceRefsForCallExpr(result *compileResult, typeInfo *types.Info, call *ast.CallExpr) {
+	fun := xgoutil.FuncFromCallExpr(typeInfo, call)
+	if fun == nil {
+		return
+	}
+	funcOverloads := callExprFuncOverloads(result.proj, typeInfo, call)
+	if !HasSpxResourceNameTypeParams(fun) && len(call.Kwargs) == 0 && len(funcOverloads) == 0 {
+		return
+	}
+
+	getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
+		return s.resolveSpxSpriteContextFromCallExpr(result, call)
+	})
+	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, call) {
+		if resolvedArg.ExpectedType == nil {
+			continue
+		}
+		paramType := xgoutil.DerefType(resolvedArg.ExpectedType)
+
+		if elts, ok := xgoCollectionLitElts(resolvedArg.Arg); ok {
+			paramType = spxResourceNameValueType(resolvedArg.ExpectedType)
+			for _, elt := range elts {
+				s.inspectSpxResourceRefForTypeAtExpr(result, elt, paramType, getSpriteContext)
+			}
+		} else {
+			s.inspectSpxResourceRefForTypeAtExpr(result, resolvedArg.Arg, paramType, getSpriteContext)
+		}
+	}
+}
+
+// xgoCollectionLitElts returns the flattened elements of an XGo collection
+// literal.
+func xgoCollectionLitElts(expr ast.Expr) ([]ast.Expr, bool) {
+	switch expr := expr.(type) {
+	case *ast.SliceLit:
+		return expr.Elts, true
+	case *ast.MatrixLit:
+		var elts []ast.Expr
+		for _, row := range expr.Elts {
+			elts = append(elts, row...)
+		}
+		return elts, true
+	default:
+		return nil, false
 	}
 }
 

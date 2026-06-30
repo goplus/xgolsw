@@ -406,6 +406,14 @@ func childrenOf(n ast.Node) []ast.Node {
 		children = append(children,
 			tok(n.Map, len("map")))
 
+	case *ast.MatrixLit:
+		children = append(children,
+			tok(n.Lbrack, len("[")),
+			tok(n.Rbrack, len("]")))
+
+	case *ast.ElemEllipsis:
+		children = append(children, tok(n.Ellipsis, len("...")))
+
 	case *ast.ParenExpr:
 		children = append(children,
 			tok(n.Lparen, len("(")),

@@ -133,6 +133,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			var (
 				tokenType SemanticTokenTypes
 				modifiers []SemanticTokenModifiers
+				isDef     = obj.Pos() == node.Pos()
 			)
 			switch obj := obj.(type) {
 			case *gotypes.Builtin:
@@ -154,16 +155,14 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *gotypes.Var:
 				switch obj.Kind() {
 				case gotypes.FieldVar:
-					typeInfo, _ := result.proj.TypeInfo()
 					astPkg, _ := result.proj.ASTPackage()
-					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
+					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, astPkg, obj) {
 						tokenType = VariableType
 					} else {
 						tokenType = PropertyType
 					}
 				case gotypes.PackageVar:
-					defIdent := typeInfo.ObjToDef[obj]
-					if defIdent == node {
+					if isDef {
 						tokenType = ParameterType
 					} else {
 						tokenType = VariableType
@@ -185,7 +184,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *gotypes.Label:
 				tokenType = LabelType
 			}
-			if typeInfo.ObjToDef[obj] == node {
+			if isDef {
 				modifiers = append(modifiers, ModDeclaration)
 			}
 			if obj.Pkg() != nil && !xgoutil.IsInMainPkg(obj) && !strings.Contains(xgoutil.PkgPath(obj.Pkg()), ".") {

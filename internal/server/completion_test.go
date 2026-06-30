@@ -2193,6 +2193,40 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(items, "item2"))
 	})
 
+	t.Run("XGoStyleMatrixLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func printMatrix(m [][]string) {
+	echo m
+}
+
+onStart => {
+	var item1 = "hello"
+	var item2 = "world"
+	printMatrix [
+		item1, i
+		item2, ""
+	]
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 10}, // After "i" in matrix literal
+			},
+		})
+		require.NoError(t, err)
+		items, ok := itemsResult.([]CompletionItem)
+		require.True(t, ok)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "item1"))
+		assert.True(t, containsCompletionItemLabel(items, "item2"))
+	})
+
 	t.Run("XGoStyleSliceLiteralInReturn", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
