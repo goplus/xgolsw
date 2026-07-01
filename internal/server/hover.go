@@ -24,13 +24,13 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	position := ToPosition(result.proj, astFile, params.Position)
 
 	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
-		return &Hover{
+		return s.adaptHoverForClient(&Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
 				Value: spxResourceRef.ID.URI().HTML(),
 			},
 			Range: RangeForNode(result.proj, spxResourceRef.Node),
-		}, nil
+		}), nil
 	}
 
 	typeInfo, _ := result.proj.TypeInfo()
@@ -38,24 +38,26 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		return nil, nil
 	}
 	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position); hover != nil {
-		return hover, nil
+		return s.adaptHoverForClient(hover), nil
 	}
 	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
-		return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident), nil
+		return s.adaptHoverForClient(
+			hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident),
+		), nil
 	}
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
 		rpkg := result.spxImportsAtASTFilePosition(astFile, position)
 		if rpkg != nil {
-			return &Hover{
+			return s.adaptHoverForClient(&Hover{
 				Contents: MarkupContent{
 					Kind:  Markdown,
 					Value: godoc.Synopsis(rpkg.Pkg.Doc),
 				},
 				Range: RangeForNode(result.proj, rpkg.Node),
-			}, nil
+			}), nil
 		}
 		return nil, nil
 	}
@@ -65,7 +67,14 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 			return nil, nil
 		}
 	}
-	return hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident), nil
+	return s.adaptHoverForClient(hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident)), nil
+}
+
+func (s *Server) adaptHoverForClient(hover *Hover) *Hover {
+	if capabilities, ok := s.hoverClientCapabilities(); ok {
+		return adaptHoverMarkupForClient(capabilities, hover)
+	}
+	return hover
 }
 
 // hoverForSpxDefs renders spx definitions into a hover at node.

@@ -65,6 +65,9 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		return nil, fmt.Errorf("failed to collect completion items: %w", err)
 	}
 	items := ctx.sortedItems()
+	if capabilities, ok := s.completionClientCapabilities(); ok {
+		items = adaptCompletionItemsForClient(capabilities, items)
+	}
 	if ctx.isIncomplete {
 		return CompletionList{
 			IsIncomplete: true,
@@ -1938,6 +1941,70 @@ func (ctx *completionContext) sortedItems() []CompletionItem {
 		return cmp.Compare(a.Label, b.Label)
 	})
 	return ctx.itemSet.items
+}
+
+// adaptCompletionItemsForClient removes completion features unsupported by the
+// client. It adapts items in place.
+func adaptCompletionItemsForClient(capabilities CompletionClientCapabilities, items []CompletionItem) []CompletionItem {
+	supportedKinds := supportedCompletionItemKinds(capabilities)
+	for i := range items {
+		item := &items[i]
+		if item.InsertTextFormat != nil && *item.InsertTextFormat == SnippetTextFormat &&
+			!capabilities.CompletionItem.SnippetSupport {
+			item.InsertText = item.Label
+			item.TextEdit = plainTextCompletionTextEdit(item.Label, item.TextEdit)
+			item.InsertTextFormat = ToPtr(PlainTextTextFormat)
+		}
+		if !completionItemKindSupportedByClient(supportedKinds, item.Kind) {
+			item.Kind = TextCompletion
+		}
+		item.Documentation = adaptCompletionDocumentationForClient(capabilities, item.Documentation)
+	}
+	return items
+}
+
+// plainTextCompletionTextEdit returns a text edit with snippet text replaced by label.
+func plainTextCompletionTextEdit(label string, textEdit *Or_CompletionItem_textEdit) *Or_CompletionItem_textEdit {
+	if textEdit == nil {
+		return nil
+	}
+	result := *textEdit
+	switch edit := result.Value.(type) {
+	case TextEdit:
+		edit.NewText = label
+		result.Value = edit
+	case InsertReplaceEdit:
+		edit.NewText = label
+		result.Value = edit
+	default:
+		return textEdit
+	}
+	return &result
+}
+
+// supportedCompletionItemKinds returns the client-supported completion item
+// kinds. A nil result means the LSP default kind set.
+func supportedCompletionItemKinds(capabilities CompletionClientCapabilities) map[CompletionItemKind]struct{} {
+	if capabilities.CompletionItemKind == nil || len(capabilities.CompletionItemKind.ValueSet) == 0 {
+		return nil
+	}
+	supportedKinds := make(map[CompletionItemKind]struct{}, len(capabilities.CompletionItemKind.ValueSet))
+	for _, kind := range capabilities.CompletionItemKind.ValueSet {
+		supportedKinds[kind] = struct{}{}
+	}
+	return supportedKinds
+}
+
+// completionItemKindSupportedByClient reports whether kind is safe to send.
+func completionItemKindSupportedByClient(supportedKinds map[CompletionItemKind]struct{}, kind CompletionItemKind) bool {
+	if kind == 0 {
+		return true
+	}
+	if supportedKinds == nil {
+		return kind <= ReferenceCompletion
+	}
+	_, ok := supportedKinds[kind]
+	return ok
 }
 
 // completionItemSet is a set of completion items.
