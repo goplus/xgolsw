@@ -48,7 +48,7 @@ onStart => {
 				Start: Position{Line: 1, Character: 16},
 				End:   Position{Line: 1, Character: 28},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?BackdropName"),
+			Target: toURI("xgo:github.com/goplus/spx/v3?BackdropName"),
 		})
 		assert.Contains(t, linksForMainSpx, DocumentLink{
 			Range: Range{
@@ -391,7 +391,7 @@ const (
 				Start: Position{Line: 3, Character: 9},
 				End:   Position{Line: 3, Character: 18},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v2?SoundName"),
+			Target: toURI("xgo:github.com/goplus/spx/v3?SoundName"),
 		})
 		assert.Contains(t, links, DocumentLink{
 			Range: Range{

@@ -56,8 +56,8 @@ func IsXGoClassStructType(named *gotypes.Named) bool {
 	// FIXME: This is a workaround for the fact that XGo does not have the ability to
 	// recognize XGo class struct types.
 	switch PkgPath(pkg) + "." + obj.Name() {
-	case "github.com/goplus/spx/v2.Game",
-		"github.com/goplus/spx/v2.SpriteImpl":
+	case "github.com/goplus/spx/v3.Game",
+		"github.com/goplus/spx/v3.SpriteImpl":
 		return true
 	}
 

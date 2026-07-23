@@ -360,7 +360,7 @@ func isPropertyField(field *gotypes.Var) bool {
 //   - The method has no parameters
 //   - The method has exactly one return value
 //   - The return type is a basic type (int, float64, string, etc.), or a named
-//     type from github.com/goplus/spx/v2 named "Value" or "List"
+//     type from github.com/goplus/spx/v3 named "Value" or "List"
 func isPropertyMethod(method *gotypes.Func) bool {
 	if xgoutil.IsXGoInternalName(method.Name()) {
 		return false

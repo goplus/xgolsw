@@ -216,7 +216,7 @@ type XGoDefinitionIdentifier struct {
 	// If `main`, it's the current user package.
 	// Examples:
 	// - `fmt`
-	// - `github.com/goplus/spx/v2`
+	// - `github.com/goplus/spx/v3`
 	// - `main`
 	Package *string `json:"package,omitempty"`
 
