@@ -552,8 +552,8 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 				slots := findInputSlotsFromCallExpr(result, callExpr)
 				addInputSlots(slots...)
 			}
-		case *ast.CallExpr:
-			slots := findInputSlotsFromCallExpr(result, node)
+		case *ast.CallExpr, *ast.FuncDecorator:
+			slots := findInputSlotsFromCallExpr(result, callExprFromNode(node))
 			addInputSlots(slots...)
 		case *ast.BinaryExpr:
 			addInputSlot(checkValueInputSlot(result, node.X, nil))
@@ -651,6 +651,11 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 		}
 
 		expectedType := resolvedArg.ExpectedType
+		if _, ok := expectedType.(*gotypes.TypeParam); ok {
+			if actualType := typeInfo.TypeOf(resolvedArg.Arg); xgoutil.IsValidType(actualType) {
+				expectedType = actualType
+			}
+		}
 		declaredType := xgoutil.DerefType(expectedType)
 		if sliceType, ok := declaredType.(*gotypes.Slice); ok {
 			declaredType = xgoutil.DerefType(sliceType.Elem())
@@ -1252,8 +1257,8 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node ast.Node) *
 			continue
 		}
 
-		callExpr, ok := pathNode.(*ast.CallExpr)
-		if !ok {
+		callExpr := callExprFromNode(pathNode)
+		if callExpr == nil {
 			continue
 		}
 

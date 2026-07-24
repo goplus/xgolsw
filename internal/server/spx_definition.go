@@ -863,6 +863,10 @@ func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string
 			name = methodName
 			isXGotMethod = true
 		}
+	} else if isXGoPkg {
+		if funcName, ok := xgoutil.SplitXGoxFuncName(name); ok {
+			name = funcName
+		}
 	}
 
 	parsedName = name

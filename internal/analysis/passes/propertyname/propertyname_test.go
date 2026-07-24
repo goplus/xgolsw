@@ -78,6 +78,52 @@ func run() {
 			wantDiag: false,
 		},
 		{
+			name: "UnknownPropertyFuncDecorator",
+			src: `
+package test
+
+type PropertyName string
+
+func validate(name PropertyName, fn func()) {}
+
+@validate("unknown")
+func run() {}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return []string{"x", "y"}
+				},
+			},
+			wantDiag: true,
+		},
+		{
+			name: "KnownPropertyFuncDecorator",
+			src: `
+package test
+
+type PropertyName string
+
+func validate(name PropertyName, fn func()) {}
+
+@validate("x")
+func run() {}
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: func(typ gotypes.Type) bool {
+					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+					return ok && named.Obj().Name() == "PropertyName"
+				},
+				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+					return []string{"x", "y"}
+				},
+			},
+			wantDiag: false,
+		},
+		{
 			name: "ConstIdentifierArgument",
 			src: `
 package test

@@ -10,8 +10,7 @@ package inspector
 // see https://go-review.googlesource.com/c/tools/+/135655/1/go/ast/inspector/inspector.go#196
 
 import (
-	"math"
-	_ "unsafe"
+	"reflect"
 
 	"github.com/goplus/xgo/ast"
 )
@@ -74,9 +73,12 @@ const (
 	nTypeSwitchStmt
 	nUnaryExpr
 	nValueSpec
+	nOther
 )
 
-// typeOf returns a distinct single-bit value that represents the type of n.
+const otherNodeMask = uint64(1 << nOther)
+
+// typeOf returns a single-bit category that represents the type of n.
 //
 // Various implementations were benchmarked with BenchmarkNewInspector:
 //
@@ -100,7 +102,9 @@ func typeOf(n ast.Node) uint64 {
 		return 1 << nIdent
 	}
 
-	// These cases include all nodes encountered by ast.Inspect.
+	// These cases cover the Go-compatible node kinds plus NumberUnitLit, which
+	// fit in the bit set. Other XGo nodes share one bit and are matched exactly
+	// by nodeTypeFilter.
 	switch n.(type) {
 	case *ast.ArrayType:
 		return 1 << nArrayType
@@ -217,20 +221,40 @@ func typeOf(n ast.Node) uint64 {
 	case *ast.ValueSpec:
 		return 1 << nValueSpec
 	}
-	return 0
+	return otherNodeMask
 }
 
-// maskOf returns a bit mask representing all node types in the given slice.
-// If the slice is empty, it returns a mask that matches all possible node types.
-// The returned mask is the bitwise OR of all node type bits from the input nodes.
-// Each bit in the mask corresponds to a specific AST node type as defined by typeOf.
-func maskOf(nodes []ast.Node) uint64 {
-	if len(nodes) == 0 {
-		return math.MaxUint64 // match all node types
-	}
-	var mask uint64
+// nodeTypeFilter matches requested AST node types while retaining a compact
+// bit mask for subtree pruning.
+type nodeTypeFilter struct {
+	mask       uint64
+	otherTypes map[reflect.Type]struct{}
+}
+
+// newNodeTypeFilter returns a filter for the dynamic types of nodes.
+func newNodeTypeFilter(nodes []ast.Node) nodeTypeFilter {
+	var filter nodeTypeFilter
 	for _, n := range nodes {
-		mask |= typeOf(n)
+		mask := typeOf(n)
+		filter.mask |= mask
+		if mask == otherNodeMask {
+			if filter.otherTypes == nil {
+				filter.otherTypes = make(map[reflect.Type]struct{})
+			}
+			filter.otherTypes[reflect.TypeOf(n)] = struct{}{}
+		}
 	}
-	return mask
+	return filter
+}
+
+// matches reports whether n has one of the requested dynamic types.
+func (filter nodeTypeFilter) matches(n ast.Node, mask uint64) bool {
+	if mask&filter.mask == 0 {
+		return false
+	}
+	if mask != otherNodeMask {
+		return true
+	}
+	_, ok := filter.otherTypes[reflect.TypeOf(n)]
+	return ok
 }

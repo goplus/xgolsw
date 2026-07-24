@@ -207,8 +207,8 @@ func xgoUnitLiteralExpectedTypes(proj *xgo.Project, typeInfo *types.Info, path [
 	}
 
 	for _, node := range path {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
+		call := callExprFromNode(node)
+		if call == nil {
 			continue
 		}
 		for resolvedArg := range resolvedCallExprArgs(proj, typeInfo, call) {

@@ -32,12 +32,17 @@ func run(pass *protocol.Pass) (any, error) {
 	}
 
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-	nodeFilter := []ast.Node{
+	inspect.Preorder([]ast.Node{
 		(*ast.CallExpr)(nil),
-	}
-
-	inspect.Preorder(nodeFilter, func(n ast.Node) {
-		call := n.(*ast.CallExpr)
+		(*ast.FuncDecorator)(nil),
+	}, func(n ast.Node) {
+		var call *ast.CallExpr
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			call = n
+		case *ast.FuncDecorator:
+			call = &n.CallExpr
+		}
 
 		validNames := pass.GetPropertyNamesForCall(call)
 		if validNames == nil {

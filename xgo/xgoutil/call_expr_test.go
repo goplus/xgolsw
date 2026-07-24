@@ -687,6 +687,99 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		assert.False(t, resolved[1].IsTypeArg())
 	})
 
+	t.Run("XGoPackagePartialXGoxFunction", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		markAsXGoPackage(pkg)
+		constraint := gotypes.NewInterfaceType(nil, nil)
+		constraint.Complete()
+		toTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "To", nil), constraint)
+		fromTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "From", nil), constraint)
+		srcParam := gotypes.NewParam(token.NoPos, pkg, "src", fromTypeParam)
+		sig := gotypes.NewSignatureType(
+			nil,
+			nil,
+			[]*gotypes.TypeParam{toTypeParam, fromTypeParam},
+			gotypes.NewTuple(srcParam),
+			nil,
+			false,
+		)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "XGox_Convert", sig)
+
+		funIdent := &ast.Ident{Name: "convert"}
+		typeArg := &ast.Ident{Name: "string"}
+		valueArg := &ast.BasicLit{Kind: token.INT, Value: "100"}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			funIdent: fun,
+			typeArg:  gotypes.Universe.Lookup("string"),
+		})
+		typeInfo.Types[valueArg] = gotypes.TypeAndValue{Type: gotypes.Typ[gotypes.UntypedInt]}
+
+		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
+			Fun:  funIdent,
+			Args: []ast.Expr{typeArg, valueArg},
+		}))
+
+		require.Len(t, resolved, 2)
+		assert.Equal(t, "To", resolved[0].Param.Name())
+		assert.Equal(t, 0, resolved[0].ParamIndex)
+		assert.Equal(t, typeArg, resolved[0].Arg)
+		assert.True(t, resolved[0].IsTypeArg())
+		assert.Equal(t, "src", resolved[1].Param.Name())
+		assert.Equal(t, 1, resolved[1].ParamIndex)
+		assert.Equal(t, valueArg, resolved[1].Arg)
+		assert.Equal(t, fromTypeParam, resolved[1].ExpectedType)
+		assert.False(t, resolved[1].IsTypeArg())
+	})
+
+	t.Run("XGoPackagePartialXGoxTemplateMethod", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		markAsXGoPackage(pkg)
+		constraint := gotypes.NewInterfaceType(nil, nil)
+		constraint.Complete()
+		inTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "InT", nil), constraint)
+		appTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "AppT", nil), constraint)
+		recvParam := gotypes.NewParam(token.NoPos, pkg, "app", appTypeParam)
+		callbackType := gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "input", gotypes.NewPointer(inTypeParam))),
+			nil,
+			false,
+		)
+		callbackParam := gotypes.NewParam(token.NoPos, pkg, "callback", callbackType)
+		sig := gotypes.NewSignatureType(
+			nil,
+			nil,
+			[]*gotypes.TypeParam{inTypeParam, appTypeParam},
+			gotypes.NewTuple(recvParam, callbackParam),
+			nil,
+			false,
+		)
+		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_App_XGox_OnCall", sig)
+
+		funIdent := &ast.Ident{Name: "onCall"}
+		typeArg := &ast.Ident{Name: "Start"}
+		valueArg := &ast.Ident{Name: "handler"}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			funIdent: fun,
+			typeArg:  gotypes.NewTypeName(token.NoPos, pkg, "Start", gotypes.Typ[gotypes.Int]),
+		})
+		typeInfo.Types[valueArg] = gotypes.TypeAndValue{Type: callbackType}
+
+		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
+			Fun:  funIdent,
+			Args: []ast.Expr{typeArg, valueArg},
+		}))
+
+		require.Len(t, resolved, 2)
+		assert.Equal(t, "InT", resolved[0].Param.Name())
+		assert.True(t, resolved[0].IsTypeArg())
+		assert.Equal(t, callbackParam, resolved[1].Param)
+		assert.Equal(t, callbackType, resolved[1].ExpectedType)
+		assert.False(t, resolved[1].IsTypeArg())
+	})
+
 	t.Run("MoreArgsThanParams", func(t *testing.T) {
 		ident := &ast.Ident{Name: "testFunc"}
 		expr := &ast.CallExpr{

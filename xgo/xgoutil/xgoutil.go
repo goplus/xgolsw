@@ -51,7 +51,7 @@ func ASTSpecs(astPkg *ast.Package, tok token.Token) iter.Seq[ast.Spec] {
 // IsDefinedInClassFieldsDecl reports whether the given object is defined in the
 // class fields declaration of an AST file.
 func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Package, obj gotypes.Object) bool {
-	if fset == nil || typeInfo == nil || astPkg == nil || obj == nil {
+	if fset == nil || typeInfo == nil || astPkg == nil || obj == nil || !obj.Pos().IsValid() {
 		return false
 	}
 	defIdent := typeInfo.ObjToDef[obj]

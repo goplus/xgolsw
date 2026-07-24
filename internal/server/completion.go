@@ -116,13 +116,14 @@ type completionContext struct {
 	expectedTypes      []gotypes.Type
 	expectedStructType *gotypes.Struct
 	compositeLitType   *gotypes.Named
-	assignTargets      []*ast.Ident
+	assignTargets      []gotypes.Object
 	declValueSpec      *ast.ValueSpec
 	switchTag          ast.Expr
 	returnIndex        int
 
 	inStringLit             bool
 	inCallKwargName         bool
+	inFuncDecorator         bool
 	inSpxEventHandler       bool
 	valueExpression         bool
 	expectedFuncResultCount int
@@ -152,50 +153,15 @@ func (ctx *completionContext) analyze() {
 				ctx.inCallKwargName = true
 			}
 		case *ast.CallExpr:
-			if ctx.enclosingCallExpr == nil {
-				ctx.enclosingCallExpr = node
-			}
-			if typ := ctx.typeInfo.TypeOf(node.Fun); !xgoutil.IsValidType(typ) {
-				continue
-			}
-
-			// In XGo, map literals can be passed directly to funcs without
-			// explicit type declaration, e.g., `println {"foo": value}`.
-			// When the cursor is inside such a map literal, we should provide
-			// general completions (including variables) rather than restricting
-			// to the expected parameter type.
-			shouldSetCallContext := ctx.kind == completionKindUnknown
-
-			// Check if cursor is inside a composite literal or slice literal argument
-			// where we want general completions.
-			if shouldSetCallContext {
-				for _, arg := range node.Args {
-					if !ctx.callArgKeepsCallContext(arg) {
-						shouldSetCallContext = false
-						break
-					}
-				}
-				if shouldSetCallContext {
-					for _, kwarg := range node.Kwargs {
-						if !ctx.callArgKeepsCallContext(kwarg.Value) {
-							shouldSetCallContext = false
-							break
-						}
-					}
-				}
-			}
-
-			if shouldSetCallContext {
-				ctx.kind = completionKindCall
-				ctx.enclosingNode = node
-				ctx.valueExpression = true
-			}
+			ctx.analyzeCallExpr(node, false)
+		case *ast.FuncDecorator:
+			ctx.analyzeCallExpr(&node.CallExpr, true)
 		case *ast.FuncLit:
 			// Skip FuncLit, as we want general completion inside function literals
 			// to allow access to all variables and identifiers.
 			continue
-		case *ast.SliceLit:
-			// Skip SliceLit, as XGo-style slice literals should allow general completion
+		case *ast.SliceLit, *ast.MatrixLit:
+			// Skip XGo collection literals, as they should allow general completion
 			// to access all variables and identifiers.
 			continue
 		case *ast.CompositeLit:
@@ -287,9 +253,8 @@ func (ctx *completionContext) analyze() {
 						ctx.expectedTypes = []gotypes.Type{typ}
 					}
 					if ident, ok := node.Lhs[j].(*ast.Ident); ok {
-						defIdent := ctx.typeInfo.ObjToDef[ctx.typeInfo.ObjectOf(ident)]
-						if defIdent != nil {
-							ctx.assignTargets = append(ctx.assignTargets, defIdent)
+						if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
+							ctx.assignTargets = append(ctx.assignTargets, obj)
 						}
 					}
 
@@ -331,13 +296,20 @@ func (ctx *completionContext) analyze() {
 			for j, result := range node.Results {
 				// Check for CompositeLit directly or within UnaryExpr (e.g., &Struct{}).
 				var comp *ast.CompositeLit
-				var sliceLit *ast.SliceLit
+				var xgoCollectionLit ast.Expr
 				switch expr := result.(type) {
 				case *ast.CompositeLit:
 					comp = expr
-				case *ast.SliceLit:
-					// Handle XGo-style slice literal [...].
-					sliceLit = expr
+				case *ast.SliceLit, *ast.MatrixLit:
+					// Handle XGo collection literals.
+					xgoCollectionLit = expr
+				case *ast.BadExpr:
+					if expr.Pos() <= ctx.pos && ctx.pos <= expr.End() {
+						ctx.itemSet.setDisallowVoidFuncs(true)
+						shouldSetReturnContext = false
+						ctx.valueExpression = true
+					}
+					continue
 				case *ast.UnaryExpr:
 					// Handle &Struct{...} case.
 					if c, ok := expr.X.(*ast.CompositeLit); ok {
@@ -345,9 +317,9 @@ func (ctx *completionContext) analyze() {
 					}
 				}
 
-				// Handle XGo-style slice literal.
-				if sliceLit != nil && sliceLit.Pos() <= ctx.pos && ctx.pos <= sliceLit.End() {
-					// For XGo-style slice literals, allow general completions.
+				// Handle XGo collection literals.
+				if xgoCollectionLit != nil && xgoCollectionLitAtPos(xgoCollectionLit, ctx.pos) {
+					// For XGo collection literals, allow general completions.
 					ctx.itemSet.setDisallowVoidFuncs(true)
 					shouldSetReturnContext = false
 					ctx.valueExpression = true
@@ -445,7 +417,11 @@ func (ctx *completionContext) analyze() {
 					if typ := ctx.typeInfo.TypeOf(valueSpec.Type); xgoutil.IsValidType(typ) {
 						ctx.expectedTypes = []gotypes.Type{typ}
 					}
-					ctx.assignTargets = valueSpec.Names
+					for _, name := range valueSpec.Names {
+						if obj := ctx.typeInfo.ObjectOf(name); obj != nil {
+							ctx.assignTargets = append(ctx.assignTargets, obj)
+						}
+					}
 					ctx.declValueSpec = valueSpec
 					break
 				}
@@ -478,11 +454,45 @@ func (ctx *completionContext) analyze() {
 	ctx.inSpxEventHandler = ctx.result.isInSpxEventHandler(ctx.pos)
 }
 
+// analyzeCallExpr updates the completion context for a call expression.
+func (ctx *completionContext) analyzeCallExpr(callExpr *ast.CallExpr, isFuncDecorator bool) {
+	if ctx.enclosingCallExpr == nil {
+		ctx.enclosingCallExpr = callExpr
+		ctx.inFuncDecorator = isFuncDecorator
+	}
+	if typ := ctx.typeInfo.TypeOf(callExpr.Fun); !xgoutil.IsValidType(typ) {
+		return
+	}
+	if ctx.kind != completionKindUnknown && ctx.kind != completionKindCall {
+		return
+	}
+
+	// In XGo, map literals can be passed directly to funcs without
+	// explicit type declaration, e.g., `println {"foo": value}`.
+	// When the cursor is inside such a map literal, we should provide
+	// general completions (including variables) rather than restricting
+	// to the expected parameter type.
+	for _, arg := range callExpr.Args {
+		if !ctx.callArgKeepsCallContext(arg) {
+			return
+		}
+	}
+	for _, kwarg := range callExpr.Kwargs {
+		if !ctx.callArgKeepsCallContext(kwarg.Value) {
+			return
+		}
+	}
+
+	ctx.kind = completionKindCall
+	ctx.enclosingNode = callExpr
+	ctx.valueExpression = true
+}
+
 // callArgKeepsCallContext reports whether arg should keep completion in the
 // enclosing call context.
 func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
-	// XGo-style slice literals should use general completions.
-	if sl, ok := arg.(*ast.SliceLit); ok && sl.Pos() <= ctx.pos && ctx.pos <= sl.End() {
+	// XGo collection literals should use general completions.
+	if xgoCollectionLitAtPos(arg, ctx.pos) {
 		return false
 	}
 
@@ -499,6 +509,17 @@ func (ctx *completionContext) callArgKeepsCallContext(arg ast.Expr) bool {
 		}
 	}
 	return true
+}
+
+// xgoCollectionLitAtPos reports whether expr is an XGo collection literal
+// covering pos.
+func xgoCollectionLitAtPos(expr ast.Expr, pos token.Pos) bool {
+	switch expr := expr.(type) {
+	case *ast.SliceLit, *ast.MatrixLit:
+		return expr.Pos() <= pos && pos <= expr.End()
+	default:
+		return false
+	}
 }
 
 // isInDisabledIdentifierContext reports whether the completion position is
@@ -1022,7 +1043,7 @@ func (ctx *completionContext) collectGeneral() error {
 				continue
 			}
 			if !ctx.valueExpression {
-				if defIdent := ctx.typeInfo.ObjToDef[obj]; defIdent != nil && slices.Contains(ctx.assignTargets, defIdent) {
+				if slices.Contains(ctx.assignTargets, obj) {
 					continue
 				}
 			}
@@ -1317,6 +1338,9 @@ func (ctx *completionContext) collectCall() error {
 	if !ok {
 		return nil
 	}
+	if ctx.inFuncDecorator && callExpr == ctx.enclosingCallExpr {
+		return ctx.collectFuncDecoratorCall(callExpr)
+	}
 	if ctx.inCallKwargName {
 		ctx.collectCallKwargNames(callExpr, len(callExpr.Args), ctx.currentCallKwargArgIndex(callExpr))
 		return nil
@@ -1352,11 +1376,12 @@ func (ctx *completionContext) collectCall() error {
 		if len(funcOverloads) > 0 {
 			expectedTypes := make([]gotypes.Type, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				sig := funcOverload.Signature()
-				if argIndex < sig.Params().Len() {
-					expectedTypes = append(expectedTypes, sig.Params().At(argIndex).Type())
-				} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
-					expectedTypes = append(expectedTypes, sig.Params().At(sig.Params().Len()-1).Type().(*gotypes.Slice).Elem())
+				sig, params := xgoutil.ResolveFuncSignatureForCall(ctx.typeInfo, callExpr, funcOverload)
+				if sig == nil || params == nil {
+					continue
+				}
+				if expectedType := callExprArgType(sig, params, argIndex); expectedType != nil {
+					expectedTypes = append(expectedTypes, expectedType)
 				}
 			}
 			ctx.expectedTypes = deduplicateTypes(expectedTypes)
@@ -1368,6 +1393,25 @@ func (ctx *completionContext) collectCall() error {
 		ctx.expectedTypes = []gotypes.Type{sig.Params().At(argIndex).Type()}
 	} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
 		ctx.expectedTypes = []gotypes.Type{sig.Params().At(sig.Params().Len() - 1).Type().(*gotypes.Slice).Elem()}
+	}
+	return ctx.collectGeneral()
+}
+
+// collectFuncDecoratorCall collects completions for a decorator's explicit
+// arguments.
+func (ctx *completionContext) collectFuncDecoratorCall(callExpr *ast.CallExpr) error {
+	typ := ctx.typeInfo.TypeOf(callExpr.Fun)
+	sig, ok := typ.(*gotypes.Signature)
+	if !ok {
+		return ctx.collectGeneral()
+	}
+	params, ok := funcDecoratorParams(sig)
+	if !ok {
+		return ctx.collectGeneral()
+	}
+	argIndex := ctx.getCurrentArgIndex(callExpr)
+	if argIndex >= 0 && argIndex < params.Len() {
+		ctx.expectedTypes = []gotypes.Type{params.At(argIndex).Type()}
 	}
 	return ctx.collectGeneral()
 }

@@ -108,6 +108,8 @@ func TestFunc() {
 
 		// Check that testField exists in Game type fields.
 		assert.Contains(t, gameType.Fields, "testField")
+		assert.Equal(t, "Test field.\n", gameType.Fields["testField"])
+		assert.NotContains(t, pkgDoc.Vars, "testField")
 
 		// Check that TestFunc exists in Game type methods.
 		assert.Contains(t, gameType.Methods, "TestFunc")

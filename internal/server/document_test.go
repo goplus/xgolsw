@@ -260,6 +260,9 @@ var client Client
 onStart => {
     configure sound = "StructSound"
     configure sounds = ["SliceSound"]
+    configure sounds = [
+        "MatrixSound"
+    ]
     configure alias = "AliasSound"
     configureMap sound = "MapSound"
     client.play sound = "InterfaceSound"
@@ -268,6 +271,7 @@ onStart => {
 			"assets/index.json":                       []byte(`{}`),
 			"assets/sounds/StructSound/index.json":    []byte(`{}`),
 			"assets/sounds/SliceSound/index.json":     []byte(`{}`),
+			"assets/sounds/MatrixSound/index.json":    []byte(`{}`),
 			"assets/sounds/AliasSound/index.json":     []byte(`{}`),
 			"assets/sounds/MapSound/index.json":       []byte(`{}`),
 			"assets/sounds/InterfaceSound/index.json": []byte(`{}`),
@@ -287,6 +291,7 @@ onStart => {
 		}
 		assert.Contains(t, targets, "spx://resources/sounds/StructSound")
 		assert.Contains(t, targets, "spx://resources/sounds/SliceSound")
+		assert.Contains(t, targets, "spx://resources/sounds/MatrixSound")
 		assert.Contains(t, targets, "spx://resources/sounds/AliasSound")
 		assert.Contains(t, targets, "spx://resources/sounds/MapSound")
 		assert.Contains(t, targets, "spx://resources/sounds/InterfaceSound")

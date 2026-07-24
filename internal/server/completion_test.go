@@ -128,6 +128,162 @@ onStart => {
 		}))
 	})
 
+	t.Run("FuncDecoratorArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	count   = 1
+	comment = "text"
+)
+
+func retry(times int, fn func()) {
+	fn()
+}
+
+@retry(co)
+func run() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 9},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.False(t, containsCompletionItemLabel(items, "comment"))
+	})
+
+	t.Run("FuncDecoratorImplicitArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	count   = 1
+	comment = "text"
+)
+
+func retry(times int, fn func()) {
+	fn()
+}
+
+@retry(1, co)
+func run() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 12},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.True(t, containsCompletionItemLabel(items, "comment"))
+	})
+
+	t.Run("NestedFuncDecoratorArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	count   = 1
+	comment = "text"
+)
+
+func retry(times int, fn func()) {
+	fn()
+}
+
+func parse(text string) int {
+	return len(text)
+}
+
+@retry(parse(co))
+func run() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 13, Character: 15},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.Falsef(t, containsCompletionItemLabel(items, "count"), "%v", completionItemLabels(items))
+		assert.True(t, containsCompletionItemLabel(items, "comment"))
+	})
+
+	t.Run("NestedCallArgument", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	count   = 1
+	comment = "text"
+)
+
+func consume(value int) {
+}
+
+func parse(text string) int {
+	return len(text)
+}
+
+func run() {
+	consume(parse(co))
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 13, Character: 17},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.Falsef(t, containsCompletionItemLabel(items, "count"), "%v", completionItemLabels(items))
+		assert.True(t, containsCompletionItemLabel(items, "comment"))
+	})
+
+	t.Run("PartialXGoxFunction", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`import "example.com/typeargs"
+
+const (
+	count   = 1
+	comment = "text"
+)
+
+onStart => {
+	typeargs.convert(string, count)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 8, Character: 31},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.True(t, containsCompletionItemLabel(items, "count"))
+		assert.False(t, containsCompletionItemLabel(items, "comment"))
+	})
+
 	t.Run("InStringLit", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -2193,6 +2349,40 @@ onStart => {
 		assert.True(t, containsCompletionItemLabel(items, "item2"))
 	})
 
+	t.Run("XGoStyleMatrixLiteral", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+func printMatrix(m [][]string) {
+	echo m
+}
+
+onStart => {
+	var item1 = "hello"
+	var item2 = "world"
+	printMatrix [
+		item1, i
+		item2, ""
+	]
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 10}, // After "i" in matrix literal
+			},
+		})
+		require.NoError(t, err)
+		items, ok := itemsResult.([]CompletionItem)
+		require.True(t, ok)
+		require.NotNil(t, items)
+		assert.NotEmpty(t, items)
+		assert.True(t, containsCompletionItemLabel(items, "item1"))
+		assert.True(t, containsCompletionItemLabel(items, "item2"))
+	})
+
 	t.Run("XGoStyleSliceLiteralInReturn", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -3502,6 +3692,28 @@ onStart => {
 				},
 				NewText: "cm",
 			})
+		})
+
+		t.Run("FuncDecoratorArgument", func(t *testing.T) {
+			s := newXGoUnitTestServer(`import "example.com/unit"
+
+func withDistance(distance unit.Distance, fn func()) {}
+
+@withDistance(1)
+func run() {}
+`)
+
+			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: 4, Character: 15},
+				},
+			})
+			require.NoError(t, err)
+			items := itemsResult.(CompletionList).Items
+			assert.True(t, containsCompletionItemLabel(items, "mm"))
+			assert.True(t, containsCompletionItemLabel(items, "cm"))
+			assert.False(t, containsCompletionItemLabel(items, "s"))
 		})
 
 		t.Run("StructKwargUnsupported", func(t *testing.T) {

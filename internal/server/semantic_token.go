@@ -84,6 +84,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if typeInfo == nil {
 		return nil, nil
 	}
+	astPkg, _ := result.proj.ASTPackage()
+	if astPkg == nil {
+		return nil, nil
+	}
 
 	fset := result.proj.Fset
 	var tokenInfos []semanticTokenInfo
@@ -133,6 +137,22 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			addToken(stringStart, endPos, StringType, nil)
 		}
 	}
+	addCallExprTokens := func(callExpr *ast.CallExpr, addKwargs bool) {
+		addToken(callExpr.Lparen, callExpr.Lparen+1, OperatorType, nil)
+		addToken(callExpr.Rparen, callExpr.Rparen+1, OperatorType, nil)
+		if callExpr.Ellipsis.IsValid() {
+			addToken(callExpr.Ellipsis, callExpr.Ellipsis+3, OperatorType, nil)
+		}
+		if !addKwargs {
+			return
+		}
+		for _, kwarg := range callExpr.Kwargs {
+			if len(lookupCallExprKwargTargets(result.proj, typeInfo, callExpr, kwarg.Name.Name)) == 0 {
+				continue
+			}
+			addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
+		}
+	}
 
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil || !node.Pos().IsValid() {
@@ -162,6 +182,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			var (
 				tokenType SemanticTokenTypes
 				modifiers []SemanticTokenModifiers
+				isDef     = typeInfo.ObjToDef[obj] == node
 			)
 			switch obj := obj.(type) {
 			case *gotypes.Builtin:
@@ -183,16 +204,14 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *gotypes.Var:
 				switch obj.Kind() {
 				case gotypes.FieldVar:
-					typeInfo, _ := result.proj.TypeInfo()
-					astPkg, _ := result.proj.ASTPackage()
-					if xgoutil.IsInMainPkg(obj) && xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
+					if xgoutil.IsInMainPkg(obj) &&
+						xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
 						tokenType = VariableType
 					} else {
 						tokenType = PropertyType
 					}
 				case gotypes.PackageVar:
-					defIdent := typeInfo.ObjToDef[obj]
-					if defIdent == node {
+					if isDef {
 						tokenType = ParameterType
 					} else {
 						tokenType = VariableType
@@ -214,7 +233,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			case *gotypes.Label:
 				tokenType = LabelType
 			}
-			if typeInfo.ObjToDef[obj] == node {
+			if isDef {
 				modifiers = append(modifiers, ModDeclaration)
 			}
 			if obj.Pkg() != nil && !xgoutil.IsInMainPkg(obj) && !strings.Contains(xgoutil.PkgPath(obj.Pkg()), ".") {
@@ -241,6 +260,9 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		case *ast.CompositeLit:
 			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
 			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
+		case *ast.FuncDecorator:
+			addToken(node.At, node.At+1, OperatorType, nil)
+			addCallExprTokens(&node.CallExpr, false)
 		case *ast.FuncLit:
 			addToken(node.Type.Func, node.Type.Func+token.Pos(len("func")), KeywordType, nil)
 		case *ast.SliceLit:
@@ -279,17 +301,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			}
 			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
 		case *ast.CallExpr:
-			addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
-			if node.Ellipsis.IsValid() {
-				addToken(node.Ellipsis, node.Ellipsis+3, OperatorType, nil)
-			}
-			for _, kwarg := range node.Kwargs {
-				if len(lookupCallExprKwargTargets(result.proj, typeInfo, node, kwarg.Name.Name)) == 0 {
-					continue
-				}
-				addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
-			}
+			addCallExprTokens(node, true)
 		case *ast.KeyValueExpr:
 			addToken(node.Colon, node.Colon+1, OperatorType, nil)
 		case *ast.ErrWrapExpr:

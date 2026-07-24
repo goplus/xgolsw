@@ -353,14 +353,10 @@ var (
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
 		pkg := gotypes.NewPackage("main", "main")
-		xVar := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
 		xIdent := findIdent(astFile, "x")
 		require.NotNil(t, xIdent)
-
-		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
-			xVar: xIdent,
-		}
+		xVar := gotypes.NewVar(xIdent.Pos(), pkg, "x", gotypes.Typ[gotypes.Int])
+		typeInfo := &types.Info{ObjToDef: map[gotypes.Object]*ast.Ident{xVar: xIdent}}
 
 		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
 		assert.True(t, result)
@@ -377,14 +373,10 @@ func test() {
 
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
 
-		zVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "z", gotypes.Typ[gotypes.Int])
 		zIdent := findIdent(astFile, "z")
 		require.NotNil(t, zIdent)
-
-		typeInfo := newTestTypeInfo(nil, nil)
-		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
-			zVar: zIdent,
-		}
+		zVar := gotypes.NewVar(zIdent.Pos(), gotypes.NewPackage("main", "main"), "z", gotypes.Typ[gotypes.Int])
+		typeInfo := &types.Info{ObjToDef: map[gotypes.Object]*ast.Ident{zVar: zIdent}}
 
 		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, zVar)
 		assert.False(t, result)
@@ -394,9 +386,8 @@ func test() {
 		fset, astFile, err := newTestFile("main.gox", "var x int")
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
-		typeInfo := newTestTypeInfo(nil, nil)
 
-		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, nil)
+		result := IsDefinedInClassFieldsDecl(fset, &types.Info{}, astPkg, nil)
 		assert.False(t, result)
 	})
 
@@ -404,23 +395,21 @@ func test() {
 		_, astFile, err := newTestFile("main.gox", "var x int")
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
-		typeInfo := newTestTypeInfo(nil, nil)
 		pkg := gotypes.NewPackage("main", "main")
 		xVar := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
 
-		result := IsDefinedInClassFieldsDecl(nil, typeInfo, astPkg, xVar)
+		result := IsDefinedInClassFieldsDecl(nil, &types.Info{}, astPkg, xVar)
 		assert.False(t, result)
 	})
 
-	t.Run("ObjectWithoutDefinition", func(t *testing.T) {
+	t.Run("ObjectWithoutPosition", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.gox", "var x int")
 		require.NoError(t, err)
 
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
-		typeInfo := newTestTypeInfo(nil, nil)
 		xVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "x", gotypes.Typ[gotypes.Int])
 
-		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
+		result := IsDefinedInClassFieldsDecl(fset, &types.Info{}, astPkg, xVar)
 		assert.False(t, result)
 	})
 
@@ -429,14 +418,40 @@ func test() {
 		require.NoError(t, err)
 
 		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
-		typeInfo := newTestTypeInfo(nil, nil)
-		xVar := gotypes.NewVar(token.NoPos, gotypes.NewPackage("main", "main"), "x", gotypes.Typ[gotypes.Int])
-		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
-			xVar: {NamePos: astFile.End() + 10, Name: "x"},
-		}
+		xVar := gotypes.NewVar(astFile.End()+10, gotypes.NewPackage("main", "main"), "x", gotypes.Typ[gotypes.Int])
 
-		result := IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, xVar)
+		result := IsDefinedInClassFieldsDecl(fset, &types.Info{}, astPkg, xVar)
 		assert.False(t, result)
+	})
+
+	t.Run("ForeignFileSetPositionCollision", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.gox", "var x int")
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.gox": astFile})
+
+		localIdent := findIdent(astFile, "x")
+		require.NotNil(t, localIdent)
+		localVar := gotypes.NewVar(
+			localIdent.Pos(),
+			gotypes.NewPackage("main", "main"),
+			"x",
+			gotypes.Typ[gotypes.Int],
+		)
+		typeInfo := &types.Info{ObjToDef: map[gotypes.Object]*ast.Ident{localVar: localIdent}}
+
+		_, foreignFile, err := newTestFile("dep.gox", "var x int")
+		require.NoError(t, err)
+		foreignIdent := findIdent(foreignFile, "x")
+		require.NotNil(t, foreignIdent)
+		require.Equal(t, localIdent.Pos(), foreignIdent.Pos())
+		foreignVar := gotypes.NewVar(
+			foreignIdent.Pos(),
+			gotypes.NewPackage("example.com/dep", "dep"),
+			"x",
+			gotypes.Typ[gotypes.Int],
+		)
+
+		assert.False(t, IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, foreignVar))
 	})
 }
 
@@ -550,6 +565,58 @@ func TestPathEnclosingIntervalNodes(t *testing.T) {
 		for i := range forwardNodes {
 			assert.Equal(t, forwardNodes[i], backwardNodes[len(backwardNodes)-1-i])
 		}
+	})
+
+	t.Run("MatrixLit", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+echo [
+	1, item
+	row...
+]
+`)
+		require.NoError(t, err)
+
+		var rowIdent *ast.Ident
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if ident, ok := n.(*ast.Ident); ok && ident.Name == "row" {
+				rowIdent = ident
+				return false
+			}
+			return true
+		})
+		require.NotNil(t, rowIdent)
+
+		path, _ := PathEnclosingInterval(astFile, rowIdent.Pos(), rowIdent.End())
+		require.NotEmpty(t, path)
+		assert.Equal(t, rowIdent, path[0])
+		assert.NotNil(t, EnclosingNode[*ast.ElemEllipsis](path))
+		assert.NotNil(t, EnclosingNode[*ast.MatrixLit](path))
+		assert.NotNil(t, EnclosingNode[*ast.CallExpr](path))
+	})
+
+	t.Run("FuncDecorator", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+@retry("now")
+func test() {}
+`)
+		require.NoError(t, err)
+		require.Len(t, astFile.Decls, 1)
+
+		funcDecl := requireFuncDecl(t, astFile.Decls[0])
+		require.Len(t, funcDecl.Decorators, 1)
+		decorator := funcDecl.Decorators[0]
+
+		funIdent, ok := decorator.Fun.(*ast.Ident)
+		require.True(t, ok)
+		path, _ := PathEnclosingInterval(astFile, funIdent.Pos(), funIdent.End())
+		require.NotEmpty(t, path)
+		assert.Equal(t, funIdent, path[0])
+		assert.Equal(t, decorator, EnclosingNode[*ast.FuncDecorator](path))
+		assert.Equal(t, funcDecl, EnclosingNode[*ast.FuncDecl](path))
+
+		atPath, _ := PathEnclosingInterval(astFile, decorator.At, decorator.At+1)
+		require.NotEmpty(t, atPath)
+		assert.Equal(t, decorator, atPath[0])
 	})
 }
 

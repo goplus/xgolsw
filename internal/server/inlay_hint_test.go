@@ -68,6 +68,68 @@ onStart => {
 		assert.Equal(t, 3, hsbHintCount)
 	})
 
+	t.Run("FuncDecorator", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func retry(times int, fn func()) {
+	fn()
+}
+
+@retry(2)
+func run() {
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 7, Character: 0},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, inlayHints, InlayHint{
+			Position: Position{Line: 4, Character: 7},
+			Label:    "times",
+			Kind:     Parameter,
+		})
+	})
+
+	t.Run("PartialXGoxFunction", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`import "example.com/typeargs"
+
+onStart => {
+	typeargs.convert(string, 100)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
+
+		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 5, Character: 0},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{
+				Position: Position{Line: 3, Character: 18},
+				Label:    "To",
+				Kind:     Parameter,
+			},
+			{
+				Position: Position{Line: 3, Character: 26},
+				Label:    "src",
+				Kind:     Parameter,
+			},
+		}, inlayHints)
+	})
+
 	t.Run("EmptyFile", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(``),

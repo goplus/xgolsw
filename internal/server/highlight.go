@@ -138,6 +138,7 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 			case *ast.BinaryExpr,
 				*ast.UnaryExpr,
 				*ast.CallExpr,
+				*ast.FuncDecorator,
 				*ast.CompositeLit,
 				*ast.IndexExpr,
 				*ast.ReturnStmt,

@@ -51,14 +51,10 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		}
 		spxBaseSelectorTypeDoc := pkgDoc.typeDoc(spxBaseSelectorTypeName)
 
-		var firstVarBlock *ast.GenDecl
+		classFieldsDecl := astFile.ClassFieldsDecl()
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
 			case *ast.GenDecl:
-				if firstVarBlock == nil && decl.Tok == token.VAR {
-					firstVarBlock = decl
-				}
-
 				for _, spec := range decl.Specs {
 					var doc string
 					switch spec := spec.(type) {
@@ -84,7 +80,7 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 						for _, name := range spec.Names {
 							switch decl.Tok {
 							case token.VAR:
-								if decl == firstVarBlock {
+								if decl == classFieldsDecl {
 									spxBaseSelectorTypeDoc.Fields[name.Name] = doc
 								} else {
 									pkgDoc.Vars[name.Name] = doc
