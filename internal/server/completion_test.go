@@ -2863,7 +2863,7 @@ onStart => {}
 		items := itemsResult.([]CompletionItem)
 		assert.True(t, containsCompletionItemLabel(items, "onClick"))
 		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx/v2"),
+			Package: ToPtr("github.com/goplus/spx/v3"),
 			Name:    ToPtr("Sprite.onClick"),
 		}))
 		assert.True(t, containsCompletionItemLabel(items, "methodOne"))
@@ -3002,7 +3002,7 @@ showVar(
 		// Property method from embedded spx.SpriteImpl (e.g. "xpos" → "Xpos").
 		assert.True(t, containsCompletionItemLabel(items, `"xpos"`))
 		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx/v2"),
+			Package: ToPtr("github.com/goplus/spx/v3"),
 			Name:    ToPtr("Sprite.xpos"),
 		}))
 	})

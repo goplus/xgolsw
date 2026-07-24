@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const spxPkgPath = "github.com/goplus/spx/v2"
+const spxPkgPath = "github.com/goplus/spx/v3"
 
 func TestIsNamedStructType(t *testing.T) {
 	t.Run("NilNamedType", func(t *testing.T) {

@@ -690,7 +690,7 @@ interface XGoDefinitionIdentifier {
    *
    * For example:
    * - `fmt`
-   * - `github.com/goplus/spx/v2`
+   * - `github.com/goplus/spx/v3`
    * - `main`
    */
   package?: string;

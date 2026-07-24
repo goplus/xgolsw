@@ -401,7 +401,7 @@ var (
 )
 
 // SpxPkgPath is the path to the spx package.
-const SpxPkgPath = "github.com/goplus/spx/v2"
+const SpxPkgPath = "github.com/goplus/spx/v3"
 
 var (
 	// GetSpxPkg returns the spx package.
@@ -596,7 +596,7 @@ type nonMainPkgSpxDefCacheForVarsKey struct {
 // internal implementation package but is surfaced through a public spx type.
 func spxMemberDefinitionPkgPath(pkg *gotypes.Package, selectorTypeName string) string {
 	pkgPath := xgoutil.PkgPath(pkg)
-	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v2/internal/") {
+	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v3/internal/") {
 		return pkgPath
 	}
 	if GetSpxPkg().Scope().Lookup(selectorTypeName) != nil {

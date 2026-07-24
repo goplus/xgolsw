@@ -37,7 +37,7 @@ import (
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/gcexportdata"
 
-	_ "github.com/goplus/spx/v2"
+	_ "github.com/goplus/spx/v3"
 	_ "github.com/qiniu/x"
 )
 
@@ -150,8 +150,8 @@ var stdPkgPaths = []string{
 	// Required for XGo's ? error handling operator
 	"github.com/qiniu/x/errors",
 
-	"github.com/goplus/spx/v2",
-	"github.com/goplus/spx/v2/pkg/gdspx/pkg/engine",
+	"github.com/goplus/spx/v3",
+	"github.com/goplus/spx/v3/pkg/spx/pkg/engine",
 }
 
 // generate generates the package data file containing the exported symbols of

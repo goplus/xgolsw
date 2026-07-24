@@ -28,7 +28,7 @@ var spxProject = &modfile.Project{
 	Ext:      ".spx",
 	FullExt:  "main.spx",
 	Class:    "Game",
-	PkgPaths: []string{"github.com/goplus/spx/v2", "math"},
+	PkgPaths: []string{"github.com/goplus/spx/v3", "math"},
 	Works:    []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}},
 }
 
