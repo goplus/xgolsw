@@ -50,7 +50,7 @@ var (
 		})
 	})
 
-	t.Run("FuncDecorator", func(t *testing.T) {
+	t.Run("EnumAndFuncDecorator", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`import "time"
 
@@ -58,7 +58,9 @@ var (
 func run() {
 }
 
-type Marker int
+type Color const (
+	Red = iota
+)
 
 func retry(delay time.Duration, fn func()) {
 	fn()
@@ -75,7 +77,9 @@ func retry(delay time.Duration, fn func()) {
 		require.Len(t, edits, 1)
 		assert.Equal(t, `import "time"
 
-type Marker int
+type Color const (
+	Red = iota
+)
 
 @retry(time.Second)
 func run() {

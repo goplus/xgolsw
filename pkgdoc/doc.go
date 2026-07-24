@@ -39,20 +39,23 @@ type PkgDoc struct {
 // typeDoc returns the documentation for the given type name. It creates a new
 // [TypeDoc] if the type name is not found.
 func (p *PkgDoc) typeDoc(typeName string) *TypeDoc {
-	if _, ok := p.Types[typeName]; !ok {
-		p.Types[typeName] = &TypeDoc{
+	typeDoc, ok := p.Types[typeName]
+	if !ok {
+		typeDoc = &TypeDoc{
 			Fields:  make(map[string]string),
 			Methods: make(map[string]string),
 		}
+		p.Types[typeName] = typeDoc
 	}
-	return p.Types[typeName]
+	return typeDoc
 }
 
 // TypeDoc is the documentation for a type.
 type TypeDoc struct {
-	Doc     string
-	Fields  map[string]string
-	Methods map[string]string
+	Doc         string
+	Fields      map[string]string
+	Methods     map[string]string
+	EnumMembers map[string]string `json:",omitempty"`
 }
 
 // NewGo creates a new [PkgDoc] from the given Go [ast.Package].

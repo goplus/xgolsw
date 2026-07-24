@@ -40,6 +40,16 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position); hover != nil {
 		return hover, nil
 	}
+	if tokenFile := xgoutil.NodeTokenFile(result.proj.Fset, astFile); tokenFile != nil {
+		pos := tokenFile.Pos(position.Offset)
+		if member := result.enumInfo.declarationMemberAt(pos); member != nil {
+			def := result.spxDefinitionForEnumMembers(member)
+			return hoverForSpxDefs(result.proj, []SpxDefinition{def}, member.ident), nil
+		}
+		if ident, obj := result.enumInfo.regularConstDeclarationAt(pos); ident != nil {
+			return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, ""), ident), nil
+		}
+	}
 	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
 		return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident), nil

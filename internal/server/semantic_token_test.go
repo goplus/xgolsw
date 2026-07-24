@@ -197,7 +197,7 @@ done` + "`" + `
 		})
 	})
 
-	t.Run("FuncDecorator", func(t *testing.T) {
+	t.Run("EnumAndFuncDecorator", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`func retry(fn func()) {
 	fn()
@@ -205,6 +205,10 @@ done` + "`" + `
 
 @retry
 func run() {}
+
+type Color const (
+	Red = iota
+)
 `),
 		}
 		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
@@ -222,6 +226,282 @@ func run() {}
 			length:    1,
 			tokenType: OperatorType,
 		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      7,
+			character: 11,
+			length:    5,
+			tokenType: KeywordType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      7,
+			character: 5,
+			length:    5,
+			tokenType: EnumType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      8,
+			character: 1,
+			length:    3,
+			tokenType: EnumMemberType,
+		})
+	})
+
+	t.Run("EnumBlankIdentifier", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	_ = iota
+	Red
+)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.NotContains(t, decoded, decodedSemanticToken{
+			line:      1,
+			character: 1,
+			length:    1,
+			tokenType: EnumMemberType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      2,
+			character: 1,
+			length:    3,
+			tokenType: EnumMemberType,
+		})
+	})
+
+	t.Run("EnumMemberSharedWithRegularConstant", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	Shared = 1
+)
+
+type Color const (
+	Shared = 1
+)
+
+func run() {
+	println(Shared)
+	var color Color = (Shared)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		declarationMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{
+			ModDeclaration,
+			ModStatic,
+			ModReadonly,
+		})
+		referenceMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModStatic, ModReadonly})
+		for _, want := range []struct {
+			token decodedSemanticToken
+			mask  uint32
+		}{
+			{decodedSemanticToken{line: 1, character: 1, length: 6, tokenType: VariableType}, declarationMask},
+			{decodedSemanticToken{line: 5, character: 1, length: 6, tokenType: EnumMemberType}, declarationMask},
+			{decodedSemanticToken{line: 9, character: 9, length: 6, tokenType: VariableType}, referenceMask},
+			{decodedSemanticToken{line: 10, character: 20, length: 6, tokenType: EnumMemberType}, referenceMask},
+		} {
+			assert.Contains(t, decoded, want.token)
+			assertSemanticTokenModifierMask(t, tokens.Data, want.token, want.mask)
+		}
+	})
+
+	t.Run("CrossFileEnumReference", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`var color Color = Red
+`),
+			"enums.xgo": []byte(`type Color const (
+	Red = iota
+)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      0,
+			character: 10,
+			length:    5,
+			tokenType: EnumType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      0,
+			character: 18,
+			length:    3,
+			tokenType: EnumMemberType,
+		})
+	})
+
+	t.Run("EnumAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Shade = Color
+
+var color Shade = Red
+`),
+			"enums.xgo": []byte(`type Color const (
+	Red = iota
+)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		for _, want := range []decodedSemanticToken{
+			{line: 0, character: 5, length: 5, tokenType: EnumType},
+			{line: 0, character: 13, length: 5, tokenType: EnumType},
+			{line: 2, character: 10, length: 5, tokenType: EnumType},
+			{line: 2, character: 18, length: 3, tokenType: EnumMemberType},
+		} {
+			assert.Contains(t, decoded, want)
+		}
+	})
+
+	t.Run("EnumPointerAlias", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	Red = iota
+)
+
+type ColorPtr = *Color
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      4,
+			character: 5,
+			length:    8,
+			tokenType: TypeType,
+		})
+		assert.NotContains(t, decoded, decodedSemanticToken{
+			line:      4,
+			character: 5,
+			length:    8,
+			tokenType: EnumType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line:      4,
+			character: 17,
+			length:    5,
+			tokenType: EnumType,
+		})
+	})
+
+	t.Run("LocalEnum", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func run() {
+	type Color const (
+		Red = iota
+	)
+	var color Color = Red
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		for _, want := range []decodedSemanticToken{
+			{line: 1, character: 6, length: 5, tokenType: EnumType},
+			{line: 2, character: 2, length: 3, tokenType: EnumMemberType},
+			{line: 4, character: 11, length: 5, tokenType: EnumType},
+			{line: 4, character: 19, length: 3, tokenType: EnumMemberType},
+		} {
+			assert.Contains(t, decoded, want)
+		}
+		for _, unwanted := range []decodedSemanticToken{
+			{line: 1, character: 6, length: 5, tokenType: TypeType},
+			{line: 2, character: 2, length: 3, tokenType: VariableType},
+			{line: 4, character: 11, length: 5, tokenType: TypeType},
+			{line: 4, character: 19, length: 3, tokenType: VariableType},
+		} {
+			assert.NotContains(t, decoded, unwanted)
+		}
+	})
+
+	t.Run("DuplicateEnumMembers", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	Unknown = iota
+)
+
+type Second const (
+	Unknown = iota
+)
+
+var (
+	first First = Unknown
+	second Second = Unknown
+)
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+
+		decoded := decodeSemanticTokens(tokens.Data)
+		declarationMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{
+			ModDeclaration,
+			ModStatic,
+			ModReadonly,
+		})
+		referenceMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModStatic, ModReadonly})
+		for _, want := range []struct {
+			token decodedSemanticToken
+			mask  uint32
+		}{
+			{decodedSemanticToken{line: 1, character: 1, length: 7, tokenType: EnumMemberType}, declarationMask},
+			{decodedSemanticToken{line: 5, character: 1, length: 7, tokenType: EnumMemberType}, declarationMask},
+			{decodedSemanticToken{line: 9, character: 15, length: 7, tokenType: EnumMemberType}, referenceMask},
+			{decodedSemanticToken{line: 10, character: 17, length: 7, tokenType: EnumMemberType}, referenceMask},
+		} {
+			assert.Contains(t, decoded, want.token)
+			assertSemanticTokenModifierMask(t, tokens.Data, want.token, want.mask)
+		}
 	})
 
 	t.Run("ImportedPositionCollision", func(t *testing.T) {

@@ -3,6 +3,7 @@ package server
 import (
 	gotypes "go/types"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -282,6 +283,1085 @@ onStart => {
 		items := itemsResult.([]CompletionItem)
 		assert.True(t, containsCompletionItemLabel(items, "count"))
 		assert.False(t, containsCompletionItemLabel(items, "comment"))
+	})
+
+	t.Run("EnumType", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type TrafficLight const (
+	Red = iota
+)
+
+type Signal = TrafficLight
+
+func run() {
+	var light Tra
+	var signal Sig
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, tt := range []struct {
+			name     string
+			position Position
+			label    string
+		}{
+			{name: "Declaration", position: Position{Line: 7, Character: 14}, label: "TrafficLight"},
+			{name: "Alias", position: Position{Line: 8, Character: 15}, label: "Signal"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				item := completionItemByLabel(items, tt.label)
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, EnumCompletion, item.Kind)
+			})
+		}
+	})
+
+	t.Run("EnumValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const Result = "text"
+
+func run() {
+	type Color const (
+		// Red documentation.
+		Red = iota
+		Green
+	)
+
+	var color Color = R
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 9, Character: 20},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		item := completionItemByLabel(items, "Red")
+		require.NotNilf(t, item, "%v", completionItemLabels(items))
+		assert.Equal(t, EnumMemberCompletion, item.Kind)
+		require.NotNil(t, item.Documentation)
+		documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+		assert.Contains(t, documentation.Value, "Red documentation.")
+		assert.False(t, containsCompletionItemLabel(items, "Result"))
+	})
+
+	t.Run("StringEnumValueForIndex", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Word const (
+	Hello = "hello"
+)
+
+func run() {
+	var first byte = H[0]
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 5, Character: 19},
+			},
+		})
+		require.NoError(t, err)
+		items := requireValueAs[[]CompletionItem](t, itemsResult)
+		item := completionItemByLabel(items, "Hello")
+		require.NotNilf(t, item, "%v", completionItemLabels(items))
+		assert.Equal(t, EnumMemberCompletion, item.Kind)
+	})
+
+	t.Run("EnumValueForUnassignableTarget", func(t *testing.T) {
+		sourcePrefix := `type Color const (
+	Red = iota
+)
+
+type Size const (
+	Small = iota
+)
+
+func run() {
+`
+		for _, tt := range []struct {
+			name       string
+			assignment string
+			wantLabel  string
+		}{
+			{name: "DifferentEnum", assignment: "\tvar size Size = R", wantLabel: "Small"},
+			{name: "ConvertibleBasic", assignment: "\tvar number float64 = R"},
+			{name: "DereferenceOperand", assignment: "\tvar color Color = *R"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + tt.assignment + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position: Position{
+							Line:      uint32(strings.Count(sourcePrefix, "\n")),
+							Character: uint32(len(tt.assignment)),
+						},
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				assert.Falsef(t, containsCompletionItemLabel(items, "Red"), "%v", completionItemLabels(items))
+				if tt.wantLabel != "" {
+					assert.Truef(t, containsCompletionItemLabel(items, tt.wantLabel), "%v", completionItemLabels(items))
+				}
+			})
+		}
+	})
+
+	t.Run("EnumSwitchCase", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func run(value Second) {
+	switch value {
+	case U:
+	}
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 12, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		items := requireValueAs[[]CompletionItem](t, itemsResult)
+		item := completionItemByLabel(items, "Unknown")
+		require.NotNilf(t, item, "%v", completionItemLabels(items))
+		assert.Equal(t, 1, countCompletionItemLabel(items, "Unknown"))
+		assert.Equal(t, EnumMemberCompletion, item.Kind)
+		require.NotNil(t, item.Documentation)
+		documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+		assert.Contains(t, documentation.Value, "Second member documentation.")
+		assert.NotContains(t, documentation.Value, "First member documentation.")
+	})
+
+	t.Run("EnumBlankIdentifier", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	_ = iota
+	Red
+)
+
+func run() {
+	var color Color =
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 6, Character: 19},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.Falsef(t, containsCompletionItemLabel(items, "_"), "%v", completionItemLabels(items))
+		assert.Truef(t, containsCompletionItemLabel(items, "Red"), "%v", completionItemLabels(items))
+	})
+
+	t.Run("EnumMemberSharedWithRegularConstant", func(t *testing.T) {
+		sourcePrefix := `const (
+	// Regular documentation.
+	Shared = 1
+)
+
+type Color const (
+	// Enum documentation.
+	Shared = 1
+)
+
+func run() {
+`
+		for _, tt := range []struct {
+			name        string
+			assignment  string
+			position    Position
+			wantKind    CompletionItemKind
+			wantDoc     string
+			unwantedDoc string
+		}{
+			{
+				name:        "RegularContext",
+				assignment:  "\tvar value any = Sh",
+				position:    Position{Line: 11, Character: 19},
+				wantKind:    ConstantCompletion,
+				wantDoc:     "Regular documentation.",
+				unwantedDoc: "Enum documentation.",
+			},
+			{
+				name:        "EnumContext",
+				assignment:  "\tvar value Color = Sh",
+				position:    Position{Line: 11, Character: 21},
+				wantKind:    EnumMemberCompletion,
+				wantDoc:     "Enum documentation.",
+				unwantedDoc: "Regular documentation.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + tt.assignment + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				items := itemsResult.([]CompletionItem)
+				item := completionItemByLabel(items, "Shared")
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, 1, countCompletionItemLabel(items, "Shared"))
+				assert.Equal(t, tt.wantKind, item.Kind)
+				require.NotNil(t, item.Documentation)
+				documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				assert.Contains(t, documentation.Value, tt.wantDoc)
+				assert.NotContains(t, documentation.Value, tt.unwantedDoc)
+			})
+		}
+	})
+
+	t.Run("EnumMemberShadowedByLocal", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	// Enum documentation.
+	Red = iota
+)
+
+func run() {
+	var Red Color
+	var color Color = R
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 20},
+			},
+		})
+		require.NoError(t, err)
+		items := requireValueAs[[]CompletionItem](t, itemsResult)
+		item := completionItemByLabel(items, "Red")
+		require.NotNilf(t, item, "%v", completionItemLabels(items))
+		assert.Equal(t, VariableCompletion, item.Kind)
+		require.NotNil(t, item.Documentation)
+		documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+		assert.NotContains(t, documentation.Value, "Enum documentation.")
+	})
+
+	t.Run("EnumValueForBroadAssignmentTarget", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	Red = iota
+)
+
+func run() {
+	var declared any = R
+	var assigned any
+	assigned = R
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, position := range []Position{
+			{Line: 5, Character: 21},
+			{Line: 7, Character: 13},
+		} {
+			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     position,
+				},
+			})
+			require.NoError(t, err)
+			items := itemsResult.([]CompletionItem)
+			item := completionItemByLabel(items, "Red")
+			require.NotNilf(t, item, "%v", completionItemLabels(items))
+			assert.Equal(t, EnumMemberCompletion, item.Kind)
+		}
+	})
+
+	t.Run("EnumValueForBasicTypeContext", func(t *testing.T) {
+		sourcePrefix := `type Integer const (
+	IntegerValue = iota
+)
+
+type Float const (
+	FloatValue = 1.5
+)
+
+type ComplexNumber const (
+	ComplexValue = 1i
+)
+
+type Text const (
+	StringValue = "value"
+)
+
+type Toggle const (
+	BoolValue = true
+)
+
+var integerMap map[Integer]int
+var integers []Integer
+var bytes []byte
+
+func run() {
+`
+		labels := []string{"IntegerValue", "FloatValue", "ComplexValue", "StringValue", "BoolValue"}
+		for _, tt := range []struct {
+			name       string
+			expression string
+			wantLabels []string
+		}{
+			{name: "IfCondition", expression: "\tif I {}", wantLabels: []string{"BoolValue"}},
+			{name: "ForCondition", expression: "\tfor I {}", wantLabels: []string{"BoolValue"}},
+			{name: "LogicalOperand", expression: "\t_ = true && I", wantLabels: []string{"BoolValue"}},
+			{name: "UnaryNot", expression: "\t_ = !I", wantLabels: []string{"BoolValue"}},
+			{name: "UnaryAdd", expression: "\t_ = +I", wantLabels: []string{"IntegerValue", "FloatValue", "ComplexValue"}},
+			{
+				name:       "NumericAddition",
+				expression: "\t_ = 1 + I",
+				wantLabels: []string{"IntegerValue", "FloatValue", "ComplexValue"},
+			},
+			{
+				name:       "FractionalAddition",
+				expression: "\t_ = 1.5 + I",
+				wantLabels: []string{"FloatValue", "ComplexValue"},
+			},
+			{
+				name:       "IntegralFloatAddition",
+				expression: "\t_ = 1.0 + I",
+				wantLabels: []string{"IntegerValue", "FloatValue", "ComplexValue"},
+			},
+			{name: "ImaginaryAddition", expression: "\t_ = 1i + I", wantLabels: []string{"ComplexValue"}},
+			{name: "StringAddition", expression: "\t_ = \"\" + I", wantLabels: []string{"StringValue"}},
+			{
+				name:       "Subtraction",
+				expression: "\t_ = 1 - I",
+				wantLabels: []string{"IntegerValue", "FloatValue", "ComplexValue"},
+			},
+			{name: "BitwiseOperand", expression: "\t_ = 1 & I", wantLabels: []string{"IntegerValue"}},
+			{name: "BooleanComparison", expression: "\t_ = I == false", wantLabels: []string{"BoolValue"}},
+			{name: "NumericComparison", expression: "\t_ = I < 1", wantLabels: []string{"IntegerValue", "FloatValue"}},
+			{name: "StringComparison", expression: "\t_ = I < \"\"", wantLabels: []string{"StringValue"}},
+			{name: "NilComparison", expression: "\t_ = I == nil"},
+			{name: "ShiftCount", expression: "\t_ = 1 << I", wantLabels: []string{"IntegerValue"}},
+			{name: "Index", expression: "\t_ = []int{1}[I]", wantLabels: []string{"IntegerValue"}},
+			{name: "SliceBound", expression: "\t_ = []int{1}[I:]", wantLabels: []string{"IntegerValue"}},
+			{name: "CompositeLiteralIndex", expression: "\t_ = []int{I: 1}", wantLabels: []string{"IntegerValue"}},
+			{name: "IndexContainer", expression: "\t_ = I[0]", wantLabels: []string{"StringValue"}},
+			{name: "Len", expression: "\t_ = len(I)", wantLabels: []string{"StringValue"}},
+			{name: "Cap", expression: "\t_ = cap(I)"},
+			{name: "MakeLength", expression: "\t_ = make([]int, I)", wantLabels: []string{"IntegerValue"}},
+			{name: "ComplexReal", expression: "\t_ = complex(I, 1)", wantLabels: []string{"FloatValue"}},
+			{name: "Real", expression: "\t_ = real(I)", wantLabels: []string{"ComplexValue"}},
+			{name: "AppendElement", expression: "\t_ = append(integers, I)", wantLabels: []string{"IntegerValue"}},
+			{name: "AppendString", expression: "\t_ = append(bytes, I...)", wantLabels: []string{"StringValue"}},
+			{name: "AppendListContainer", expression: "\t_ = append([I], IntegerValue)", wantLabels: []string{"IntegerValue"}},
+			{name: "AppendListContainerString", expression: "\t_ = append([I], \"value\"...)"},
+			{name: "AppendableSend", expression: "\tintegers <- I", wantLabels: []string{"IntegerValue"}},
+			{name: "AppendableSendString", expression: "\tbytes <- I...", wantLabels: []string{"StringValue"}},
+			{name: "AppendableSendEllipsis", expression: "\tintegers <- I..."},
+			{name: "DeleteKey", expression: "\tdelete(integerMap, I)", wantLabels: []string{"IntegerValue"}},
+			{name: "AppendContainer", expression: "\t_ = append(I, IntegerValue)"},
+			{name: "Clear", expression: "\tclear(I)"},
+			{name: "Close", expression: "\tclose(I)"},
+			{name: "Copy", expression: "\t_ = copy(I, integers)"},
+			{name: "CopyString", expression: "\t_ = copy(bytes, I)", wantLabels: []string{"StringValue"}},
+			{name: "CopyListSource", expression: "\t_ = copy(integers, [I])", wantLabels: []string{"IntegerValue"}},
+			{name: "CopyListDestination", expression: "\t_ = copy([I], integers)", wantLabels: []string{"IntegerValue"}},
+			{name: "IncompleteCopyDestination", expression: "\t_ = copy([I])", wantLabels: labels},
+			{name: "New", expression: "\t_ = new(I)"},
+			{name: "Range", expression: "\tfor value <- I { _ = value }", wantLabels: []string{"IntegerValue", "StringValue"}},
+			{name: "RangeExpressionStart", expression: "\tfor value <- I:10 { _ = value }", wantLabels: []string{"IntegerValue", "FloatValue"}},
+			{
+				name:       "ListComprehensionRange",
+				expression: "\t_ = [value for value <- I]",
+				wantLabels: []string{"IntegerValue", "StringValue"},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + tt.expression + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position: Position{
+							Line:      uint32(strings.Count(sourcePrefix, "\n")),
+							Character: uint32(strings.Index(tt.expression, "I") + 1),
+						},
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				for _, label := range labels {
+					item := completionItemByLabel(items, label)
+					if slices.Contains(tt.wantLabels, label) {
+						require.NotNilf(t, item, "%v", completionItemLabels(items))
+						assert.Equal(t, EnumMemberCompletion, item.Kind)
+					} else {
+						assert.Nilf(t, item, "%v", completionItemLabels(items))
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("EnumValueForPointerTarget", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	Red = iota
+)
+
+func use(*Color) {}
+
+func run() {
+	use(R)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 6},
+			},
+		})
+		require.NoError(t, err)
+		items := itemsResult.([]CompletionItem)
+		assert.Falsef(t, containsCompletionItemLabel(items, "Red"), "%v", completionItemLabels(items))
+	})
+
+	t.Run("EnumValueForPointerConversionTarget", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type Color const (
+	Red = iota
+)
+
+type ColorPtr = *Color
+
+func run() {
+	_ = ColorPtr(R)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 15},
+			},
+		})
+		require.NoError(t, err)
+		items := requireValueAs[[]CompletionItem](t, itemsResult)
+		assert.Falsef(t, containsCompletionItemLabel(items, "Red"), "%v", completionItemLabels(items))
+	})
+
+	t.Run("EnumValueForExplicitConversion", func(t *testing.T) {
+		sourcePrefix := `type Color const (
+	Red = iota
+)
+
+type Size const (
+	Small = iota
+)
+
+func run() {
+`
+		for _, tt := range []struct {
+			name       string
+			expression string
+		}{
+			{name: "Direct", expression: "R"},
+			{name: "BinaryExpression", expression: "R + 1"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				line := "\t_ = Size(" + tt.expression + ")"
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + line + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position: Position{
+							Line:      uint32(strings.Count(sourcePrefix, "\n")),
+							Character: uint32(strings.Index(line, "R") + len("R")),
+						},
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				item := completionItemByLabel(items, "Red")
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, EnumMemberCompletion, item.Kind)
+			})
+		}
+	})
+
+	t.Run("DuplicateEnumValue", func(t *testing.T) {
+		sourcePrefix := `type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func run() {
+`
+		for _, tt := range []struct {
+			name        string
+			assignment  string
+			position    Position
+			wantDoc     string
+			unwantedDoc string
+		}{
+			{
+				name:        "First",
+				assignment:  "\tvar value First = Un",
+				position:    Position{Line: 11, Character: 21},
+				wantDoc:     "First member documentation.",
+				unwantedDoc: "Second member documentation.",
+			},
+			{
+				name:        "Second",
+				assignment:  "\tvar value Second = U",
+				position:    Position{Line: 11, Character: 21},
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + tt.assignment + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				items := itemsResult.([]CompletionItem)
+				item := completionItemByLabel(items, "Unknown")
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, 1, countCompletionItemLabel(items, "Unknown"))
+				assert.Equal(t, EnumMemberCompletion, item.Kind)
+				require.NotNil(t, item.Documentation)
+				documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				assert.Contains(t, documentation.Value, tt.wantDoc)
+				assert.NotContains(t, documentation.Value, tt.unwantedDoc)
+				assert.Falsef(t, containsCompletionItemLabel(items, "_Unknown_1"), "%v", completionItemLabels(items))
+				assert.Falsef(t, containsCompletionItemLabel(items, "_Unknown_2"), "%v", completionItemLabels(items))
+			})
+		}
+	})
+
+	t.Run("ContextualDuplicateEnumValue", func(t *testing.T) {
+		sourcePrefix := `type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func useSlice([]Second) {}
+func useMatrix([][]Second) {}
+
+func run(second Second, values map[Second]int, ch chan Second) {
+`
+		for _, tt := range []struct {
+			name         string
+			expression   string
+			wantFirstDoc bool
+		}{
+			{name: "SliceLiteral", expression: "\t_ = []Second{Un}"},
+			{name: "BinaryExpression", expression: "\t_ = second == Un"},
+			{name: "BinaryWithUntypedOperand", expression: "\tvar value Second = Un + 1"},
+			{name: "UnaryExpression", expression: "\tvar value Second = +Un"},
+			{name: "MapIndex", expression: "\t_ = values[Un]"},
+			{name: "Send", expression: "\tch <- Un"},
+			{name: "ShiftCount", expression: "\t_ = second << Un", wantFirstDoc: true},
+			{name: "SliceBound", expression: "\tvar slice []int = []int{1}[Un:]", wantFirstDoc: true},
+			{name: "XGoSliceLiteral", expression: "\tuseSlice([Un])"},
+			{name: "XGoMatrixLiteral", expression: "\tuseMatrix([Un; Unknown])"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				m := map[string][]byte{
+					"main.spx": []byte(sourcePrefix + tt.expression + "\n}\n"),
+				}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position: Position{
+							Line:      uint32(strings.Count(sourcePrefix, "\n")),
+							Character: uint32(strings.Index(tt.expression, "Un") + len("Un")),
+						},
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				item := completionItemByLabel(items, "Unknown")
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, EnumMemberCompletion, item.Kind)
+				require.NotNil(t, item.Documentation)
+				documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				assert.Contains(t, documentation.Value, "Second member documentation.")
+				if tt.wantFirstDoc {
+					assert.Contains(t, documentation.Value, "First member documentation.")
+				} else {
+					assert.NotContains(t, documentation.Value, "First member documentation.")
+				}
+			})
+		}
+	})
+
+	t.Run("EnumValueForXGoExpressionContext", func(t *testing.T) {
+		declarations := `type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+type Unique const (
+	SecondValue = iota
+)
+
+type Key const (
+	KeyValue = iota
+)
+
+type Element const (
+	ElementValue = iota
+)
+
+type RangeValue const (
+	RangeStart = iota
+	RangeEnd
+	RangeStep
+)
+
+type OtherRange const (
+	OtherRangeValue = iota
+)
+
+type FirstText const (
+	TextFirst = "first"
+)
+
+type SecondText const (
+	TextSecond = "second"
+)
+
+type FirstToggle const (
+	FirstEnabled = true
+)
+
+type SecondToggle const (
+	SecondEnabled = true
+)
+
+func loadSecond() (Second, error) { return Unknown, nil }
+
+`
+		for _, tt := range []struct {
+			name        string
+			body        string
+			cursorText  string
+			label       string
+			absentLabel string
+			wantDoc     string
+			unwantedDoc string
+		}{
+			{
+				name: "TupleFirstElement",
+				body: `func use(First, Second) {}
+
+func run() {
+	use((Un, Unknown))
+}
+`,
+				cursorText:  "Un,",
+				label:       "Unknown",
+				wantDoc:     "First member documentation.",
+				unwantedDoc: "Second member documentation.",
+			},
+			{
+				name: "TupleSecondElement",
+				body: `func use(First, Second) {}
+
+func run() {
+	use((Unknown, Un))
+}
+`,
+				cursorText:  "Un))",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "ListComprehensionElement",
+				body: `func run() {
+	var values []Unique = [Se for _ <- [1]]
+}
+`,
+				cursorText: "Se for",
+				label:      "SecondValue",
+			},
+			{
+				name: "MapComprehensionKey",
+				body: `func run() {
+	var values map[Key]Element = {Ke: ElementValue for _ <- [1]}
+}
+`,
+				cursorText: "Ke:",
+				label:      "KeyValue",
+			},
+			{
+				name: "MapComprehensionValue",
+				body: `func run() {
+	var values map[Key]Element = {KeyValue: El for _ <- [1]}
+}
+`,
+				cursorText: "El for",
+				label:      "ElementValue",
+			},
+			{
+				name: "NestedMapComprehensionValue",
+				body: `func run() {
+	var values map[Key][]Element = {KeyValue: [El] for _ <- [1]}
+}
+`,
+				cursorText: "El]",
+				label:      "ElementValue",
+			},
+			{
+				name: "LambdaResult",
+				body: `func use(func() Second) {}
+
+func run() {
+	use(=> Un)
+}
+`,
+				cursorText:  "Un)",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "AppendNestedList",
+				body: `var values [][]Second
+
+func run() {
+	_ = append(values, [Un])
+}
+`,
+				cursorText:  "Un]",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "AppendNestedListEllipsis",
+				body: `var values []Second
+
+func run() {
+	_ = append(values, [Un]...)
+}
+`,
+				cursorText:  "Un]",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "AppendLambda",
+				body: `var funcs []func() Second
+
+func run() {
+	_ = append(funcs, => Un)
+}
+`,
+				cursorText:  "Un)",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "LambdaBlockReturn",
+				body: `func use(func() Second) {}
+
+func run() {
+	use(=> { return Un })
+}
+`,
+				cursorText:  "Un }",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "LambdaCollectionResult",
+				body: `func use(func() []Second) {}
+
+func run() {
+	use(=> [Un])
+}
+`,
+				cursorText:  "Un]",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "LambdaSelectComprehensionResult",
+				body: `func use(func() Second) {}
+
+func run() {
+	use(=> ({Un for _ <- [1]}))
+}
+`,
+				cursorText:  "Un for",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "LambdaErrorWrapDefault",
+				body: `func use(func() Second) {}
+
+func run() {
+	use(=> loadSecond()?:Un)
+}
+`,
+				cursorText:  "Un)",
+				label:       "Unknown",
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+			{
+				name: "LambdaStringSliceResult",
+				body: `func use(func() SecondText) {}
+
+func run() {
+	use(=> Te[:])
+}
+`,
+				cursorText:  "Te[:",
+				label:       "TextSecond",
+				absentLabel: "TextFirst",
+			},
+			{
+				name: "CompoundShiftCount",
+				body: `func run() {
+	var value First = Unknown
+	value <<= Se
+}
+`,
+				cursorText: "Se\n",
+				label:      "SecondValue",
+			},
+			{
+				name: "LogicalExpressionResult",
+				body: `func run() {
+	var value SecondToggle = Se && true
+}
+`,
+				cursorText:  "Se &&",
+				label:       "SecondEnabled",
+				absentLabel: "FirstEnabled",
+			},
+			{
+				name: "RangeExpressionEnd",
+				body: `func run() {
+	for value <- RangeStart:Ra { _ = value }
+}
+`,
+				cursorText:  "Ra {",
+				label:       "RangeEnd",
+				absentLabel: "OtherRangeValue",
+			},
+			{
+				name: "RangeExpressionStep",
+				body: `func run() {
+	for value <- RangeStart:RangeEnd:Ra { _ = value }
+}
+`,
+				cursorText:  "Ra {",
+				label:       "RangeStep",
+				absentLabel: "OtherRangeValue",
+			},
+			{
+				name: "RangeExpressionDefaultStart",
+				body: `func run() {
+	for value <- :Ra { _ = value }
+}
+`,
+				cursorText:  "Ra {",
+				absentLabel: "RangeEnd",
+			},
+			{
+				name: "AssignmentTarget",
+				body: `func run() {
+	Un = 1
+}
+`,
+				cursorText:  "Un =",
+				absentLabel: "Unknown",
+			},
+			{
+				name: "IncrementTarget",
+				body: `func run() {
+	Un++
+}
+`,
+				cursorText:  "Un++",
+				absentLabel: "Unknown",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := declarations + tt.body
+				offset := strings.LastIndex(source, tt.cursorText)
+				require.NotEqual(t, -1, offset)
+				offset += 2
+				prefix := source[:offset]
+				m := map[string][]byte{"main.spx": []byte(source)}
+				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position: Position{
+							Line:      uint32(strings.Count(prefix, "\n")),
+							Character: uint32(len(prefix) - strings.LastIndex(prefix, "\n") - 1),
+						},
+					},
+				})
+				require.NoError(t, err)
+				items := requireValueAs[[]CompletionItem](t, itemsResult)
+				if tt.absentLabel != "" {
+					assert.Nilf(t, completionItemByLabel(items, tt.absentLabel), "%v", completionItemLabels(items))
+				}
+				if tt.label == "" {
+					return
+				}
+				item := completionItemByLabel(items, tt.label)
+				require.NotNilf(t, item, "%v", completionItemLabels(items))
+				assert.Equal(t, EnumMemberCompletion, item.Kind)
+				if tt.wantDoc == "" {
+					return
+				}
+				require.NotNil(t, item.Documentation)
+				documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				assert.Contains(t, documentation.Value, tt.wantDoc)
+				assert.NotContains(t, documentation.Value, tt.unwantedDoc)
+			})
+		}
+	})
+
+	t.Run("OverloadedDuplicateEnumValue", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func useFirst(First) {}
+func useSecond(Second) {}
+func use = (
+	useFirst
+	useSecond
+)
+
+func run() {
+	use(Un)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 18, Character: 7},
+			},
+		})
+		require.NoError(t, err)
+		items := requireValueAs[[]CompletionItem](t, itemsResult)
+		item := completionItemByLabel(items, "Unknown")
+		require.NotNilf(t, item, "%v", completionItemLabels(items))
+		require.NotNil(t, item.Documentation)
+		documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
+		assert.Contains(t, documentation.Value, "First member documentation.")
+		assert.Contains(t, documentation.Value, "Second member documentation.")
 	})
 
 	t.Run("InStringLit", func(t *testing.T) {

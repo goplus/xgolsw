@@ -35,6 +35,9 @@ var errNoMainSpxFile = errors.New("no valid main.spx file found in main package"
 type compileResult struct {
 	proj *xgo.Project
 
+	// enumInfo stores source-level enum types and members.
+	enumInfo *enumInfo
+
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
 
@@ -69,6 +72,7 @@ type compileResult struct {
 func newCompileResult(proj *xgo.Project) *compileResult {
 	return &compileResult{
 		proj:                          proj,
+		enumInfo:                      &enumInfo{},
 		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
 		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
@@ -94,18 +98,31 @@ func (r *compileResult) spxDefinitionsFor(obj gotypes.Object, selectorTypeName s
 		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
 	}
 
-	typeInfo, _ := r.proj.TypeInfo()
 	switch obj := obj.(type) {
 	case *gotypes.Var:
+		typeInfo, _ := r.proj.TypeInfo()
 		astPkg, _ := r.proj.ASTPackage()
 		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, obj)
 		return []SpxDefinition{GetSpxDefinitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
 	case *gotypes.Const:
+		if r.enumInfo.isRegularConstObject(obj) {
+			return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
+		}
+		if r.enumInfo.isSyntheticObject(obj) {
+			return nil
+		}
+		if members := r.enumInfo.membersForObject(obj); len(members) > 0 {
+			return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
+		}
 		return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
 	case *gotypes.TypeName:
-		return []SpxDefinition{GetSpxDefinitionForType(obj, pkgDoc)}
+		def := GetSpxDefinitionForType(obj, pkgDoc)
+		if r.enumInfo.typeFor(obj.Type()) != nil {
+			def.CompletionItemKind = EnumCompletion
+		}
+		return []SpxDefinition{def}
 	case *gotypes.Func:
-		if typeInfo != nil {
+		if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
 			if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil && defIdent.Implicit() {
 				return nil
 			}
@@ -138,7 +155,11 @@ func (r *compileResult) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefinition
 	if typeInfo == nil {
 		return nil
 	}
-	return r.spxDefinitionsFor(typeInfo.ObjectOf(ident), SelectorTypeNameForIdent(r.proj, ident))
+	if members := r.enumMembersForIdent(typeInfo, ident); len(members) > 0 {
+		return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
+	}
+	obj := r.enumInfo.objectForIdent(typeInfo, ident)
+	return r.spxDefinitionsFor(obj, SelectorTypeNameForIdent(r.proj, ident))
 }
 
 // spxDefinitionsForNamedStruct returns all spx definitions for the given named
@@ -449,6 +470,8 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			handleErr(err)
 		}
 	}
+	astPkg, _ := snapshot.ASTPackage()
+	result.enumInfo = newEnumInfo(astPkg, typeInfo)
 	pkg := typeInfo.Pkg
 
 	for file := range snapshot.Files() {

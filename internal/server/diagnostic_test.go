@@ -98,6 +98,31 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 		assert.Empty(t, fullReport.Items)
 	})
 
+	t.Run("LocalEnum", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func check() {
+	type Permission const (
+		Read = 1 << iota
+		Write
+	)
+	var permission Permission = Write
+	println(permission)
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, report)
+
+		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
+		assert.Empty(t, fullReport.Items)
+	})
+
 	t.Run("FuncDecoratorResourceArgument", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`func withSound(sound SoundName, fn func()) {

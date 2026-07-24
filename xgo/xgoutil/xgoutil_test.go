@@ -594,6 +594,24 @@ echo [
 		assert.NotNil(t, EnclosingNode[*ast.CallExpr](path))
 	})
 
+	t.Run("EnumType", func(t *testing.T) {
+		_, astFile, err := newTestFile("main.xgo", `
+type Color const (
+	Red = iota
+)
+`)
+		require.NoError(t, err)
+
+		redIdent := findIdent(astFile, "Red")
+		require.NotNil(t, redIdent)
+
+		path, _ := PathEnclosingInterval(astFile, redIdent.Pos(), redIdent.End())
+		require.NotEmpty(t, path)
+		assert.Equal(t, redIdent, path[0])
+		assert.NotNil(t, EnclosingNode[*ast.ValueSpec](path))
+		assert.NotNil(t, EnclosingNode[*ast.EnumType](path))
+	})
+
 	t.Run("FuncDecorator", func(t *testing.T) {
 		_, astFile, err := newTestFile("main.xgo", `
 @retry("now")

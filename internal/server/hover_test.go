@@ -856,6 +856,388 @@ onStart => {
 		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) main.Params"`)
 	})
 
+	t.Run("DuplicateEnumMembers", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+var (
+	first First = Unknown
+	second Second = Unknown
+)
+
+echo Unknown
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		hoverAt := func(line, character uint32) *Hover {
+			hover, err := s.textDocumentHover(&HoverParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     Position{Line: line, Character: character},
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			return hover
+		}
+
+		firstDeclaration := hoverAt(2, 2)
+		assert.Contains(t, firstDeclaration.Contents.Value, "First member documentation.")
+		assert.NotContains(t, firstDeclaration.Contents.Value, "Second member documentation.")
+
+		firstReference := hoverAt(11, 16)
+		assert.Contains(t, firstReference.Contents.Value, "First member documentation.")
+		assert.NotContains(t, firstReference.Contents.Value, "Second member documentation.")
+
+		secondReference := hoverAt(12, 18)
+		assert.NotContains(t, secondReference.Contents.Value, "First member documentation.")
+		assert.Contains(t, secondReference.Contents.Value, "Second member documentation.")
+
+		ambiguousReference := hoverAt(15, 6)
+		assert.Contains(t, ambiguousReference.Contents.Value, "First.Unknown:")
+		assert.Contains(t, ambiguousReference.Contents.Value, "First member documentation.")
+		assert.Contains(t, ambiguousReference.Contents.Value, "Second.Unknown:")
+		assert.Contains(t, ambiguousReference.Contents.Value, "Second member documentation.")
+	})
+
+	t.Run("EnumMemberSharedWithRegularConstant", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	// Regular documentation.
+	Shared = 1
+)
+
+type Color const (
+	// Enum documentation.
+	Shared = 1
+)
+
+func run() {
+	println(Shared)
+	var color Color = Shared
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, tt := range []struct {
+			name        string
+			position    Position
+			wantDoc     string
+			unwantedDoc string
+		}{
+			{
+				name:        "RegularDeclaration",
+				position:    Position{Line: 2, Character: 2},
+				wantDoc:     "Regular documentation.",
+				unwantedDoc: "Enum documentation.",
+			},
+			{
+				name:        "RegularReference",
+				position:    Position{Line: 11, Character: 10},
+				wantDoc:     "Regular documentation.",
+				unwantedDoc: "Enum documentation.",
+			},
+			{
+				name:        "EnumDeclaration",
+				position:    Position{Line: 7, Character: 2},
+				wantDoc:     "Enum documentation.",
+				unwantedDoc: "Regular documentation.",
+			},
+			{
+				name:        "EnumReference",
+				position:    Position{Line: 12, Character: 20},
+				wantDoc:     "Enum documentation.",
+				unwantedDoc: "Regular documentation.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				hover, err := s.textDocumentHover(&HoverParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, tt.wantDoc)
+				assert.NotContains(t, hover.Contents.Value, tt.unwantedDoc)
+			})
+		}
+	})
+
+	t.Run("ParenthesizedDuplicateEnumMembers", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func use(Second) {}
+
+func run() {
+	var value Second = (Unknown)
+	use((Unknown))
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, position := range []Position{
+			{Line: 13, Character: 22},
+			{Line: 14, Character: 7},
+		} {
+			hover, err := s.textDocumentHover(&HoverParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     position,
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, "Second member documentation.")
+			assert.NotContains(t, hover.Contents.Value, "First member documentation.")
+		}
+	})
+
+	t.Run("TupleDuplicateEnumMembers", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func use(First, Second) {}
+
+func run() {
+	use((Unknown, Unknown))
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, tt := range []struct {
+			name        string
+			position    Position
+			wantDoc     string
+			unwantedDoc string
+		}{
+			{
+				name:        "FirstElement",
+				position:    Position{Line: 13, Character: 8},
+				wantDoc:     "First member documentation.",
+				unwantedDoc: "Second member documentation.",
+			},
+			{
+				name:        "SecondElement",
+				position:    Position{Line: 13, Character: 17},
+				wantDoc:     "Second member documentation.",
+				unwantedDoc: "First member documentation.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				hover, err := s.textDocumentHover(&HoverParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, tt.wantDoc)
+				assert.NotContains(t, hover.Contents.Value, tt.unwantedDoc)
+			})
+		}
+	})
+
+	t.Run("ContextualDuplicateEnumMembers", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+type Pair struct {
+	Left Second
+	Right Second
+}
+
+func returnSecond() Second {
+	return Unknown
+}
+
+func run(second Second) {
+	second = Unknown
+	switch second {
+	case Unknown:
+	}
+	_ = Unknown == second
+	_ = second == Unknown
+	_ = []Second{Unknown}
+	_ = [1]Second{Unknown}
+	_ = Pair{Unknown, Unknown}
+	_ = Pair{Left: Unknown}
+	_ = map[Second]Second{Unknown: Unknown}
+	var unary Second = +Unknown
+	values := map[Second]int{Unknown: 1}
+	_ = values[Unknown]
+	ch := make(chan Second, 1)
+	ch <- Unknown
+	var binary Second = Unknown + 1
+	_ = second << Unknown
+	var slice []int = []int{1}[Unknown:]
+	var collection []Second = [Unknown]
+	literal := func() Second { return Unknown }
+	_ = literal
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, tt := range []struct {
+			name     string
+			position Position
+		}{
+			{name: "ReturnFuncDecl", position: Position{Line: 16, Character: 9}},
+			{name: "Assignment", position: Position{Line: 20, Character: 11}},
+			{name: "SwitchCase", position: Position{Line: 22, Character: 7}},
+			{name: "BinaryLeft", position: Position{Line: 24, Character: 6}},
+			{name: "BinaryRight", position: Position{Line: 25, Character: 16}},
+			{name: "SliceLiteral", position: Position{Line: 26, Character: 15}},
+			{name: "ArrayLiteral", position: Position{Line: 27, Character: 16}},
+			{name: "StructPositionalFirst", position: Position{Line: 28, Character: 11}},
+			{name: "StructPositionalSecond", position: Position{Line: 28, Character: 19}},
+			{name: "StructKeyed", position: Position{Line: 29, Character: 17}},
+			{name: "MapKey", position: Position{Line: 30, Character: 24}},
+			{name: "MapValue", position: Position{Line: 30, Character: 33}},
+			{name: "UnaryExpression", position: Position{Line: 31, Character: 22}},
+			{name: "MapIndex", position: Position{Line: 33, Character: 13}},
+			{name: "Send", position: Position{Line: 35, Character: 8}},
+			{name: "BinaryWithUntypedOperand", position: Position{Line: 36, Character: 22}},
+			{name: "XGoSliceLiteral", position: Position{Line: 39, Character: 29}},
+			{name: "ReturnFuncLit", position: Position{Line: 40, Character: 36}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				hover, err := s.textDocumentHover(&HoverParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, "Second member documentation.")
+				assert.NotContains(t, hover.Contents.Value, "First member documentation.")
+			})
+		}
+
+		for _, tt := range []struct {
+			name     string
+			position Position
+		}{
+			{name: "ShiftCount", position: Position{Line: 37, Character: 16}},
+			{name: "SliceBound", position: Position{Line: 38, Character: 29}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				hover, err := s.textDocumentHover(&HoverParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						Position:     tt.position,
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, "First member documentation.")
+				assert.Contains(t, hover.Contents.Value, "Second member documentation.")
+			})
+		}
+	})
+
+	t.Run("ContextualDuplicateEnumMemberInLambda", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`type First const (
+	// First member documentation.
+	Unknown = iota
+)
+
+type Second const (
+	// Second member documentation.
+	Unknown = iota
+)
+
+func use(func() Second) {}
+
+func run() {
+	use(=> Unknown)
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 13, Character: 9},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Contains(t, hover.Contents.Value, "Second member documentation.")
+		assert.NotContains(t, hover.Contents.Value, "First member documentation.")
+	})
+
+	t.Run("LocalEnumMember", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`func run() {
+	type Color const (
+		// Local red documentation.
+		Red = iota
+	)
+	var color Color = Red
+}
+`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		for _, position := range []Position{
+			{Line: 3, Character: 2},
+			{Line: 5, Character: 20},
+		} {
+			hover, err := s.textDocumentHover(&HoverParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					Position:     position,
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, "Local red documentation.")
+		}
+	})
+
 	t.Run("XGoUnit", func(t *testing.T) {
 		s := newXGoUnitTestServer(xgoUnitCompletionSource)
 
