@@ -151,7 +151,7 @@ var stdPkgPaths = []string{
 	"github.com/qiniu/x/errors",
 
 	"github.com/goplus/spx/v3",
-	"github.com/goplus/spx/v3/pkg/gdspx/pkg/engine",
+	"github.com/goplus/spx/v3/pkg/spx/pkg/engine",
 }
 
 // generate generates the package data file containing the exported symbols of
