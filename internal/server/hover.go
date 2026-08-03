@@ -11,6 +11,11 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_hover
 func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
+	markupKind := Markdown
+	if capabilities, ok := s.hoverClientCapabilities(); ok {
+		markupKind = preferredMarkupKind(capabilities.ContentFormat)
+	}
+
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, err
@@ -25,11 +30,8 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 
 	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
 		return &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: spxResourceRef.ID.URI().HTML(),
-			},
-			Range: RangeForNode(result.proj, spxResourceRef.Node),
+			Contents: resourceMarkupContent(spxResourceRef.ID.URI(), markupKind),
+			Range:    RangeForNode(result.proj, spxResourceRef.Node),
 		}, nil
 	}
 
@@ -37,22 +39,24 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if typeInfo == nil {
 		return nil, nil
 	}
-	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position); hover != nil {
+	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position, markupKind); hover != nil {
 		return hover, nil
 	}
 	if tokenFile := xgoutil.NodeTokenFile(result.proj.Fset, astFile); tokenFile != nil {
 		pos := tokenFile.Pos(position.Offset)
 		if member := result.enumInfo.declarationMemberAt(pos); member != nil {
 			def := result.spxDefinitionForEnumMembers(member)
-			return hoverForSpxDefs(result.proj, []SpxDefinition{def}, member.ident), nil
+			return hoverForSpxDefs(result.proj, []SpxDefinition{def}, member.ident, markupKind), nil
 		}
 		if ident, obj := result.enumInfo.regularConstDeclarationAt(pos); ident != nil {
-			return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, ""), ident), nil
+			return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, ""), ident, markupKind), nil
 		}
 	}
 	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
-		return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident), nil
+		return hoverForSpxDefs(
+			result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident, markupKind,
+		), nil
 	}
 	if ident == nil {
 		// Check if the position is within an import declaration.
@@ -61,7 +65,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		if rpkg != nil {
 			return &Hover{
 				Contents: MarkupContent{
-					Kind:  Markdown,
+					Kind:  markupKind,
 					Value: godoc.Synopsis(rpkg.Pkg.Doc),
 				},
 				Range: RangeForNode(result.proj, rpkg.Node),
@@ -75,22 +79,29 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 			return nil, nil
 		}
 	}
-	return hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident), nil
+	return hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident, markupKind), nil
 }
 
 // hoverForSpxDefs renders spx definitions into a hover at node.
-func hoverForSpxDefs(proj *xgo.Project, spxDefs []SpxDefinition, node ast.Node) *Hover {
+func hoverForSpxDefs(proj *xgo.Project, spxDefs []SpxDefinition, node ast.Node, markupKind MarkupKind) *Hover {
 	if len(spxDefs) == 0 {
 		return nil
 	}
 
+	separator := ""
+	if markupKind == PlainText {
+		separator = "\n\n"
+	}
 	var hoverContent strings.Builder
-	for _, spxDef := range spxDefs {
-		hoverContent.WriteString(spxDef.HTML())
+	for i, spxDef := range spxDefs {
+		if i > 0 {
+			hoverContent.WriteString(separator)
+		}
+		hoverContent.WriteString(spxDef.markupContent(markupKind).Value)
 	}
 	return &Hover{
 		Contents: MarkupContent{
-			Kind:  Markdown,
+			Kind:  markupKind,
 			Value: hoverContent.String(),
 		},
 		Range: RangeForNode(proj, node),

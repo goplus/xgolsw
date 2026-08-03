@@ -272,7 +272,9 @@ func xgoUnitExpectedTypeForResolvedArg(resolvedArg xgoutil.ResolvedCallExprArg) 
 }
 
 // hoverForXGoUnit returns hover content for the unit suffix at position.
-func hoverForXGoUnit(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) *Hover {
+func hoverForXGoUnit(
+	proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position, markupKind MarkupKind,
+) *Hover {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	pos := tokenFile.Pos(position.Offset)
 	path, _ := xgoutil.PathEnclosingInterval(astFile, pos, pos)
@@ -290,16 +292,19 @@ func hoverForXGoUnit(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File,
 		if !ok {
 			continue
 		}
+		unitType := GetSimplifiedTypeString(spec.SourceType)
+		markdownValue := fmt.Sprintf(
+			"unit `%s` for `%s`\n\nMultiplier: `%s`",
+			spec.Name,
+			unitType,
+			spec.Factor,
+		)
 		return &Hover{
-			Contents: MarkupContent{
-				Kind: Markdown,
-				Value: fmt.Sprintf(
-					"unit `%s` for `%s`\n\nMultiplier: `%s`",
-					spec.Name,
-					GetSimplifiedTypeString(spec.SourceType),
-					spec.Factor,
-				),
-			},
+			Contents: markupContent(
+				markupKind,
+				markdownValue,
+				fmt.Sprintf("unit %s for %s\n\nMultiplier: %s", spec.Name, unitType, spec.Factor),
+			),
 			Range: RangeForPosEnd(proj, unitStart, lit.End()),
 		}
 	}

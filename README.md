@@ -80,6 +80,9 @@ For detailed API references, please check the [index.d.ts](index.d.ts) file.
 | **Other** |||
 || [`workspace/executeCommand`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand) | Executes [predefined commands](#predefined-commands) for workspace-specific operations. |
 
+*Note: This table lists implemented message handlers. Clients should use the `initialize` response to determine which
+capabilities are advertised for their client capabilities.*
+
 ## Predefined commands
 
 ### XGo resource renaming

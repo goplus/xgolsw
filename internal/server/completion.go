@@ -48,8 +48,13 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	if innermostScope == nil {
 		return nil, nil
 	}
+	clientCapabilities, hasClientCapabilities := s.completionClientCapabilities()
+	documentationKind := Markdown
+	if hasClientCapabilities {
+		documentationKind = preferredMarkupKind(clientCapabilities.CompletionItem.DocumentationFormat)
+	}
 	ctx := &completionContext{
-		itemSet:        newCompletionItemSet(),
+		itemSet:        newCompletionItemSet(documentationKind),
 		proj:           result.proj,
 		typeInfo:       typeInfo,
 		result:         result,
@@ -65,6 +70,9 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		return nil, fmt.Errorf("failed to collect completion items: %w", err)
 	}
 	items := ctx.sortedItems()
+	if hasClientCapabilities {
+		adaptCompletionItemsForClient(clientCapabilities, items)
+	}
 	if ctx.isIncomplete {
 		return CompletionList{
 			IsIncomplete: true,
@@ -1700,7 +1708,7 @@ func (ctx *completionContext) collectTypeSpecific(typ gotypes.Type) error {
 		ctx.itemSet.add(CompletionItem{
 			Label:            name,
 			Kind:             TextCompletion,
-			Documentation:    &Or_CompletionItem_documentation{Value: MarkupContent{Kind: Markdown, Value: spxResourceID.URI().HTML()}},
+			Documentation:    completionDocumentation(resourceMarkupContent(spxResourceID.URI(), ctx.itemSet.documentationKind)),
 			InsertText:       name,
 			InsertTextFormat: ToPtr(PlainTextTextFormat),
 		})
@@ -1729,10 +1737,11 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 				Kind:       UnitCompletion,
 				Detail:     GetSimplifiedTypeString(spec.SourceType),
 				FilterText: filterPrefix + spec.Name,
-				Documentation: &Or_CompletionItem_documentation{Value: MarkupContent{
-					Kind:  Markdown,
-					Value: "Multiplier: `" + spec.Factor + "`",
-				}},
+				Documentation: completionDocumentation(markupContent(
+					ctx.itemSet.documentationKind,
+					"Multiplier: `"+spec.Factor+"`",
+					"Multiplier: "+spec.Factor,
+				)),
 				InsertTextFormat: ToPtr(PlainTextTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
 					Range:   completionRange,
@@ -2023,10 +2032,58 @@ func (ctx *completionContext) sortedItems() []CompletionItem {
 	return ctx.itemSet.items
 }
 
+// adaptCompletionItemsForClient removes completion features unsupported by the
+// client. It adapts items in place.
+func adaptCompletionItemsForClient(capabilities CompletionClientCapabilities, items []CompletionItem) {
+	for i := range items {
+		item := &items[i]
+		if item.InsertTextFormat != nil && *item.InsertTextFormat == SnippetTextFormat &&
+			!capabilities.CompletionItem.SnippetSupport {
+			item.InsertText = item.Label
+			item.TextEdit = plainTextCompletionTextEdit(item.Label, item.TextEdit)
+			item.InsertTextFormat = ToPtr(PlainTextTextFormat)
+		}
+		if !completionItemKindSupportedByClient(capabilities, item.Kind) {
+			item.Kind = TextCompletion
+		}
+	}
+}
+
+// plainTextCompletionTextEdit returns a text edit with snippet text replaced by label.
+func plainTextCompletionTextEdit(label string, textEdit *Or_CompletionItem_textEdit) *Or_CompletionItem_textEdit {
+	if textEdit == nil {
+		return nil
+	}
+	result := *textEdit
+	switch edit := result.Value.(type) {
+	case TextEdit:
+		edit.NewText = label
+		result.Value = edit
+	case InsertReplaceEdit:
+		edit.NewText = label
+		result.Value = edit
+	default:
+		return textEdit
+	}
+	return &result
+}
+
+// completionItemKindSupportedByClient reports whether kind is safe to send.
+func completionItemKindSupportedByClient(capabilities CompletionClientCapabilities, kind CompletionItemKind) bool {
+	if kind == 0 {
+		return true
+	}
+	if capabilities.CompletionItemKind != nil && capabilities.CompletionItemKind.ValueSet != nil {
+		return true
+	}
+	return kind <= ReferenceCompletion
+}
+
 // completionItemSet is a set of completion items.
 type completionItemSet struct {
 	items                         []CompletionItem
 	seenSpxDefs                   map[string]struct{}
+	documentationKind             MarkupKind
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
 	disallowVoidFuncs             bool
@@ -2035,10 +2092,11 @@ type completionItemSet struct {
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
-func newCompletionItemSet() *completionItemSet {
+func newCompletionItemSet(documentationKind MarkupKind) *completionItemSet {
 	return &completionItemSet{
-		items:       []CompletionItem{},
-		seenSpxDefs: make(map[string]struct{}),
+		items:             []CompletionItem{},
+		seenSpxDefs:       make(map[string]struct{}),
+		documentationKind: documentationKind,
 	}
 }
 
@@ -2196,6 +2254,6 @@ func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 		}
 		s.seenSpxDefs[spxDefIDKey] = struct{}{}
 
-		s.add(spxDef.CompletionItem())
+		s.add(spxDef.completionItem(s.documentationKind))
 	}
 }

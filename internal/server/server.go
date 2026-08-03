@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	gotypes "go/types"
 	"maps"
@@ -45,14 +44,18 @@ type Scheduler interface {
 
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
-	workspaceRootURI DocumentURI
-	workspaceRootFS  *xgo.Project
-	replier          MessageReplier
-	analyzers        []*analysis.Analyzer
-	fileMapGetter    FileMapGetter // TODO(wyvern): Remove this field.
-	cancelCauseFuncs sync.Map      // Map of request IDs to cancel functions (with cause).
-	scheduler        Scheduler
-	language         i18n.Language // Current language for error message translation
+	workspaceRootURI   DocumentURI
+	workspaceRootFS    *xgo.Project
+	replier            MessageReplier
+	analyzers          []*analysis.Analyzer
+	fileMapGetter      FileMapGetter // TODO(wyvern): Remove this field.
+	cancelCauseFuncs   sync.Map      // Map of request IDs to cancel functions (with cause).
+	scheduler          Scheduler
+	language           i18n.Language // Current language for error message translation
+	initMu             sync.Mutex
+	clientCapabilities ClientCapabilities
+	initializeCalled   bool
+	initialized        bool
 }
 
 func (s *Server) getProj() *xgo.Project {
@@ -75,7 +78,6 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 	proj.Mod = mod
 	proj.Importer = internal.Importer
 	return &Server{
-		// TODO(spxls): Initialize request should set workspaceRootURI value
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
 		replier:          replier,
@@ -114,9 +116,20 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
 			return s.replyParseError(c.ID(), err)
 		}
-		s.runForCall(c, func() (any, error) {
+		if err := s.beginInitialize(); err != nil {
+			return s.replyError(c.ID(), err)
+		}
+		s.runForCallWithReplyHook(c, func() (any, error) {
 			return s.initialize(&params)
-		})
+		}, s.finishInitialize)
+		return nil
+	}
+
+	if !s.isInitialized() {
+		return s.replyError(c.ID(), serverNotInitialized)
+	}
+
+	switch c.Method() {
 	case "shutdown":
 		s.runForCall(c, func() (any, error) {
 			return nil, nil // Protocol conformance only.
@@ -274,16 +287,14 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 // handleNotification handles a notification message.
 func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 	switch n.Method() {
-	case "initialized":
-		var params InitializedParams
-		if err := UnmarshalJSON(n.Params(), &params); err != nil {
-			return fmt.Errorf("failed to parse initialized params: %w", err)
-		}
-		s.runForNotification(n, func() error {
-			return errors.New("TODO")
-		})
 	case "exit":
-		// Protocol conformance only.
+		return nil
+	}
+	if !s.isInitialized() {
+		return nil
+	}
+
+	switch n.Method() {
 	case "$/cancelRequest":
 		var params CancelParams
 		if err := UnmarshalJSON(n.Params(), &params); err != nil {
@@ -291,6 +302,14 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 		}
 		s.runForNotification(n, func() error {
 			return s.cancelRequest(&params)
+		})
+	case "initialized":
+		var params InitializedParams
+		if err := UnmarshalJSON(n.Params(), &params); err != nil {
+			return fmt.Errorf("failed to parse initialized params: %w", err)
+		}
+		s.runForNotification(n, func() error {
+			return nil
 		})
 	case "textDocument/didOpen":
 		var params DidOpenTextDocumentParams
@@ -326,6 +345,71 @@ func (s *Server) handleNotification(n *jsonrpc2.Notification) error {
 		})
 	}
 	return nil
+}
+
+// beginInitialize marks the initialize request as started.
+func (s *Server) beginInitialize() error {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	if s.initializeCalled {
+		return fmt.Errorf("%w: initialize request may only be sent once", jsonrpc2.ErrInvalidRequest)
+	}
+	s.initializeCalled = true
+	return nil
+}
+
+// setClientCapabilities records the client capabilities from initialize params.
+func (s *Server) setClientCapabilities(capabilities ClientCapabilities) {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	s.clientCapabilities = capabilities
+}
+
+// finishInitialize records successful completion of the initialize request.
+func (s *Server) finishInitialize(err error) {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	if err == nil {
+		s.initialized = true
+	}
+}
+
+// isInitialized reports whether the initialize request completed successfully.
+func (s *Server) isInitialized() bool {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	return s.initialized
+}
+
+// clientCapabilitiesAfterInitialize returns the client capabilities after initialize completes.
+func (s *Server) clientCapabilitiesAfterInitialize() (ClientCapabilities, bool) {
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+	if !s.initialized {
+		return ClientCapabilities{}, false
+	}
+	return s.clientCapabilities, true
+}
+
+// completionClientCapabilities returns the completion capabilities after initialize.
+func (s *Server) completionClientCapabilities() (CompletionClientCapabilities, bool) {
+	capabilities, ok := s.clientCapabilitiesAfterInitialize()
+	if !ok {
+		return CompletionClientCapabilities{}, false
+	}
+	return capabilities.TextDocument.Completion, true
+}
+
+// hoverClientCapabilities returns the hover capabilities after initialize.
+func (s *Server) hoverClientCapabilities() (HoverClientCapabilities, bool) {
+	capabilities, ok := s.clientCapabilitiesAfterInitialize()
+	if !ok {
+		return HoverClientCapabilities{}, false
+	}
+	if capabilities.TextDocument.Hover == nil {
+		return HoverClientCapabilities{}, true
+	}
+	return *capabilities.TextDocument.Hover, true
 }
 
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
@@ -422,13 +506,29 @@ func (s *Server) wrapWithMetrics(msg jsonrpc2.Message, fn func() (any, error)) f
 
 // runForCall runs a function for a call message and replies with the result or error.
 func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
+	s.runForCallWithReplyHook(call, fn, nil)
+}
+
+// runForCallWithReplyHook runs a function for a call message and replies with
+// the result or error. If beforeReply is not nil, it runs once after the
+// response outcome is known and before the response is sent to the client.
+func (s *Server) runForCallWithReplyHook(call *jsonrpc2.Call, fn func() (any, error), beforeReply func(error)) {
 	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
 	s.cancelCauseFuncs.Store(call.ID(), cancelCauseFunc)
 	wrap := s.wrapWithMetrics(call, fn)
 	go func() (err error) {
+		runBeforeReply := func(replyErr error) {
+			if beforeReply == nil {
+				return
+			}
+			hook := beforeReply
+			beforeReply = nil
+			hook(replyErr)
+		}
 		defer func() {
 			s.cancelCauseFuncs.Delete(call.ID())
 			if err != nil {
+				runBeforeReply(err)
 				s.replyError(call.ID(), err)
 			}
 		}()
@@ -439,24 +539,29 @@ func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
 			return err
 		}
 
-		result, err := wrap()
-		resp, err := jsonrpc2.NewResponse(call.ID(), result, err)
+		result, callErr := wrap()
+		resp, err := jsonrpc2.NewResponse(call.ID(), result, callErr)
 		if err != nil {
 			return err
 		}
+		runBeforeReply(callErr)
 		return s.replier.ReplyMessage(resp)
 	}()
 }
 
 // runForNotification runs a function for a notification message without expecting a response.
 func (s *Server) runForNotification(notify *jsonrpc2.Notification, fn func() error) {
-	wrap := s.wrapWithMetrics(notify, func() (any, error) {
+	s.wrapWithMetrics(notify, func() (any, error) {
 		return nil, fn()
-	})
-	go wrap()
+	})()
 }
 
-var requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+var (
+	// serverNotInitialized is returned for requests received before initialize completes.
+	serverNotInitialized = jsonrpc2.NewError(int64(ServerNotInitialized), "Server not initialized")
+	// requestCancelled is returned when a request is cancelled before execution.
+	requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
+)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#cancelRequest
 func (s *Server) cancelRequest(params *CancelParams) error {
@@ -468,10 +573,7 @@ func (s *Server) cancelRequest(params *CancelParams) error {
 		return fmt.Errorf("cancelRequest: %w", err)
 	}
 	if cancelCauseFunc, ok := s.cancelCauseFuncs.Load(id); ok {
-		if cancelWithCause, ok := cancelCauseFunc.(context.CancelCauseFunc); ok {
-			cancelWithCause(requestCancelled)
-			return nil
-		}
+		cancelCauseFunc.(context.CancelCauseFunc)(requestCancelled)
 	}
 	return nil
 }
