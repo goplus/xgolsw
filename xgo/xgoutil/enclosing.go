@@ -284,6 +284,14 @@ func childrenOf(n ast.Node) []ast.Node {
 	case *ast.EmptyStmt:
 		// nop
 
+	case *ast.EnumType:
+		children = append(children, tok(n.Const, len("const")))
+		if n.Lparen.IsValid() {
+			children = append(children,
+				tok(n.Lparen, len("(")),
+				tok(n.Rparen, len(")")))
+		}
+
 	case *ast.ExprStmt:
 		// nop
 

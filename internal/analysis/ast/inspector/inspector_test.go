@@ -165,6 +165,10 @@ func TestInspectorXGoExtensionNodes(t *testing.T) {
 func TestPreorderParsedXGoExtensionNodes(t *testing.T) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "test.xgo", `
+type Color const (
+	Red = iota
+)
+
 @retry
 func fn() int {
 	return 1
@@ -191,10 +195,12 @@ echo [
 
 	var matrixLitCount int
 	var elemEllipsisCount int
+	var enumTypeCount int
 	var funcDecoratorCount int
 	inspect.Preorder([]ast.Node{
 		(*ast.MatrixLit)(nil),
 		(*ast.ElemEllipsis)(nil),
+		(*ast.EnumType)(nil),
 		(*ast.FuncDecorator)(nil),
 	}, func(n ast.Node) {
 		switch n.(type) {
@@ -202,11 +208,14 @@ echo [
 			matrixLitCount++
 		case *ast.ElemEllipsis:
 			elemEllipsisCount++
+		case *ast.EnumType:
+			enumTypeCount++
 		case *ast.FuncDecorator:
 			funcDecoratorCount++
 		}
 	})
 	assert.Equal(t, 1, matrixLitCount)
 	assert.Equal(t, 1, elemEllipsisCount)
+	assert.Equal(t, 1, enumTypeCount)
 	assert.Equal(t, 1, funcDecoratorCount)
 }

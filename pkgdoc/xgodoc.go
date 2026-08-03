@@ -90,10 +90,11 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 							}
 						}
 					case *ast.TypeSpec:
-						if structType, ok := spec.Type.(*ast.StructType); ok {
+						switch typ := spec.Type.(type) {
+						case *ast.StructType:
 							typeDoc := pkgDoc.typeDoc(spec.Name.Name)
 							typeDoc.Doc = doc
-							for _, field := range structType.Fields.List {
+							for _, field := range typ.Fields.List {
 								fieldDoc := ""
 								if field.Doc != nil {
 									fieldDoc = field.Doc.Text()
@@ -109,6 +110,25 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 									for _, name := range field.Names {
 										typeDoc.Fields[name.Name] = fieldDoc
 									}
+								}
+							}
+						case *ast.EnumType:
+							typeDoc := pkgDoc.typeDoc(spec.Name.Name)
+							typeDoc.Doc = doc
+							for _, enumSpec := range typ.Specs {
+								valueSpec := enumSpec.(*ast.ValueSpec)
+								var valueDoc string
+								if valueSpec.Doc != nil {
+									valueDoc = valueSpec.Doc.Text()
+								}
+								for _, name := range valueSpec.Names {
+									if name.Name == "_" {
+										continue
+									}
+									if typeDoc.EnumMembers == nil {
+										typeDoc.EnumMembers = make(map[string]string)
+									}
+									typeDoc.EnumMembers[name.Name] = valueDoc
 								}
 							}
 						}

@@ -136,6 +136,33 @@ func Test() {}
 		assert.Same(t, pkgDoc1, pkgDoc2)
 	})
 
+	t.Run("Enum", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{
+			"main.spx": file(`
+// Color describes a display color.
+type Color const (
+	// Red is the first color.
+	Red = iota
+
+	// Green is the second color.
+	Green
+)
+`),
+		}, FeatAll)
+
+		pkgDoc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.NotNil(t, pkgDoc)
+
+		colorDoc, ok := pkgDoc.Types["Color"]
+		require.True(t, ok)
+		assert.Equal(t, "Color describes a display color.\n", colorDoc.Doc)
+		assert.Equal(t, "Red is the first color.\n", colorDoc.EnumMembers["Red"])
+		assert.Equal(t, "Green is the second color.\n", colorDoc.EnumMembers["Green"])
+		assert.NotContains(t, pkgDoc.Consts, "Red")
+		assert.NotContains(t, pkgDoc.Consts, "Green")
+	})
+
 	t.Run("CacheError", func(t *testing.T) {
 		// Create a project without the PkgDocCache feature enabled.
 		// This will cause Cache() to return ErrUnknownCacheKind.

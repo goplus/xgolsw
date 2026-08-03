@@ -31,6 +31,8 @@ var (
 		NumberType,
 		OperatorType,
 		LabelType,
+		EnumType,
+		EnumMemberType,
 	}
 
 	// semanticTokenModifiersLegend defines the semantic token modifiers we
@@ -171,7 +173,20 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Semicolon, node.Semicolon+1, OperatorType, nil)
 			}
 		case *ast.Ident:
-			obj := typeInfo.ObjectOf(node)
+			if result.enumInfo.declarationType(node) != nil {
+				addToken(node.Pos(), node.End(), EnumType, []SemanticTokenModifiers{ModDeclaration})
+				return true
+			}
+			if result.enumInfo.declarationMember(node) != nil {
+				addToken(
+					node.Pos(),
+					node.End(),
+					EnumMemberType,
+					[]SemanticTokenModifiers{ModDeclaration, ModStatic, ModReadonly},
+				)
+				return true
+			}
+			obj := result.enumInfo.objectForIdent(typeInfo, node)
 			if obj == nil {
 				if token.Lookup(node.Name).IsKeyword() {
 					addToken(node.Pos(), node.End(), KeywordType, nil)
@@ -182,13 +197,17 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			var (
 				tokenType SemanticTokenTypes
 				modifiers []SemanticTokenModifiers
-				isDef     = typeInfo.ObjToDef[obj] == node
+				isDef     = typeInfo.ObjToDef[obj] == node || result.enumInfo.isRegularConstDeclaration(node)
 			)
 			switch obj := obj.(type) {
 			case *gotypes.Builtin:
 				tokenType = KeywordType
 				modifiers = append(modifiers, ModDefaultLibrary)
 			case *gotypes.TypeName:
+				if result.enumInfo.typeFor(obj.Type()) != nil {
+					tokenType = EnumType
+					break
+				}
 				if named := resolvedNamedType(obj.Type()); named != nil {
 					switch named.Underlying().(type) {
 					case *gotypes.Struct:
@@ -220,7 +239,11 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					tokenType = VariableType
 				}
 			case *gotypes.Const:
-				tokenType = VariableType
+				if len(result.enumMembersForIdent(typeInfo, node)) > 0 {
+					tokenType = EnumMemberType
+				} else {
+					tokenType = VariableType
+				}
 				modifiers = append(modifiers, ModStatic, ModReadonly)
 			case *gotypes.Func:
 				if obj.Signature().Recv() != nil {
@@ -260,6 +283,12 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		case *ast.CompositeLit:
 			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
 			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
+		case *ast.EnumType:
+			addToken(node.Const, node.Const+token.Pos(len("const")), KeywordType, nil)
+			if node.Lparen.IsValid() {
+				addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
+				addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
+			}
 		case *ast.FuncDecorator:
 			addToken(node.At, node.At+1, OperatorType, nil)
 			addCallExprTokens(&node.CallExpr, false)
@@ -397,10 +426,6 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		case *ast.ImportSpec:
 			if node.Path != nil {
 				addToken(node.Path.Pos(), node.Path.End(), StringType, nil)
-			}
-		case *ast.ValueSpec:
-			if node.Type != nil {
-				addToken(node.Type.Pos(), node.Type.End(), TypeType, nil)
 			}
 		case *ast.FieldList:
 			if node.Opening.IsValid() {

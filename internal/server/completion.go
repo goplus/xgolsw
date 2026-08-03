@@ -114,11 +114,12 @@ type completionContext struct {
 	enclosingCallExpr  *ast.CallExpr
 	selectorExpr       *ast.SelectorExpr
 	expectedTypes      []gotypes.Type
+	enumContext        enumIdentContext
 	expectedStructType *gotypes.Struct
 	compositeLitType   *gotypes.Named
 	assignTargets      []gotypes.Object
 	declValueSpec      *ast.ValueSpec
-	switchTag          ast.Expr
+	switchStmt         *ast.SwitchStmt
 	returnIndex        int
 
 	inStringLit             bool
@@ -400,7 +401,13 @@ func (ctx *completionContext) analyze() {
 			ctx.valueExpression = true
 		case *ast.SwitchStmt:
 			ctx.kind = completionKindSwitchCase
-			ctx.switchTag = node.Tag
+			ctx.switchStmt = node
+		case *ast.TypeSwitchStmt:
+			ctx.switchStmt = nil
+		case *ast.CaseClause:
+			if ctx.switchStmt != nil && ctx.pos <= node.Colon {
+				ctx.kind = completionKindSwitchCase
+			}
 		case *ast.SelectStmt:
 			ctx.kind = completionKindSelect
 		case *ast.DeclStmt:
@@ -448,6 +455,11 @@ func (ctx *completionContext) analyze() {
 			if !ctx.isAfterNumberLiteral() {
 				ctx.kind = completionKindGeneral
 			}
+		}
+	}
+	if len(ctx.result.enumInfo.members) > 0 {
+		if ident := xgoutil.EnclosingNode[*ast.Ident](path); ident != nil {
+			ctx.enumContext = ctx.result.enumContextAtIdent(ctx.typeInfo, ident)
 		}
 	}
 
@@ -993,6 +1005,13 @@ func (ctx *completionContext) collectGeneral() error {
 		return nil
 	}
 
+	enumContext := ctx.enumContext
+	if enumContext.status == enumContextUnknown && len(ctx.expectedTypes) > 0 {
+		enumContext.status = enumContextAllowed
+		enumContext.expectedTypes = ctx.expectedTypes
+	}
+	ctx.addVisibleEnumMembers(enumContext.expectedTypes...)
+
 	for _, expectedType := range ctx.expectedTypes {
 		if err := ctx.collectTypeSpecific(expectedType); err != nil {
 			return err
@@ -1008,6 +1027,7 @@ func (ctx *completionContext) collectGeneral() error {
 		if ctx.declValueSpec.Values == nil { // var x in|
 			ctx.itemSet.setSupportedKinds(
 				ClassCompletion,
+				EnumCompletion,
 				InterfaceCompletion,
 				StructCompletion,
 			)
@@ -1018,6 +1038,7 @@ func (ctx *completionContext) collectGeneral() error {
 		ctx.itemSet.setSupportedKinds(
 			VariableCompletion,
 			ConstantCompletion,
+			EnumMemberCompletion,
 			FunctionCompletion, // TODO: Add return type compatibility check for FunctionCompletion.
 			FieldCompletion,
 			MethodCompletion,
@@ -1032,6 +1053,7 @@ func (ctx *completionContext) collectGeneral() error {
 		ctx.itemSet.setExpectedFuncResultCount(ctx.expectedFuncResultCount)
 	}
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
+	ctx.itemSet.setEnumContext(enumContext)
 
 	// Add local definitions from innermost scope and its parents.
 	pkg := ctx.typeInfo.Pkg
@@ -1893,7 +1915,7 @@ func (ctx *completionContext) collectStructLit() error {
 
 // collectSwitchCase collects switch/case completions.
 func (ctx *completionContext) collectSwitchCase() error {
-	if ctx.switchTag == nil {
+	if ctx.switchStmt.Tag == nil {
 		for _, name := range []string{"int", "string", "bool", "error"} {
 			if obj := gotypes.Universe.Lookup(name); obj != nil {
 				ctx.itemSet.addSpxDefs(GetSpxDefinitionForBuiltinObj(obj))
@@ -1902,8 +1924,12 @@ func (ctx *completionContext) collectSwitchCase() error {
 		return nil
 	}
 
-	typ := ctx.typeInfo.TypeOf(ctx.switchTag)
+	typ := ctx.typeInfo.TypeOf(ctx.switchStmt.Tag)
 	if !xgoutil.IsValidType(typ) {
+		return nil
+	}
+	if ctx.result.enumInfo.typeFor(typ) != nil {
+		ctx.addVisibleEnumMembers(typ)
 		return nil
 	}
 	named := resolvedNamedType(typ)
@@ -1938,6 +1964,17 @@ func (ctx *completionContext) collectSwitchCase() error {
 	return nil
 }
 
+// addVisibleEnumMembers adds members of the given types that are not shadowed
+// at the completion position.
+func (ctx *completionContext) addVisibleEnumMembers(expectedTypes ...gotypes.Type) {
+	for _, def := range ctx.result.spxDefinitionsForEnumTypes(expectedTypes...) {
+		_, obj := ctx.innermostScope.LookupParent(def.CompletionItemLabel, ctx.pos)
+		if len(ctx.result.enumInfo.membersForObject(obj)) > 0 {
+			ctx.itemSet.addSpxDefs(def)
+		}
+	}
+}
+
 // collectSelect collects select statement completions.
 func (ctx *completionContext) collectSelect() error {
 	ctx.itemSet.add(
@@ -1960,17 +1997,19 @@ func (ctx *completionContext) collectSelect() error {
 // completionItemKindPriority is the priority order for different completion
 // item kinds.
 var completionItemKindPriority = map[CompletionItemKind]int{
-	VariableCompletion:  1,
-	FieldCompletion:     2,
-	PropertyCompletion:  3,
-	MethodCompletion:    4,
-	FunctionCompletion:  5,
-	ConstantCompletion:  6,
-	UnitCompletion:      7,
-	ClassCompletion:     8,
-	InterfaceCompletion: 9,
-	ModuleCompletion:    10,
-	KeywordCompletion:   11,
+	VariableCompletion:   1,
+	FieldCompletion:      2,
+	PropertyCompletion:   3,
+	MethodCompletion:     4,
+	FunctionCompletion:   5,
+	ConstantCompletion:   6,
+	EnumMemberCompletion: 6,
+	UnitCompletion:       7,
+	ClassCompletion:      8,
+	EnumCompletion:       8,
+	InterfaceCompletion:  9,
+	ModuleCompletion:     10,
+	KeywordCompletion:    11,
 }
 
 // sortedItems returns the sorted items.
@@ -1992,7 +2031,7 @@ type completionItemSet struct {
 	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
 	disallowVoidFuncs             bool
 	expectedFuncResultCount       int
-	expectedTypes                 []gotypes.Type
+	enumContext                   enumIdentContext
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
@@ -2034,7 +2073,6 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []gotypes.Type) {
 		return
 	}
 
-	s.expectedTypes = expectedTypes
 	s.isCompatibleWithExpectedTypes = func(typ gotypes.Type) bool {
 		for _, expectedType := range expectedTypes {
 			if xgoutil.IsValidType(expectedType) {
@@ -2050,6 +2088,51 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []gotypes.Type) {
 		}
 		return false
 	}
+}
+
+// setEnumContext sets the context used to filter enum members.
+func (s *completionItemSet) setEnumContext(context enumIdentContext) {
+	s.enumContext = context
+}
+
+// isEnumMemberCompatibleWithContext reports whether typ satisfies the enum
+// completion context.
+func isEnumMemberCompatibleWithContext(typ gotypes.Type, context enumIdentContext) bool {
+	if !xgoutil.IsValidType(typ) {
+		return false
+	}
+	if len(context.basicTypeConstraints) > 0 {
+		basic, ok := typ.Underlying().(*gotypes.Basic)
+		if !ok {
+			return false
+		}
+		for _, required := range context.basicTypeConstraints {
+			if basic.Info()&required == 0 {
+				return false
+			}
+		}
+	}
+	if len(context.expectedTypes) == 0 {
+		return true
+	}
+	for _, expectedType := range context.expectedTypes {
+		if !xgoutil.IsValidType(expectedType) {
+			continue
+		}
+		if gotypes.AssignableTo(typ, expectedType) {
+			return true
+		}
+		if context.allowConversion && xgoutil.IsTypesConvertible(typ, expectedType) {
+			return true
+		}
+		if typeParam, ok := gotypes.Unalias(expectedType).(*gotypes.TypeParam); ok {
+			constraint := typeParam.Constraint().Underlying().(*gotypes.Interface)
+			if gotypes.Satisfies(typ, constraint) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // add adds items to the set.
@@ -2082,7 +2165,14 @@ func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 				continue
 			}
 		}
-		if s.isCompatibleWithExpectedTypes != nil {
+		if spxDef.CompletionItemKind == EnumMemberCompletion && s.enumContext.status != enumContextUnknown {
+			if s.enumContext.status == enumContextDisallowed {
+				continue
+			}
+			if !isEnumMemberCompatibleWithContext(spxDef.TypeHint, s.enumContext) {
+				continue
+			}
+		} else if s.isCompatibleWithExpectedTypes != nil {
 			typeToCompare := spxDef.TypeHint
 			if sig, ok := typeToCompare.(*gotypes.Signature); ok {
 				switch sig.Results().Len() {

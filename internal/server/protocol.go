@@ -101,19 +101,21 @@ const (
 	SeverityError   = protocol.SeverityError
 	SeverityWarning = protocol.SeverityWarning
 
-	TextCompletion      = protocol.TextCompletion
-	ClassCompletion     = protocol.ClassCompletion
-	InterfaceCompletion = protocol.InterfaceCompletion
-	StructCompletion    = protocol.StructCompletion
-	VariableCompletion  = protocol.VariableCompletion
-	ConstantCompletion  = protocol.ConstantCompletion
-	UnitCompletion      = protocol.UnitCompletion
-	KeywordCompletion   = protocol.KeywordCompletion
-	FieldCompletion     = protocol.FieldCompletion
-	MethodCompletion    = protocol.MethodCompletion
-	PropertyCompletion  = protocol.PropertyCompletion
-	FunctionCompletion  = protocol.FunctionCompletion
-	ModuleCompletion    = protocol.ModuleCompletion
+	TextCompletion       = protocol.TextCompletion
+	ClassCompletion      = protocol.ClassCompletion
+	EnumCompletion       = protocol.EnumCompletion
+	InterfaceCompletion  = protocol.InterfaceCompletion
+	StructCompletion     = protocol.StructCompletion
+	VariableCompletion   = protocol.VariableCompletion
+	ConstantCompletion   = protocol.ConstantCompletion
+	UnitCompletion       = protocol.UnitCompletion
+	KeywordCompletion    = protocol.KeywordCompletion
+	FieldCompletion      = protocol.FieldCompletion
+	MethodCompletion     = protocol.MethodCompletion
+	PropertyCompletion   = protocol.PropertyCompletion
+	FunctionCompletion   = protocol.FunctionCompletion
+	ModuleCompletion     = protocol.ModuleCompletion
+	EnumMemberCompletion = protocol.EnumMemberCompletion
 
 	DiagnosticFull = protocol.DiagnosticFull
 
@@ -126,23 +128,24 @@ const (
 	PlainTextTextFormat = protocol.PlainTextTextFormat
 	SnippetTextFormat   = protocol.SnippetTextFormat
 
-	NamespaceType = protocol.NamespaceType
-	TypeType      = protocol.TypeType
-	InterfaceType = protocol.InterfaceType
-	StructType    = protocol.StructType
-	EnumType      = protocol.EnumType
-	EnumMember    = protocol.EnumMember
-	VariableType  = protocol.VariableType
-	ParameterType = protocol.ParameterType
-	FunctionType  = protocol.FunctionType
-	MethodType    = protocol.MethodType
-	PropertyType  = protocol.PropertyType
-	KeywordType   = protocol.KeywordType
-	CommentType   = protocol.CommentType
-	StringType    = protocol.StringType
-	NumberType    = protocol.NumberType
-	OperatorType  = protocol.OperatorType
-	LabelType     = protocol.LabelType
+	NamespaceType  = protocol.NamespaceType
+	TypeType       = protocol.TypeType
+	InterfaceType  = protocol.InterfaceType
+	StructType     = protocol.StructType
+	EnumType       = protocol.EnumType
+	EnumMemberType = protocol.EnumMemberType
+	EnumMember     = protocol.EnumMember
+	VariableType   = protocol.VariableType
+	ParameterType  = protocol.ParameterType
+	FunctionType   = protocol.FunctionType
+	MethodType     = protocol.MethodType
+	PropertyType   = protocol.PropertyType
+	KeywordType    = protocol.KeywordType
+	CommentType    = protocol.CommentType
+	StringType     = protocol.StringType
+	NumberType     = protocol.NumberType
+	OperatorType   = protocol.OperatorType
+	LabelType      = protocol.LabelType
 
 	ModDeclaration    = protocol.ModDeclaration
 	ModReadonly       = protocol.ModReadonly
