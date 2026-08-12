@@ -123,7 +123,7 @@ type Pass struct {
 	// responsible for resolving the target type from the explicit selector
 	// receiver (if any) or from the current file's implicit receiver type.
 	// Returns nil when the target cannot be determined.
-	GetPropertyNamesForCall func(call *ast.CallExpr) []string
+	GetPropertyNamesForCall func(call *ast.CallExpr) map[string]struct{}
 
 	// ResolvedCallExprArgs, if non-nil, returns call arguments resolved by the
 	// driver. Analyzers fall back to [xgoutil.ResolvedCallExprArgs] when this is

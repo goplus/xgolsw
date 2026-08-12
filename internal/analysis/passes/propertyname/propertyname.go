@@ -2,6 +2,7 @@ package propertyname
 
 import (
 	_ "embed"
+	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
@@ -44,36 +45,53 @@ func run(pass *protocol.Pass) (any, error) {
 			call = &n.CallExpr
 		}
 
-		validNames := pass.GetPropertyNamesForCall(call)
-		if validNames == nil {
-			return
+		isStringValue := func(expr ast.Expr) bool {
+			_, ok := xgoutil.StringLitOrConstValue(expr, pass.TypesInfo.Types[expr])
+			return ok
 		}
-		validNamesSet := make(map[string]struct{}, len(validNames))
-		for _, name := range validNames {
-			validNamesSet[name] = struct{}{}
+		hasStringValueArg := slices.ContainsFunc(call.Args, isStringValue) ||
+			slices.ContainsFunc(call.Kwargs, func(kwarg *ast.KwargExpr) bool {
+				return isStringValue(kwarg.Value)
+			})
+		if !hasStringValueArg {
+			return
 		}
 
 		resolvedCallExprArgs := xgoutil.ResolvedCallExprArgs(pass.TypesInfo, call)
 		if pass.ResolvedCallExprArgs != nil {
 			resolvedCallExprArgs = pass.ResolvedCallExprArgs(call)
 		}
+		type propertyArg struct {
+			expr ast.Expr
+			name string
+		}
+		var propertyArgs []propertyArg
 		for resolvedArg := range resolvedCallExprArgs {
-			if resolvedArg.ExpectedType == nil {
-				continue
-			}
-			if !pass.IsPropertyNameType(resolvedArg.ExpectedType) {
+			if resolvedArg.ExpectedType == nil || !pass.IsPropertyNameType(resolvedArg.ExpectedType) {
 				continue
 			}
 
 			// Only validate string literal / constant arguments.
-			tv := pass.TypesInfo.Types[resolvedArg.Arg]
-			propName, ok := xgoutil.StringLitOrConstValue(resolvedArg.Arg, tv)
+			propName, ok := xgoutil.StringLitOrConstValue(resolvedArg.Arg, pass.TypesInfo.Types[resolvedArg.Arg])
 			if !ok {
 				continue
 			}
+			propertyArgs = append(propertyArgs, propertyArg{
+				expr: resolvedArg.Arg,
+				name: propName,
+			})
+		}
+		if len(propertyArgs) == 0 {
+			return
+		}
 
-			if _, ok := validNamesSet[propName]; !ok {
-				pass.ReportRangef(resolvedArg.Arg, "unknown property %q", propName)
+		validNames := pass.GetPropertyNamesForCall(call)
+		if validNames == nil {
+			return
+		}
+		for _, arg := range propertyArgs {
+			if _, ok := validNames[arg.name]; !ok {
+				pass.ReportRangef(arg.expr, "unknown property %q", arg.name)
 			}
 		}
 	})

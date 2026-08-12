@@ -3,7 +3,6 @@ package server
 import (
 	gotypes "go/types"
 	"reflect"
-	"slices"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -989,6 +988,47 @@ onStart => {
 	})
 }
 
+func TestFindInputSlotsWithLargeList(t *testing.T) {
+	const slotCount = 2_001
+	files := largeListProjectFiles(slotCount)
+	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+	result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+	require.NoError(t, err)
+	require.NotNil(t, astFile)
+
+	slots := findInputSlots(result, astFile)
+	require.Len(t, slots, slotCount)
+	for i, slot := range slots {
+		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+		assert.Equal(t, SpxInputTypeUnknown, slot.Accept.Type)
+		assert.Equal(t, SpxInputTypeString, slot.Input.Type)
+		assert.Equal(t, "value", slot.Input.Value)
+		if i > 0 {
+			assert.Less(t, slots[i-1].Range.Start.Character, slot.Range.Start.Character)
+			assert.False(t, IsRangesOverlap(slots[i-1].Range, slot.Range))
+		}
+	}
+}
+
+func TestFindInputSlotsUTF16Ranges(t *testing.T) {
+	mainSpx := []byte("println \"\U0001F600\", \"value\"\r\n")
+	files := map[string][]byte{
+		"main.spx":          mainSpx,
+		"assets/index.json": []byte(`{}`),
+	}
+	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+	result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+	require.NoError(t, err)
+	require.NotNil(t, astFile)
+
+	slots := findInputSlots(result, astFile)
+	require.Len(t, slots, 2)
+	assert.Equal(t, Range{Start: Position{Line: 0, Character: 8}, End: Position{Line: 0, Character: 12}}, slots[0].Range)
+	assert.Equal(t, Range{Start: Position{Line: 0, Character: 14}, End: Position{Line: 0, Character: 21}}, slots[1].Range)
+}
+
 func TestCheckValueInputSlot(t *testing.T) {
 	m := map[string][]byte{
 		"main.spx": []byte(`
@@ -1017,6 +1057,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name           string
@@ -1113,7 +1154,7 @@ onStart => {
 			}
 			require.NotNil(t, expr)
 
-			got := checkValueInputSlot(result, expr, nil)
+			got := checkValueInputSlot(ctx, expr, nil)
 			if tt.wantNil {
 				assert.Nil(t, got)
 			} else {
@@ -1151,6 +1192,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name         string
@@ -1191,7 +1233,7 @@ onStart => {
 			}
 			require.NotNil(t, expr)
 
-			got := checkAddressInputSlot(result, expr)
+			got := checkAddressInputSlot(ctx, expr)
 			if tt.wantNil {
 				assert.Nil(t, got)
 			} else {
@@ -1236,6 +1278,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name           string
@@ -1309,7 +1352,7 @@ onStart => {
 			}
 			require.NotNil(t, lit)
 
-			got := createValueInputSlotFromBasicLit(result, lit, tt.declaredType)
+			got := createValueInputSlotFromBasicLit(ctx, lit, tt.declaredType)
 			require.NotNil(t, got)
 			assert.Equal(t, SpxInputSlotKindValue, got.Kind)
 			assert.Equal(t, tt.wantAcceptType, got.Accept.Type)
@@ -1325,7 +1368,7 @@ onStart => {
 			Kind:  token.INT,
 			Value: "not.a.int",
 		}
-		got := createValueInputSlotFromBasicLit(result, invalidIntLit, nil)
+		got := createValueInputSlotFromBasicLit(ctx, invalidIntLit, nil)
 		assert.Nil(t, got)
 	})
 
@@ -1334,7 +1377,7 @@ onStart => {
 			Kind:  token.FLOAT,
 			Value: "not.a.float",
 		}
-		got := createValueInputSlotFromBasicLit(result, invalidFloatLit, nil)
+		got := createValueInputSlotFromBasicLit(ctx, invalidFloatLit, nil)
 		assert.Nil(t, got)
 	})
 
@@ -1343,7 +1386,7 @@ onStart => {
 			Kind:  token.CHAR,
 			Value: "'c'",
 		}
-		got := createValueInputSlotFromBasicLit(result, unsupportedLit, nil)
+		got := createValueInputSlotFromBasicLit(ctx, unsupportedLit, nil)
 		assert.Nil(t, got)
 	})
 
@@ -1352,7 +1395,7 @@ onStart => {
 			Kind:  token.STRING,
 			Value: "\"unclosed string literal", // Missing ending quote.
 		}
-		got := createValueInputSlotFromBasicLit(result, invalidStringLit, nil)
+		got := createValueInputSlotFromBasicLit(ctx, invalidStringLit, nil)
 		assert.Nil(t, got)
 	})
 }
@@ -1399,6 +1442,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name           string
@@ -1472,7 +1516,7 @@ onStart => {
 			}
 			require.NotNil(t, ident)
 
-			got := createValueInputSlotFromIdent(result, ident, nil)
+			got := createValueInputSlotFromIdent(ctx, ident, nil)
 			require.NotNil(t, got)
 			assert.Equal(t, SpxInputSlotKindValue, got.Kind)
 			assert.Equal(t, tt.wantInputType, got.Accept.Type)
@@ -1502,6 +1546,7 @@ onStart => {
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
 		require.NotNil(t, astFile)
+		ctx := newInputSlotContext(result, astFile)
 
 		pos := PosAt(result.proj, astFile, Position{Line: 4, Character: 7})
 		require.True(t, pos.IsValid())
@@ -1518,7 +1563,7 @@ onStart => {
 		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
 		declaredType := gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType())
 
-		got := createValueInputSlotFromIdent(result, ident, declaredType)
+		got := createValueInputSlotFromIdent(ctx, ident, declaredType)
 		require.NotNil(t, got)
 		assert.Equal(t, SpxInputTypeResourceName, got.Accept.Type)
 		assert.Equal(t, ToPtr(SpxSoundResourceContextURI), got.Accept.ResourceContext)
@@ -1556,6 +1601,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name           string
@@ -1625,7 +1671,7 @@ onStart => {
 			}
 			require.NotNil(t, unaryExpr)
 
-			got := createValueInputSlotFromUnaryExpr(result, unaryExpr, nil)
+			got := createValueInputSlotFromUnaryExpr(ctx, unaryExpr, nil)
 			require.NotNil(t, got)
 			assert.Equal(t, tt.wantKind, got.Kind)
 			assert.Equal(t, tt.wantAcceptType, got.Accept.Type)
@@ -1657,6 +1703,7 @@ onStart => {
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
 	require.NotNil(t, astFile)
+	ctx := newInputSlotContext(result, astFile)
 
 	for _, tt := range []struct {
 		name             string
@@ -1699,7 +1746,7 @@ onStart => {
 			}
 			require.NotNil(t, callExpr)
 
-			got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
+			got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
 			if tt.wantNil {
 				assert.Nil(t, got)
 			} else {
@@ -1729,7 +1776,7 @@ onStart => {
 				&ast.BasicLit{Kind: token.INT, Value: "2"},
 			},
 		}
-		got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
+		got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
 		assert.Nil(t, got)
 	})
 
@@ -1738,7 +1785,7 @@ onStart => {
 			Fun:  &ast.Ident{Name: "unknownFunction"},
 			Args: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "1"}},
 		}
-		got := createValueInputSlotFromColorFuncCall(result, callExpr, nil)
+		got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
 		assert.Nil(t, got)
 	})
 }
@@ -2022,158 +2069,6 @@ func TestIsBlank(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func TestSortSpxInputSlots(t *testing.T) {
-	t.Run("SortingOrder", func(t *testing.T) {
-		slots := []SpxInputSlot{
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 42, Character: 0},
-					End:   Position{Line: 42, Character: 10},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 0},
-					End:   Position{Line: 5, Character: 10},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 100, Character: 0},
-					End:   Position{Line: 100, Character: 10},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 1, Character: 0},
-					End:   Position{Line: 1, Character: 10},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 20, Character: 0},
-					End:   Position{Line: 20, Character: 10},
-				},
-			},
-		}
-
-		sortSpxInputSlots(slots)
-
-		assert.Equal(t, uint32(1), slots[0].Range.Start.Line)
-		assert.Equal(t, uint32(100), slots[len(slots)-1].Range.Start.Line)
-		for i := range len(slots) - 1 {
-			assert.LessOrEqual(t, slots[i].Range.Start.Line, slots[i+1].Range.Start.Line)
-		}
-	})
-
-	t.Run("CharacterPositionSorting", func(t *testing.T) {
-		slots := []SpxInputSlot{
-			// Line 5 with different character positions.
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 20},
-					End:   Position{Line: 5, Character: 25},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 5},
-					End:   Position{Line: 5, Character: 10},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 15},
-					End:   Position{Line: 5, Character: 20},
-				},
-			},
-
-			// Line 7 with different character positions.
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 7, Character: 30},
-					End:   Position{Line: 7, Character: 35},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 7, Character: 10},
-					End:   Position{Line: 7, Character: 15},
-				},
-			},
-		}
-
-		sortSpxInputSlots(slots)
-
-		l5Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
-			return s.Range.Start.Line != 5
-		})
-		require.Len(t, l5Slots, 3)
-		assert.Equal(t, uint32(5), l5Slots[0].Range.Start.Character)
-		assert.Equal(t, uint32(15), l5Slots[1].Range.Start.Character)
-		assert.Equal(t, uint32(20), l5Slots[2].Range.Start.Character)
-
-		l7Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
-			return s.Range.Start.Line != 7
-		})
-		require.Len(t, l7Slots, 2)
-		assert.Equal(t, uint32(10), l7Slots[0].Range.Start.Character)
-		assert.Equal(t, uint32(30), l7Slots[1].Range.Start.Character)
-	})
-
-	t.Run("KindSorting", func(t *testing.T) {
-		slots := []SpxInputSlot{
-			// Same position (5, 10) with different kinds.
-			{
-				Kind: SpxInputSlotKindAddress,
-				Range: Range{
-					Start: Position{Line: 5, Character: 10},
-					End:   Position{Line: 5, Character: 15},
-				},
-			},
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 10},
-					End:   Position{Line: 5, Character: 15},
-				},
-			},
-
-			// Different position.
-			{
-				Kind: SpxInputSlotKindValue,
-				Range: Range{
-					Start: Position{Line: 5, Character: 5},
-					End:   Position{Line: 5, Character: 10},
-				},
-			},
-		}
-
-		sortSpxInputSlots(slots)
-
-		// First, slots are sorted by position.
-		assert.Equal(t, uint32(5), slots[0].Range.Start.Character)
-
-		// Then, slots with the same position are sorted by kind.
-		l5c10Slots := slices.DeleteFunc(slices.Clone(slots), func(s SpxInputSlot) bool {
-			return s.Range.Start.Line != 5 || s.Range.Start.Character != 10
-		})
-		require.Len(t, l5c10Slots, 2)
-		assert.Equal(t, SpxInputSlotKindAddress, l5c10Slots[0].Kind)
-		assert.Equal(t, SpxInputSlotKindValue, l5c10Slots[1].Kind)
-	})
 }
 
 func findInputSlot(inputSlots []SpxInputSlot, value any, name string, inputType SpxInputType, kind SpxInputKind) *SpxInputSlot {
