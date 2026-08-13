@@ -10,11 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -217,11 +220,19 @@ type propertyMember struct {
 	SpxDef SpxDefinition
 }
 
-// propertyMembers returns an iterator over property fields and property methods
-// in depth-first, outer-scope-first order. Outer members shadow embedded ones
+// propertyObject holds the source object for a property discovered during a
+// type traversal.
+type propertyObject struct {
+	Name             string
+	SelectorTypeName string
+	Object           gotypes.Object
+}
+
+// propertyObjects returns an iterator over property source objects in
+// depth-first, outer-scope-first order. Outer members shadow embedded ones
 // with the same name.
-func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) iter.Seq[propertyMember] {
-	return func(yield func(propertyMember) bool) {
+func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
+	return func(yield func(propertyObject) bool) {
 		visited := make(map[*gotypes.Named]bool)
 		seenNames := make(map[string]bool)
 		var walk func(namedType *gotypes.Named) bool
@@ -237,65 +248,97 @@ func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) 
 			}
 
 			selectorTypeName := namedType.Obj().Name()
-			yieldProperty := func(member propertyMember) bool {
-				if seenNames[member.Name] {
+			yieldProperty := func(property propertyObject) bool {
+				if seenNames[property.Name] {
 					return true
 				}
-				seenNames[member.Name] = true
-				return yield(member)
+				seenNames[property.Name] = true
+				return yield(property)
 			}
 
-			// Single pass over fields: yield direct property fields and collect
-			// embedded types for later recursion, so each field is visited only once.
 			var embeddedTypes []*gotypes.Named
 			for field := range structType.Fields() {
 				if field.Embedded() {
 					embeddedType := gotypes.Unalias(xgoutil.DerefType(field.Type()))
-					if embNamed, ok := embeddedType.(*gotypes.Named); ok {
-						embeddedTypes = append(embeddedTypes, embNamed)
+					if embeddedNamed, ok := embeddedType.(*gotypes.Named); ok {
+						embeddedTypes = append(embeddedTypes, embeddedNamed)
 					}
 					continue
 				}
 				if !isPropertyField(field) {
 					continue
 				}
-				name := field.Name()
-				if !yieldProperty(propertyMember{
-					Name:   name,
-					Type:   field.Type(),
-					Kind:   XGoPropertyKindField,
-					SpxDef: GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDocFor(field.Pkg())),
+				if !yieldProperty(propertyObject{
+					Name:             field.Name(),
+					SelectorTypeName: selectorTypeName,
+					Object:           field,
 				}) {
 					return false
 				}
 			}
 
-			// Collect methods defined directly on this type.
 			for method := range namedType.Methods() {
 				if !isPropertyMethod(method) {
 					continue
 				}
-				name := xgoutil.ToLowerCamelCase(method.Name())
-				sig := method.Signature()
-				if !yieldProperty(propertyMember{
-					Name:   name,
-					Type:   sig.Results().At(0).Type(),
-					Kind:   XGoPropertyKindMethod,
-					SpxDef: GetSpxDefinitionForFunc(method, selectorTypeName, pkgDocFor(method.Pkg())),
+				if !yieldProperty(propertyObject{
+					Name:             xgoutil.ToLowerCamelCase(method.Name()),
+					SelectorTypeName: selectorTypeName,
+					Object:           method,
 				}) {
 					return false
 				}
 			}
 
-			// Recurse into embedded types collected during the field pass.
-			for _, embNamed := range embeddedTypes {
-				if !walk(embNamed) {
+			for _, embeddedType := range embeddedTypes {
+				if !walk(embeddedType) {
 					return false
 				}
 			}
 			return true
 		}
 		walk(namedType)
+	}
+}
+
+// propertyMembers returns an iterator over property fields and property methods
+// in depth-first, outer-scope-first order. Outer members shadow embedded ones
+// with the same name.
+func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) iter.Seq[propertyMember] {
+	return func(yield func(propertyMember) bool) {
+		for property := range propertyObjects(namedType) {
+			var member propertyMember
+			switch object := property.Object.(type) {
+			case *gotypes.Var:
+				member = propertyMember{
+					Name: property.Name,
+					Type: object.Type(),
+					Kind: XGoPropertyKindField,
+					SpxDef: GetSpxDefinitionForVar(
+						object,
+						property.SelectorTypeName,
+						false,
+						pkgDocFor(object.Pkg()),
+					),
+				}
+			case *gotypes.Func:
+				member = propertyMember{
+					Name: property.Name,
+					Type: object.Signature().Results().At(0).Type(),
+					Kind: XGoPropertyKindMethod,
+					SpxDef: GetSpxDefinitionForFunc(
+						object,
+						property.SelectorTypeName,
+						pkgDocFor(object.Pkg()),
+					),
+				}
+			default:
+				continue
+			}
+			if !yield(member) {
+				return
+			}
+		}
 	}
 }
 
@@ -517,22 +560,196 @@ func findEnclosingType(obj gotypes.Object) *gotypes.Named {
 	return nil
 }
 
+// inputSlotContext caches file-level data shared by all input slots in one
+// request.
+type inputSlotContext struct {
+	result                   *compileResult
+	astFile                  *ast.File
+	astPkg                   *ast.Package
+	typeInfo                 *types.Info
+	parents                  map[ast.Node]ast.Node
+	scopeObjects             map[*gotypes.Scope][]gotypes.Object
+	scopeObjectPositions     map[*gotypes.Scope][]token.Pos
+	predefinedNames          map[predefinedNamesCacheKey][]string
+	utf16ColumnsByByteOffset []uint32
+}
+
+// predefinedNamesCacheKey identifies expressions with the same visible names.
+type predefinedNamesCacheKey struct {
+	scope              *gotypes.Scope
+	declaredType       gotypes.Type
+	visibleObjectCount int
+}
+
+// newInputSlotContext creates a context for finding input slots in astFile.
+func newInputSlotContext(result *compileResult, astFile *ast.File) *inputSlotContext {
+	typeInfo, _ := result.proj.TypeInfo()
+	astPkg, _ := result.proj.ASTPackage()
+	return &inputSlotContext{
+		result:                   result,
+		astFile:                  astFile,
+		astPkg:                   astPkg,
+		typeInfo:                 typeInfo,
+		parents:                  nodeParents(astFile),
+		scopeObjects:             make(map[*gotypes.Scope][]gotypes.Object),
+		scopeObjectPositions:     make(map[*gotypes.Scope][]token.Pos),
+		predefinedNames:          make(map[predefinedNamesCacheKey][]string),
+		utf16ColumnsByByteOffset: buildUTF16ColumnIndex(astFile.Code),
+	}
+}
+
+// nodeParents returns the parent of each descendant of root.
+func nodeParents(root ast.Node) map[ast.Node]ast.Node {
+	parents := make(map[ast.Node]ast.Node)
+	var stack []ast.Node
+	ast.Inspect(root, func(node ast.Node) bool {
+		if node == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		if len(stack) > 0 {
+			parents[node] = stack[len(stack)-1]
+		}
+		stack = append(stack, node)
+		return true
+	})
+	return parents
+}
+
+// buildUTF16ColumnIndex returns the UTF-16 column at every byte offset in code.
+func buildUTF16ColumnIndex(code []byte) []uint32 {
+	columns := make([]uint32, len(code)+1)
+	var column uint32
+	for offset := 0; offset < len(code); {
+		columns[offset] = column
+		switch code[offset] {
+		case '\n':
+			offset++
+			column = 0
+			columns[offset] = column
+			continue
+		case '\r':
+			if offset+1 < len(code) && code[offset+1] == '\n' {
+				offset++
+				columns[offset] = column
+				continue
+			}
+		}
+
+		r, size := utf8.DecodeRune(code[offset:])
+		for i := 1; i < size; i++ {
+			columns[offset+i] = column
+		}
+		column += uint32(utf16.RuneLen(r))
+		offset += size
+		columns[offset] = column
+	}
+	return columns
+}
+
+// position converts pos to an LSP position using the precomputed UTF-16
+// column index.
+func (c *inputSlotContext) position(pos token.Pos) Position {
+	filePosition := c.result.proj.Fset.Position(pos)
+	offset := min(max(filePosition.Offset, 0), len(c.astFile.Code))
+	return Position{
+		Line:      uint32(max(filePosition.Line, 1) - 1),
+		Character: c.utf16ColumnsByByteOffset[offset],
+	}
+}
+
+// rangeForNode returns the LSP range for node.
+func (c *inputSlotContext) rangeForNode(node ast.Node) Range {
+	return Range{Start: c.position(node.Pos()), End: c.position(node.End())}
+}
+
+// rangeForPosEnd returns the LSP range for pos and end.
+func (c *inputSlotContext) rangeForPosEnd(pos, end token.Pos) Range {
+	return Range{Start: c.position(pos), End: c.position(end)}
+}
+
+// innermostScope returns the innermost type-checker scope containing node.
+func (c *inputSlotContext) innermostScope(node ast.Node) *gotypes.Scope {
+	for node != nil {
+		if scope := c.typeInfo.Scopes[node]; scope != nil {
+			return scope
+		}
+		switch node := node.(type) {
+		case *ast.FuncDecl:
+			if scope := c.typeInfo.Scopes[node.Type]; scope != nil {
+				return scope
+			}
+		case *ast.FuncLit:
+			if scope := c.typeInfo.Scopes[node.Type]; scope != nil {
+				return scope
+			}
+			if scope := c.typeInfo.Scopes[node.Body]; scope != nil {
+				return scope
+			}
+		}
+		node = c.parents[node]
+	}
+	return nil
+}
+
+// objectsInScope returns the objects in scope in scope-name order.
+func (c *inputSlotContext) objectsInScope(scope *gotypes.Scope) []gotypes.Object {
+	if objects, ok := c.scopeObjects[scope]; ok {
+		return objects
+	}
+	names := scope.Names()
+	objects := make([]gotypes.Object, 0, len(names))
+	for _, name := range names {
+		if obj := scope.Lookup(name); obj != nil {
+			objects = append(objects, obj)
+		}
+	}
+	c.scopeObjects[scope] = objects
+	return objects
+}
+
+// visibleObjectCount returns how many variables and constants in scope are
+// declared before pos.
+func (c *inputSlotContext) visibleObjectCount(scope *gotypes.Scope, pos token.Pos) int {
+	positions, ok := c.scopeObjectPositions[scope]
+	if !ok {
+		for _, obj := range c.objectsInScope(scope) {
+			switch obj.(type) {
+			case *gotypes.Var, *gotypes.Const:
+				positions = append(positions, obj.Pos())
+			}
+		}
+		slices.Sort(positions)
+		c.scopeObjectPositions[scope] = positions
+	}
+	count, _ := slices.BinarySearch(positions, pos)
+	return count
+}
+
 // findInputSlots finds all input slots in the AST file.
 func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
+	ctx := newInputSlotContext(result, astFile)
 
 	var inputSlots []XGoInputSlot
 	addInputSlots := func(slots ...XGoInputSlot) {
 		for _, slot := range slots {
-			if slices.ContainsFunc(inputSlots, func(existing XGoInputSlot) bool {
-				return IsRangesOverlap(existing.Range, slot.Range)
-			}) {
+			index, _ := slices.BinarySearchFunc(inputSlots, slot, func(a, b XGoInputSlot) int {
+				if a.Range.Start.Line != b.Range.Start.Line {
+					return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
+				}
+				return cmp.Compare(a.Range.Start.Character, b.Range.Start.Character)
+			})
+			if index > 0 && IsRangesOverlap(inputSlots[index-1].Range, slot.Range) {
 				continue
 			}
-			inputSlots = append(inputSlots, slot)
+			if index < len(inputSlots) && IsRangesOverlap(inputSlots[index].Range, slot.Range) {
+				continue
+			}
+			inputSlots = slices.Insert(inputSlots, index, slot)
 		}
 	}
 	addInputSlot := func(slot *SpxInputSlot) {
@@ -549,20 +766,18 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 		switch node := node.(type) {
 		case *ast.BranchStmt:
 			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
-				slots := findInputSlotsFromCallExpr(result, callExpr)
-				addInputSlots(slots...)
+				addInputSlots(findInputSlotsFromCallExpr(ctx, callExpr)...)
 			}
 		case *ast.CallExpr, *ast.FuncDecorator:
-			slots := findInputSlotsFromCallExpr(result, callExprFromNode(node))
-			addInputSlots(slots...)
+			addInputSlots(findInputSlotsFromCallExpr(ctx, callExprFromNode(node))...)
 		case *ast.BinaryExpr:
-			addInputSlot(checkValueInputSlot(result, node.X, nil))
-			addInputSlot(checkValueInputSlot(result, node.Y, nil))
+			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
+			addInputSlot(checkValueInputSlot(ctx, node.Y, nil))
 		case *ast.UnaryExpr:
-			addInputSlot(checkValueInputSlot(result, node.X, nil))
+			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
 		case *ast.AssignStmt:
 			for _, lhs := range node.Lhs {
-				addInputSlot(checkAddressInputSlot(result, lhs))
+				addInputSlot(checkAddressInputSlot(ctx, lhs))
 			}
 
 			for i, rhs := range node.Rhs {
@@ -571,23 +786,19 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 					declaredType = typeInfo.TypeOf(node.Lhs[i])
 				}
 
-				addInputSlot(checkValueInputSlot(result, rhs, declaredType))
+				addInputSlot(checkValueInputSlot(ctx, rhs, declaredType))
 			}
 		case *ast.ForStmt:
-			if node.Init != nil {
-				if expr, ok := node.Init.(*ast.ExprStmt); ok {
-					addInputSlot(checkValueInputSlot(result, expr.X, nil))
-				}
+			if expr, ok := node.Init.(*ast.ExprStmt); ok {
+				addInputSlot(checkValueInputSlot(ctx, expr.X, nil))
 			}
 
 			if node.Cond != nil {
-				addInputSlot(checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool]))
+				addInputSlot(checkValueInputSlot(ctx, node.Cond, gotypes.Typ[gotypes.Bool]))
 			}
 
-			if node.Post != nil {
-				if expr, ok := node.Post.(*ast.ExprStmt); ok {
-					addInputSlot(checkValueInputSlot(result, expr.X, nil))
-				}
+			if expr, ok := node.Post.(*ast.ExprStmt); ok {
+				addInputSlot(checkValueInputSlot(ctx, expr.X, nil))
 			}
 		case *ast.ValueSpec:
 			for i, value := range node.Values {
@@ -602,57 +813,55 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 					}
 				}
 
-				addInputSlot(checkValueInputSlot(result, value, declaredType))
+				addInputSlot(checkValueInputSlot(ctx, value, declaredType))
 			}
 		case *ast.ReturnStmt:
 			for _, res := range node.Results {
-				addInputSlot(checkValueInputSlot(result, res, nil))
+				addInputSlot(checkValueInputSlot(ctx, res, nil))
 			}
 		case *ast.IfStmt:
-			addInputSlot(checkValueInputSlot(result, node.Cond, gotypes.Typ[gotypes.Bool]))
+			addInputSlot(checkValueInputSlot(ctx, node.Cond, gotypes.Typ[gotypes.Bool]))
 		case *ast.SwitchStmt:
 			if node.Tag != nil {
-				addInputSlot(checkValueInputSlot(result, node.Tag, nil))
+				addInputSlot(checkValueInputSlot(ctx, node.Tag, nil))
 			}
 		case *ast.CaseClause:
 			for _, expr := range node.List {
-				addInputSlot(checkValueInputSlot(result, expr, nil))
+				addInputSlot(checkValueInputSlot(ctx, expr, nil))
 			}
 		case *ast.RangeStmt:
 			if node.Key != nil && !isBlank(node.Key) {
-				addInputSlot(checkAddressInputSlot(result, node.Key))
+				addInputSlot(checkAddressInputSlot(ctx, node.Key))
 			}
 
 			if node.Value != nil && !isBlank(node.Value) {
-				addInputSlot(checkAddressInputSlot(result, node.Value))
+				addInputSlot(checkAddressInputSlot(ctx, node.Value))
 			}
 
-			addInputSlot(checkValueInputSlot(result, node.X, nil))
+			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
 		case *ast.IncDecStmt:
-			addInputSlot(checkAddressInputSlot(result, node.X))
+			addInputSlot(checkAddressInputSlot(ctx, node.X))
 		}
 		return true
 	})
-	sortSpxInputSlots(inputSlots)
 	return inputSlots
 }
 
 // findInputSlotsFromCallExpr finds input slots from a call expression.
-func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) []SpxInputSlot {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
+func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) []SpxInputSlot {
+	if ctx.typeInfo == nil {
 		return nil
 	}
 
 	var inputSlots []SpxInputSlot
-	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(ctx.result.proj, ctx.typeInfo, callExpr) {
 		if resolvedArg.ExpectedType == nil || resolvedArg.IsTypeArg() {
 			continue
 		}
 
 		expectedType := resolvedArg.ExpectedType
 		if _, ok := expectedType.(*gotypes.TypeParam); ok {
-			if actualType := typeInfo.TypeOf(resolvedArg.Arg); xgoutil.IsValidType(actualType) {
+			if actualType := ctx.typeInfo.TypeOf(resolvedArg.Arg); xgoutil.IsValidType(actualType) {
 				expectedType = actualType
 			}
 		}
@@ -668,9 +877,9 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 				continue
 			}
 			declaredType = xgoutil.DerefType(unitExpectedType)
-			slot = createValueInputSlotFromNumberUnitLit(result, lit, declaredType)
+			slot = createValueInputSlotFromNumberUnitLit(ctx, lit, declaredType)
 		} else {
-			slot = checkValueInputSlot(result, resolvedArg.Arg, declaredType)
+			slot = checkValueInputSlot(ctx, resolvedArg.Arg, declaredType)
 		}
 		if slot != nil {
 			inputSlots = append(inputSlots, *slot)
@@ -680,18 +889,19 @@ func findInputSlotsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) [
 }
 
 // collectPredefinedNames collects all predefined names for the given expression.
-func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType gotypes.Type) []string {
-	typeInfo, _ := result.proj.TypeInfo()
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, expr)
-	innermostScope := xgoutil.InnermostScopeAt(result.proj.Fset, typeInfo, astPkg, expr.Pos())
+func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType gotypes.Type) []string {
+	innermostScope := ctx.innermostScope(expr)
+	key := predefinedNamesCacheKey{scope: innermostScope, declaredType: declaredType}
+	if innermostScope != nil {
+		key.visibleObjectCount = ctx.visibleObjectCount(innermostScope, expr.Pos())
+	}
+	if names, ok := ctx.predefinedNames[key]; ok {
+		return names
+	}
 
 	var names []string
-	growNames := func(n int) {
-		names = slices.Grow(names, n)
-	}
 	seenNames := make(map[string]struct{})
-	addNameOf := func(obj gotypes.Object) {
+	addObjectName := func(obj gotypes.Object) {
 		name := obj.Name()
 		switch obj := obj.(type) {
 		case *gotypes.Var, *gotypes.Const:
@@ -699,9 +909,7 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 				return
 			}
 
-			switch {
-			case name == "this",
-				xgoutil.IsXGoInternalName(name):
+			if name == "this" || xgoutil.IsXGoInternalName(name) {
 				return
 			}
 		case *gotypes.Func:
@@ -730,41 +938,42 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 	}
 
 	for scope := innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
-		growNames(len(scope.Names()))
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if obj == nil {
-				continue
-			}
-			defIdent := typeInfo.ObjToDef[obj]
-
+		objects := ctx.objectsInScope(scope)
+		names = slices.Grow(names, len(objects))
+		for _, obj := range objects {
 			if scope != innermostScope || obj.Pos() < expr.Pos() {
 				switch obj.(type) {
 				case *gotypes.Var, *gotypes.Const:
-					addNameOf(obj)
+					addObjectName(obj)
 				}
 			}
 
-			if astFile.IsClass && xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, defIdent) {
-				objType := xgoutil.DerefType(obj.Type())
-				named, ok := objType.(*gotypes.Named)
-				if !ok || !xgoutil.IsNamedStructType(named) {
-					continue
-				}
+			if !ctx.astFile.IsClass || !xgoutil.IsSyntheticThisIdent(
+				ctx.result.proj.Fset,
+				ctx.typeInfo,
+				ctx.astPkg,
+				ctx.typeInfo.ObjToDef[obj],
+			) {
+				continue
+			}
+			objType := xgoutil.DerefType(obj.Type())
+			named, ok := objType.(*gotypes.Named)
+			if !ok || !xgoutil.IsNamedStructType(named) {
+				continue
+			}
 
-				for structMember := range xgoutil.StructMembers(named) {
-					switch member := structMember.Member.(type) {
-					case *gotypes.Var:
-						if !member.Origin().Embedded() {
-							addNameOf(member)
-						}
-					case *gotypes.Func:
-						// Add methods with no parameters and exactly one return value.
-						// For example, the method `Game.BackdropName` can be used in `echo backdropname`.
-						funcSig := member.Signature()
-						if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
-							addNameOf(member)
-						}
+			for structMember := range xgoutil.StructMembers(named) {
+				switch member := structMember.Member.(type) {
+				case *gotypes.Var:
+					if !member.Origin().Embedded() {
+						addObjectName(member)
+					}
+				case *gotypes.Func:
+					// Add methods with no parameters and exactly one return value.
+					// For example, the method `Game.BackdropName` can be used in `echo backdropname`.
+					funcSig := member.Signature()
+					if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
+						addObjectName(member)
 					}
 				}
 			}
@@ -776,56 +985,55 @@ func collectPredefinedNames(result *compileResult, expr ast.Expr, declaredType g
 		GetMathPkg().Scope(),
 		gotypes.Universe,
 	} {
-		growNames(len(scope.Names()))
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if obj == nil {
-				continue
-			}
+		objects := ctx.objectsInScope(scope)
+		names = slices.Grow(names, len(objects))
+		for _, obj := range objects {
 			if _, ok := obj.(*gotypes.Var); ok {
-				addNameOf(obj)
+				addObjectName(obj)
 			}
 		}
 	}
 
+	ctx.predefinedNames[key] = names
 	return names
 }
 
 // checkValueInputSlot checks if the expression is a value input slot.
-func checkValueInputSlot(result *compileResult, expr ast.Expr, declaredType gotypes.Type) *SpxInputSlot {
+func checkValueInputSlot(ctx *inputSlotContext, expr ast.Expr, declaredType gotypes.Type) *SpxInputSlot {
 	switch expr := expr.(type) {
 	case *ast.BasicLit:
-		return createValueInputSlotFromBasicLit(result, expr, declaredType)
+		return createValueInputSlotFromBasicLit(ctx, expr, declaredType)
 	case *ast.Ident:
-		return createValueInputSlotFromIdent(result, expr, declaredType)
+		return createValueInputSlotFromIdent(ctx, expr, declaredType)
 	case *ast.UnaryExpr:
-		return createValueInputSlotFromUnaryExpr(result, expr, declaredType)
+		return createValueInputSlotFromUnaryExpr(ctx, expr, declaredType)
 	case *ast.CallExpr:
-		return createValueInputSlotFromColorFuncCall(result, expr, declaredType)
+		return createValueInputSlotFromColorFuncCall(ctx, expr, declaredType)
 	}
 	return nil
 }
 
 // checkAddressInputSlot checks if the expression is an address input slot.
-func checkAddressInputSlot(result *compileResult, expr ast.Expr) *SpxInputSlot {
-	if ident, ok := expr.(*ast.Ident); ok {
-		return &SpxInputSlot{
-			Kind:   SpxInputSlotKindAddress,
-			Accept: SpxInputSlotAccept{Type: SpxInputTypeUnknown},
-			Input: SpxInput{
-				Kind: SpxInputKindPredefined,
-				Type: SpxInputTypeUnknown,
-				Name: ident.Name,
-			},
-			PredefinedNames: collectPredefinedNames(result, expr, nil),
-			Range:           RangeForNode(result.proj, ident),
-		}
+func checkAddressInputSlot(ctx *inputSlotContext, expr ast.Expr) *SpxInputSlot {
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
+		return nil
 	}
-	return nil
+	return &SpxInputSlot{
+		Kind:   SpxInputSlotKindAddress,
+		Accept: SpxInputSlotAccept{Type: SpxInputTypeUnknown},
+		Input: SpxInput{
+			Kind: SpxInputKindPredefined,
+			Type: SpxInputTypeUnknown,
+			Name: ident.Name,
+		},
+		PredefinedNames: collectPredefinedNames(ctx, expr, nil),
+		Range:           ctx.rangeForNode(ident),
+	}
 }
 
 // createValueInputSlotFromBasicLit creates a value input slot from a basic literal.
-func createValueInputSlotFromBasicLit(result *compileResult, lit *ast.BasicLit, declaredType gotypes.Type) *SpxInputSlot {
+func createValueInputSlotFromBasicLit(ctx *inputSlotContext, lit *ast.BasicLit, declaredType gotypes.Type) *SpxInputSlot {
 	input := SpxInput{Kind: SpxInputKindInPlace}
 	switch lit.Kind {
 	case token.STRING:
@@ -858,7 +1066,7 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *ast.BasicLit, 
 		accept.Type = inferSpxInputTypeFromType(declaredType)
 	}
 	if accept.Type == SpxInputTypeResourceName {
-		for _, spxResourceRef := range result.spxResourceRefs {
+		for _, spxResourceRef := range ctx.result.spxResourceRefs {
 			if spxResourceRef.Node == lit {
 				input.Type = SpxInputTypeResourceName
 				input.Value = spxResourceRef.ID.URI()
@@ -875,14 +1083,14 @@ func createValueInputSlotFromBasicLit(result *compileResult, lit *ast.BasicLit, 
 		Kind:            SpxInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(result, lit, declaredType),
-		Range:           RangeForNode(result.proj, lit),
+		PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
+		Range:           ctx.rangeForNode(lit),
 	}
 }
 
 // createValueInputSlotFromNumberUnitLit creates a value input slot from a
 // number-with-unit literal.
-func createValueInputSlotFromNumberUnitLit(result *compileResult, lit *ast.NumberUnitLit, declaredType gotypes.Type) *SpxInputSlot {
+func createValueInputSlotFromNumberUnitLit(ctx *inputSlotContext, lit *ast.NumberUnitLit, declaredType gotypes.Type) *SpxInputSlot {
 	input := SpxInput{Kind: SpxInputKindInPlace}
 	switch lit.Kind {
 	case token.INT:
@@ -914,18 +1122,17 @@ func createValueInputSlotFromNumberUnitLit(result *compileResult, lit *ast.Numbe
 		Kind:            SpxInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(result, lit, declaredType),
-		Range:           RangeForPosEnd(result.proj, lit.ValuePos, xgoUnitStart(lit)),
+		PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
+		Range:           ctx.rangeForPosEnd(lit.ValuePos, xgoUnitStart(lit)),
 	}
 }
 
 // createValueInputSlotFromIdent creates a value input slot from an identifier.
-func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, declaredType gotypes.Type) *SpxInputSlot {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
+func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, declaredType gotypes.Type) *SpxInputSlot {
+	if ctx.typeInfo == nil {
 		return nil
 	}
-	typ := typeInfo.TypeOf(ident)
+	typ := ctx.typeInfo.TypeOf(ident)
 	if typ == nil {
 		return nil
 	}
@@ -933,7 +1140,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 
 	input := SpxInput{
 		Kind: SpxInputKindPredefined,
-		Type: inferSpxInputTypeFromTypeInProject(result, typ),
+		Type: inferSpxInputTypeFromTypeInProject(ctx.result, typ),
 		Name: ident.Name,
 	}
 	switch input.Type {
@@ -950,7 +1157,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		SpxInputTypeKey,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
-		obj := typeInfo.ObjectOf(ident)
+		obj := ctx.typeInfo.ObjectOf(ident)
 		if obj != nil && !IsInSpxPkg(obj) {
 			break
 		}
@@ -970,7 +1177,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 
 	accept := SpxInputSlotAccept{Type: input.Type}
 	if declaredType != nil {
-		accept.Type = inferSpxInputTypeFromTypeInProject(result, declaredType)
+		accept.Type = inferSpxInputTypeFromTypeInProject(ctx.result, declaredType)
 	}
 	switch accept.Type {
 	case SpxInputTypeResourceName:
@@ -982,13 +1189,13 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		case GetSpxSpriteNameType():
 			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
 		case GetSpxSpriteCostumeNameType():
-			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
+			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(ctx.result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
 			accept.ResourceContext = ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
 		case GetSpxSpriteAnimationNameType():
-			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, ident)
+			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(ctx.result, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
@@ -1000,7 +1207,7 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		}
 	case SpxInputTypeSpriteInstance:
 		accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
-		if spxSpriteResource := spxSpriteResourceForObject(result, typeInfo.ObjectOf(ident)); spxSpriteResource != nil {
+		if spxSpriteResource := spxSpriteResourceForObject(ctx.result, ctx.typeInfo.ObjectOf(ident)); spxSpriteResource != nil {
 			input.Kind = SpxInputKindInPlace
 			input.Value = spxSpriteResource.ID.URI()
 			input.Name = ""
@@ -1011,8 +1218,8 @@ func createValueInputSlotFromIdent(result *compileResult, ident *ast.Ident, decl
 		Kind:            SpxInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(result, ident, declaredType),
-		Range:           RangeForNode(result.proj, ident),
+		PredefinedNames: collectPredefinedNames(ctx, ident, declaredType),
+		Range:           ctx.rangeForNode(ident),
 	}
 }
 
@@ -1052,11 +1259,11 @@ func spxSpriteResourceForObject(result *compileResult, obj gotypes.Object) *SpxS
 }
 
 // createValueInputSlotFromUnaryExpr creates a value input slot from a unary expression.
-func createValueInputSlotFromUnaryExpr(result *compileResult, expr *ast.UnaryExpr, declaredType gotypes.Type) *SpxInputSlot {
+func createValueInputSlotFromUnaryExpr(ctx *inputSlotContext, expr *ast.UnaryExpr, declaredType gotypes.Type) *SpxInputSlot {
 	var inputSlot *SpxInputSlot
 	switch x := expr.X.(type) {
 	case *ast.BasicLit:
-		inputSlot = createValueInputSlotFromBasicLit(result, x, declaredType)
+		inputSlot = createValueInputSlotFromBasicLit(ctx, x, declaredType)
 		if inputSlot == nil {
 			return nil
 		}
@@ -1087,7 +1294,7 @@ func createValueInputSlotFromUnaryExpr(result *compileResult, expr *ast.UnaryExp
 			}
 		}
 	case *ast.Ident:
-		inputSlot = createValueInputSlotFromIdent(result, x, declaredType)
+		inputSlot = createValueInputSlotFromIdent(ctx, x, declaredType)
 		if inputSlot == nil {
 			return nil
 		}
@@ -1104,19 +1311,18 @@ func createValueInputSlotFromUnaryExpr(result *compileResult, expr *ast.UnaryExp
 	default:
 		return nil
 	}
-	inputSlot.Range = RangeForNode(result.proj, expr) // Update the range to include the entire unary expression.
+	inputSlot.Range = ctx.rangeForNode(expr) // Update the range to include the entire unary expression.
 	return inputSlot
 }
 
 // createValueInputSlotFromColorFuncCall creates a value input slot from an spx
 // color function call.
-func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *ast.CallExpr, declaredType gotypes.Type) *SpxInputSlot {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
+func createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.CallExpr, declaredType gotypes.Type) *SpxInputSlot {
+	if ctx.typeInfo == nil {
 		return nil
 	}
 
-	fun := xgoutil.FuncFromCallExpr(typeInfo, callExpr)
+	fun := xgoutil.FuncFromCallExpr(ctx.typeInfo, callExpr)
 	if fun == nil || !IsInSpxPkg(fun) || !isSpxColorFunc(fun) {
 		return nil
 	}
@@ -1175,8 +1381,8 @@ func createValueInputSlotFromColorFuncCall(result *compileResult, callExpr *ast.
 				Args:        args,
 			},
 		},
-		PredefinedNames: collectPredefinedNames(result, callExpr, declaredType),
-		Range:           RangeForNode(result.proj, callExpr),
+		PredefinedNames: collectPredefinedNames(ctx, callExpr, declaredType),
+		Range:           ctx.rangeForNode(callExpr),
 	}
 }
 
@@ -1295,20 +1501,4 @@ func inferSpxSpriteResourceEnclosingNode(result *compileResult, node ast.Node) *
 func isBlank(expr ast.Expr) bool {
 	ident, ok := expr.(*ast.Ident)
 	return ok && ident.Name == "_"
-}
-
-// sortSpxInputSlots sorts the given spx input slots in a stable manner.
-func sortSpxInputSlots(slots []SpxInputSlot) {
-	slices.SortFunc(slots, func(a, b SpxInputSlot) int {
-		// First sort by line number.
-		if a.Range.Start.Line != b.Range.Start.Line {
-			return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
-		}
-		// If same line, sort by character position.
-		if a.Range.Start.Character != b.Range.Start.Character {
-			return cmp.Compare(a.Range.Start.Character, b.Range.Start.Character)
-		}
-		// If same position (unlikely), sort by input kind for stability.
-		return cmp.Compare(a.Kind, b.Kind)
-	})
 }

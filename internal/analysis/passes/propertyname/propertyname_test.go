@@ -2,6 +2,7 @@ package propertyname
 
 import (
 	gotypes "go/types"
+	"iter"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,11 +16,30 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 type propertynameCallbacks struct {
 	isPropertyNameType      func(gotypes.Type) bool
-	getPropertyNamesForCall func(*ast.CallExpr) []string
+	getPropertyNamesForCall func(*ast.CallExpr) map[string]struct{}
+	resolvedCallExprArgs    func(*ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg]
+}
+
+func propertyNameSet(names ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+func isTestPropertyNameType(typ gotypes.Type) bool {
+	named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+	return ok && named.Obj().Name() == "PropertyName"
+}
+
+func testPropertyNames(_ *ast.CallExpr) map[string]struct{} {
+	return propertyNameSet("x", "y")
 }
 
 func TestPropertyname(t *testing.T) {
@@ -43,13 +63,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: true,
 		},
@@ -67,13 +82,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
 		},
@@ -90,13 +100,8 @@ func validate(name PropertyName, fn func()) {}
 func run() {}
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: true,
 		},
@@ -113,13 +118,8 @@ func validate(name PropertyName, fn func()) {}
 func run() {}
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
 		},
@@ -139,13 +139,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: true,
 		},
@@ -165,13 +160,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
 		},
@@ -193,13 +183,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: true,
 		},
@@ -221,13 +206,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
 		},
@@ -245,10 +225,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: nil,
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{"x", "y"}
-				},
+				isPropertyNameType:      nil,
+				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
 		},
@@ -266,10 +244,7 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
+				isPropertyNameType:      isTestPropertyNameType,
 				getPropertyNamesForCall: nil,
 			},
 			wantDiag: false,
@@ -288,11 +263,8 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
+				isPropertyNameType: isTestPropertyNameType,
+				getPropertyNamesForCall: func(_ *ast.CallExpr) map[string]struct{} {
 					return nil // target type unknown: skip validation
 				},
 			},
@@ -312,12 +284,9 @@ func run() {
 }
 `,
 			callbacks: propertynameCallbacks{
-				isPropertyNameType: func(typ gotypes.Type) bool {
-					named, ok := gotypes.Unalias(typ).(*gotypes.Named)
-					return ok && named.Obj().Name() == "PropertyName"
-				},
-				getPropertyNamesForCall: func(_ *ast.CallExpr) []string {
-					return []string{} // target type known but has no properties
+				isPropertyNameType: isTestPropertyNameType,
+				getPropertyNamesForCall: func(_ *ast.CallExpr) map[string]struct{} {
+					return propertyNameSet() // target type known but has no properties
 				},
 			},
 			wantDiag: true,
@@ -332,6 +301,40 @@ func run() {
 			}
 		})
 	}
+}
+
+func TestPropertynameSkipsPropertyLookupWithoutValidatableArguments(t *testing.T) {
+	lookups := 0
+	resolutions := 0
+	diagnostics := runPropertynameAnalyzer(t, `
+package test
+
+type PropertyName string
+
+func log(value int) {}
+func showVar(name PropertyName) {}
+
+var property PropertyName
+
+func run() {
+	log(1)
+	showVar(property)
+}
+`, propertynameCallbacks{
+		isPropertyNameType: isTestPropertyNameType,
+		getPropertyNamesForCall: func(_ *ast.CallExpr) map[string]struct{} {
+			lookups++
+			return propertyNameSet("x", "y")
+		},
+		resolvedCallExprArgs: func(_ *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
+			resolutions++
+			return func(_ func(xgoutil.ResolvedCallExprArg) bool) {}
+		},
+	})
+
+	assert.Empty(t, diagnostics)
+	assert.Zero(t, lookups)
+	assert.Zero(t, resolutions)
 }
 
 func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCallbacks) []protocol.Diagnostic {
@@ -367,6 +370,7 @@ func runPropertynameAnalyzer(t *testing.T, src string, callbacks propertynameCal
 		TypesInfo:               info,
 		IsPropertyNameType:      callbacks.isPropertyNameType,
 		GetPropertyNamesForCall: callbacks.getPropertyNamesForCall,
+		ResolvedCallExprArgs:    callbacks.resolvedCallExprArgs,
 		Report: func(d protocol.Diagnostic) {
 			diagnostics = append(diagnostics, d)
 		},

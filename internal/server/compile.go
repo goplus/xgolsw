@@ -562,13 +562,9 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 	if astPkg == nil {
 		return
 	}
-	pkgDoc, _ := proj.PkgDoc()
+	propertyNamesCache := make(map[*gotypes.Named]map[string]struct{})
 	for spxFile, astFile := range astPkg.Files {
 		var diagnostics []Diagnostic
-		// propertyNamesCache memoizes GetPropertyNamesForCall results per
-		// CallExpr. A cached nil result means an unknown target. A map lookup
-		// still distinguishes it from a missing entry.
-		propertyNamesCache := make(map[*ast.CallExpr][]string)
 		pass := &protocol.Pass{
 			Fset:      fset,
 			Files:     []*ast.File{astFile},
@@ -585,20 +581,19 @@ func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
 				inspect.Analyzer: inspector.New([]*ast.File{astFile}),
 			},
 			IsPropertyNameType: IsSpxPropertyNameType,
-			GetPropertyNamesForCall: func(call *ast.CallExpr) []string {
-				if names, ok := propertyNamesCache[call]; ok {
-					return names
-				}
+			GetPropertyNamesForCall: func(call *ast.CallExpr) map[string]struct{} {
 				named := PropertyTargetNamedTypeForCall(typeInfo, call, spxFile, result.mainSpxFile)
 				if named == nil {
-					propertyNamesCache[call] = nil
 					return nil
 				}
-				names := make([]string, 0)
-				for m := range propertyMembers(named, makePkgDocFor(pkgDoc)) {
-					names = append(names, m.Name)
+				if names, ok := propertyNamesCache[named]; ok {
+					return names
 				}
-				propertyNamesCache[call] = names
+				names := make(map[string]struct{})
+				for property := range propertyObjects(named) {
+					names[property.Name] = struct{}{}
+				}
+				propertyNamesCache[named] = names
 				return names
 			},
 			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
@@ -631,6 +626,8 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 	if typeInfo == nil {
 		return
 	}
+	astPkg, _ := result.proj.ASTPackage()
+	returnTypes := spxResourceReturnTypes(astPkg, typeInfo)
 
 	// Check all identifier definitions.
 	for ident, obj := range typeInfo.Defs {
@@ -666,7 +663,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 		switch expr := expr.(type) {
 		case *ast.BasicLit:
 			if expr.Kind == token.STRING {
-				if returnType := s.resolveReturnTypeForExpr(result, expr); returnType != nil {
+				if returnType := returnTypes[expr]; returnType != nil {
 					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
 						if spxFileBaseName == "main.spx" {
@@ -694,7 +691,6 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 
 	// Check call arguments from the AST, since calls containing invalid or
 	// partially typed arguments may be absent from typeInfo.Types.
-	astPkg, _ := result.proj.ASTPackage()
 	if astPkg == nil {
 		return
 	}
@@ -713,12 +709,16 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 // inspectSpxResourceRefsForCallExpr inspects spx resource references in call
 // arguments.
 func (s *Server) inspectSpxResourceRefsForCallExpr(result *compileResult, typeInfo *types.Info, call *ast.CallExpr) {
+	if len(call.Args) == 0 && len(call.Kwargs) == 0 {
+		return
+	}
 	fun := xgoutil.FuncFromCallExpr(typeInfo, call)
 	if fun == nil {
 		return
 	}
-	funcOverloads := callExprFuncOverloads(result.proj, typeInfo, call)
-	if !HasSpxResourceNameTypeParams(fun) && len(call.Kwargs) == 0 && len(funcOverloads) == 0 {
+	mayHaveResourceParams := HasSpxResourceNameTypeParams(fun) || len(call.Kwargs) > 0 ||
+		xgoutil.IsXGoOverloadableFunc(fun) || xgoutil.IsXGoOverloadedFuncName(fun.Name())
+	if !mayHaveResourceParams {
 		return
 	}
 
@@ -823,41 +823,72 @@ func (s *Server) resolveIdentifierToAssignedExpr(result *compileResult, ident *a
 	return resolvedExpr
 }
 
-// resolveReturnTypeForExpr resolves the function return type for an expression
-// when it appears in a return statement.
-func (s *Server) resolveReturnTypeForExpr(result *compileResult, expr ast.Expr) gotypes.Type {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
+// spxResourceReturnTypes returns the expected SPX resource type for each
+// string literal contained in a resource-typed return value.
+func spxResourceReturnTypes(astPkg *ast.Package, typeInfo *types.Info) map[*ast.BasicLit]gotypes.Type {
+	returnTypes := make(map[*ast.BasicLit]gotypes.Type)
+	if astPkg == nil || typeInfo == nil {
+		return returnTypes
 	}
 
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, expr)
-	if astFile == nil {
-		return nil
+	var inspectResourceReturns func(ast.Node, *gotypes.Signature)
+	inspectResourceReturns = func(root ast.Node, sig *gotypes.Signature) {
+		if root == nil {
+			return
+		}
+		ast.Inspect(root, func(node ast.Node) bool {
+			switch node := node.(type) {
+			case *ast.FuncDecl:
+				fun, _ := typeInfo.ObjectOf(node.Name).(*gotypes.Func)
+				if fun == nil || node.Body == nil {
+					return false
+				}
+				funcSig, _ := fun.Type().(*gotypes.Signature)
+				inspectResourceReturns(node.Body, funcSig)
+				return false
+			case *ast.FuncLit:
+				if node.Body == nil {
+					return false
+				}
+				funcSig, _ := typeInfo.TypeOf(node).(*gotypes.Signature)
+				inspectResourceReturns(node.Body, funcSig)
+				return false
+			case *ast.ReturnStmt:
+				if sig == nil {
+					return true
+				}
+				results := sig.Results()
+				for i, resultExpr := range node.Results {
+					if i >= results.Len() {
+						break
+					}
+					if resultExpr == nil {
+						continue
+					}
+					returnType := xgoutil.DerefType(results.At(i).Type())
+					if !IsSpxResourceNameType(returnType) {
+						continue
+					}
+					ast.Inspect(resultExpr, func(resultNode ast.Node) bool {
+						if _, ok := resultNode.(*ast.FuncLit); ok {
+							return false
+						}
+						literal, ok := resultNode.(*ast.BasicLit)
+						if ok && literal.Kind == token.STRING {
+							returnTypes[literal] = returnType
+						}
+						return true
+					})
+				}
+			}
+			return true
+		})
 	}
 
-	path, _ := xgoutil.PathEnclosingInterval(astFile, expr.Pos(), expr.End())
-	stmt := xgoutil.EnclosingReturnStmt(path)
-	if stmt == nil {
-		return nil
+	for _, astFile := range astPkg.Files {
+		inspectResourceReturns(astFile, nil)
 	}
-
-	idx := xgoutil.ReturnValueIndex(stmt, expr)
-	if idx < 0 {
-		return nil
-	}
-
-	sig := xgoutil.EnclosingFuncSignature(typeInfo, path)
-	if sig == nil || idx >= sig.Results().Len() {
-		return nil
-	}
-
-	typ := xgoutil.DerefType(sig.Results().At(idx).Type())
-	if IsSpxResourceNameType(typ) {
-		return typ
-	}
-	return nil
+	return returnTypes
 }
 
 // resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.
