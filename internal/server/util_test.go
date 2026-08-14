@@ -656,16 +656,16 @@ func TestIsRangesOverlap(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "RangesTouchAtEndpointExactlyEndOfAEqualsStartOfB",
+			name: "RangesTouchAtEndpointEndOfAEqualsStartOfB",
 			a:    Range{Start: Position{Line: 1, Character: 1}, End: Position{Line: 2, Character: 5}},
 			b:    Range{Start: Position{Line: 2, Character: 5}, End: Position{Line: 3, Character: 1}},
-			want: true,
+			want: false,
 		},
 		{
-			name: "RangesTouchAtEndpointExactlyEndOfBEqualsStartOfA",
+			name: "RangesTouchAtEndpointEndOfBEqualsStartOfA",
 			a:    Range{Start: Position{Line: 2, Character: 5}, End: Position{Line: 3, Character: 1}},
 			b:    Range{Start: Position{Line: 1, Character: 1}, End: Position{Line: 2, Character: 5}},
-			want: true,
+			want: false,
 		},
 		{
 			name: "SameLineOverlappingCharacters",
@@ -683,25 +683,31 @@ func TestIsRangesOverlap(t *testing.T) {
 			name: "ZeroWidthRangeAtSamePosition",
 			a:    Range{Start: Position{Line: 2, Character: 2}, End: Position{Line: 2, Character: 2}},
 			b:    Range{Start: Position{Line: 2, Character: 2}, End: Position{Line: 2, Character: 2}},
-			want: true,
+			want: false,
 		},
 		{
 			name: "ZeroWidthRangeInsideLargerRange",
 			a:    Range{Start: Position{Line: 2, Character: 2}, End: Position{Line: 2, Character: 2}},
 			b:    Range{Start: Position{Line: 1, Character: 1}, End: Position{Line: 3, Character: 3}},
-			want: true,
+			want: false,
 		},
 		{
-			name: "OverlapOnlyOnCharacterPosition",
+			name: "RangesTouchAtSameLineCharacter",
 			a:    Range{Start: Position{Line: 1, Character: 1}, End: Position{Line: 1, Character: 5}},
 			b:    Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 15}},
-			want: true,
+			want: false,
 		},
 		{
-			name: "StartOfAEqualsEndOfBOnDifferentLinesNoOverlap",
+			name: "StartOfAEqualsEndOfBOnDifferentLines",
 			a:    Range{Start: Position{Line: 3, Character: 0}, End: Position{Line: 4, Character: 0}},
 			b:    Range{Start: Position{Line: 1, Character: 0}, End: Position{Line: 3, Character: 0}},
-			want: true,
+			want: false,
+		},
+		{
+			name: "ReversedRange",
+			a:    Range{Start: Position{Line: 3, Character: 0}, End: Position{Line: 1, Character: 0}},
+			b:    Range{Start: Position{Line: 1, Character: 0}, End: Position{Line: 4, Character: 0}},
+			want: false,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

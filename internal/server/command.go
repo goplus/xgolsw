@@ -128,7 +128,8 @@ func (s *Server) spxRenameResourcesWithCompileResult(result *compileResult, para
 	return &workspaceEdit, nil
 }
 
-// spxGetInputSlots gets input slots in a document.
+// spxGetInputSlots gets input slots in source order. Returned slots have
+// pairwise non-overlapping ranges.
 func (s *Server) spxGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSlot, error) {
 	if l := len(params); l == 0 {
 		return nil, nil
@@ -726,7 +727,69 @@ func (c *inputSlotContext) visibleObjectCount(scope *gotypes.Scope, pos token.Po
 	return count
 }
 
-// findInputSlots finds all input slots in the AST file.
+// compareInputSlotPriority compares input slots by conflict priority. Slots
+// with earlier starts win, and longer slots win when their starts are equal.
+func compareInputSlotPriority(a, b XGoInputSlot) int {
+	if start := comparePositions(a.Range.Start, b.Range.Start); start != 0 {
+		return start
+	}
+	return comparePositions(b.Range.End, a.Range.End)
+}
+
+// normalizeInputSlots orders input slots by source range, drops degenerate
+// ranges, and removes overlaps. Discovery order breaks ties between slots with
+// identical ranges. It takes ownership of inputSlots and may overwrite it.
+func normalizeInputSlots(inputSlots []XGoInputSlot) []XGoInputSlot {
+	// Reuse the input storage when candidates are already in priority order.
+	if slices.IsSortedFunc(inputSlots, compareInputSlotPriority) {
+		normalizedSlots := appendNonOverlappingInputSlots(inputSlots[:0], slices.Values(inputSlots))
+		clear(inputSlots[len(normalizedSlots):])
+		return normalizedSlots
+	}
+
+	// Sorting indices preserves discovery order for exact ties without moving
+	// the comparatively large slot values during every sort operation.
+	indices := make([]int, len(inputSlots))
+	for i := range indices {
+		indices[i] = i
+	}
+	slices.SortFunc(indices, func(i, j int) int {
+		if priority := compareInputSlotPriority(inputSlots[i], inputSlots[j]); priority != 0 {
+			return priority
+		}
+		return cmp.Compare(i, j)
+	})
+	orderedSlots := func(yield func(XGoInputSlot) bool) {
+		for _, index := range indices {
+			if !yield(inputSlots[index]) {
+				return
+			}
+		}
+	}
+	return appendNonOverlappingInputSlots(make([]XGoInputSlot, 0, len(inputSlots)), orderedSlots)
+}
+
+// appendNonOverlappingInputSlots appends valid slots from a sequence ordered by
+// [compareInputSlotPriority] unless they overlap the last accepted slot. The
+// ordering and disjointness of accepted slots mean only the last can overlap
+// the next slot. The destination must be empty and may alias storage read by
+// slots. Appending at most once per input keeps aliased writes behind unread
+// inputs.
+func appendNonOverlappingInputSlots(dst []XGoInputSlot, slots iter.Seq[XGoInputSlot]) []XGoInputSlot {
+	for slot := range slots {
+		if comparePositions(slot.Range.Start, slot.Range.End) >= 0 {
+			continue
+		}
+		if len(dst) > 0 && IsRangesOverlap(dst[len(dst)-1].Range, slot.Range) {
+			continue
+		}
+		dst = append(dst, slot)
+	}
+	return dst
+}
+
+// findInputSlots finds all input slots in the AST file in source order. The
+// returned slots have pairwise non-overlapping ranges.
 func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 	typeInfo, _ := result.proj.TypeInfo()
 	if typeInfo == nil {
@@ -735,26 +798,9 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 	ctx := newInputSlotContext(result, astFile)
 
 	var inputSlots []XGoInputSlot
-	addInputSlots := func(slots ...XGoInputSlot) {
-		for _, slot := range slots {
-			index, _ := slices.BinarySearchFunc(inputSlots, slot, func(a, b XGoInputSlot) int {
-				if a.Range.Start.Line != b.Range.Start.Line {
-					return cmp.Compare(a.Range.Start.Line, b.Range.Start.Line)
-				}
-				return cmp.Compare(a.Range.Start.Character, b.Range.Start.Character)
-			})
-			if index > 0 && IsRangesOverlap(inputSlots[index-1].Range, slot.Range) {
-				continue
-			}
-			if index < len(inputSlots) && IsRangesOverlap(inputSlots[index].Range, slot.Range) {
-				continue
-			}
-			inputSlots = slices.Insert(inputSlots, index, slot)
-		}
-	}
 	addInputSlot := func(slot *SpxInputSlot) {
 		if slot != nil {
-			addInputSlots(*slot)
+			inputSlots = append(inputSlots, *slot)
 		}
 	}
 
@@ -766,10 +812,10 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 		switch node := node.(type) {
 		case *ast.BranchStmt:
 			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
-				addInputSlots(findInputSlotsFromCallExpr(ctx, callExpr)...)
+				inputSlots = append(inputSlots, findInputSlotsFromCallExpr(ctx, callExpr)...)
 			}
 		case *ast.CallExpr, *ast.FuncDecorator:
-			addInputSlots(findInputSlotsFromCallExpr(ctx, callExprFromNode(node))...)
+			inputSlots = append(inputSlots, findInputSlotsFromCallExpr(ctx, callExprFromNode(node))...)
 		case *ast.BinaryExpr:
 			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
 			addInputSlot(checkValueInputSlot(ctx, node.Y, nil))
@@ -844,7 +890,7 @@ func findInputSlots(result *compileResult, astFile *ast.File) []XGoInputSlot {
 		}
 		return true
 	})
-	return inputSlots
+	return normalizeInputSlots(inputSlots)
 }
 
 // findInputSlotsFromCallExpr finds input slots from a call expression.

@@ -199,8 +199,8 @@ interface XGoGetInputSlotsParams {
 
 *Response:*
 
-- result: `XGoInputSlot[]` | `null` describing the XGo input slots found in the document. `null` indicates no XGo input
-  slots were found.
+- result: `XGoInputSlot[]` | `null` describing the XGo input slots found in the document. Returned slots are ordered by
+  source range and have pairwise non-overlapping ranges. `null` indicates no XGo input slots were found.
 - error: code and message set when XGo input slots cannot be retrieved for any reason.
 
 ```typescript

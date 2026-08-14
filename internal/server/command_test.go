@@ -3,6 +3,7 @@ package server
 import (
 	gotypes "go/types"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -986,47 +987,260 @@ onStart => {
 			End:   Position{Line: 5, Character: 11},
 		})
 	})
+
+	t.Run("LargeList", func(t *testing.T) {
+		const slotCount = 2_001
+		files := largeListProjectFiles(slotCount)
+		server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+		result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		slots := findInputSlots(result, astFile)
+		require.Len(t, slots, slotCount)
+		for i, slot := range slots {
+			assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
+			assert.Equal(t, SpxInputTypeUnknown, slot.Accept.Type)
+			assert.Equal(t, SpxInputTypeString, slot.Input.Type)
+			assert.Equal(t, "value", slot.Input.Value)
+			if i > 0 {
+				assert.Less(t, slots[i-1].Range.Start.Character, slot.Range.Start.Character)
+				assert.False(t, IsRangesOverlap(slots[i-1].Range, slot.Range))
+			}
+		}
+	})
+
+	t.Run("MixedLargeList", func(t *testing.T) {
+		const expressionCount = 2_001
+		files := mixedListProjectFiles(expressionCount)
+		server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+		result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		slots := findInputSlots(result, astFile)
+		require.Len(t, slots, expressionCount*3)
+		for i := 1; i < len(slots); i++ {
+			assert.LessOrEqual(t, comparePositions(slots[i-1].Range.Start, slots[i].Range.Start), 0)
+			assert.False(t, IsRangesOverlap(slots[i-1].Range, slots[i].Range))
+		}
+	})
+
+	t.Run("DropsDegenerateRanges", func(t *testing.T) {
+		files := map[string][]byte{
+			"main.spx":          []byte("println HSB(1, 2, 3"),
+			"assets/index.json": []byte(`{}`),
+		}
+		server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+		result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		slots := findInputSlots(result, astFile)
+		require.Len(t, slots, 3)
+		for _, slot := range slots {
+			assert.Less(t, comparePositions(slot.Range.Start, slot.Range.End), 0)
+		}
+	})
+
+	t.Run("UTF16Ranges", func(t *testing.T) {
+		mainSpx := []byte("println \"\U0001F600\", \"value\"\r\n")
+		files := map[string][]byte{
+			"main.spx":          mainSpx,
+			"assets/index.json": []byte(`{}`),
+		}
+		server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+
+		result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.NoError(t, err)
+		require.NotNil(t, astFile)
+
+		slots := findInputSlots(result, astFile)
+		require.Len(t, slots, 2)
+		assert.Equal(t, Range{Start: Position{Line: 0, Character: 8}, End: Position{Line: 0, Character: 12}}, slots[0].Range)
+		assert.Equal(t, Range{Start: Position{Line: 0, Character: 14}, End: Position{Line: 0, Character: 21}}, slots[1].Range)
+	})
 }
 
-func TestFindInputSlotsWithLargeList(t *testing.T) {
-	const slotCount = 2_001
-	files := largeListProjectFiles(slotCount)
-	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
-
-	result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.NotNil(t, astFile)
-
-	slots := findInputSlots(result, astFile)
-	require.Len(t, slots, slotCount)
-	for i, slot := range slots {
-		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
-		assert.Equal(t, SpxInputTypeUnknown, slot.Accept.Type)
-		assert.Equal(t, SpxInputTypeString, slot.Input.Type)
-		assert.Equal(t, "value", slot.Input.Value)
-		if i > 0 {
-			assert.Less(t, slots[i-1].Range.Start.Character, slot.Range.Start.Character)
-			assert.False(t, IsRangesOverlap(slots[i-1].Range, slot.Range))
+func TestNormalizeInputSlots(t *testing.T) {
+	slot := func(name string, startLine, startCharacter, endLine, endCharacter uint32) XGoInputSlot {
+		return XGoInputSlot{
+			Range: Range{
+				Start: Position{Line: startLine, Character: startCharacter},
+				End:   Position{Line: endLine, Character: endCharacter},
+			},
+			Input: XGoInput{Name: name},
 		}
 	}
-}
 
-func TestFindInputSlotsUTF16Ranges(t *testing.T) {
-	mainSpx := []byte("println \"\U0001F600\", \"value\"\r\n")
-	files := map[string][]byte{
-		"main.spx":          mainSpx,
-		"assets/index.json": []byte(`{}`),
+	for _, tt := range []struct {
+		name  string
+		slots []XGoInputSlot
+		want  []string
+	}{
+		{
+			name: "Empty",
+		},
+		{
+			name:  "Single",
+			slots: []XGoInputSlot{slot("only", 0, 1, 0, 2)},
+			want:  []string{"only"},
+		},
+		{
+			name:  "SingleEmptyRangeIsDropped",
+			slots: []XGoInputSlot{slot("empty", 0, 1, 0, 1)},
+		},
+		{
+			name:  "SingleReversedRangeIsDropped",
+			slots: []XGoInputSlot{slot("reversed", 0, 2, 0, 1)},
+		},
+		{
+			name: "AlreadyOrderedDisjoint",
+			slots: []XGoInputSlot{
+				slot("first", 0, 1, 0, 2),
+				slot("second", 0, 3, 0, 4),
+			},
+			want: []string{"first", "second"},
+		},
+		{
+			name: "ReverseOrderedDisjoint",
+			slots: []XGoInputSlot{
+				slot("second", 0, 3, 0, 4),
+				slot("first", 0, 1, 0, 2),
+			},
+			want: []string{"first", "second"},
+		},
+		{
+			name: "MultilineOrderUsesLineBeforeCharacter",
+			slots: []XGoInputSlot{
+				slot("second", 1, 0, 1, 1),
+				slot("first", 0, 10, 0, 11),
+			},
+			want: []string{"first", "second"},
+		},
+		{
+			name: "IdenticalRangesKeepDiscoveryOrder",
+			slots: []XGoInputSlot{
+				slot("first", 0, 1, 0, 4),
+				slot("second", 0, 1, 0, 4),
+			},
+			want: []string{"first"},
+		},
+		{
+			name: "SameStartKeepsOuterSlot",
+			slots: []XGoInputSlot{
+				slot("inner", 0, 1, 0, 4),
+				slot("outer", 0, 1, 0, 8),
+			},
+			want: []string{"outer"},
+		},
+		{
+			name: "ContainmentKeepsOuterSlot",
+			slots: []XGoInputSlot{
+				slot("inner", 0, 3, 0, 5),
+				slot("outer", 0, 1, 0, 8),
+			},
+			want: []string{"outer"},
+		},
+		{
+			name: "CrossingKeepsEarlierSlot",
+			slots: []XGoInputSlot{
+				slot("later", 0, 3, 0, 8),
+				slot("earlier", 0, 1, 0, 5),
+			},
+			want: []string{"earlier"},
+		},
+		{
+			name: "RejectedCrossingDoesNotHideFollowingSlot",
+			slots: []XGoInputSlot{
+				slot("following", 0, 5, 0, 6),
+				slot("crossing", 0, 2, 0, 8),
+				slot("earlier", 0, 0, 0, 4),
+			},
+			want: []string{"earlier", "following"},
+		},
+		{
+			name: "DegenerateRangesAreDropped",
+			slots: []XGoInputSlot{
+				slot("later", 0, 5, 0, 6),
+				slot("empty", 0, 4, 0, 4),
+				slot("reversed", 0, 7, 0, 2),
+				slot("earlier", 0, 0, 0, 4),
+			},
+			want: []string{"earlier", "later"},
+		},
+		{
+			name: "AdjacentRangesAreDisjoint",
+			slots: []XGoInputSlot{
+				slot("second", 0, 4, 1, 2),
+				slot("first", 0, 1, 0, 4),
+			},
+			want: []string{"first", "second"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeInputSlots(tt.slots)
+			var gotNames []string
+			for i, slot := range got {
+				gotNames = append(gotNames, slot.Input.Name)
+				if i > 0 {
+					assert.LessOrEqual(t, comparePositions(got[i-1].Range.Start, slot.Range.Start), 0)
+					assert.False(t, IsRangesOverlap(got[i-1].Range, slot.Range))
+				}
+			}
+			assert.Equal(t, tt.want, gotNames)
+		})
 	}
-	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
 
-	result, _, astFile, err := server.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.NotNil(t, astFile)
+	t.Run("Exhaustive", func(t *testing.T) {
+		var ranges []Range
+		positions := [...]Position{
+			{Line: 0, Character: 0},
+			{Line: 0, Character: 1},
+			{Line: 0, Character: 2},
+			{Line: 1, Character: 0},
+			{Line: 1, Character: 1},
+		}
+		for start, startPosition := range positions[:len(positions)-1] {
+			for _, endPosition := range positions[start+1:] {
+				ranges = append(ranges, Range{
+					Start: startPosition,
+					End:   endPosition,
+				})
+			}
+		}
 
-	slots := findInputSlots(result, astFile)
-	require.Len(t, slots, 2)
-	assert.Equal(t, Range{Start: Position{Line: 0, Character: 8}, End: Position{Line: 0, Character: 12}}, slots[0].Range)
-	assert.Equal(t, Range{Start: Position{Line: 0, Character: 14}, End: Position{Line: 0, Character: 21}}, slots[1].Range)
+		names := [...]string{"first", "second", "third"}
+		for first, firstRange := range ranges {
+			for second, secondRange := range ranges {
+				for third, thirdRange := range ranges {
+					slots := []XGoInputSlot{
+						{Range: firstRange, Input: XGoInput{Name: names[0]}},
+						{Range: secondRange, Input: XGoInput{Name: names[1]}},
+						{Range: thirdRange, Input: XGoInput{Name: names[2]}},
+					}
+
+					orderedSlots := slices.Clone(slots)
+					slices.SortStableFunc(orderedSlots, compareInputSlotPriority)
+					want := make([]XGoInputSlot, 0, len(orderedSlots))
+					for _, slot := range orderedSlots {
+						if slices.ContainsFunc(want, func(accepted XGoInputSlot) bool {
+							return IsRangesOverlap(accepted.Range, slot.Range)
+						}) {
+							continue
+						}
+						want = append(want, slot)
+					}
+
+					got := normalizeInputSlots(slices.Clone(slots))
+					require.Equal(t, want, got, "range indices: %d, %d, %d", first, second, third)
+				}
+			}
+		}
+	})
 }
 
 func TestCheckValueInputSlot(t *testing.T) {
