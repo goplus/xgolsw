@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -228,8 +229,19 @@ func RangeForNode(proj *xgo.Project, node ast.Node) Range {
 	return RangeForASTFileNode(proj, xgoutil.NodeASTFile(proj.Fset, astPkg, node), node)
 }
 
-// IsRangesOverlap reports whether two ranges overlap.
+// comparePositions compares positions in source order.
+func comparePositions(a, b Position) int {
+	if line := cmp.Compare(a.Line, b.Line); line != 0 {
+		return line
+	}
+	return cmp.Compare(a.Character, b.Character)
+}
+
+// IsRangesOverlap reports whether two half-open ranges overlap. Empty or
+// reversed ranges do not overlap any range.
 func IsRangesOverlap(a, b Range) bool {
-	return a.Start.Line <= b.End.Line && (a.Start.Line != b.End.Line || a.Start.Character <= b.End.Character) &&
-		b.Start.Line <= a.End.Line && (b.Start.Line != a.End.Line || b.Start.Character <= a.End.Character)
+	return comparePositions(a.Start, a.End) < 0 &&
+		comparePositions(b.Start, b.End) < 0 &&
+		comparePositions(a.Start, b.End) < 0 &&
+		comparePositions(b.Start, a.End) < 0
 }
