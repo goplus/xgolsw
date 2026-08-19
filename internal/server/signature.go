@@ -245,7 +245,7 @@ func callExprCoversSignaturePosition(callExpr *ast.CallExpr, pos token.Pos) bool
 	}
 	for _, arg := range callExpr.Args {
 		switch arg.(type) {
-		case *ast.LambdaExpr, *ast.LambdaExpr2:
+		case *ast.ArrowExpr, *ast.LambdaExpr:
 			continue
 		}
 		if pos >= arg.Pos() && pos <= arg.End() {
@@ -257,7 +257,7 @@ func callExprCoversSignaturePosition(callExpr *ast.CallExpr, pos token.Pos) bool
 			return true
 		}
 		switch kwarg.Value.(type) {
-		case *ast.LambdaExpr, *ast.LambdaExpr2:
+		case *ast.ArrowExpr, *ast.LambdaExpr:
 			continue
 		}
 		if pos >= kwarg.Value.Pos() && pos <= kwarg.Value.End() {

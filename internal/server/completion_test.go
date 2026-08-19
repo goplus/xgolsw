@@ -645,9 +645,11 @@ type Toggle const (
 	BoolValue = true
 )
 
-var integerMap map[Integer]int
-var integers []Integer
-var bytes []byte
+var (
+	integerMap map[Integer]int
+	integers []Integer
+	bytes []byte
+)
 
 func run() {
 `
@@ -1114,9 +1116,8 @@ func run() {
 			},
 			{
 				name: "AppendNestedList",
-				body: `var values [][]Second
-
-func run() {
+				body: `func run() {
+	var values [][]Second
 	_ = append(values, [Un])
 }
 `,
@@ -1127,9 +1128,8 @@ func run() {
 			},
 			{
 				name: "AppendNestedListEllipsis",
-				body: `var values []Second
-
-func run() {
+				body: `func run() {
+	var values []Second
 	_ = append(values, [Un]...)
 }
 `,
@@ -1140,9 +1140,8 @@ func run() {
 			},
 			{
 				name: "AppendLambda",
-				body: `var funcs []func() Second
-
-func run() {
+				body: `func run() {
+	var funcs []func() Second
 	_ = append(funcs, => Un)
 }
 `,
@@ -4615,11 +4614,11 @@ type Params interface {
 	Temperature(v float64) Params
 }
 
+var client Client
+
 func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
-
-var client Client
 
 onStart => {
 	client.complete "hi", maxT = 1
@@ -4656,9 +4655,9 @@ type Params interface {
 	Temperature(v float64) Params
 }
 
-func (c Client) complete(prompt string, params Params?) {}
-
 var client Client
+
+func (c Client) complete(prompt string, params Params?) {}
 
 onStart => {
 	client.complete "hi", maxT = 1
@@ -4821,10 +4820,10 @@ type Params interface {
 
 type Client struct{}
 
+var c Client
+
 func (c *Client) Params() Params { return nil }
 func (c *Client) Run(params Params) {}
-
-var c Client
 
 onStart => {
 	c.Run delay = 1

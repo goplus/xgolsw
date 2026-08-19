@@ -198,7 +198,24 @@ func sourceObjectForIdent(typeInfo *types.Info, ident *ast.Ident) gotypes.Object
 			return obj
 		}
 	}
-	return typeInfo.ObjectOf(ident)
+	if obj := typeInfo.ObjectOf(ident); obj != nil {
+		return obj
+	}
+	for node := range typeInfo.Scopes {
+		astFile, ok := node.(*ast.File)
+		if !ok || ident.Pos() < astFile.Pos() || ident.End() > astFile.End() || astFile.ClassFields == nil {
+			continue
+		}
+		for _, spec := range astFile.ClassFields.Specs {
+			valueSpec := spec.(*ast.ValueSpec)
+			for _, name := range valueSpec.Names {
+				if name.Name == ident.Name {
+					return typeInfo.ObjectOf(name)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // sourceTypeForExpr returns the recorded type of expr, falling back to the
@@ -400,7 +417,7 @@ func (r *compileResult) enumContextAtIdent(typeInfo *types.Info, ident *ast.Iden
 				return enumIdentContext{status: enumContextDisallowed}
 			}
 			continue
-		case *ast.LambdaExpr:
+		case *ast.ArrowExpr:
 			if resultIndex := slices.Index(node.Rhs, target); resultIndex >= 0 {
 				typePath = append(typePath, enumTypePathPart{
 					kind:  enumTypePathFunctionResult,
@@ -409,7 +426,7 @@ func (r *compileResult) enumContextAtIdent(typeInfo *types.Info, ident *ast.Iden
 				target = node
 			}
 			continue
-		case *ast.LambdaExpr2:
+		case *ast.LambdaExpr:
 			if pendingLambdaResultIndex >= 0 {
 				typePath = append(typePath, enumTypePathPart{
 					kind:  enumTypePathFunctionResult,
@@ -1021,7 +1038,7 @@ func enumIsTupleType(typ gotypes.Type) bool {
 func enumEnclosingFunctionContext(typeInfo *types.Info, path []ast.Node) (*gotypes.Signature, bool) {
 	for _, node := range path {
 		switch node := node.(type) {
-		case *ast.LambdaExpr2:
+		case *ast.LambdaExpr:
 			return nil, true
 		case *ast.FuncLit:
 			if sig, _ := typeInfo.TypeOf(node).(*gotypes.Signature); sig != nil {

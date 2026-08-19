@@ -496,7 +496,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			if node.Tok != token.ILLEGAL {
 				addToken(node.TokPos, node.TokPos+token.Pos(len(node.Tok.String())), OperatorType, nil)
 			}
-		case *ast.LambdaExpr:
+		case *ast.ArrowExpr:
 			addToken(node.Rarrow, node.Rarrow+2, OperatorType, nil)
 			if node.LhsHasParen {
 				addToken(node.First, node.First+1, OperatorType, nil)
@@ -506,7 +506,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Rarrow+2, node.Rarrow+3, OperatorType, nil)
 				addToken(node.Last-1, node.Last, OperatorType, nil)
 			}
-		case *ast.LambdaExpr2:
+		case *ast.LambdaExpr:
 			addToken(node.Rarrow, node.Rarrow+2, OperatorType, nil)
 			if node.LhsHasParen {
 				addToken(node.First, node.First+1, OperatorType, nil)

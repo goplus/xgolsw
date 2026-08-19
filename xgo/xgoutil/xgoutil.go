@@ -62,7 +62,7 @@ func IsDefinedInClassFieldsDecl(fset *token.FileSet, typeInfo *types.Info, astPk
 	if astFile == nil {
 		return false
 	}
-	decl := astFile.ClassFieldsDecl()
+	decl := astFile.ClassFields
 	if decl == nil {
 		return false
 	}

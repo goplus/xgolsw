@@ -626,10 +626,10 @@ type Params interface {
 
 type Client struct{}
 
+var c Client
+
 func (c *Client) Params() Params { return nil }
 func (c *Client) Run(params Params) {}
-
-var c Client
 
 onStart => {
 	c.Run delay = 1ms
