@@ -926,7 +926,7 @@ func TestOverloadMatchesCallExpr(t *testing.T) {
 			true,
 		))
 		callExpr := &ast.CallExpr{
-			Args: []ast.Expr{&ast.LambdaExpr2{}},
+			Args: []ast.Expr{&ast.LambdaExpr{}},
 		}
 
 		assert.True(t, overloadMatchesCallExpr(nil, callExpr, overload, -1))

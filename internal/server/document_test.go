@@ -194,13 +194,13 @@ type Params interface {
 
 type Client struct{}
 
+var client Client
+
 func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
 
 func configure(opts Options?) {}
-
-var client Client
 
 onStart => {
     configure count = 1
@@ -247,6 +247,8 @@ type Player interface {
 
 type Client struct{}
 
+var client Client
+
 func (c Client) Player() Player { return nil }
 
 func (c Client) play(params Player?) {}
@@ -254,8 +256,6 @@ func (c Client) play(params Player?) {}
 func configure(opts Options?) {}
 
 func configureMap(opts map[string]SoundName?) {}
-
-var client Client
 
 onStart => {
     configure sound = "StructSound"

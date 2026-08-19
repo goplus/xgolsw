@@ -448,11 +448,11 @@ type Params interface {
 	MaxTokens(n int64) Params
 }
 
+var client Client
+
 func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
-
-var client Client
 
 onStart => {
 	client.complete "hi", maxTokens = 1

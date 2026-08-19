@@ -92,6 +92,8 @@ type Params interface {
 
 type Config struct{}
 
+var client Client
+
 func (c Config) MaxTokens(n int64) Params { return c }
 
 type Client struct{}
@@ -99,8 +101,6 @@ type Client struct{}
 func (c Client) Params() Params { return Config{} }
 
 func (c Client) complete(prompt string, params Params?) {}
-
-var client Client
 
 onStart => {
     client.complete "hi", maxTokens = 1
@@ -123,8 +123,8 @@ onStart => {
 		assert.Equal(t, Location{
 			URI: "file:///main.spx",
 			Range: Range{
-				Start: Position{Line: 7, Character: 16},
-				End:   Position{Line: 7, Character: 16},
+				Start: Position{Line: 9, Character: 16},
+				End:   Position{Line: 9, Character: 16},
 			},
 		}, locations[0])
 	})

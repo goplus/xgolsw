@@ -51,7 +51,7 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		}
 		spxBaseSelectorTypeDoc := pkgDoc.typeDoc(spxBaseSelectorTypeName)
 
-		classFieldsDecl := astFile.ClassFieldsDecl()
+		classFieldsDecl := astFile.ClassFields
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
 			case *ast.GenDecl:

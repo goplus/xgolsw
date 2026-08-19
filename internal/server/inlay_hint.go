@@ -108,7 +108,7 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 		}
 
 		switch resolvedArg.Arg.(type) {
-		case *ast.LambdaExpr, *ast.LambdaExpr2:
+		case *ast.ArrowExpr, *ast.LambdaExpr:
 			// Skip lambda expressions.
 			continue
 		}

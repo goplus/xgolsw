@@ -456,7 +456,7 @@ func getDeclDoc(decl ast.Decl) *ast.CommentGroup {
 // Then we can omit its declaration safely.
 //
 // NOTE: There are limitations with current implementation:
-//  1. Only `LambdaExpr2` (not `LambdaExpr`) is supported.
+//  1. Only `LambdaExpr` (not `ArrowExpr`) is supported.
 //  2. Only the last parameter of the lambda is checked.
 //
 // We may complete it in the future, if needed.
@@ -479,7 +479,7 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 			return true
 		}
 		for resolvedArg := range formatResolvedCallExprArgs(typeInfo, callExpr, funcOverloads) {
-			lambdaExpr, ok := resolvedArg.Arg.(*ast.LambdaExpr2)
+			lambdaExpr, ok := resolvedArg.Arg.(*ast.LambdaExpr)
 			if !ok {
 				continue
 			}
@@ -677,7 +677,7 @@ func overloadMatchesCallExpr(typeInfo *types.Info, callExpr *ast.CallExpr, overl
 // formatArgMatchesType reports whether argExpr is compatible with expectedType
 // for formatter-side overload filtering.
 func formatArgMatchesType(typeInfo *types.Info, argExpr ast.Expr, expectedType gotypes.Type) bool {
-	if lambdaExpr, ok := argExpr.(*ast.LambdaExpr2); ok {
+	if lambdaExpr, ok := argExpr.(*ast.LambdaExpr); ok {
 		lambdaSig := signatureType(expectedType)
 		return lambdaSig != nil && len(lambdaExpr.Lhs) == lambdaSig.Params().Len()
 	}

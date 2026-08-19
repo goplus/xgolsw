@@ -474,6 +474,8 @@ type Options struct {
 	Sound SoundName
 }
 
+var client Client
+
 func configure(opts Options?) {}
 
 func configureMap(opts map[string]SoundName?) {}
@@ -487,8 +489,6 @@ type Client struct{}
 func (c Client) Player() Player { return nil }
 
 func (c Client) play(params Player?) {}
-
-var client Client
 
 onStart => {
 	configure sound = "MissingStructSound"
