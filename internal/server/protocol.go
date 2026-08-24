@@ -97,9 +97,10 @@ type (
 	DidCloseTextDocumentParams  = protocol.DidCloseTextDocumentParams
 	DidSaveTextDocumentParams   = protocol.DidSaveTextDocumentParams
 
-	InlayHintParams = protocol.InlayHintParams
-	InlayHint       = protocol.InlayHint
-	InlayHintKind   = protocol.InlayHintKind
+	InlayHintParams  = protocol.InlayHintParams
+	InlayHint        = protocol.InlayHint
+	InlayHintKind    = protocol.InlayHintKind
+	InlayHintTooltip = protocol.OrPTooltip_textDocument_inlayHint
 )
 
 const (

@@ -38,6 +38,19 @@ func GetSimplifiedTypeString(typ gotypes.Type) string {
 	})
 }
 
+// sourceParamLabel formats a source-facing function parameter label.
+func sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) string {
+	param := params.At(paramIndex)
+	paramType := xgoutil.SourceParamType(param)
+	typeName := GetSimplifiedTypeString(paramType)
+	if sig.Variadic() && paramIndex == params.Len()-1 {
+		if slice, ok := paramType.(*gotypes.Slice); ok {
+			typeName = "..." + GetSimplifiedTypeString(slice.Elem())
+		}
+	}
+	return xgoutil.SourceParamName(param) + " " + typeName
+}
+
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.
 func resolvedNamedType(typ gotypes.Type) *gotypes.Named {

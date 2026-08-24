@@ -760,7 +760,7 @@ func callExprArgType(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex i
 		}
 		return nil
 	}
-	return param.Type()
+	return xgoutil.SourceParamType(param)
 }
 
 // callExprParam returns the positional parameter at paramIndex and normalizes

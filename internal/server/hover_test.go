@@ -423,6 +423,28 @@ onTouchStart "MySprite", => {}
 		}, onTouchStartFirstArgHover)
 	})
 
+	t.Run("Autoclosure", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	repeatUntil true, => {}
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 2},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Contains(t, hover.Contents.Value, `overview="func repeatUntil(condition bool, call func())"`)
+	})
+
 	t.Run("InvalidPosition", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`var x int`),

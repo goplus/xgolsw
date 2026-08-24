@@ -60,6 +60,17 @@ func newTestFunc(pkg *gotypes.Package, name string, variadic bool, params ...*go
 	))
 }
 
+func newTestAutoclosureType(pkg *gotypes.Package, resultType gotypes.Type) *gotypes.Signature {
+	return gotypes.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		nil,
+		gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", resultType)),
+		false,
+	)
+}
+
 func newTestKwarg(name, value string) *ast.KwargExpr {
 	return &ast.KwargExpr{
 		Name:  &ast.Ident{Name: name},
@@ -433,13 +444,139 @@ func TestSourceParamName(t *testing.T) {
 		name string
 		want string
 	}{
+		{name: "__xgo_autoclosure_condition", want: "condition"},
 		{name: "__xgo_optional_opts", want: "opts"},
 		{name: "__gop_optional_opts", want: "opts"},
+		{name: "__xgo_internal_condition", want: "__xgo_internal_condition"},
 		{name: "opts", want: "opts"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			param := gotypes.NewParam(token.NoPos, pkg, tt.name, gotypes.Typ[gotypes.Int])
 			assert.Equal(t, tt.want, SourceParamName(param))
+		})
+	}
+}
+
+func TestSourceParamType(t *testing.T) {
+	pkg := gotypes.NewPackage("main", "main")
+	callbackType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	typeParam := gotypes.NewTypeParam(
+		gotypes.NewTypeName(token.NoPos, pkg, "T", nil),
+		newTestEmptyInterface(),
+	)
+	namedAutoclosureType := gotypes.NewNamed(
+		gotypes.NewTypeName(token.NoPos, pkg, "Condition", nil),
+		newTestAutoclosureType(pkg, gotypes.Typ[gotypes.Bool]),
+		nil,
+	)
+	namedResultType := gotypes.NewNamed(
+		gotypes.NewTypeName(token.NoPos, pkg, "Flag", nil),
+		gotypes.Typ[gotypes.Bool],
+		nil,
+	)
+	withParamType := gotypes.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int])),
+		gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Bool])),
+		false,
+	)
+	multipleResultType := gotypes.NewSignatureType(
+		nil,
+		nil,
+		nil,
+		nil,
+		gotypes.NewTuple(
+			gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Bool]),
+			gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.String]),
+		),
+		false,
+	)
+
+	for _, tt := range []struct {
+		name            string
+		paramName       string
+		paramType       gotypes.Type
+		want            gotypes.Type
+		wantAutoclosure bool
+	}{
+		{
+			name:            "Autoclosure",
+			paramName:       "__xgo_autoclosure_condition",
+			paramType:       newTestAutoclosureType(pkg, gotypes.Typ[gotypes.Bool]),
+			want:            gotypes.Typ[gotypes.Bool],
+			wantAutoclosure: true,
+		},
+		{
+			name:            "NamedAutoclosureType",
+			paramName:       "__xgo_autoclosure_condition",
+			paramType:       namedAutoclosureType,
+			want:            gotypes.Typ[gotypes.Bool],
+			wantAutoclosure: true,
+		},
+		{
+			name:            "FunctionResult",
+			paramName:       "__xgo_autoclosure_callback",
+			paramType:       newTestAutoclosureType(pkg, callbackType),
+			want:            callbackType,
+			wantAutoclosure: true,
+		},
+		{
+			name:            "NamedResult",
+			paramName:       "__xgo_autoclosure_value",
+			paramType:       newTestAutoclosureType(pkg, namedResultType),
+			want:            namedResultType,
+			wantAutoclosure: true,
+		},
+		{
+			name:            "GenericResult",
+			paramName:       "__xgo_autoclosure_value",
+			paramType:       newTestAutoclosureType(pkg, typeParam),
+			want:            typeParam,
+			wantAutoclosure: true,
+		},
+		{
+			name:      "OrdinaryCallback",
+			paramName: "condition",
+			paramType: newTestAutoclosureType(pkg, gotypes.Typ[gotypes.Bool]),
+		},
+		{
+			name:      "NonFunctionAutoclosureType",
+			paramName: "__xgo_autoclosure_condition",
+			paramType: gotypes.Typ[gotypes.Bool],
+		},
+		{
+			name:      "AutoclosureWithParameter",
+			paramName: "__xgo_autoclosure_condition",
+			paramType: withParamType,
+		},
+		{
+			name:      "AutoclosureWithoutResult",
+			paramName: "__xgo_autoclosure_condition",
+			paramType: callbackType,
+		},
+		{
+			name:      "AutoclosureWithMultipleResults",
+			paramName: "__xgo_autoclosure_condition",
+			paramType: multipleResultType,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			param := gotypes.NewParam(token.NoPos, pkg, tt.paramName, tt.paramType)
+			want := tt.want
+			if want == nil {
+				want = tt.paramType
+			}
+
+			resultType, ok := AutoclosureParamResultType(param)
+			assert.Equal(t, tt.wantAutoclosure, ok)
+			if tt.wantAutoclosure {
+				assert.True(t, gotypes.Identical(want, resultType))
+			} else {
+				assert.Nil(t, resultType)
+			}
+			assert.True(t, gotypes.Identical(want, SourceParamType(param)))
 		})
 	}
 }
@@ -491,6 +628,28 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		assert.Equal(t, arg2, resolved[1].Arg)
 		assert.Equal(t, 1, resolved[1].ArgIndex)
 		assert.Equal(t, gotypes.Typ[gotypes.String], resolved[1].ExpectedType)
+	})
+
+	t.Run("Autoclosure", func(t *testing.T) {
+		ident := &ast.Ident{Name: "waitUntil"}
+		arg := &ast.Ident{Name: "condition"}
+		expr := &ast.CallExpr{Fun: ident, Args: []ast.Expr{arg}}
+
+		pkg := gotypes.NewPackage("test", "test")
+		param := gotypes.NewParam(
+			token.NoPos,
+			pkg,
+			"__xgo_autoclosure_condition",
+			newTestAutoclosureType(pkg, gotypes.Typ[gotypes.Bool]),
+		)
+		fun := newTestFunc(pkg, "waitUntil", false, param)
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+
+		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, expr))
+
+		require.Len(t, resolved, 1)
+		assert.Equal(t, param, resolved[0].Param)
+		assert.Equal(t, gotypes.Typ[gotypes.Bool], resolved[0].ExpectedType)
 	})
 
 	t.Run("VariadicFunction", func(t *testing.T) {

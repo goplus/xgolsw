@@ -925,32 +925,18 @@ func displayedFuncResults(results *gotypes.Tuple) string {
 // displayedFuncParamLabels formats the source-facing parameter list for
 // function signatures shown in spx UI surfaces.
 func displayedFuncParamLabels(sig *gotypes.Signature, isXGotMethod bool) []string {
-	params := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
+	labels := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
 	for typeParam := range sig.TypeParams().TypeParams() {
-		params = append(params, typeParam.Obj().Name()+" Type")
+		labels = append(labels, typeParam.Obj().Name()+" Type")
 	}
-	for i := range sig.Params().Len() {
+	params := sig.Params()
+	for i := range params.Len() {
 		if isXGotMethod && i == 0 {
 			continue
 		}
-		params = append(params, displayedFuncParamLabel(sig, i))
+		labels = append(labels, sourceParamLabel(sig, params, i))
 	}
-	return params
-}
-
-// displayedFuncParamLabel formats one source-facing function parameter label.
-func displayedFuncParamLabel(sig *gotypes.Signature, paramIndex int) string {
-	param := sig.Params().At(paramIndex)
-	paramType := param.Type()
-	paramTypeName := GetSimplifiedTypeString(paramType)
-
-	if sig.Variadic() && paramIndex == sig.Params().Len()-1 {
-		if slice, ok := paramType.(*gotypes.Slice); ok {
-			paramTypeName = "..." + GetSimplifiedTypeString(slice.Elem())
-		}
-	}
-
-	return param.Name() + " " + paramTypeName
+	return labels
 }
 
 // makeSpxDefinitionOverviewForFunc makes an overview string for a function that

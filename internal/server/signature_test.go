@@ -62,6 +62,41 @@ onStart => {
 		}, turnHelp.Signatures[0])
 	})
 
+	t.Run("Autoclosure", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	repeatUntil true, => {}
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 2, Character: 17},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		require.Len(t, help.Signatures, 1)
+		assert.Equal(t, uint32(0), help.ActiveParameter)
+		assert.Equal(t, SignatureInformation{
+			Label: "repeatUntil(condition bool, call func())",
+			Parameters: []ParameterInformation{
+				{
+					Label:         "condition bool",
+					Documentation: autoclosureParamDocumentation,
+				},
+				{
+					Label: "call func()",
+				},
+			},
+		}, help.Signatures[0])
+	})
+
 	t.Run("FuncDecorator", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`func retry(times int, fn func()) {

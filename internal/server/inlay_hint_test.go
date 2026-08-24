@@ -96,6 +96,35 @@ func run() {
 		})
 	})
 
+	t.Run("Autoclosure", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`
+onStart => {
+	repeatUntil true, => {}
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			Range: Range{
+				Start: Position{Line: 0, Character: 0},
+				End:   Position{Line: 4, Character: 0},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{
+				Position: Position{Line: 2, Character: 13},
+				Label:    "condition",
+				Kind:     Parameter,
+				Tooltip:  &InlayHintTooltip{Value: autoclosureParamDocumentation},
+			},
+		}, inlayHints)
+	})
+
 	t.Run("PartialXGoxFunction", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`import "example.com/typeargs"

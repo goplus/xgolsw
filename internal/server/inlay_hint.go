@@ -127,6 +127,9 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 			Label:    label,
 			Kind:     Parameter,
 		}
+		if _, ok := xgoutil.AutoclosureParamResultType(resolvedArg.Param); ok {
+			hint.Tooltip = &InlayHintTooltip{Value: autoclosureParamDocumentation}
+		}
 		key := hintKeyFor(hint)
 		if existingHint, ok := hintsByKey[key]; ok {
 			if existingHint.Label != hint.Label {
