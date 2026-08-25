@@ -961,23 +961,52 @@ func TestOverloadMatchesCallExpr(t *testing.T) {
 }
 
 func TestCallExprArgType(t *testing.T) {
-	pkg := gotypes.NewPackage("main", "main")
-	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
-	sig := gotypes.NewSignatureType(
-		nil,
-		nil,
-		nil,
-		gotypes.NewTuple(
-			gotypes.NewParam(token.NoPos, pkg, "name", gotypes.Typ[gotypes.String]),
-			gotypes.NewParam(token.NoPos, pkg, "handlers", gotypes.NewSlice(handlerType)),
-		),
-		nil,
-		true,
-	)
-	params := sig.Params()
+	t.Run("Variadic", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		sig := gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(
+				gotypes.NewParam(token.NoPos, pkg, "name", gotypes.Typ[gotypes.String]),
+				gotypes.NewParam(token.NoPos, pkg, "handlers", gotypes.NewSlice(handlerType)),
+			),
+			nil,
+			true,
+		)
+		params := sig.Params()
 
-	assert.Equal(t, gotypes.Typ[gotypes.String], callExprArgType(sig, params, 0))
-	assert.True(t, gotypes.Identical(handlerType, callExprArgType(sig, params, 1)))
-	assert.True(t, gotypes.Identical(handlerType, callExprArgType(sig, params, 2)))
-	assert.Nil(t, callExprArgType(sig, params, -1))
+		assert.Equal(t, gotypes.Typ[gotypes.String], callExprArgType(sig, params, 0))
+		assert.True(t, gotypes.Identical(handlerType, callExprArgType(sig, params, 1)))
+		assert.True(t, gotypes.Identical(handlerType, callExprArgType(sig, params, 2)))
+		assert.Nil(t, callExprArgType(sig, params, -1))
+	})
+
+	t.Run("Autoclosure", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		autoclosureType := gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Bool])),
+			false,
+		)
+		sig := gotypes.NewSignatureType(
+			nil,
+			nil,
+			nil,
+			gotypes.NewTuple(gotypes.NewParam(
+				token.NoPos,
+				pkg,
+				"__xgo_autoclosure_condition",
+				autoclosureType,
+			)),
+			nil,
+			false,
+		)
+
+		assert.Equal(t, gotypes.Typ[gotypes.Bool], callExprArgType(sig, sig.Params(), 0))
+	})
 }

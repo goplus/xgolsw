@@ -12,6 +12,8 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+const autoclosureParamDocumentation = "Deferred expression. The callee controls when and how often it is evaluated."
+
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_signatureHelp
 func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*SignatureHelp, error) {
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
@@ -153,10 +155,11 @@ func signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params 
 	for i := range params.Len() {
 		paramLabel := signatureHelpParameterLabel(fun, sig, params, i)
 		paramLabels = append(paramLabels, paramLabel)
-		paramInfos = append(paramInfos, ParameterInformation{
-			Label: paramLabel,
-			// TODO: Add documentation.
-		})
+		paramInfo := ParameterInformation{Label: paramLabel}
+		if _, ok := xgoutil.AutoclosureParamResultType(params.At(i)); ok {
+			paramInfo.Documentation = autoclosureParamDocumentation
+		}
+		paramInfos = append(paramInfos, paramInfo)
 	}
 
 	labelName := displayedName
@@ -273,14 +276,7 @@ func signatureHelpParameterLabel(fun *gotypes.Func, sig *gotypes.Signature, para
 	if paramIndex < xgoutil.NormalizedCallExprTypeArgCount(fun, params) {
 		return xgoutil.SourceParamName(param) + " Type"
 	}
-	paramType := param.Type()
-	typeLabel := GetSimplifiedTypeString(paramType)
-	if sig.Variadic() && paramIndex == params.Len()-1 {
-		if slice, ok := paramType.(*gotypes.Slice); ok {
-			typeLabel = "..." + GetSimplifiedTypeString(slice.Elem())
-		}
-	}
-	return xgoutil.SourceParamName(param) + " " + typeLabel
+	return sourceParamLabel(sig, params, paramIndex)
 }
 
 // overloadSignatureHelpActiveParameter resolves the active parameter for one

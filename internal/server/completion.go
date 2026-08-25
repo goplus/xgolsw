@@ -1420,7 +1420,7 @@ func (ctx *completionContext) collectCall() error {
 	}
 
 	if argIndex < sig.Params().Len() {
-		ctx.expectedTypes = []gotypes.Type{sig.Params().At(argIndex).Type()}
+		ctx.expectedTypes = []gotypes.Type{xgoutil.SourceParamType(sig.Params().At(argIndex))}
 	} else if sig.Variadic() && argIndex >= sig.Params().Len()-1 {
 		ctx.expectedTypes = []gotypes.Type{sig.Params().At(sig.Params().Len() - 1).Type().(*gotypes.Slice).Elem()}
 	}
@@ -1441,7 +1441,7 @@ func (ctx *completionContext) collectFuncDecoratorCall(callExpr *ast.CallExpr) e
 	}
 	argIndex := ctx.getCurrentArgIndex(callExpr)
 	if argIndex >= 0 && argIndex < params.Len() {
-		ctx.expectedTypes = []gotypes.Type{params.At(argIndex).Type()}
+		ctx.expectedTypes = []gotypes.Type{xgoutil.SourceParamType(params.At(argIndex))}
 	}
 	return ctx.collectGeneral()
 }

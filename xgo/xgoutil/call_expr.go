@@ -31,6 +31,9 @@ import (
 )
 
 const (
+	// xgoAutoclosureParamPrefix prefixes generated names for XGo autoclosure parameters.
+	xgoAutoclosureParamPrefix = "__xgo_autoclosure_"
+
 	// xgoOptionalParamPrefix prefixes generated names for current XGo optional parameters.
 	xgoOptionalParamPrefix = "__xgo_optional_"
 
@@ -342,7 +345,7 @@ func resolvedCallExprArgType(sig *gotypes.Signature, params *gotypes.Tuple, para
 	if sig.Variadic() && paramIndex == params.Len()-1 && !ellipsis {
 		return variadicValueType(param.Type())
 	}
-	return param.Type()
+	return SourceParamType(param)
 }
 
 // variadicValueType returns the per-argument type for a variadic parameter.
@@ -355,8 +358,33 @@ func variadicValueType(typ gotypes.Type) gotypes.Type {
 
 // SourceParamName returns the source-facing spelling of param.
 func SourceParamName(param *gotypes.Var) string {
+	if name, ok := strings.CutPrefix(param.Name(), xgoAutoclosureParamPrefix); ok {
+		return name
+	}
 	name, _ := trimOptionalParamPrefix(param.Name())
 	return name
+}
+
+// SourceParamType returns the source-facing type of param.
+func SourceParamType(param *gotypes.Var) gotypes.Type {
+	if resultType, ok := AutoclosureParamResultType(param); ok {
+		return resultType
+	}
+	return param.Type()
+}
+
+// AutoclosureParamResultType returns the result type of param and reports
+// whether param is an XGo autoclosure parameter with an underlying `func() T`
+// type.
+func AutoclosureParamResultType(param *gotypes.Var) (gotypes.Type, bool) {
+	if !strings.HasPrefix(param.Name(), xgoAutoclosureParamPrefix) {
+		return nil, false
+	}
+	sig, ok := param.Type().Underlying().(*gotypes.Signature)
+	if !ok || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+		return nil, false
+	}
+	return sig.Results().At(0).Type(), true
 }
 
 // isOptionalParam reports whether param is an XGo optional parameter.

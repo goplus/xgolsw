@@ -130,6 +130,48 @@ onStart => {
 		}))
 	})
 
+	t.Run("Autoclosure", func(t *testing.T) {
+		m := map[string][]byte{
+			"main.spx": []byte(`const (
+	enabled = true
+	entry = "text"
+)
+
+onStart => {
+
+	repeatUntil e, => {}
+}
+`),
+			"assets/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		signatureItemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 6, Character: 1},
+			},
+		})
+		require.NoError(t, err)
+		signatureItems := requireValueAs[[]CompletionItem](t, signatureItemsResult)
+		repeatUntilItem := completionItemByLabel(signatureItems, "repeatUntil")
+		require.NotNilf(t, repeatUntilItem, "%v", completionItemLabels(signatureItems))
+		require.NotNil(t, repeatUntilItem.Documentation)
+		documentation := requireValueAs[MarkupContent](t, repeatUntilItem.Documentation.Value)
+		assert.Contains(t, documentation.Value, `overview="func repeatUntil(condition bool, call func())"`)
+
+		argumentItemsResult, err := s.textDocumentCompletion(&CompletionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				Position:     Position{Line: 7, Character: 14},
+			},
+		})
+		require.NoError(t, err)
+		argumentItems := requireValueAs[[]CompletionItem](t, argumentItemsResult)
+		assert.Truef(t, containsCompletionItemLabel(argumentItems, "enabled"), "%v", completionItemLabels(argumentItems))
+		assert.Falsef(t, containsCompletionItemLabel(argumentItems, "entry"), "%v", completionItemLabels(argumentItems))
+	})
+
 	t.Run("FuncDecoratorArgument", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`const (
