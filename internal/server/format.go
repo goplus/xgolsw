@@ -107,7 +107,7 @@ func (s *Server) formatSpxXGo(snapshot *xgo.Project, spxFile string) ([]byte, er
 		return nil, fs.ErrNotExist
 	}
 	original := file.Content
-	formatted, err := format.Source(original, classInfo, spxFile)
+	formatted, err := format.Source(original, spxClassInfo, spxFile)
 	if err != nil {
 		return nil, err
 	}
@@ -431,11 +431,11 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
-	return format.Source(formatted, classInfo, spxFile)
+	return format.Source(formatted, spxClassInfo, spxFile)
 }
 
-// classInfo identifies class project files for formatting.
-func classInfo(string) (map[string]int, bool, bool) {
+// spxClassInfo provides class information when formatting SPX source files.
+func spxClassInfo(string) (autoLambdas map[string]int, isProj, ok bool) {
 	return nil, true, true
 }
 
