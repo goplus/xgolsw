@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -10,19 +11,25 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_documentHighlight
 func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) (*[]DocumentHighlight, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
+		return nil, nil
+	}
+	astFile := astPkg.Files[filename]
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
-	typeInfo, _ := result.proj.TypeInfo()
+	position := ToPosition(proj, astFile, params.Position)
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
-	_, targetObj, _ := objectAtPosition(result.proj, typeInfo, astFile, position)
+	_, targetObj, _ := objectAtPosition(proj, typeInfo, astFile, position)
 	if targetObj == nil {
 		return nil, nil
 	}
@@ -35,9 +42,6 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		highlights = append(highlights, highlight)
 	}
 	ast.Inspect(astFile, func(node ast.Node) bool {
-		if node == nil {
-			return true
-		}
 		ident, ok := node.(*ast.Ident)
 		if !ok {
 			return true
@@ -60,20 +64,12 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 					kind = Read
 				}
 			case *ast.ValueSpec:
-				for _, name := range p.Names {
-					if name == ident {
-						kind = Write
-						break
-					}
+				if slices.Contains(p.Names, ident) {
+					kind = Write
 				}
 			case *ast.Field:
-				if p.Names != nil {
-					for _, name := range p.Names {
-						if name == ident {
-							kind = Write
-							break
-						}
-					}
+				if slices.Contains(p.Names, ident) {
+					kind = Write
 				}
 			case *ast.FuncDecl:
 				if p.Name == ident {
@@ -90,26 +86,14 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 			case *ast.AssignStmt:
 				switch p.Tok {
 				case token.ASSIGN:
-					for _, lhs := range p.Lhs {
-						if lhs == ident {
-							kind = Write
-							break
-						}
-					}
-					if kind != Write {
-						for _, rhs := range p.Rhs {
-							if rhs == ident {
-								kind = Read
-								break
-							}
-						}
+					if slices.Contains(p.Lhs, ast.Expr(ident)) {
+						kind = Write
+					} else if slices.Contains(p.Rhs, ast.Expr(ident)) {
+						kind = Read
 					}
 				case token.DEFINE:
-					for _, lhs := range p.Lhs {
-						if lhs == ident {
-							kind = Write
-							break
-						}
+					if slices.Contains(p.Lhs, ast.Expr(ident)) {
+						kind = Write
 					}
 				default:
 					kind = Write
@@ -125,15 +109,8 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 					kind = Write
 				}
 			case *ast.TypeSwitchStmt:
-				if p.Assign != nil {
-					if assign, ok := p.Assign.(*ast.AssignStmt); ok {
-						for _, lhs := range assign.Lhs {
-							if lhs == ident {
-								kind = Write
-								break
-							}
-						}
-					}
+				if assign, ok := p.Assign.(*ast.AssignStmt); ok && slices.Contains(assign.Lhs, ast.Expr(ident)) {
+					kind = Write
 				}
 			case *ast.BinaryExpr,
 				*ast.UnaryExpr,
@@ -159,12 +136,15 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		}
 
 		appendHighlight(DocumentHighlight{
-			Range: RangeForNode(result.proj, ident),
+			Range: RangeForNode(proj, ident),
 			Kind:  kind,
 		})
 		return true
 	})
-	for _, loc := range s.kwargReferenceLocations(result, targetObj) {
+	for _, loc := range s.kwargReferenceLocations(proj, targetObj) {
+		if loc.URI != params.TextDocument.URI {
+			continue
+		}
 		appendHighlight(DocumentHighlight{
 			Range: loc.Range,
 			Kind:  Read,

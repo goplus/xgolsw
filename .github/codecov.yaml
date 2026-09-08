@@ -1,4 +1,5 @@
 ignore:
+  - internal/testframework
   - jsonrpc2
   - pkgdoc
   - protocol

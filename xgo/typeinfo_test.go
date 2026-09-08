@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/goplus/mod/xgomod"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -139,7 +140,7 @@ func Double() int {
 		require.True(t, ok)
 		assert.True(t, gotypes.Identical(gotypes.NewPointer(record.Type()), double.Signature().Recv().Type()))
 		for _, pkg := range typeInfo.Pkg.Imports() {
-			assert.NotEqual(t, testFrameworkPkgPath, pkg.Path())
+			assert.NotEqual(t, testframework.PkgPath, pkg.Path())
 		}
 	})
 
@@ -182,7 +183,7 @@ echo label
 		require.True(t, ok)
 		require.Equal(t, 3, workerStruct.NumFields())
 
-		framework, err := proj.Importer.Import(testFrameworkPkgPath)
+		framework, err := proj.Importer.Import(testframework.PkgPath)
 		require.NoError(t, err)
 		require.NotNil(t, framework)
 		frameworkApp := framework.Scope().Lookup("App")
