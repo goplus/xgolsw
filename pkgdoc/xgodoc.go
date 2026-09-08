@@ -17,15 +17,19 @@
 package pkgdoc
 
 import (
-	"path"
-	"strings"
-
+	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/token"
 )
 
-// NewXGo creates a new [PkgDoc] for an XGo package.
-func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
+// NewXGo creates a new [PkgDoc] for an XGo package. It uses the files' classfile
+// flags to resolve generated type names. Class fields and implicit methods are
+// omitted when their class cannot be resolved.
+//
+// lookupClass resolves classfile extensions using the package's module
+// registration. It may be nil when the package contains no framework classfiles.
+func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*modfile.Project, bool)) *PkgDoc {
 	pkgDoc := &PkgDoc{
 		Path:   pkgPath,
 		Name:   pkg.Name,
@@ -42,19 +46,21 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 		}
 	}
 
-	for spxFile, astFile := range pkg.Files {
-		var spxBaseSelectorTypeName string
-		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
-			spxBaseSelectorTypeName = "Game"
-		} else {
-			spxBaseSelectorTypeName = strings.TrimSuffix(spxFileBaseName, ".spx")
+	for filename, astFile := range pkg.Files {
+		var classTypeDoc *TypeDoc
+		if astFile.IsClass {
+			className, _ := cl.GetFileClassType(astFile, filename, lookupClass)
+			if className != "" {
+				classTypeDoc = pkgDoc.typeDoc(className)
+			}
 		}
-		spxBaseSelectorTypeDoc := pkgDoc.typeDoc(spxBaseSelectorTypeName)
 
-		classFieldsDecl := astFile.ClassFields
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
 			case *ast.GenDecl:
+				if decl == astFile.ClassFields && classTypeDoc == nil {
+					continue
+				}
 				for _, spec := range decl.Specs {
 					var doc string
 					switch spec := spec.(type) {
@@ -80,8 +86,8 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 						for _, name := range spec.Names {
 							switch decl.Tok {
 							case token.VAR:
-								if decl == classFieldsDecl {
-									spxBaseSelectorTypeDoc.Fields[name.Name] = doc
+								if decl == astFile.ClassFields {
+									classTypeDoc.Fields[name.Name] = doc
 								} else {
 									pkgDoc.Vars[name.Name] = doc
 								}
@@ -144,22 +150,27 @@ func NewXGo(pkgPath string, pkg *ast.Package) *PkgDoc {
 					doc = decl.Doc.Text()
 				}
 
-				var recvTypeDoc *TypeDoc
-				if decl.Recv == nil {
-					recvTypeDoc = spxBaseSelectorTypeDoc
-				} else if len(decl.Recv.List) == 1 {
+				funcDocs := pkgDoc.Funcs
+				if decl.Recv != nil {
+					if len(decl.Recv.List) != 1 {
+						continue
+					}
 					recvType := decl.Recv.List[0].Type
 					if star, ok := recvType.(*ast.StarExpr); ok {
 						recvType = star.X
 					}
-					if recvIdent, ok := recvType.(*ast.Ident); ok {
-						recvTypeDoc = pkgDoc.typeDoc(recvIdent.Name)
+					recvIdent, ok := recvType.(*ast.Ident)
+					if !ok {
+						continue
 					}
+					funcDocs = pkgDoc.typeDoc(recvIdent.Name).Methods
+				} else if astFile.IsClass || astFile.ClassFields != nil {
+					if classTypeDoc == nil {
+						continue
+					}
+					funcDocs = classTypeDoc.Methods
 				}
-
-				if recvTypeDoc != nil {
-					recvTypeDoc.Methods[decl.Name.Name] = doc
-				}
+				funcDocs[decl.Name.Name] = doc
 			}
 		}
 	}

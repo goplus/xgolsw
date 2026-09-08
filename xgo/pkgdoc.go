@@ -33,7 +33,7 @@ func buildPkgDocCache(proj *Project) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &pkgDocCache{pkgdoc.NewXGo(proj.PkgPath, pkg)}, nil
+	return &pkgDocCache{pkgdoc.NewXGo(proj.PkgPath, pkg, proj.Mod.LookupClass)}, nil
 }
 
 // PkgDoc retrieves the [pkgdoc.PkgDoc] from the project.
