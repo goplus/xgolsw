@@ -19,127 +19,228 @@ package xgo
 import (
 	"testing"
 
+	"github.com/goplus/xgo/scanner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBuildPkgDocCache(t *testing.T) {
 	t.Run("ValidProject", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
-// Package documentation
-var (
-	// Field documentation
-	x int
-	y string
+		proj := newTestProject(t, map[string]*File{
+			"main_fixture.gox": file(`var (
+	// Total counts the items.
+	total int
 )
 
-// Function documentation
-func Test() {
-	println("test")
+// Reset clears the total.
+func Reset() {
+	total = 0
 }
 `),
-		}, FeatAll)
+		}, FeatASTCache)
 
 		cache, err := buildPkgDocCache(proj)
 		require.NoError(t, err)
-		require.NotNil(t, cache)
-
-		pkgDocCache, ok := cache.(*pkgDocCache)
+		docCache, ok := cache.(*pkgDocCache)
 		require.True(t, ok)
-		require.NotNil(t, pkgDocCache.pkgDoc)
+		require.NotNil(t, docCache.pkgDoc)
 
-		// Verify the package document structure.
-		pkgDoc := pkgDocCache.pkgDoc
-		assert.Equal(t, proj.PkgPath, pkgDoc.Path)
-		assert.NotEmpty(t, pkgDoc.Types)
-
-		// Check that Game type exists (main.spx creates Game type).
-		gameType, exists := pkgDoc.Types["Game"]
-		require.True(t, exists)
-		require.NotNil(t, gameType)
-		assert.NotNil(t, gameType.Fields)
-		assert.NotNil(t, gameType.Methods)
+		doc := docCache.pkgDoc
+		assert.Equal(t, proj.PkgPath, doc.Path)
+		assert.Equal(t, "main", doc.Name)
+		require.Len(t, doc.Types, 1)
+		app := doc.Types["App"]
+		require.NotNil(t, app)
+		assert.Equal(t, map[string]string{"total": "Total counts the items.\n"}, app.Fields)
+		assert.Equal(t, map[string]string{"Reset": "Reset clears the total.\n"}, app.Methods)
+		assert.Empty(t, doc.Vars)
+		assert.Empty(t, doc.Funcs)
 	})
 
-	t.Run("Error", func(t *testing.T) {
-		// Create a project that will cause ASTPackage to fail.
-		proj := NewProject(nil, map[string]*File{
-			"invalid.spx": file(`invalid go syntax {{{`),
-		}, 0)
+	t.Run("ASTCacheUnavailable", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`var value int`)}, 0)
 
-		_, err := buildPkgDocCache(proj)
-		// Should handle the error gracefully.
-		if err != nil {
-			assert.Error(t, err)
-		}
+		cache, err := buildPkgDocCache(proj)
+		assert.ErrorIs(t, err, ErrUnknownCacheKind)
+		assert.Nil(t, cache)
+	})
+
+	t.Run("ParserError", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{
+			"invalid_fixture.gox": file(`invalid syntax {{{`),
+		}, FeatASTCache)
+
+		cache, err := buildPkgDocCache(proj)
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, err, &parserErrs)
+		assert.NotEmpty(t, parserErrs)
+		assert.Nil(t, cache)
 	})
 }
 
 func TestProjectPkgDoc(t *testing.T) {
-	t.Run("Basic", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
-// Package test documentation.
-var (
-	// Test field.
-	testField int
+	t.Run("FileKinds", func(t *testing.T) {
+		for _, tt := range []struct {
+			name        string
+			filename    string
+			projectFile string
+			workPrefix  string
+			className   string
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "Gop", filename: "main.gop"},
+			{name: "NormalClass", filename: "Record.gox", className: "Record"},
+			{name: "ProjectClass", filename: "main_fixture.gox", className: "App"},
+			{name: "WorkClass", filename: "items/Worker_fixture.gox", className: "Worker"},
+			{name: "NamedProject", filename: "Root_fixture.gox", projectFile: "Root_fixture.gox", className: "Root"},
+			{name: "PrefixedWork", filename: "Worker_fixture.gox", workPrefix: "Task", className: "TaskWorker"},
+			{name: "NormalizedClassName", filename: "work-item_fixture.gox", className: "work_item"},
+			{name: "TestClass", filename: "Check_test.gox", className: "caseCheck"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				proj := newTestProject(t, map[string]*File{
+					tt.filename: file(`var (
+	// Value stores the count.
+	value int
 )
 
-// Test function.
-func TestFunc() {
-	println("test")
+// Increment increases the count.
+func Increment() {
+	value++
 }
 `),
-		}, FeatAll)
+				}, FeatASTCache|FeatPkgDocCache)
+				framework, ok := proj.Mod.LookupClass("_fixture.gox")
+				require.True(t, ok)
+				if tt.projectFile != "" {
+					framework.FullExt = tt.projectFile
+				}
+				framework.Works[0].Prefix = tt.workPrefix
 
-		pkgDoc, err := proj.PkgDoc()
-		require.NoError(t, err)
-		require.NotNil(t, pkgDoc)
+				doc, err := proj.PkgDoc()
+				require.NoError(t, err)
+				require.NotNil(t, doc)
+				assert.Equal(t, proj.PkgPath, doc.Path)
+				assert.Equal(t, "main", doc.Name)
 
-		assert.Equal(t, proj.PkgPath, pkgDoc.Path)
-		assert.NotEmpty(t, pkgDoc.Types)
-
-		// Verify that Game type exists for main.spx.
-		gameType, exists := pkgDoc.Types["Game"]
-		require.True(t, exists)
-		assert.NotNil(t, gameType.Fields)
-		assert.NotNil(t, gameType.Methods)
-
-		// Check that testField exists in Game type fields.
-		assert.Contains(t, gameType.Fields, "testField")
-		assert.Equal(t, "Test field.\n", gameType.Fields["testField"])
-		assert.NotContains(t, pkgDoc.Vars, "testField")
-
-		// Check that TestFunc exists in Game type methods.
-		assert.Contains(t, gameType.Methods, "TestFunc")
+				wantVars := map[string]string{"value": "Value stores the count.\n"}
+				wantFuncs := map[string]string{"Increment": "Increment increases the count.\n"}
+				if tt.className == "" {
+					assert.Empty(t, doc.Types)
+					assert.Equal(t, wantVars, doc.Vars)
+					assert.Equal(t, wantFuncs, doc.Funcs)
+					return
+				}
+				require.Len(t, doc.Types, 1)
+				class := doc.Types[tt.className]
+				require.NotNil(t, class)
+				assert.Equal(t, wantVars, class.Fields)
+				assert.Equal(t, wantFuncs, class.Methods)
+				assert.Empty(t, doc.Vars)
+				assert.Empty(t, doc.Funcs)
+			})
+		}
 	})
 
-	t.Run("Cache", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`var x int
-func Test() {}
+	t.Run("MixedFiles", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{
+			"main_fixture.gox": file(`var (
+	// Total belongs to the project.
+	total int
+)
+
+// Reset clears the project total.
+func Reset() {}
 `),
-		}, FeatAll)
+			"Worker_fixture.gox": file(`var (
+	// Value belongs to the worker.
+	value int
+)
 
-		// First call.
-		pkgDoc1, err1 := proj.PkgDoc()
-		require.NoError(t, err1)
-		require.NotNil(t, pkgDoc1)
+// Reset clears the worker value.
+func Reset() {}
 
-		// Second call should return the same cached instance.
-		pkgDoc2, err2 := proj.PkgDoc()
-		require.NoError(t, err2)
-		require.NotNil(t, pkgDoc2)
+println "worker"
+`),
+			"helpers.xgo": file(`// Package main documents a mixed project.
+package main
 
-		// Should be the same instance due to caching.
-		assert.Same(t, pkgDoc1, pkgDoc2)
+// Limit bounds the count.
+const Limit = 10
+
+// Shared is a package variable.
+var shared int
+
+// Reset clears shared state.
+func Reset() {}
+
+// Read returns the project total.
+func (a *App) Read() int { return a.total }
+`),
+		}, FeatASTCache|FeatPkgDocCache)
+
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.NotNil(t, doc)
+		assert.Equal(t, "Package main documents a mixed project.\n", doc.Doc)
+		assert.Equal(t, map[string]string{"Limit": "Limit bounds the count.\n"}, doc.Consts)
+		assert.Equal(t, map[string]string{"shared": "Shared is a package variable.\n"}, doc.Vars)
+		assert.Equal(t, map[string]string{"Reset": "Reset clears shared state.\n"}, doc.Funcs)
+		require.Len(t, doc.Types, 2)
+		app := doc.Types["App"]
+		require.NotNil(t, app)
+		assert.Equal(t, map[string]string{"total": "Total belongs to the project.\n"}, app.Fields)
+		assert.Equal(t, map[string]string{
+			"Reset": "Reset clears the project total.\n",
+			"Read":  "Read returns the project total.\n",
+		}, app.Methods)
+		worker := doc.Types["Worker"]
+		require.NotNil(t, worker)
+		assert.Equal(t, map[string]string{"value": "Value belongs to the worker.\n"}, worker.Fields)
+		assert.Equal(t, map[string]string{"Reset": "Reset clears the worker value.\n"}, worker.Methods)
+	})
+
+	t.Run("EmptyClassName", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{
+			"main_fixture.gox": file(`var (
+	// Total belongs to the unnamed project class.
+	total int
+)
+
+// Clear belongs to the unnamed project class.
+func Clear() {}
+`),
+			"Worker_fixture.gox": file(`var (
+	// Value belongs to Worker.
+	value int
+)
+
+// Reset belongs to Worker.
+func Reset() {}
+`),
+			"helpers.xgo": file(`// Reset is a package function.
+func Reset() {}
+`),
+		}, FeatASTCache|FeatPkgDocCache)
+		framework, ok := proj.Mod.LookupClass("_fixture.gox")
+		require.True(t, ok)
+		framework.Class = ""
+
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.NotNil(t, doc)
+		assert.Empty(t, doc.Vars)
+		assert.Equal(t, map[string]string{"Reset": "Reset is a package function.\n"}, doc.Funcs)
+		require.Len(t, doc.Types, 1)
+		worker := doc.Types["Worker"]
+		require.NotNil(t, worker)
+		assert.Equal(t, map[string]string{"value": "Value belongs to Worker.\n"}, worker.Fields)
+		assert.Equal(t, map[string]string{"Reset": "Reset belongs to Worker.\n"}, worker.Methods)
 	})
 
 	t.Run("Enum", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
-// Color describes a display color.
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`// Color describes a display color.
 type Color const (
 	// Red is the first color.
 	Red = iota
@@ -148,31 +249,65 @@ type Color const (
 	Green
 )
 `),
-		}, FeatAll)
+		}, FeatASTCache|FeatPkgDocCache)
 
-		pkgDoc, err := proj.PkgDoc()
+		doc, err := proj.PkgDoc()
 		require.NoError(t, err)
-		require.NotNil(t, pkgDoc)
+		require.NotNil(t, doc)
+		require.Len(t, doc.Types, 1)
+		color := doc.Types["Color"]
+		require.NotNil(t, color)
+		assert.Equal(t, "Color describes a display color.\n", color.Doc)
+		assert.Equal(t, map[string]string{
+			"Red":   "Red is the first color.\n",
+			"Green": "Green is the second color.\n",
+		}, color.EnumMembers)
+		assert.Empty(t, doc.Consts)
+	})
 
-		colorDoc, ok := pkgDoc.Types["Color"]
-		require.True(t, ok)
-		assert.Equal(t, "Color describes a display color.\n", colorDoc.Doc)
-		assert.Equal(t, "Red is the first color.\n", colorDoc.EnumMembers["Red"])
-		assert.Equal(t, "Green is the second color.\n", colorDoc.EnumMembers["Green"])
-		assert.NotContains(t, pkgDoc.Consts, "Red")
-		assert.NotContains(t, pkgDoc.Consts, "Green")
+	t.Run("Cache", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{
+			"Worker_fixture.gox": file(`var (
+	// Value stores the count.
+	value int
+)
+
+// Reset clears the count.
+func Reset() {}
+`),
+		}, FeatASTCache|FeatPkgDocCache)
+
+		before, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.NotNil(t, before)
+		cached, err := proj.PkgDoc()
+		require.NoError(t, err)
+		assert.Same(t, before, cached)
+
+		proj.PutFile("Worker_fixture.gox", file(`var (
+	// Label names the worker.
+	label string
+)
+`))
+		after, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.NotNil(t, after)
+		assert.NotSame(t, before, after)
+		worker := after.Types["Worker"]
+		require.NotNil(t, worker)
+		assert.Equal(t, map[string]string{"label": "Label names the worker.\n"}, worker.Fields)
+		assert.Empty(t, worker.Methods)
+		oldWorker := before.Types["Worker"]
+		require.NotNil(t, oldWorker)
+		assert.Equal(t, map[string]string{"value": "Value stores the count.\n"}, oldWorker.Fields)
+		assert.Equal(t, map[string]string{"Reset": "Reset clears the count.\n"}, oldWorker.Methods)
 	})
 
 	t.Run("CacheError", func(t *testing.T) {
-		// Create a project without the PkgDocCache feature enabled.
-		// This will cause Cache() to return ErrUnknownCacheKind.
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`var x int`),
-		}, 0) // No features enabled, so pkgDocCacheKind is not registered.
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`var value int`)}, 0)
 
-		pkgDoc, err := proj.PkgDoc()
-		assert.Error(t, err)
-		assert.Equal(t, ErrUnknownCacheKind, err)
-		assert.Nil(t, pkgDoc)
+		doc, err := proj.PkgDoc()
+		assert.ErrorIs(t, err, ErrUnknownCacheKind)
+		assert.Nil(t, doc)
 	})
 }
