@@ -17,6 +17,7 @@
 package xgo
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/goplus/xgo/scanner"
@@ -26,18 +27,18 @@ import (
 
 func TestBuildASTFileCache(t *testing.T) {
 	t.Run("ValidFile", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
-// Package documentation.  
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`
+// Package documentation.
 var x int
 
 func Test() {
 	println("test")
 }
 `),
-		}, FeatAll)
+		}, FeatASTCache)
 
-		cache, err := buildASTFileCache(proj, "main.spx", proj.files["main.spx"])
+		cache, err := buildASTFileCache(proj, "main.xgo", proj.files["main.xgo"])
 		require.NoError(t, err)
 		require.NotNil(t, cache)
 
@@ -54,52 +55,59 @@ func Test() {
 	})
 
 	t.Run("InvalidFile", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"invalid.spx": file(`invalid syntax {{{`),
-		}, FeatAll)
+		proj := newTestProject(t, map[string]*File{
+			"invalid.xgo": file(`invalid syntax {{{`),
+		}, FeatASTCache)
 
-		cache, err := buildASTFileCache(proj, "invalid.spx", proj.files["invalid.spx"])
+		cache, err := buildASTFileCache(proj, "invalid.xgo", proj.files["invalid.xgo"])
 		require.NoError(t, err)
 		require.NotNil(t, cache)
 
 		astFileCache, ok := cache.(*astFileCache)
 		require.True(t, ok)
 
-		// Should have parser error.
-		assert.Error(t, astFileCache.parserErr)
-
-		// Check if it's a scanner error list.
-		if el, ok := astFileCache.parserErr.(scanner.ErrorList); ok {
-			assert.NotEmpty(t, el)
-		}
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, astFileCache.parserErr, &parserErrs)
+		assert.NotEmpty(t, parserErrs)
 	})
 
 	t.Run("DifferentFileTypes", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"test.gop": file(`var x int`),
-			"test.xgo": file(`var y string`),
-		}, FeatAll)
-
-		// Test .gop file.
-		cache1, err1 := buildASTFileCache(proj, "test.gop", proj.files["test.gop"])
-		require.NoError(t, err1)
-		require.NotNil(t, cache1)
-
-		// Test .xgo file.
-		cache2, err2 := buildASTFileCache(proj, "test.xgo", proj.files["test.xgo"])
-		require.NoError(t, err2)
-		require.NotNil(t, cache2)
-
-		astFileCache1, ok := cache1.(*astFileCache)
-		require.True(t, ok)
-		astFileCache2, ok := cache2.(*astFileCache)
-		require.True(t, ok)
-		assert.NotNil(t, astFileCache1.astFile)
-		assert.NotNil(t, astFileCache2.astFile)
+		for _, tt := range []struct {
+			name        string
+			filename    string
+			isClass     bool
+			isProj      bool
+			isNormalGox bool
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "Gop", filename: "main.gop"},
+			{name: "NormalClass", filename: "Record.gox", isClass: true, isNormalGox: true},
+			{name: "ProjectClass", filename: "main_fixture.gox", isClass: true, isProj: true},
+			{name: "WorkClass", filename: "Worker_fixture.gox", isClass: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				proj := newTestProject(t, map[string]*File{tt.filename: file(`var value int`)}, FeatASTCache)
+				cache, err := buildASTFileCache(proj, tt.filename, proj.files[tt.filename])
+				require.NoError(t, err)
+				astCache, ok := cache.(*astFileCache)
+				require.True(t, ok)
+				require.NoError(t, astCache.parserErr)
+				astFile := astCache.astFile
+				require.NotNil(t, astFile)
+				assert.Equal(t, tt.isClass, astFile.IsClass)
+				assert.Equal(t, tt.isProj, astFile.IsProj)
+				assert.Equal(t, tt.isNormalGox, astFile.IsNormalGox)
+				if tt.isClass {
+					assert.NotNil(t, astFile.ClassFields)
+				} else {
+					assert.Nil(t, astFile.ClassFields)
+				}
+			})
+		}
 	})
 
 	t.Run("RecoverFromPanic", func(t *testing.T) {
-		cache, err := buildASTFileCache(nil, "main.spx", file(`var x int`))
+		cache, err := buildASTFileCache(nil, "main.xgo", file(`var x int`))
 		assert.Nil(t, cache)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parser panic")
@@ -108,8 +116,8 @@ func Test() {
 
 func TestProjectASTFile(t *testing.T) {
 	t.Run("ValidFile", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`
 // Package documentation.
 var x int
 
@@ -117,9 +125,9 @@ func Test() {
 	println("test")
 }
 `),
-		}, FeatAll)
+		}, FeatASTCache)
 
-		astFile, err := proj.ASTFile("main.spx")
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
@@ -129,46 +137,39 @@ func Test() {
 	})
 
 	t.Run("InvalidFile", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"invalid.spx": file(`invalid syntax {{{`),
-		}, FeatAll)
+		proj := newTestProject(t, map[string]*File{
+			"invalid.xgo": file(`invalid syntax {{{`),
+		}, FeatASTCache)
 
-		astFile, err := proj.ASTFile("invalid.spx")
-		// Should have error but may still return partial AST.
-		assert.Error(t, err)
-
-		// May or may not have partial AST depending on how severe the error is.
-		_ = astFile
-
-		// Check if it's a scanner error list.
-		if el, ok := err.(scanner.ErrorList); ok {
-			assert.NotEmpty(t, el)
-		}
+		_, err := proj.ASTFile("invalid.xgo")
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, err, &parserErrs)
+		assert.NotEmpty(t, parserErrs)
 	})
 
 	t.Run("NonExistentFile", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`var x int`),
-		}, FeatAll)
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`var x int`),
+		}, FeatASTCache)
 
-		astFile, err := proj.ASTFile("nonexistent.spx")
-		assert.Error(t, err)
+		astFile, err := proj.ASTFile("nonexistent.xgo")
+		assert.ErrorIs(t, err, fs.ErrNotExist)
 		assert.Nil(t, astFile)
 	})
 }
 
 func TestBuildASTPackageCache(t *testing.T) {
 	t.Run("ValidPackage", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`
 var mainVar int
 func MainFunc() {}
 `),
-			"sprite.spx": file(`
-var spriteVar string  
-func SpriteFunc() {}
+			"Worker.gox": file(`
+var workVar string
+func WorkFunc() {}
 `),
-		}, FeatAll)
+		}, FeatASTCache)
 
 		cache, err := buildASTPackageCache(proj)
 		require.NoError(t, err)
@@ -183,18 +184,18 @@ func SpriteFunc() {}
 		astPkg := astPackageCache.astPkg
 		assert.Equal(t, "main", astPkg.Name)
 		assert.Len(t, astPkg.Files, 2)
-		assert.Contains(t, astPkg.Files, "main.spx")
-		assert.Contains(t, astPkg.Files, "sprite.spx")
+		assert.Contains(t, astPkg.Files, "main.xgo")
+		assert.Contains(t, astPkg.Files, "Worker.gox")
 	})
 
 	t.Run("PartiallyValidPackage", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"valid.spx": file(`
+		proj := newTestProject(t, map[string]*File{
+			"valid.xgo": file(`
 var validVar int
 func ValidFunc() {}
 `),
-			"invalid.spx": file(`invalid syntax {{{`),
-		}, FeatAll)
+			"invalid.xgo": file(`invalid syntax {{{`),
+		}, FeatASTCache)
 
 		cache, err := buildASTPackageCache(proj)
 		require.NoError(t, err)
@@ -210,13 +211,13 @@ func ValidFunc() {}
 		// Should still contain the valid file.
 		astPkg := astPackageCache.astPkg
 		assert.Equal(t, "main", astPkg.Name)
-		assert.Contains(t, astPkg.Files, "valid.spx")
-		assert.NotNil(t, astPkg.Files["valid.spx"])
+		assert.Contains(t, astPkg.Files, "valid.xgo")
+		assert.NotNil(t, astPkg.Files["valid.xgo"])
 	})
 
 	t.Run("ASTFileNonScannerError", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`var x int`),
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`var x int`),
 		}, 0)
 
 		cache, err := buildASTPackageCache(proj)
@@ -234,8 +235,8 @@ func ValidFunc() {}
 
 func TestProjectASTPackage(t *testing.T) {
 	t.Run("ValidPackage", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`
+		proj := newTestProject(t, map[string]*File{
+			"main_fixture.gox": file(`
 // Main file.
 var mainVar int
 
@@ -243,34 +244,36 @@ func MainFunc() {
 	println("main")
 }
 `),
-			"sprite.spx": file(`
-// Sprite file.
-var spriteVar string
+			"Worker_fixture.gox": file(`
+// Work file.
+var workVar string
 
-func SpriteFunc() {
-	println("sprite")
+func WorkFunc() {
+	println("work")
 }
 `),
-		}, FeatAll)
+		}, FeatASTCache)
 
 		astPkg, err := proj.ASTPackage()
 		require.NoError(t, err)
 		require.NotNil(t, astPkg)
 
 		assert.Equal(t, "main", astPkg.Name)
-		assert.Len(t, astPkg.Files, 2)
-		assert.Contains(t, astPkg.Files, "main.spx")
-		assert.Contains(t, astPkg.Files, "sprite.spx")
-
-		// Check that both files are parsed.
-		assert.NotNil(t, astPkg.Files["main.spx"])
-		assert.NotNil(t, astPkg.Files["sprite.spx"])
+		require.Len(t, astPkg.Files, 2)
+		projectFile := astPkg.Files["main_fixture.gox"]
+		require.NotNil(t, projectFile)
+		assert.True(t, projectFile.IsClass)
+		assert.True(t, projectFile.IsProj)
+		workFile := astPkg.Files["Worker_fixture.gox"]
+		require.NotNil(t, workFile)
+		assert.True(t, workFile.IsClass)
+		assert.False(t, workFile.IsProj)
 	})
 
 	t.Run("Cache", func(t *testing.T) {
-		proj := NewProject(nil, map[string]*File{
-			"main.spx": file(`var x int`),
-		}, FeatAll)
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`var x int`),
+		}, FeatASTCache)
 
 		// First call.
 		astPkg1, err1 := proj.ASTPackage()
