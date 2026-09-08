@@ -8,60 +8,161 @@ import (
 )
 
 func TestServerTextDocumentDefinition(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.turn Left
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "Gop", filename: "main.gop"},
+		{name: "NormalClass", filename: "Record.gox"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"values.xgo": []byte("var value int\n"),
+				tt.filename:  []byte("println value\n"),
+			})
+			def, err := s.textDocumentDefinition(&DefinitionParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+					Position:     Position{Line: 0, Character: 8},
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, Location{
+				URI:   "file:///values.xgo",
+				Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}},
+			}, requireValueAs[Location](t, def))
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+
+	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"values.xgo": []byte("var value int\n"),
+			"main.xgo":   []byte("println value\n"),
+		})
+		params := &DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     Position{Line: 0, Character: 8},
+		}}
+		def, err := s.textDocumentDefinition(params)
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI:   "file:///values.xgo",
+			Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}},
+		}, requireValueAs[Location](t, def))
+
+		s.ModifyFiles([]FileChange{{
+			Path:    "values.xgo",
+			Content: []byte("\nvar value int\nfunc broken() { missing() }\n"),
+			Version: 1,
+		}})
+		def, err = s.textDocumentDefinition(params)
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI:   "file:///values.xgo",
+			Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}},
+		}, requireValueAs[Location](t, def))
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
+	})
+
+	t.Run("FrameworkClasses", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
+Worker.apply Low
 `),
-			"MySprite.spx": []byte(`
-onStart => {
-	MySprite.turn Right
+			"Worker_fixture.gox": []byte(`
+onValue amount => {
+	Worker.apply High
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
-		mainSpxMySpriteDef, err := s.textDocumentDefinition(&DefinitionParams{
+		workerDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 1, Character: 0},
 			},
 		})
 		require.NoError(t, err)
-		require.Nil(t, mainSpxMySpriteDef)
+		assert.Nil(t, workerDef)
 
-		mainSpxMySpriteTurnDef, err := s.textDocumentDefinition(&DefinitionParams{
+		applyDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 9},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+				Position:     Position{Line: 1, Character: 7},
 			},
 		})
 		require.NoError(t, err)
-		require.Nil(t, mainSpxMySpriteTurnDef)
+		assert.Nil(t, applyDef)
 
-		mySpriteSpxMySpriteDef, err := s.textDocumentDefinition(&DefinitionParams{
+		workerClassDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
 				Position:     Position{Line: 2, Character: 1},
 			},
 		})
 		require.NoError(t, err)
-		require.Nil(t, mySpriteSpxMySpriteDef)
+		assert.Nil(t, workerClassDef)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
+	})
+
+	t.Run("FrameworkMembers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			position Position
+			want     Location
+		}{
+			{
+				name:     "ProjectField",
+				position: Position{Line: 1, Character: 4},
+				want: Location{
+					URI:   "file:///main_fixture.gox",
+					Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}},
+				},
+			},
+			{
+				name:     "CallbackParameter",
+				position: Position{Line: 1, Character: 12},
+				want: Location{
+					URI:   "file:///Worker_fixture.gox",
+					Range: Range{Start: Position{Line: 0, Character: 8}, End: Position{Line: 0, Character: 14}},
+				},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox": []byte("var total int\n"),
+					"Worker_fixture.gox": []byte(`onValue amount => {
+    total = amount
+}
+`),
+				})
+				def, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
+					Position:     tt.position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, requireValueAs[Location](t, def))
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
+		}
 	})
 
 	t.Run("BuiltinType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 var x int
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 1, Character: 6},
 			},
 		})
@@ -70,33 +171,42 @@ var x int
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
+		for _, tt := range []struct {
+			name     string
+			filename string
+		}{
+			{name: "ProjectClass", filename: "main_fixture.gox"},
+			{name: "WorkClass", filename: "Worker_fixture.gox"},
+			{name: "NormalClass", filename: "Record.gox"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{"main_fixture.gox": nil}
+				files[tt.filename] = []byte("println this\n")
+				s := newTestServer(t, files)
+				def, err := s.textDocumentDefinition(&DefinitionParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+						Position:     Position{Line: 0, Character: 8},
+					},
+				})
+				require.NoError(t, err)
+				assert.Nil(t, def)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		def, err := s.textDocumentDefinition(&DefinitionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, def)
 	})
 
 	t.Run("BlankIdent", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 const _ = 1
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 1, Character: 6},
 			},
 		})
@@ -104,17 +214,29 @@ const _ = 1
 		require.Nil(t, def)
 	})
 
+	t.Run("ExplicitThis", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var this int\nprintln this\n")})
+		def, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     Position{Line: 1, Character: 8},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI:   "file:///main.xgo",
+			Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 8}},
+		}, requireValueAs[Location](t, def))
+	})
+
 	t.Run("InvalidPosition", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 var x int
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 99, Character: 99},
 			},
 		})
@@ -123,25 +245,23 @@ var x int
 	})
 
 	t.Run("ImportedPackage", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 import "fmt"
-fmt.println "Hello, spx!"
+fmt.println "Hello, XGo!"
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 0},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
 				End:   Position{Line: 1, Character: 7},
@@ -150,25 +270,23 @@ fmt.println "Hello, spx!"
 	})
 
 	t.Run("ImportedPackageWithAlias", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 import fmt2 "fmt"
-fmt2.println "Hello, spx!"
+fmt2.println "Hello, XGo!"
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 0},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 1, Character: 7},
 				End:   Position{Line: 1, Character: 11},
@@ -177,50 +295,47 @@ fmt2.println "Hello, spx!"
 	})
 
 	t.Run("InvalidTextDocument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 var x int
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.xgo"},
 				Position:     Position{Line: 99, Character: 99},
 			},
 		})
-		require.Contains(t, err.Error(), "failed to get file path from document URI")
+		require.ErrorContains(t, err, "failed to get file path from document URI")
 		require.Nil(t, def)
 	})
 
 	t.Run("KwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Options struct {
     Count int
 }
 
 func configure(opts Options?) {}
 
-onStart => {
+func main() {
     configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 8, Character: 14},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 2, Character: 4},
 				End:   Position{Line: 2, Character: 9},
@@ -229,20 +344,19 @@ onStart => {
 	})
 
 	t.Run("MapKwargHasNoDefinition", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 func configure(opts map[string]int?) {}
 
-onStart => {
+func main() {
     configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 4, Character: 14},
 			},
 		})
@@ -251,8 +365,8 @@ onStart => {
 	})
 
 	t.Run("NestedKwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type OuterOptions struct {
     Count int
 }
@@ -265,24 +379,22 @@ func makeValue(opts InnerOptions?) int { return 0 }
 
 func configure(value int, opts OuterOptions?) {}
 
-onStart => {
+func main() {
     configure makeValue(name = "x"), count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		innerDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 14, Character: 25},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, innerDef)
-		innerLoc := requireLocation(t, innerDef)
+		innerLoc := requireValueAs[Location](t, innerDef)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 6, Character: 4},
 				End:   Position{Line: 6, Character: 8},
@@ -291,15 +403,14 @@ onStart => {
 
 		outerDef, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 14, Character: 38},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, outerDef)
-		outerLoc := requireLocation(t, outerDef)
+		outerLoc := requireValueAs[Location](t, outerDef)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 2, Character: 4},
 				End:   Position{Line: 2, Character: 9},
@@ -308,8 +419,8 @@ onStart => {
 	})
 
 	t.Run("OverloadKwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Worker struct{}
 
 type CountOptions struct {
@@ -330,24 +441,22 @@ func (Worker).handle = (
     (Worker).handleName
 )
 
-onStart => {
+func main() {
     worker.handle count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 22, Character: 19},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 4, Character: 4},
 				End:   Position{Line: 4, Character: 9},
@@ -356,8 +465,8 @@ onStart => {
 	})
 
 	t.Run("OverloadKwargFieldDisambiguatesByValue", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Worker struct{}
 
 type Options0 struct {
@@ -378,26 +487,24 @@ func (Worker).handle = (
     (Worker).handle1
 )
 
-onStart => {
+func main() {
     worker.handle handler = (n) => {
         echo n
     }
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 22, Character: 20},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 8, Character: 4},
 				End:   Position{Line: 8, Character: 11},
@@ -406,32 +513,30 @@ onStart => {
 	})
 
 	t.Run("NonOptionalKwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Options struct {
     Count int
 }
 
 func configure(opts Options) {}
 
-onStart => {
+func main() {
     configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 8, Character: 14},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 2, Character: 4},
 				End:   Position{Line: 2, Character: 9},
@@ -440,8 +545,8 @@ onStart => {
 	})
 
 	t.Run("KwargInterfaceMethod", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Client struct{}
 
 type Params interface {
@@ -454,24 +559,22 @@ func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
 
-onStart => {
+func main() {
 	client.complete "hi", maxTokens = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentDefinition(&DefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 14, Character: 25},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 4, Character: 1},
 				End:   Position{Line: 4, Character: 10},
@@ -480,65 +583,58 @@ onStart => {
 	})
 }
 
-func requireLocation(t *testing.T, v any) Location {
-	t.Helper()
-
-	loc, ok := v.(Location)
-	require.True(t, ok)
-	return loc
-}
-
 func TestServerTextDocumentTypeDefinition(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type MyType struct {
-	field int
-}
-var x MyType
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 6},
-			},
+	for _, tt := range []struct {
+		name     string
+		filename string
+		typeExpr string
+		wantLine uint32
+	}{
+		{name: "XGo", filename: "main.xgo", typeExpr: "Value"},
+		{name: "Gop", filename: "main.gop", typeExpr: "Value"},
+		{name: "NormalClass", filename: "Record.gox", typeExpr: "Value"},
+		{name: "Pointer", filename: "main.xgo", typeExpr: "*Value"},
+		{name: "AliasAcrossFiles", filename: "main.xgo", typeExpr: "Alias", wantLine: 1},
+		{name: "PointerToAlias", filename: "main.xgo", typeExpr: "*Alias", wantLine: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"types.xgo": []byte("type Value struct{}\ntype Alias = Value\n"),
+				tt.filename: []byte("var value " + tt.typeExpr + "\n_ = value\n"),
+			})
+			def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				Position:     Position{Line: 1, Character: 4},
+			}})
+			require.NoError(t, err)
+			assert.Equal(t, Location{
+				URI:   "file:///types.xgo",
+				Range: Range{Start: Position{Line: tt.wantLine, Character: 5}, End: Position{Line: tt.wantLine, Character: 5}},
+			}, requireValueAs[Location](t, def))
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
 		})
-		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
-		assert.Equal(t, Location{
-			URI: "file:///main.spx",
-			Range: Range{
-				Start: Position{Line: 1, Character: 5},
-				End:   Position{Line: 1, Character: 5},
-			},
-		}, loc)
-	})
+	}
 
 	t.Run("AliasType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type MyType struct{}
 type MyAlias = MyType
 var x MyAlias
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 3, Character: 4},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 2, Character: 5},
 				End:   Position{Line: 2, Character: 5},
@@ -547,8 +643,8 @@ var x MyAlias
 	})
 
 	t.Run("KwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Handler func()
 
 type Options struct {
@@ -557,24 +653,22 @@ type Options struct {
 
 func configure(opts Options?) {}
 
-onStart => {
+func main() {
     configure handler = () => {}
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 10, Character: 14},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, def)
-		loc := requireLocation(t, def)
+		loc := requireValueAs[Location](t, def)
 		assert.Equal(t, Location{
-			URI: "file:///main.spx",
+			URI: "file:///main.xgo",
 			Range: Range{
 				Start: Position{Line: 1, Character: 5},
 				End:   Position{Line: 1, Character: 5},
@@ -582,39 +676,89 @@ onStart => {
 		}, loc)
 	})
 
-	t.Run("SpriteType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 10},
+	t.Run("FrameworkTypes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			source   string
+			position Position
+			want     *Location
+		}{
+			{name: "ImportedType", source: "var item Item\n", position: Position{Line: 0, Character: 9}},
+			{name: "ImportedValue", source: "var item Item\n", position: Position{Line: 0, Character: 4}},
+			{name: "ImportedPointer", source: "var item *Item\n", position: Position{Line: 0, Character: 4}},
+			{name: "GeneratedClass", source: "var worker *Worker\n", position: Position{Line: 0, Character: 4}},
+			{
+				name:     "LocalAlias",
+				source:   "type Local = Item\nvar item Local\n",
+				position: Position{Line: 1, Character: 4},
+				want: &Location{
+					URI:   "file:///main_fixture.gox",
+					Range: Range{Start: Position{Line: 0, Character: 5}, End: Position{Line: 0, Character: 5}},
+				},
 			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox":   []byte(tt.source),
+					"Worker_fixture.gox": nil,
+				})
+				def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+					Position:     tt.position,
+				}})
+				require.NoError(t, err)
+				if tt.want == nil {
+					assert.Nil(t, def)
+				} else {
+					assert.Equal(t, *tt.want, requireValueAs[Location](t, def))
+				}
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"types.xgo": []byte("type First struct{}\ntype Second struct{}\n"),
+			"main.xgo":  []byte("var value First\nprintln value\n"),
 		})
+		params := &TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     Position{Line: 1, Character: 8},
+		}}
+		def, err := s.textDocumentTypeDefinition(params)
 		require.NoError(t, err)
-		require.Nil(t, def)
+		assert.Equal(t, Location{
+			URI:   "file:///types.xgo",
+			Range: Range{Start: Position{Line: 0, Character: 5}, End: Position{Line: 0, Character: 5}},
+		}, requireValueAs[Location](t, def))
+
+		s.ModifyFiles([]FileChange{{
+			Path:    "main.xgo",
+			Content: []byte("var value Second\nprintln value\nmissing()\n"),
+			Version: 1,
+		}})
+		def, err = s.textDocumentTypeDefinition(params)
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI:   "file:///types.xgo",
+			Range: Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 5}},
+		}, requireValueAs[Location](t, def))
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
 	})
 
 	t.Run("BuiltinType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 var x int
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 1, Character: 6},
 			},
 		})
@@ -623,16 +767,15 @@ var x int
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 var x int
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 99, Character: 99},
 			},
 		})

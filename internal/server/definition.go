@@ -4,7 +4,6 @@ import (
 	"fmt"
 	gotypes "go/types"
 
-	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -20,12 +19,12 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	proj := s.getProjWithFile()
-	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.ASTFile(spxFile)
+	astFile, _ := proj.ASTFile(filename)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -53,12 +52,12 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
 	proj := s.getProjWithFile()
-	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.ASTFile(spxFile)
+	astFile, _ := proj.ASTFile(filename)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -72,19 +71,18 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		return nil, nil
 	}
 
-	objType := xgoutil.DerefType(obj.Type())
-	var objPos token.Pos
-	switch objType := objType.(type) {
+	var typeName *gotypes.TypeName
+	switch objType := xgoutil.DerefType(obj.Type()).(type) {
 	case *gotypes.Named:
-		objPos = objType.Obj().Pos()
+		typeName = objType.Obj()
 	case *gotypes.Alias:
-		objPos = objType.Obj().Pos()
+		typeName = objType.Obj()
 	default:
 		return nil, nil
 	}
 
-	if xgoutil.PosTokenFile(proj.Fset, objPos) == nil {
+	if typeName.Pkg() != typeInfo.Pkg || xgoutil.PosTokenFile(proj.Fset, typeName.Pos()) == nil {
 		return nil, nil
 	}
-	return s.locationForPos(proj, objPos), nil
+	return s.locationForPos(proj, typeName.Pos()), nil
 }
