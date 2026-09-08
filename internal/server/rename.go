@@ -13,9 +13,6 @@ import (
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
 	proj := s.getProjWithFile()
-	if proj == nil {
-		return nil, nil
-	}
 	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
@@ -102,8 +99,8 @@ func (s *Server) renameObjectAtPosition(result *compileResult, params *RenamePar
 			},
 		},
 	}
-	refLocs := s.findReferenceLocations(result, obj)
-	kwargRefLocs := s.kwargReferenceLocations(result, obj)
+	refLocs := s.findReferenceLocations(result.proj, obj)
+	kwargRefLocs := s.kwargReferenceLocations(result.proj, obj)
 	kwargNewName := kwargRenameText(obj, params.NewName)
 	kwargRefSet := make(map[Location]struct{}, len(kwargRefLocs))
 	for _, refLoc := range kwargRefLocs {

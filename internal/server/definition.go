@@ -20,10 +20,6 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	proj := s.getProjWithFile()
-	if proj == nil {
-		return nil, nil
-	}
-
 	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
@@ -57,9 +53,6 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
 	proj := s.getProjWithFile()
-	if proj == nil {
-		return nil, nil
-	}
 	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)

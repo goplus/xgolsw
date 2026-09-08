@@ -310,6 +310,9 @@ func callExprFuncOverloads(proj *xgo.Project, typeInfo *types.Info, callExpr *as
 // objectDefinitionLocation returns the declaration location of obj when it is
 // available in the current project.
 func (s *Server) objectDefinitionLocation(proj *xgo.Project, typeInfo *types.Info, obj gotypes.Object) *Location {
+	if obj.Pkg() != typeInfo.Pkg {
+		return nil
+	}
 	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent != nil {
 		if xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
@@ -327,12 +330,12 @@ func (s *Server) objectDefinitionLocation(proj *xgo.Project, typeInfo *types.Inf
 }
 
 // kwargReferenceLocations returns all kwarg-name locations that resolve to obj.
-func (s *Server) kwargReferenceLocations(result *compileResult, obj gotypes.Object) []Location {
-	typeInfo, _ := result.proj.TypeInfo()
+func (s *Server) kwargReferenceLocations(proj *xgo.Project, obj gotypes.Object) []Location {
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
-	astPkg, _ := result.proj.ASTPackage()
+	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil
 	}
@@ -346,11 +349,11 @@ func (s *Server) kwargReferenceLocations(result *compileResult, obj gotypes.Obje
 			}
 
 			for _, kwarg := range callExpr.Kwargs {
-				for _, target := range lookupCallExprKwargTargets(result.proj, typeInfo, callExpr, kwarg.Name.Name) {
+				for _, target := range lookupCallExprKwargTargets(proj, typeInfo, callExpr, kwarg.Name.Name) {
 					if !kwargTargetMatchesObject(target, obj) {
 						continue
 					}
-					locations = append(locations, s.locationForNode(result.proj, kwarg.Name))
+					locations = append(locations, s.locationForNode(proj, kwarg.Name))
 				}
 			}
 			return true
