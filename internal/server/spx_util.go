@@ -24,14 +24,18 @@ func IsSpxEventHandlerFuncName(name string) bool {
 
 // IsInSpxPkg reports whether the given object is defined in the spx package.
 func IsInSpxPkg(obj gotypes.Object) bool {
-	return obj != nil && obj.Pkg() == GetSpxPkg()
+	if obj == nil {
+		return false
+	}
+	pkg := obj.Pkg()
+	return pkg != nil && pkg.Path() == SpxPkgPath && pkg == GetSpxPkg()
 }
 
 // GetSimplifiedTypeString returns the string representation of the given type,
 // with the spx package name omitted while other packages use their short names.
 func GetSimplifiedTypeString(typ gotypes.Type) string {
 	return gotypes.TypeString(typ, func(p *gotypes.Package) string {
-		if p == GetSpxPkg() {
+		if p.Path() == SpxPkgPath && p == GetSpxPkg() {
 			return ""
 		}
 		return p.Name()

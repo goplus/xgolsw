@@ -9,68 +9,172 @@ import (
 )
 
 func TestServerTextDocumentInlayHint(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// Function calls with named parameters.
-	println "Hello, World!"
-	MySprite.turn Left
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "Gop", filename: "main.gop"},
+		{name: "NormalClass", filename: "Record.gox"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"functions.xgo": []byte("func combine(count int, label string) {}\n"),
+				tt.filename:     []byte("combine 1, \"value\"\n"),
+			})
+			hints, err := s.textDocumentInlayHint(&InlayHintParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				Range:        Range{End: Position{Line: 1}},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, []InlayHint{
+				{Position: Position{Line: 0, Character: 8}, Label: "count", Kind: Parameter},
+				{Position: Position{Line: 0, Character: 11}, Label: "label", Kind: Parameter},
+			}, hints)
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
 
-	// Call with multiple parameters.
-	setGraphicEffect ColorEffect, 50
-
-	// Function with HSB color value.
-	color := HSB(255, 0, 0)
-}
-`),
-			"MySprite.spx":                       []byte(`{}`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		params := &InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 100, Character: 0},
+	t.Run("FrameworkMethods", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox":   []byte("onStart => {\n    Worker.apply 3\n    _ = create(Item, \"sample\")\n}\n"),
+			"Worker_fixture.gox": []byte("onValue amount => {\n    apply amount\n}\n"),
+		})
+		for _, tt := range []struct {
+			filename string
+			want     []InlayHint
+		}{
+			{
+				filename: "main_fixture.gox",
+				want: []InlayHint{
+					{Position: Position{Line: 1, Character: 17}, Label: "value", Kind: Parameter},
+					{Position: Position{Line: 2, Character: 15}, Label: "T", Kind: Parameter},
+					{Position: Position{Line: 2, Character: 21}, Label: "name", Kind: Parameter},
+				},
 			},
+			{
+				filename: "Worker_fixture.gox",
+				want: []InlayHint{
+					{Position: Position{Line: 1, Character: 10}, Label: "value", Kind: Parameter},
+				},
+			},
+		} {
+			hints, err := s.textDocumentInlayHint(&InlayHintParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				Range:        Range{End: Position{Line: 10}},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, hints, tt.filename)
 		}
-
-		inlayHints, err := s.textDocumentInlayHint(params)
-		require.NoError(t, err)
-		require.NotNil(t, inlayHints)
-		assert.NotEmpty(t, inlayHints)
-
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 3 && hint.Label != "" && hint.Kind == Parameter
-		}))
-
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 4 && hint.Label != "" && hint.Kind == Parameter
-		}))
-
-		setGraphicEffectHintCount := 0
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 7 && hint.Kind == Parameter {
-				setGraphicEffectHintCount++
-			}
-		}
-		assert.Equal(t, 2, setGraphicEffectHintCount)
-
-		hsbHintCount := 0
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 10 && hint.Kind == Parameter {
-				hsbHintCount++
-			}
-		}
-		assert.Equal(t, 3, hsbHintCount)
+		_, err := s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
+	t.Run("SpecificRange", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("func use(value int) {}\nuse 1\nuse 2\nuse 3\n"),
+		})
+		hints, err := s.textDocumentInlayHint(&InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Range:        Range{Start: Position{Line: 2}, End: Position{Line: 2, Character: 5}},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
+		}, hints)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
+	})
+
+	t.Run("UTF16", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("func combine(text string, count int) {}\ncombine \"\U0001F600\", 1\n"),
+		})
+		hints, err := s.textDocumentInlayHint(&InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Range:        Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 15}},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 1, Character: 8}, Label: "text", Kind: Parameter},
+			{Position: Position{Line: 1, Character: 14}, Label: "count", Kind: Parameter},
+		}, hints)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
+	})
+
+	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"functions.xgo": []byte("func combine(count int) {}\n"),
+			"main.xgo":      []byte("combine 1\n"),
+		})
+		params := &InlayHintParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Range:        Range{End: Position{Line: 10}},
+		}
+		hints, err := s.textDocumentInlayHint(params)
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Character: 8}, Label: "count", Kind: Parameter},
+		}, hints)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
+
+		s.ModifyFiles([]FileChange{
+			{Path: "functions.xgo", Content: []byte("func combine(value int, label string) {}\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "main.xgo", Content: []byte("\ncombine 1, \"x\"\n"), Version: 1},
+		})
+		hints, err = s.textDocumentInlayHint(params)
+		require.NoError(t, err)
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 1, Character: 8}, Label: "value", Kind: Parameter},
+			{Position: Position{Line: 1, Character: 11}, Label: "label", Kind: Parameter},
+		}, hints)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
+	})
+
+	for _, tt := range []struct {
+		name         string
+		uri          DocumentURI
+		source       string
+		wantError    bool
+		wantASTError bool
+	}{
+		{name: "EmptyFile", uri: "file:///main.xgo"},
+		{name: "MissingFile", uri: "file:///missing.xgo"},
+		{name: "NonSourceFile", uri: "file:///notes.txt"},
+		{name: "InvalidURI", uri: "https://example.com/main.xgo", wantError: true},
+		{name: "StartWithInvalidChar", uri: "file:///main.xgo", source: "\n\u201c\u201dvar (\n    maps []int\n)\n", wantASTError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"main.xgo":  []byte(tt.source),
+				"notes.txt": []byte("func use(value int) {}\nuse 1\n"),
+			})
+			hints, err := s.textDocumentInlayHint(&InlayHintParams{
+				TextDocument: TextDocumentIdentifier{URI: tt.uri},
+				Range:        Range{End: Position{Line: 10}},
+			})
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Empty(t, hints)
+			_, err = s.workspaceRootFS.ASTPackage()
+			if tt.wantASTError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+
 	t.Run("FuncDecorator", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`func retry(times int, fn func()) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`func retry(times int, fn func()) {
 	fn()
 }
 
@@ -78,11 +182,10 @@ onStart => {
 func run() {
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
 				End:   Position{Line: 7, Character: 0},
@@ -94,21 +197,21 @@ func run() {
 			Label:    "times",
 			Kind:     Parameter,
 		})
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
 	t.Run("Autoclosure", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
 onStart => {
-	repeatUntil true, => {}
+	runWhen true, => {}
 }
 `),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
 				End:   Position{Line: 4, Character: 0},
@@ -117,28 +220,29 @@ onStart => {
 		require.NoError(t, err)
 		assert.Equal(t, []InlayHint{
 			{
-				Position: Position{Line: 2, Character: 13},
+				Position: Position{Line: 2, Character: 9},
 				Label:    "condition",
 				Kind:     Parameter,
 				Tooltip:  &InlayHintTooltip{Value: autoclosureParamDocumentation},
 			},
 		}, inlayHints)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
 	t.Run("PartialXGoxFunction", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`import "example.com/typeargs"
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`import "example.com/typeargs"
 
-onStart => {
+func main() {
 	typeargs.convert(string, 100)
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
 
 		inlayHints, err := s.textDocumentInlayHint(&InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
 				End:   Position{Line: 5, Character: 0},
@@ -157,358 +261,145 @@ onStart => {
 				Kind:     Parameter,
 			},
 		}, inlayHints)
-	})
-
-	t.Run("EmptyFile", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		params := &InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 1, Character: 0},
-			},
-		}
-
-		inlayHints, err := s.textDocumentInlayHint(params)
-		require.NoError(t, err)
-		assert.Empty(t, inlayHints)
-	})
-
-	t.Run("NonExistentFile", func(t *testing.T) {
-		s := New(newProjectWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}), &MockScheduler{})
-
-		params := &InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///nonexistent.spx"},
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 10, Character: 0},
-			},
-		}
-
-		inlayHints, err := s.textDocumentInlayHint(params)
-		require.Error(t, err)
-		assert.Nil(t, inlayHints)
-	})
-
-	t.Run("SpecificRange", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var (
-	MySprite Sprite
-)
-
-onStart => {
-	// Line 6
-	println "Hello"
-	// Line 8
-	MySprite.turn Left
-	// Line 10
-	setGraphicEffect ColorEffect, 50
-	// Line 12
-	color := HSB(255, 0, 0)
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		params := &InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Range: Range{
-				Start: Position{Line: 7, Character: 0},
-				End:   Position{Line: 11, Character: 0},
-			},
-		}
-
-		inlayHints, err := s.textDocumentInlayHint(params)
-		require.NoError(t, err)
-		require.NotNil(t, inlayHints)
-		assert.Len(t, inlayHints, 2)
-
-		for _, hint := range inlayHints {
-			assert.True(t, hint.Position.Line >= 7 && hint.Position.Line <= 11)
-		}
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 7 && hint.Kind == Parameter
-		}))
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 9 && hint.Kind == Parameter
-		}))
-		assert.False(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line < 7 || hint.Position.Line > 11
-		}))
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 }
 
 func TestCollectInlayHints(t *testing.T) {
-	t.Run("FunctionCallsWithNamedParams", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// Regular function calls with parameters.
-	println "Hello, World!"
-	MySprite.turn Left
-
-	// Function call with multiple parameters.
-	setGraphicEffect ColorEffect, 50
-	getWidget Monitor, "myWidget"
-
-	// Function call with lambda expression.
-	onKey [KeySpace], () => {
-		println "Space pressed"
+	for _, tt := range []struct {
+		name   string
+		source string
+		want   []InlayHint
+	}{
+		{
+			name:   "NamedParameters",
+			source: "func mix(count int, label string, enabled bool) {}\nfunc main() {\n    mix 1, \"text\", true\n}\n",
+			want: []InlayHint{
+				{Position: Position{Line: 2, Character: 8}, Label: "count", Kind: Parameter},
+				{Position: Position{Line: 2, Character: 11}, Label: "label", Kind: Parameter},
+				{Position: Position{Line: 2, Character: 19}, Label: "enabled", Kind: Parameter},
+			},
+		},
+		{
+			name:   "BuiltinAndImportedFunctions",
+			source: "import \"fmt\"\nfunc main() {\n    println \"hello\"\n    fmt.Println(\"world\")\n}\n",
+			want: []InlayHint{
+				{Position: Position{Line: 2, Character: 12}, Label: "a...", Kind: Parameter},
+				{Position: Position{Line: 3, Character: 16}, Label: "a...", Kind: Parameter},
+			},
+		},
+		{
+			name:   "LambdaExpressionsSkipped",
+			source: "func visit(count int, callback func()) {}\nfunc main() {\n    visit 1, => {}\n    visit 2, () => {}\n}\n",
+			want: []InlayHint{
+				{Position: Position{Line: 2, Character: 10}, Label: "count", Kind: Parameter},
+				{Position: Position{Line: 3, Character: 10}, Label: "count", Kind: Parameter},
+			},
+		},
+		{name: "NoInlayHints", source: "var value = 1\n_ = value\n"},
+		{name: "EmptyFile"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+			proj := s.getProjWithFile()
+			astFile, err := proj.ASTFile("main.xgo")
+			require.NoError(t, err)
+			require.NotNil(t, astFile)
+			assert.Equal(t, tt.want, collectInlayHints(proj, astFile, 0, 0))
+			_, err = proj.TypeInfo()
+			assert.NoError(t, err)
+		})
 	}
-
-	// Variables with function calls.
-	color := HSB(255, 0, 0)
-}
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	// Branch statement that converts to call expression.
-	stepTo "OtherSprite"
-}
-`),
-			"OtherSprite.spx":                       []byte(``),
-			"assets/index.json":                     []byte(`{"zorder":[{"name":"myWidget"}]}`),
-			"assets/sprites/MySprite/index.json":    []byte(`{}`),
-			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		require.NotNil(t, inlayHints)
-		assert.NotEmpty(t, inlayHints)
-
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 3 && hint.Label != ""
-		}))
-
-		assert.True(t, slices.ContainsFunc(inlayHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 4 && hint.Label != ""
-		}))
-
-		setGraphicEffectHintCount := 0
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 7 {
-				setGraphicEffectHintCount++
-			}
-		}
-		assert.Equal(t, 2, setGraphicEffectHintCount)
-
-		var (
-			getWidgetHintCount  int
-			getWidgetHintLabels []string
-		)
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 8 {
-				getWidgetHintCount++
-				getWidgetHintLabels = append(getWidgetHintLabels, hint.Label)
-			}
-		}
-		assert.Equal(t, 2, getWidgetHintCount)
-		assert.ElementsMatch(t, []string{"T", "name"}, getWidgetHintLabels)
-
-		hsbHintCount := 0
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 16 {
-				hsbHintCount++
-			}
-		}
-		assert.Equal(t, 3, hsbHintCount)
-
-		spriteResult, _, spriteAstFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.NotNil(t, spriteAstFile)
-
-		spriteInlayHints := collectInlayHints(spriteResult, spriteAstFile, 0, 0)
-		require.NotNil(t, spriteInlayHints)
-		assert.NotEmpty(t, spriteInlayHints)
-
-		hasStepToHint := false
-		for _, hint := range spriteInlayHints {
-			if hint.Position.Line == 3 {
-				hasStepToHint = true
-				break
-			}
-		}
-		assert.True(t, hasStepToHint)
-	})
-
-	t.Run("NoInlayHints", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// No function calls with parameters.
-	a := 5
-	b := 10
-	c := a + b
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		assert.Empty(t, inlayHints)
-	})
-
-	t.Run("LambdaExpressionSkipped", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// Function with lambda argument (should be skipped).
-	onKey [KeySpace], () => {
-		println "Space pressed"
-	}
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		require.NotNil(t, inlayHints)
-		assert.NotEmpty(t, inlayHints)
-
-		onKeyHintCount := 0
-		for _, hint := range inlayHints {
-			if hint.Position.Line == 4 {
-				onKeyHintCount++
-			}
-		}
-		assert.Equal(t, 1, onKeyHintCount)
-	})
-
-	t.Run("EmptyFile", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		assert.Empty(t, inlayHints)
-	})
 
 	t.Run("RangeFiltering", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// Line 2
-	println "Hello"
-	// Line 4
-	MySprite.turn Left
-	// Line 6
-	setGraphicEffect ColorEffect, 50
-	// Line 8
-	color := HSB(255, 0, 0)
-}
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("func use(value int) {}\nuse 1\nuse 2\nuse 3\n"),
+		})
+		proj := s.getProjWithFile()
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
-
-		rangeStart := PosAt(result.proj, astFile, Position{Line: 3, Character: 0})
-		rangeEnd := PosAt(result.proj, astFile, Position{Line: 6, Character: 0})
-		filteredHints := collectInlayHints(result, astFile, rangeStart, rangeEnd)
-		require.NotNil(t, filteredHints)
-		assert.NotEmpty(t, filteredHints)
-
-		allHints := collectInlayHints(result, astFile, 0, 0)
-		require.NotNil(t, allHints)
-		assert.NotEmpty(t, allHints)
-
-		assert.Less(t, len(filteredHints), len(allHints))
-
-		for _, hint := range filteredHints {
-			assert.True(t, hint.Position.Line >= 3 && hint.Position.Line <= 6)
-		}
-		assert.True(t, slices.ContainsFunc(filteredHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 3 && hint.Kind == Parameter
-		}))
-		assert.True(t, slices.ContainsFunc(filteredHints, func(hint InlayHint) bool {
-			return hint.Position.Line == 5 && hint.Kind == Parameter
-		}))
-
-		hsbHintCount := 0
-		for _, hint := range filteredHints {
-			if hint.Position.Line > 6 {
-				hsbHintCount++
-			}
-		}
-		assert.Zero(t, hsbHintCount)
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 1, Character: 4}, Label: "value", Kind: Parameter},
+			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
+			{Position: Position{Line: 3, Character: 4}, Label: "value", Kind: Parameter},
+		}, collectInlayHints(proj, astFile, 0, 0))
+		start := PosAt(proj, astFile, Position{Line: 2})
+		end := PosAt(proj, astFile, Position{Line: 2, Character: 5})
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
+		}, collectInlayHints(proj, astFile, start, end))
+		_, err = proj.TypeInfo()
+		assert.NoError(t, err)
 	})
 
-	t.Run("UnresolvedOverloadFuncCall", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	onKey nonExistent
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		require.Nil(t, inlayHints)
-	})
+	for _, tt := range []struct {
+		name       string
+		parameters string
+		argument   string
+		want       []InlayHint
+	}{
+		{name: "UnresolvedOverload", parameters: "other int, text string", argument: "unknown, unknown"},
+		{name: "AmbiguousParameter", parameters: "other int, text string", argument: "1, unknown"},
+		{
+			name: "SharedOverloadParameter", parameters: "value int, text string", argument: "1, unknown",
+			want: []InlayHint{{Position: Position{Line: 9, Character: 18}, Label: "value", Kind: Parameter}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source := "type Worker struct{}\n" +
+				"var worker Worker\n" +
+				"func (w *Worker) handleFlag(value int, flag bool) {}\n" +
+				"func (w *Worker) handleText(" + tt.parameters + ") {}\n" +
+				"func (Worker).handle = (\n" +
+				"    (Worker).handleFlag\n" +
+				"    (Worker).handleText\n" +
+				")\n" +
+				"func main() {\n" +
+				"    worker.handle " + tt.argument + "\n" +
+				"}\n"
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			proj := s.getProjWithFile()
+			astFile, err := proj.ASTFile("main.xgo")
+			require.NoError(t, err)
+			require.NotNil(t, astFile)
+			assert.Equal(t, tt.want, collectInlayHints(proj, astFile, 0, 0))
+			_, err = proj.TypeInfo()
+			assert.ErrorContains(t, err, "undefined: unknown")
+		})
+	}
 
 	t.Run("FunctionArgumentWithUnresolvedValue", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 func handle(count int) {}
 
-onStart => {
+func main() {
 	handle unknown
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		proj := s.getProjWithFile()
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		inlayHints := collectInlayHints(proj, astFile, 0, 0)
 		require.Len(t, inlayHints, 1)
 		assert.Equal(t, InlayHint{
 			Position: Position{Line: 4, Character: 8},
 			Label:    "count",
 			Kind:     Parameter,
 		}, inlayHints[0])
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: unknown")
 	})
 
 	t.Run("OverloadFunctionArguments", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Worker struct{}
 
 var worker Worker
@@ -519,123 +410,77 @@ func (Worker).handle = (
 	(Worker).handleCount
 )
 
-onStart => {
+func main() {
 	worker.handle 5
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		proj := s.getProjWithFile()
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		inlayHints := collectInlayHints(proj, astFile, 0, 0)
 		require.Len(t, inlayHints, 1)
 		assert.Equal(t, InlayHint{
 			Position: Position{Line: 12, Character: 15},
 			Label:    "count",
 			Kind:     Parameter,
 		}, inlayHints[0])
-	})
-
-	t.Run("SpxStepToWithAmbiguousArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"MySprite.spx": []byte(`
-onStart => {
-	stepToWith 1,
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		assert.Empty(t, inlayHints)
-	})
-
-	t.Run("SpxStepToWithPositionArguments", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"MySprite.spx": []byte(`
-onStart => {
-	stepToWith 1, 2
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.NotNil(t, astFile)
-
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
-		require.Len(t, inlayHints, 2)
-		assert.Equal(t, InlayHint{
-			Position: Position{Line: 2, Character: 12},
-			Label:    "x",
-			Kind:     Parameter,
-		}, inlayHints[0])
-		assert.Equal(t, InlayHint{
-			Position: Position{Line: 2, Character: 15},
-			Label:    "y",
-			Kind:     Parameter,
-		}, inlayHints[1])
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
 	t.Run("VariadicFunctionArguments", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
+func main() {
 	echo 1
 	echo 1, 2, 3
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		proj := s.getProjWithFile()
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		inlayHints := collectInlayHints(proj, astFile, 0, 0)
 		require.NotNil(t, inlayHints)
 		require.Len(t, inlayHints, 2)
 		assert.Equal(t, "a...", inlayHints[0].Label)
 		assert.Equal(t, "a...", inlayHints[1].Label)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
 	t.Run("VariadicArgumentAfterKwargsParameter", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 func process(opts map[string]string?, args ...int) {}
 
-onStart => {
+func main() {
 	process 1, name = "x"
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		proj := s.getProjWithFile()
+		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
 
-		inlayHints := collectInlayHints(result, astFile, 0, 0)
+		inlayHints := collectInlayHints(proj, astFile, 0, 0)
 		require.Len(t, inlayHints, 1)
 		assert.Equal(t, InlayHint{
 			Position: Position{Line: 4, Character: 9},
 			Label:    "args...",
 			Kind:     Parameter,
 		}, inlayHints[0])
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 }
 
@@ -712,29 +557,5 @@ func TestSortInlayHints(t *testing.T) {
 		assert.Equal(t, "A", l5c10Hints[0].Label)
 		assert.Equal(t, "M", l5c10Hints[1].Label)
 		assert.Equal(t, "Z", l5c10Hints[2].Label)
-	})
-
-	t.Run("StartWithInvalidChar", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-“”var (
-	maps []int
-)
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		params := &InlayHintParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Range: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 4, Character: 0},
-			},
-		}
-
-		inlayHints, err := s.textDocumentInlayHint(params)
-		require.NoError(t, err)
-		require.Nil(t, inlayHints)
-		assert.Empty(t, inlayHints)
 	})
 }
