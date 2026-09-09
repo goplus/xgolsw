@@ -6,9 +6,9 @@ import (
 	gotypes "go/types"
 	"io/fs"
 	"iter"
+	"maps"
 	"path"
 	"slices"
-	"time"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/format"
@@ -20,25 +20,26 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_formatting
 func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]TextEdit, error) {
-	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document uri %q: %w", params.TextDocument.URI, err)
 	}
-	if path.Ext(spxFile) != ".spx" {
-		return nil, nil // Not an spx source file.
+	proj := s.getProj()
+	switch path.Ext(filename) {
+	case ".xgo", ".gop", ".gox":
+	default:
+		if _, _, ok := proj.Mod.ClassInfo(path.Base(filename)); !ok {
+			return nil, nil
+		}
 	}
-
-	snapshot := s.getProj().Snapshot()
-	file, ok := snapshot.File(spxFile)
+	file, ok := proj.File(filename)
 	if !ok {
-		return nil, fmt.Errorf("failed to read spx source file: %w", fs.ErrNotExist)
+		return nil, fmt.Errorf("failed to read source file: %w", fs.ErrNotExist)
 	}
 	original := file.Content
-	// FIXME(wyvern): Remove this workaround when the server supports CRLF line endings.
-	original = bytes.ReplaceAll(original, []byte("\r\n"), []byte("\n"))
-	formatted, err := s.formatSpx(snapshot, spxFile, original)
+	formatted, err := formatSource(proj, filename, original)
 	if err != nil {
-		return nil, fmt.Errorf("failed to format spx source file: %w", err)
+		return nil, fmt.Errorf("failed to format source file: %w", err)
 	}
 
 	if bytes.Equal(formatted, original) {
@@ -47,11 +48,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 
 	// Simply replace the entire document.
 	lines := bytes.Count(original, []byte("\n"))
-	lastNewLine := bytes.LastIndex(original, []byte("\n"))
-	lastLineContent := original
-	if lastNewLine >= 0 {
-		lastLineContent = lastLineContent[lastNewLine+1:]
-	}
+	lastLineContent := original[bytes.LastIndexByte(original, '\n')+1:]
 	return []TextEdit{
 		{
 			Range: Range{
@@ -66,61 +63,62 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	}, nil
 }
 
-// spxFormatter defines a function that formats an spx source file in the given
-// root file system snapshot.
-type spxFormatter func(snapshot *xgo.Project, spxFile string) (formatted []byte, err error)
+// sourceFormatter formats a source file in the given project snapshot.
+type sourceFormatter func(snapshot *xgo.Project, filename string) (formatted []byte, err error)
 
-// formatSpx applies a series of formatters to an spx source file in order.
+// formatSource applies a series of formatters to a source file in order.
 //
 // The formatters are applied in the following order:
 //  1. XGo formatter
 //  2. Lambda parameter elimination
-//  3. Declaration reordering
-func (s *Server) formatSpx(snapshot *xgo.Project, spxFile string, original []byte) ([]byte, error) {
+//  3. Classfile declaration reordering
+func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, error) {
+	// Type checking can modify other classfiles too. Use fresh caches for all
+	// files and a fresh file set so temporary source positions are not retained
+	// by the project after formatting.
+	files := maps.Collect(proj.Files())
+	files[filename] = &xgo.File{Content: original}
+	snapshot := xgo.NewProject(nil, files, xgo.FeatASTCache|xgo.FeatTypeInfoCache)
+	snapshot.PkgPath = proj.PkgPath
+	snapshot.Mod = proj.Mod
+	snapshot.Importer = proj.Importer
 	formatted := original
-	for _, formatter := range []spxFormatter{
-		s.formatSpxXGo,
-		s.formatSpxLambda,
-		s.formatSpxDecls,
+	for _, formatter := range []sourceFormatter{
+		formatXGo,
+		formatLambda,
+		formatClassDecls,
 	} {
-		subFormatted, err := formatter(snapshot, spxFile)
+		next, err := formatter(snapshot, filename)
 		if err != nil {
 			return nil, err
 		}
-		if subFormatted != nil && !bytes.Equal(subFormatted, formatted) {
-			snapshot = snapshot.SnapshotWithOverlay(map[string]*xgo.File{
-				spxFile: {
-					Content: subFormatted,
-					ModTime: time.Now(),
-				},
-			})
-			formatted = subFormatted
+		if next != nil && !bytes.Equal(next, formatted) {
+			snapshot.PutFile(filename, &xgo.File{Content: next})
+			formatted = next
 		}
 	}
 	return formatted, nil
 }
 
-// formatSpxXGo formats an spx source file with XGo formatter.
-func (s *Server) formatSpxXGo(snapshot *xgo.Project, spxFile string) ([]byte, error) {
-	file, ok := snapshot.File(spxFile)
+// formatXGo formats a source file with XGo formatter.
+func formatXGo(snapshot *xgo.Project, filename string) ([]byte, error) {
+	file, ok := snapshot.File(filename)
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
-	original := file.Content
-	formatted, err := format.Source(original, classInfo, spxFile)
+	formatted, err := format.Source(file.Content, snapshot.Mod.ClassInfo, filename)
 	if err != nil {
 		return nil, err
 	}
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
-	return formatted, err
+	return formatted, nil
 }
 
-// formatSpxLambda formats an spx source file by eliminating unused lambda parameters.
-func (s *Server) formatSpxLambda(snapshot *xgo.Project, spxFile string) ([]byte, error) {
-	snapshot.UpdateFiles(s.fileMapGetter())
-	astFile, _ := snapshot.ASTFile(spxFile)
+// formatLambda formats a source file by eliminating unused lambda parameters.
+func formatLambda(snapshot *xgo.Project, filename string) ([]byte, error) {
+	astFile, _ := snapshot.ASTFile(filename)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -141,10 +139,10 @@ func (s *Server) formatSpxLambda(snapshot *xgo.Project, spxFile string) ([]byte,
 	return formatted, nil
 }
 
-// formatSpxDecls formats an spx source file by reordering declarations.
-func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, error) {
-	astFile, _ := snapshot.ASTFile(spxFile)
-	if astFile == nil {
+// formatClassDecls reorders classfile declarations and groups class fields.
+func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
+	astFile, _ := snapshot.ASTFile(filename)
+	if astFile == nil || !astFile.IsClass {
 		return nil, nil
 	}
 
@@ -431,12 +429,7 @@ func (s *Server) formatSpxDecls(snapshot *xgo.Project, spxFile string) ([]byte, 
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
-	return format.Source(formatted, classInfo, spxFile)
-}
-
-// classInfo is the parser class information used when formatting SPX files.
-func classInfo(string) (autoLambdas map[string]int, isProj, ok bool) {
-	return nil, true, true
+	return format.Source(formatted, snapshot.Mod.ClassInfo, filename)
 }
 
 // getDeclDoc returns the doc comment of a declaration if any.

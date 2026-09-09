@@ -17,6 +17,12 @@ func (a *App) initApp() {}
 // OnStart accepts a project callback.
 func (a *App) OnStart(callback func()) {}
 
+// OnEvent__0 accepts an event callback without a value.
+func (a *App) OnEvent__0(name string, callback func()) {}
+
+// OnEvent__1 accepts an event callback with an inferred integer value.
+func (a *App) OnEvent__1(name string, callback func(int)) {}
+
 // Measure__0 is the integer overload of Measure.
 func (a *App) Measure__0(value int) int { return value }
 
