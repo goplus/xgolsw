@@ -14,6 +14,7 @@ import (
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,4 +75,16 @@ func (i *importer) Import(pkgPath string) (*gotypes.Package, error) {
 		return i.framework, nil
 	}
 	return i.fallback.Import(pkgPath)
+}
+
+// NewPkgDoc returns documentation parsed from the framework source.
+func NewPkgDoc(t *testing.T) *pkgdoc.PkgDoc {
+	t.Helper()
+
+	astFile, err := goparser.ParseFile(token.NewFileSet(), "testdata/framework.go", source, goparser.ParseComments)
+	require.NoError(t, err)
+	return pkgdoc.NewGo(PkgPath, &goast.Package{
+		Name:  astFile.Name.Name,
+		Files: map[string]*goast.File{"testdata/framework.go": astFile},
+	})
 }

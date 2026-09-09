@@ -6,7 +6,6 @@ import (
 	"iter"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
@@ -33,10 +31,7 @@ var errNoMainSpxFile = errors.New("no valid main.spx file found in main package"
 // compileResult contains the compile results and additional information from
 // the compile process.
 type compileResult struct {
-	proj *xgo.Project
-
-	// enumInfo stores source-level enum types and members.
-	enumInfo *enumInfo
+	definitionContext
 
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
@@ -69,153 +64,17 @@ type compileResult struct {
 }
 
 // newCompileResult creates a new [compileResult].
-func newCompileResult(proj *xgo.Project) *compileResult {
+func newCompileResult(proj *xgo.Project, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) *compileResult {
 	return &compileResult{
-		proj:                          proj,
-		enumInfo:                      &enumInfo{},
+		definitionContext: definitionContext{
+			proj:         proj,
+			enumInfo:     &enumInfo{},
+			lookupPkgDoc: lookupPkgDoc,
+		},
 		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
 		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
 		diagnostics:                   make(map[DocumentURI][]Diagnostic),
 	}
-}
-
-// spxDefinitionsFor returns all spx definitions for the given object. It
-// returns multiple definitions only if the object is an XGo overloadable
-// function.
-func (r *compileResult) spxDefinitionsFor(obj gotypes.Object, selectorTypeName string) []SpxDefinition {
-	if obj == nil {
-		return nil
-	}
-	if xgoutil.IsInBuiltinPkg(obj) {
-		return []SpxDefinition{GetSpxDefinitionForBuiltinObj(obj)}
-	}
-
-	var pkgDoc *pkgdoc.PkgDoc
-	if xgoutil.IsInMainPkg(obj) {
-		pkgDoc, _ = r.proj.PkgDoc()
-	} else {
-		pkgPath := xgoutil.PkgPath(obj.Pkg())
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
-	}
-
-	switch obj := obj.(type) {
-	case *gotypes.Var:
-		typeInfo, _ := r.proj.TypeInfo()
-		astPkg, _ := r.proj.ASTPackage()
-		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, obj)
-		return []SpxDefinition{GetSpxDefinitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
-	case *gotypes.Const:
-		if r.enumInfo.isRegularConstObject(obj) {
-			return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
-		}
-		if r.enumInfo.isSyntheticObject(obj) {
-			return nil
-		}
-		if members := r.enumInfo.membersForObject(obj); len(members) > 0 {
-			return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
-		}
-		return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
-	case *gotypes.TypeName:
-		def := GetSpxDefinitionForType(obj, pkgDoc)
-		if r.enumInfo.typeFor(obj.Type()) != nil {
-			def.CompletionItemKind = EnumCompletion
-		}
-		return []SpxDefinition{def}
-	case *gotypes.Func:
-		if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
-			if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil && defIdent.Implicit() {
-				return nil
-			}
-		}
-		if xgoutil.IsUnexpandableXGoOverloadableFunc(obj) {
-			return nil
-		}
-		if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
-			defs := make([]SpxDefinition, 0, len(funcOverloads))
-			for _, funcOverload := range funcOverloads {
-				defs = append(defs, GetSpxDefinitionForFunc(funcOverload, selectorTypeName, pkgDoc))
-			}
-			return defs
-		}
-		return []SpxDefinition{GetSpxDefinitionForFunc(obj, selectorTypeName, pkgDoc)}
-	case *gotypes.PkgName:
-		return []SpxDefinition{GetSpxDefinitionForPkg(obj, pkgDoc)}
-	}
-	return nil
-}
-
-// spxDefinitionsForIdent returns all spx definitions for the given identifier.
-// It returns multiple definitions only if the identifier is an XGo
-// overloadable function.
-func (r *compileResult) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefinition {
-	if ident.Name == "_" {
-		return nil
-	}
-	typeInfo, _ := r.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-	if members := r.enumInfo.membersForIdent(r.proj, typeInfo, ident); len(members) > 0 {
-		return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
-	}
-	obj := r.enumInfo.objectForIdent(typeInfo, ident)
-	return r.spxDefinitionsFor(obj, SelectorTypeNameForIdent(r.proj, ident))
-}
-
-// spxDefinitionsForNamedStruct returns all spx definitions for the given named
-// struct type.
-func (r *compileResult) spxDefinitionsForNamedStruct(named *gotypes.Named) []SpxDefinition {
-	var defs []SpxDefinition
-	for structMember := range xgoutil.StructMembers(named) {
-		defs = append(defs, r.spxDefinitionsFor(structMember.Member, structMember.Selector.Obj().Name())...)
-	}
-	return defs
-}
-
-// spxDefinitionForField returns the spx definition for the given field and
-// optional selector type name.
-func (r *compileResult) spxDefinitionForField(field *gotypes.Var, selectorTypeName string) SpxDefinition {
-	var (
-		forceVar bool
-		pkgDoc   *pkgdoc.PkgDoc
-	)
-	if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
-		if defIdent := typeInfo.ObjToDef[field]; defIdent != nil {
-			if selectorTypeName == "" {
-				selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
-			}
-			astPkg, _ := r.proj.ASTPackage()
-			forceVar = xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, field)
-			pkgDoc, _ = r.proj.PkgDoc()
-		}
-	} else {
-		pkg := field.Pkg()
-		pkgPath := xgoutil.PkgPath(pkg)
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
-	}
-	return GetSpxDefinitionForVar(field, selectorTypeName, forceVar, pkgDoc)
-}
-
-// spxDefinitionForMethod returns the spx definition for the given method and
-// optional selector type name.
-func (r *compileResult) spxDefinitionForMethod(method *gotypes.Func, selectorTypeName string) SpxDefinition {
-	var pkgDoc *pkgdoc.PkgDoc
-	if typeInfo, _ := r.proj.TypeInfo(); typeInfo != nil {
-		if defIdent := typeInfo.ObjToDef[method]; defIdent != nil {
-			if selectorTypeName == "" {
-				selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
-			}
-			pkgDoc, _ = r.proj.PkgDoc()
-		}
-	} else {
-		if idx := strings.LastIndex(selectorTypeName, "."); idx >= 0 {
-			selectorTypeName = selectorTypeName[idx+1:]
-		}
-		pkg := method.Pkg()
-		pkgPath := xgoutil.PkgPath(pkg)
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
-	}
-	return GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
 }
 
 // isInSpxEventHandler checks if the given position is inside an spx event
@@ -277,36 +136,6 @@ func (r *compileResult) spxResourceRefAtPosition(position token.Position) *SpxRe
 		}
 	}
 	return bestRef
-}
-
-// spxImportsAtASTFilePosition returns the import at the given position in the given AST file.
-func (r *compileResult) spxImportsAtASTFilePosition(astFile *ast.File, position token.Position) *SpxReferencePkg {
-	fset := r.proj.Fset
-	for _, imp := range astFile.Imports {
-		nodePos := fset.Position(imp.Pos())
-		nodeEnd := fset.Position(imp.End())
-		if nodePos.Filename != position.Filename ||
-			position.Line != nodePos.Line ||
-			position.Column < nodePos.Column ||
-			position.Column > nodeEnd.Column {
-			continue
-		}
-
-		pkg, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			continue
-		}
-		pkgDoc, err := pkgdata.GetPkgDoc(pkg)
-		if err != nil {
-			continue
-		}
-		return &SpxReferencePkg{
-			Pkg:     pkgDoc,
-			PkgPath: pkg,
-			Node:    imp,
-		}
-	}
-	return nil
 }
 
 // hasSpxSpriteType reports whether the given type is an spx sprite type.
@@ -386,7 +215,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		return nil, errNoMainSpxFile
 	}
 
-	result := newCompileResult(snapshot)
+	result := newCompileResult(snapshot, s.lookupPkgDoc)
 	for _, spxFile := range spxFiles {
 		documentURI := s.toDocumentURI(spxFile)
 		result.diagnostics[documentURI] = []Diagnostic{}

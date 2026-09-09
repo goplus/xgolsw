@@ -95,13 +95,13 @@ func TestCompletionDocumentation(t *testing.T) {
 
 func TestServerTextDocumentHoverPlainTextEnum(t *testing.T) {
 	files := map[string][]byte{
-		"main.spx": []byte(`type Color const (
+		"main.xgo": []byte(`type Color const (
 	// Red documentation.
 	Red = iota
 )
 `),
 	}
-	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+	server := newTestServer(t, files)
 	_, err := server.initialize(&InitializeParams{
 		XInitializeParams: protocol.XInitializeParams{
 			Capabilities: protocol.ClientCapabilities{
@@ -118,7 +118,7 @@ func TestServerTextDocumentHoverPlainTextEnum(t *testing.T) {
 
 	hover, err := server.textDocumentHover(&HoverParams{
 		TextDocumentPositionParams: TextDocumentPositionParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			Position:     Position{Line: 2, Character: 1},
 		},
 	})
