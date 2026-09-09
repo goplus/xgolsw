@@ -1,206 +1,208 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentPrepareRename(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const title = "My Game"
-MySprite.turn Left
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	MySprite.turn Right
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "Gop", filename: "main.gop"},
+		{name: "NormalClass", filename: "Record.gox"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"values.xgo": []byte("var value int\n"),
+				tt.filename:  []byte("_ = value\n"),
+			})
+			rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				Position:     Position{Line: 0, Character: 4},
+			}})
+			require.NoError(t, err)
+			assert.Equal(t, &Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, rng)
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+
+	t.Run("FrameworkMembers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			position Position
+			want     Range
+		}{
+			{
+				name:     "ProjectField",
+				position: Position{Line: 1, Character: 4},
+				want:     Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}},
+			},
+			{
+				name:     "CallbackParameter",
+				position: Position{Line: 1, Character: 12},
+				want:     Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: 18}},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox":   []byte("var total int\n"),
+					"Worker_fixture.gox": []byte("onValue amount => {\n    total = amount\n}\n"),
+				})
+				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
+					Position:     tt.position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, &tt.want, rng)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, range1)
-		assert.Equal(t, Range{
-			Start: Position{Line: 1, Character: 6},
-			End:   Position{Line: 1, Character: 11},
-		}, *range1)
-
-		range2, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, range2)
-
-		range3, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, range3)
 	})
 
 	t.Run("ThisPtr", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"MySprite.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+		for _, tt := range []struct {
+			name     string
+			filename string
+		}{
+			{name: "ProjectClass", filename: "main_fixture.gox"},
+			{name: "WorkClass", filename: "Worker_fixture.gox"},
+			{name: "NormalClass", filename: "Record.gox"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{"main_fixture.gox": nil}
+				files[tt.filename] = []byte("_ = this\n")
+				s := newTestServer(t, files)
+				uri := s.toDocumentURI(tt.filename)
+				position := Position{Line: 0, Character: 4}
+				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: uri},
+					Position:     position,
+				}})
+				require.NoError(t, err)
+				assert.Nil(t, rng)
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: uri},
+					Position:     position,
+					NewName:      "that",
+				})
+				require.NoError(t, err)
+				assert.Nil(t, edit)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 5},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, range1)
-
-		range2, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 2, Character: 5},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, range2)
 	})
 
-	t.Run("InvalidTextDocument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"MySprite.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+	t.Run("NotRenameable", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			position Position
+		}{
+			{name: "BlankIdent", filename: "main.xgo", source: "const _ = 1\n", position: Position{Line: 0, Character: 6}},
+			{name: "BuiltinType", filename: "main.xgo", source: "var value int\n", position: Position{Line: 0, Character: 10}},
+			{name: "BuiltinFunc", filename: "main.xgo", source: "println 1\n"},
+			{name: "ImportedPackage", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1}},
+			{name: "ImportedMember", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1, Character: 4}},
+			{name: "StringLiteral", filename: "main.xgo", source: "_ = \"value\"\n", position: Position{Line: 0, Character: 5}},
+			{name: "GeneratedClass", filename: "main_fixture.gox", source: "Worker.apply Low\n"},
+			{name: "ImportedFrameworkMember", filename: "main_fixture.gox", source: "Worker.apply Low\n", position: Position{Line: 0, Character: 7}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{"main_fixture.gox": nil, "Worker_fixture.gox": nil}
+				files[tt.filename] = []byte(tt.source)
+				s := newTestServer(t, files)
+				uri := s.toDocumentURI(tt.filename)
+				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: uri},
+					Position:     tt.position,
+				}})
+				require.NoError(t, err)
+				assert.Nil(t, rng)
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: uri},
+					Position:     tt.position,
+					NewName:      "renamed",
+				})
+				require.NoError(t, err)
+				assert.Nil(t, edit)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "bucket:///main.spx"},
-				Position:     Position{Line: 2, Character: 5},
-			},
-		})
-		require.Contains(t, err.Error(), "failed to get file path from document URI")
-		require.Nil(t, range1)
-	})
-
-	t.Run("BlankIdent", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const _ = 1
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		range1, err := s.textDocumentPrepareRename(&PrepareRenameParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
-			},
-		})
-		require.NoError(t, err)
-		require.Nil(t, range1)
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 1, Character: 6},
-			NewName:      "x",
-		})
-		require.NoError(t, err)
-		require.Nil(t, workspaceEdit)
 	})
 
 	t.Run("KwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Options struct {
 	Count int
 }
 
 func configure(opts Options?) {}
 
-onStart => {
+func main() {
 	configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 8, Character: 12},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, rng)
-		assert.Equal(t, Range{
+		assert.Equal(t, &Range{
 			Start: Position{Line: 8, Character: 11},
 			End:   Position{Line: 8, Character: 16},
-		}, *rng)
+		}, rng)
 	})
 
 	t.Run("MapKwargHasNoPrepareRename", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 func configure(opts map[string]int?) {}
 
-onStart => {
+func main() {
 	configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 4, Character: 12},
 			},
 		})
 		require.NoError(t, err)
 		assert.Nil(t, rng)
+		edit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     Position{Line: 4, Character: 12},
+			NewName:      "total",
+		})
+		require.NoError(t, err)
+		assert.Nil(t, edit)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
 	t.Run("KwargInterfaceMethod", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Client struct{}
 
 type Params interface {
@@ -213,907 +215,434 @@ func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
 
-onStart => {
+func main() {
 	client.complete "hi", maxTokens = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 14, Character: 25},
 			},
 		})
 		require.NoError(t, err)
-		require.NotNil(t, rng)
-		assert.Equal(t, Range{
+		assert.Equal(t, &Range{
 			Start: Position{Line: 14, Character: 23},
 			End:   Position{Line: 14, Character: 32},
-		}, *rng)
+		}, rng)
 	})
 }
 
 func TestServerTextDocumentRename(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const Foo = "bar"
-MySprite.turn Left
-`),
-			"MySprite.spx": []byte(`
-println Foo
-onStart => {
-	MySprite.turn Right
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "Gop", filename: "main.gop"},
+		{name: "NormalClass", filename: "Record.gox"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, target := range []struct {
+				name     string
+				filename string
+				position Position
+			}{
+				{name: "Definition", filename: "values.xgo", position: Position{Line: 0, Character: 4}},
+				{name: "Reference", filename: tt.filename, position: Position{Line: 0, Character: 4}},
+			} {
+				t.Run(target.name, func(t *testing.T) {
+					s := newTestServer(t, map[string][]byte{
+						"values.xgo": []byte("var value int\n"),
+						tt.filename:  []byte("_ = value\n"),
+					})
+					edit, err := s.textDocumentRename(&RenameParams{
+						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(target.filename)},
+						Position:     target.position,
+						NewName:      "renamed",
+					})
+					require.NoError(t, err)
+					assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+						"file:///values.xgo":         {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "renamed"}},
+						s.toDocumentURI(tt.filename): {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "renamed"}},
+					})
+					_, err = s.workspaceRootFS.TypeInfo()
+					assert.NoError(t, err)
+				})
+			}
+		})
+	}
+
+	t.Run("SameNameDifferentScopes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			position Position
+			want     map[DocumentURI][]TextEdit
+		}{
+			{
+				name: "PackageVariable", position: Position{Line: 0, Character: 4},
+				want: map[DocumentURI][]TextEdit{
+					"file:///values.xgo": {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "renamed"}},
+					"file:///main.xgo":   {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "renamed"}},
+				},
+			},
+			{
+				name: "LocalVariable", position: Position{Line: 3, Character: 8},
+				want: map[DocumentURI][]TextEdit{
+					"file:///values.xgo": {
+						{Range: Range{Start: Position{Line: 2, Character: 8}, End: Position{Line: 2, Character: 13}}, NewText: "renamed"},
+						{Range: Range{Start: Position{Line: 3, Character: 8}, End: Position{Line: 3, Character: 13}}, NewText: "renamed"},
+					},
+				},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"values.xgo": []byte("var value int\nfunc useLocal() {\n    var value int\n    _ = value\n}\n"),
+					"main.xgo":   []byte("_ = value\n"),
+				})
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///values.xgo"},
+					Position:     tt.position,
+					NewName:      "renamed",
+				})
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, tt.want)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 1, Character: 6},
-			NewName:      "Bar",
-		})
-		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 6},
-				End:   Position{Line: 1, Character: 9},
-			},
-			NewText: "Bar",
-		})
-
-		mySpriteSpxChanges := workspaceEdit.Changes["file:///MySprite.spx"]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 8},
-				End:   Position{Line: 1, Character: 11},
-			},
-			NewText: "Bar",
-		})
 	})
 
-	t.Run("RenameReference", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const Foo = "bar"
-MySprite.turn Left
-`),
-			"MySprite.spx": []byte(`
-println Foo
-onStart => {
-	MySprite.turn Right
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-			Position:     Position{Line: 1, Character: 9},
-			NewName:      "Bar",
+	t.Run("ExplicitThis", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var this int\n_ = this\n")})
+		position := Position{Line: 1, Character: 4}
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     position,
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, &Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 8}}, rng)
+		edit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     position,
+			NewName:      "value",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 6},
-				End:   Position{Line: 1, Character: 9},
+		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+			"file:///main.xgo": {
+				{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 8}}, NewText: "value"},
+				{Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 8}}, NewText: "value"},
 			},
-			NewText: "Bar",
 		})
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
+	})
 
-		mySpriteSpxChanges := workspaceEdit.Changes["file:///MySprite.spx"]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 8},
-				End:   Position{Line: 1, Character: 11},
+	t.Run("FrameworkConstant", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			uri      DocumentURI
+			position Position
+			want     Range
+		}{
+			{name: "Definition", uri: "file:///main_fixture.gox", position: Position{Line: 0, Character: 6}, want: Range{Start: Position{Line: 0, Character: 6}, End: Position{Line: 0, Character: 11}}},
+			{name: "Reference", uri: "file:///Worker_fixture.gox", position: Position{Line: 0, Character: 4}, want: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox":   []byte("const title = \"Example\"\n"),
+					"Worker_fixture.gox": []byte("_ = title\n"),
+				})
+				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, &tt.want, rng)
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position, NewName: "name",
+				})
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+					"file:///main_fixture.gox":   {{Range: Range{Start: Position{Line: 0, Character: 6}, End: Position{Line: 0, Character: 11}}, NewText: "name"}},
+					"file:///Worker_fixture.gox": {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "name"}},
+				})
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("FrameworkMembers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name             string
+			position         Position
+			want             map[DocumentURI][]TextEdit
+			wantNotification *PropertyRenamedParams
+		}{
+			{
+				name: "ProjectField", position: Position{Line: 2, Character: 4},
+				want: map[DocumentURI][]TextEdit{
+					"file:///main_fixture.gox":   {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"}},
+					"file:///Worker_fixture.gox": {{Range: Range{Start: Position{Line: 2, Character: 4}, End: Position{Line: 2, Character: 9}}, NewText: "count"}},
+				},
+				wantNotification: &PropertyRenamedParams{
+					Target: "App", OldName: "total", NewName: "count",
+					TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+				},
 			},
-			NewText: "Bar",
-		})
-	})
-
-	t.Run("SpxResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.turnTo "OtherSprite"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	MySprite.turnTo "OtherSprite"
-}
-`),
-			"OtherSprite.spx":                       []byte(``),
-			"assets/index.json":                     []byte(`{}`),
-			"assets/sprites/MySprite/index.json":    []byte(`{}`),
-			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
+			{
+				name: "WorkField", position: Position{Line: 3, Character: 4},
+				want: map[DocumentURI][]TextEdit{
+					"file:///Worker_fixture.gox": {
+						{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"},
+						{Range: Range{Start: Position{Line: 3, Character: 4}, End: Position{Line: 3, Character: 9}}, NewText: "count"},
+					},
+				},
+				wantNotification: &PropertyRenamedParams{
+					Target: "Worker", OldName: "value", NewName: "count",
+					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
+				},
+			},
+			{
+				name: "CallbackParameter", position: Position{Line: 2, Character: 12},
+				want: map[DocumentURI][]TextEdit{
+					"file:///Worker_fixture.gox": {
+						{Range: Range{Start: Position{Line: 1, Character: 8}, End: Position{Line: 1, Character: 14}}, NewText: "count"},
+						{Range: Range{Start: Position{Line: 2, Character: 12}, End: Position{Line: 2, Character: 18}}, NewText: "count"},
+						{Range: Range{Start: Position{Line: 3, Character: 12}, End: Position{Line: 3, Character: 18}}, NewText: "count"},
+					},
+				},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox":   []byte("var total int\n"),
+					"Worker_fixture.gox": []byte("var value int\nonValue amount => {\n    total = amount\n    value = amount\n}\n"),
+				})
+				replier := newMockReplier()
+				s.replier = replier
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
+					Position:     tt.position,
+					NewName:      "count",
+				})
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, tt.want)
+				msgs := replier.getMessages()
+				if tt.wantNotification == nil {
+					assert.Empty(t, msgs)
+				} else {
+					require.Len(t, msgs, 1)
+					notif := requireValueAs[*jsonrpc2.Notification](t, msgs[0])
+					assert.Equal(t, "textDocument/xgo.propertyRenamed", notif.Method())
+					var params PropertyRenamedParams
+					require.NoError(t, json.Unmarshal(notif.Params(), &params))
+					assert.Equal(t, *tt.wantNotification, params)
+				}
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 1, Character: 0},
-			NewName:      "NewSprite",
-		})
-		require.NoError(t, err)
-		require.Nil(t, workspaceEdit)
-
-		workspaceEdit1, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 1, Character: 16},
-			NewName:      "NewSprite",
-		})
-		require.NoError(t, err)
-		require.Nil(t, workspaceEdit1)
 	})
 
-	t.Run("ThisPtr", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"MySprite.spx": []byte(`
-onClick => {
-	_ = this
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		mainSpxWorkspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 2, Character: 5},
-			NewName:      "that",
+	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"values.xgo": []byte("var value int\n"),
+			"main.xgo":   []byte("_ = value\n"),
 		})
+		params := &RenameParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 0, Character: 4}, NewName: "count"}
+		edit, err := s.textDocumentRename(params)
 		require.NoError(t, err)
-		require.Nil(t, mainSpxWorkspaceEdit)
-
-		mySpriteSpxWorkspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-			Position:     Position{Line: 2, Character: 5},
-			NewName:      "that",
+		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+			"file:///values.xgo": {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"}},
+			"file:///main.xgo":   {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"}},
 		})
+		s.ModifyFiles([]FileChange{
+			{Path: "values.xgo", Content: []byte("\nvar value int\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "main.xgo", Content: []byte("_ = value\n_ = value\n"), Version: 1},
+		})
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			Position:     Position{Line: 1, Character: 4},
+		}})
 		require.NoError(t, err)
-		require.Nil(t, mySpriteSpxWorkspaceEdit)
+		assert.Equal(t, &Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}}, rng)
+		edit, err = s.textDocumentRename(params)
+		require.NoError(t, err)
+		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+			"file:///values.xgo": {{Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}}, NewText: "count"}},
+			"file:///main.xgo": {
+				{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"},
+				{Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}}, NewText: "count"},
+			},
+		})
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
 	})
+
+	for _, tt := range []struct {
+		name     string
+		uri      DocumentURI
+		position Position
+		wantErr  bool
+	}{
+		{name: "MissingFile", uri: "file:///missing.xgo"},
+		{name: "NonSourceFile", uri: "file:///notes.txt"},
+		{name: "InvalidURI", uri: "bucket:///main.xgo", wantErr: true},
+		{name: "InvalidPosition", uri: "file:///main.xgo", position: Position{Line: 99, Character: 99}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"main.xgo":  []byte("var value int\n"),
+				"notes.txt": []byte("var value int\n"),
+			})
+			rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: tt.uri},
+				Position:     tt.position,
+			}})
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "failed to get file path from document URI")
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Nil(t, rng)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: tt.uri},
+				Position:     tt.position,
+				NewName:      "count",
+			})
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "failed to get file path from document URI")
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Nil(t, edit)
+		})
+	}
 
 	t.Run("KwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Count int
+		for _, tt := range []struct {
+			name     string
+			uri      DocumentURI
+			position Position
+			newName  string
+		}{
+			{name: "Definition", uri: "file:///main.xgo", position: Position{Line: 1, Character: 4}, newName: "Total"},
+			{name: "Reference", uri: "file:///other.xgo", position: Position{Line: 1, Character: 15}, newName: "total"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main.xgo": []byte(`type Options struct {
+    Count int
 }
-
 func configure(opts Options?) {}
-
-onStart => {
-	configure count = 1
-	configure count = 2
+func main() {
+    configure count = 1
+    configure count = 2
 }
 `),
+					"other.xgo": []byte("func another() {\n    configure count = 3\n    var opts Options\n    _ = opts.Count\n}\n"),
+				})
+				s.replier = newMockReplier()
+				params := &RenameParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position, NewName: tt.newName}
+				edit, err := s.textDocumentRename(params)
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+					"file:///main.xgo": {
+						{Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}}, NewText: "Total"},
+						{Range: Range{Start: Position{Line: 5, Character: 14}, End: Position{Line: 5, Character: 19}}, NewText: "total"},
+						{Range: Range{Start: Position{Line: 6, Character: 14}, End: Position{Line: 6, Character: 19}}, NewText: "total"},
+					},
+					"file:///other.xgo": {
+						{Range: Range{Start: Position{Line: 1, Character: 14}, End: Position{Line: 1, Character: 19}}, NewText: "total"},
+						{Range: Range{Start: Position{Line: 3, Character: 13}, End: Position{Line: 3, Character: 18}}, NewText: "Total"},
+					},
+				})
+				assert.Equal(t, tt.newName, params.NewName)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), newMockReplier(), fileMapGetter(m), &MockScheduler{})
-
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 8, Character: 12},
-			NewName:      "total",
-		})
-		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 3)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 6},
-			},
-			NewText: "Total",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 8, Character: 11},
-				End:   Position{Line: 8, Character: 16},
-			},
-			NewText: "total",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 9, Character: 11},
-				End:   Position{Line: 9, Character: 16},
-			},
-			NewText: "total",
-		})
 	})
 
 	t.Run("KwargInterfaceMethod", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Client struct{}
-
+		for _, tt := range []struct {
+			name     string
+			uri      DocumentURI
+			position Position
+			newName  string
+		}{
+			{name: "Definition", uri: "file:///main.xgo", position: Position{Line: 2, Character: 4}, newName: "Limit"},
+			{name: "Reference", uri: "file:///other.xgo", position: Position{Line: 1, Character: 27}, newName: "limit"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main.xgo": []byte(`type Client struct{}
 type Params interface {
-	MaxTokens(n int64) Params
+    MaxTokens(n int64) Params
 }
-
 var client Client
-
 func (c Client) Params() Params { return nil }
-
 func (c Client) complete(prompt string, params Params?) {}
-
-onStart => {
-	client.complete "hi", maxTokens = 1
-	client.complete "bye", maxTokens = 2
+func main() {
+    client.complete "hi", maxTokens = 1
+    client.complete "bye", maxTokens = 2
 }
 `),
+					"other.xgo": []byte("func another() {\n    client.complete \"hi\", maxTokens = 3\n}\n"),
+				})
+				params := &RenameParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position, NewName: tt.newName}
+				edit, err := s.textDocumentRename(params)
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+					"file:///main.xgo": {
+						{Range: Range{Start: Position{Line: 2, Character: 4}, End: Position{Line: 2, Character: 13}}, NewText: "Limit"},
+						{Range: Range{Start: Position{Line: 8, Character: 26}, End: Position{Line: 8, Character: 35}}, NewText: "limit"},
+						{Range: Range{Start: Position{Line: 9, Character: 27}, End: Position{Line: 9, Character: 36}}, NewText: "limit"},
+					},
+					"file:///other.xgo": {{Range: Range{Start: Position{Line: 1, Character: 26}, End: Position{Line: 1, Character: 35}}, NewText: "limit"}},
+				})
+				assert.Equal(t, tt.newName, params.NewName)
+				_, err = s.workspaceRootFS.TypeInfo()
+				assert.NoError(t, err)
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	})
 
-		workspaceEdit, err := s.textDocumentRename(&RenameParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-			Position:     Position{Line: 14, Character: 25},
-			NewName:      "limit",
+	t.Run("UTF16", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var value string\n_ = \"\U0001F600\" + value\n")})
+		position := Position{Line: 1, Character: 12}
+		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, &Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 16}}, rng)
+		edit, err := s.textDocumentRename(&RenameParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position, NewName: "text",
 		})
 		require.NoError(t, err)
-		require.NotNil(t, workspaceEdit)
-		require.NotNil(t, workspaceEdit.Changes)
-
-		mainSpxChanges := workspaceEdit.Changes["file:///main.spx"]
-		require.Len(t, mainSpxChanges, 3)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 4, Character: 1},
-				End:   Position{Line: 4, Character: 10},
+		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+			"file:///main.xgo": {
+				{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "text"},
+				{Range: Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 16}}, NewText: "text"},
 			},
-			NewText: "Limit",
 		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 14, Character: 23},
-				End:   Position{Line: 14, Character: 32},
-			},
-			NewText: "limit",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 15, Character: 24},
-				End:   Position{Line: 15, Character: 33},
-			},
-			NewText: "limit",
-		})
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 }
 
-func TestServerSpxRenameBackdropResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onBackdrop "backdrop1", func() {}
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	onBackdrop "backdrop1", func() {}
-}
-`),
-			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 12},
-				End:   Position{Line: 1, Character: 21},
-			},
-			NewText: "backdrop2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 13},
-				End:   Position{Line: 2, Character: 22},
-			},
-			NewText: "backdrop2",
-		})
-	})
-
-	t.Run("ConstantName", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const Backdrop1 = "backdrop1"
-onBackdrop Backdrop1, func() {}
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	onBackdrop Backdrop1, func() {}
-}
-`),
-			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
-		require.NoError(t, err)
-		require.Len(t, changes, 1)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 19},
-				End:   Position{Line: 1, Character: 28},
-			},
-			NewText: "backdrop2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Empty(t, mySpriteSpxChanges)
-	})
-
-	t.Run("TypedConstantName", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const Backdrop1 BackdropName = "backdrop1"
-onBackdrop "backdrop1", func() {}
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	onBackdrop "backdrop1", func() {}
-}
-`),
-			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 2)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 32},
-				End:   Position{Line: 1, Character: 41},
-			},
-			NewText: "backdrop2",
-		})
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 12},
-				End:   Position{Line: 2, Character: 21},
-			},
-			NewText: "backdrop2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 13},
-				End:   Position{Line: 2, Character: 22},
-			},
-			NewText: "backdrop2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onBackdrop "backdrop1", func() {}
-`),
-			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"},{"name":"backdrop2","path":"backdrop2.png"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
-		require.EqualError(t, err, `backdrop resource "backdrop2" already exists`)
-		require.Nil(t, changes)
-	})
-}
-
-func TestServerSpxRenameSoundResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play "Sound1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	play "Sound1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-			"assets/sounds/Sound1/index.json":    []byte(`{"path":"sound1.wav"}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSoundResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 6},
-				End:   Position{Line: 1, Character: 12},
-			},
-			NewText: "Sound2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 7},
-				End:   Position{Line: 2, Character: 13},
-			},
-			NewText: "Sound2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play "Sound1"
-`),
-			"assets/index.json":               []byte(`{}`),
-			"assets/sounds/Sound1/index.json": []byte(`{"path":"sound1.wav"}`),
-			"assets/sounds/Sound2/index.json": []byte(`{"path":"sound2.wav"}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSoundResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
-		require.EqualError(t, err, `sound resource "Sound2" already exists`)
-		require.Nil(t, changes)
-	})
-}
-
-func TestServerSpxRenameSpriteResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-Sprite1.turn Left
-`),
-			"Sprite1.spx": []byte(`
-onStart => {
-	Sprite1.turn Right
-}
-`),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 0},
-				End:   Position{Line: 1, Character: 7},
-			},
-			NewText: "Sprite2",
-		})
-
-		sprite1SpxChanges := changes[s.toDocumentURI("Sprite1.spx")]
-		require.Len(t, sprite1SpxChanges, 1)
-		assert.Contains(t, sprite1SpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			NewText: "Sprite2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-Sprite1.turn Left
-Sprite2.turn Left
-`),
-			"Sprite1.spx": []byte(`
-onStart => {
-	Sprite1.turn Right
-}
-`),
-			"Sprite2.spx": []byte(`
-onStart => {
-	Sprite2.turn Right
-}
-`),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
-		require.EqualError(t, err, `sprite resource "Sprite2" already exists`)
-		require.Nil(t, changes)
-	})
-
-	// See https://github.com/goplus/builder/issues/1470.
-	t.Run("WrongCodeWithInvalidType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	Sprite1.turn Right
-	invalidFunc()
-}
-
-func invalidFunc() {
-	invalidVar = [rand(-200,200), rand(-200,200)]
-}
-`),
-			"Sprite1.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.True(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
-		require.NoError(t, err)
-		require.Len(t, changes, 1)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 8},
-			},
-			NewText: "Sprite2",
-		})
-	})
-}
-
-func TestServerSpxRenameSpriteCostumeResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "costume1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 21},
-				End:   Position{Line: 1, Character: 29},
-			},
-			NewText: "costume2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 13},
-				End:   Position{Line: 2, Character: 21},
-			},
-			NewText: "costume2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "costume1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"},{"name":"costume2"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
-		require.EqualError(t, err, `sprite costume resource "costume2" already exists`)
-		require.Nil(t, changes)
-	})
-
-	t.Run("NonExistentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "costume1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/costumes/costume1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
-		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
-		require.Nil(t, changes)
-	})
-}
-
-func TestServerSpxRenameSpriteAnimationResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.animate "anim1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate "anim1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
-		require.NoError(t, err)
-		require.Len(t, changes, 2)
-
-		mainSpxChanges := changes[s.toDocumentURI("main.spx")]
-		require.Len(t, mainSpxChanges, 1)
-		assert.Contains(t, mainSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 1, Character: 18},
-				End:   Position{Line: 1, Character: 23},
-			},
-			NewText: "anim2",
-		})
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 10},
-				End:   Position{Line: 2, Character: 15},
-			},
-			NewText: "anim2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.animate "anim1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate "anim1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{},"anim2":{}}}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
-		require.EqualError(t, err, `sprite animation resource "anim2" already exists`)
-		require.Nil(t, changes)
-	})
-
-	t.Run("NonExistentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.animate "anim1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate "anim1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/animations/anim1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
-		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
-		require.Nil(t, changes)
-	})
-}
-
-func TestServerSpxRenameWidgetResource(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	getWidget Monitor, "widget1"
-}
-`),
-			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameWidgetResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
-		require.NoError(t, err)
-		require.Len(t, changes, 1)
-
-		mySpriteSpxChanges := changes[s.toDocumentURI("MySprite.spx")]
-		require.Len(t, mySpriteSpxChanges, 1)
-		assert.Contains(t, mySpriteSpxChanges, TextEdit{
-			Range: Range{
-				Start: Position{Line: 2, Character: 21},
-				End:   Position{Line: 2, Character: 28},
-			},
-			NewText: "widget2",
-		})
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	getWidget Monitor, "widget1"
-}
-`),
-			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"},{"name":"widget2"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameWidgetResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
-		require.EqualError(t, err, `widget resource "widget2" already exists`)
-		require.Nil(t, changes)
-	})
+func assertRenameChanges(t *testing.T, edit *WorkspaceEdit, want map[DocumentURI][]TextEdit) {
+	t.Helper()
+
+	require.NotNil(t, edit)
+	assert.Nil(t, edit.DocumentChanges)
+	assert.Nil(t, edit.ChangeAnnotations)
+	require.Len(t, edit.Changes, len(want))
+	for uri, changes := range want {
+		assert.ElementsMatch(t, changes, edit.Changes[uri], "edits for %s", uri)
+	}
 }

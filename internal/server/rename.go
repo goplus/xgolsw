@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -13,12 +14,12 @@ import (
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
 	proj := s.getProjWithFile()
-	spxFile, err := s.fromDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
-	astFile, _ := proj.ASTFile(spxFile)
+	astFile, _ := proj.ASTFile(filename)
 	if astFile == nil {
 		return nil, nil
 	}
@@ -50,23 +51,28 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_rename
 func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
+		return nil, nil
+	}
+	astFile := astPkg.Files[filename]
 	if astFile == nil {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
+	position := ToPosition(proj, astFile, params.Position)
 
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
-	astPkg, _ := result.proj.ASTPackage()
 
-	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
-	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
+	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
 	if !xgoutil.IsRenameable(obj) {
@@ -77,30 +83,30 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		kwargParams.NewName = kwargDefinitionRenameText(obj, params.NewName)
 		params = &kwargParams
 	}
-	return s.renameObjectAtPosition(result, params, typeInfo, obj)
+	return s.renameObject(proj, params, typeInfo, obj)
 }
 
-// renameObjectAtPosition builds a workspace edit for renaming obj.
-func (s *Server) renameObjectAtPosition(result *compileResult, params *RenameParams, typeInfo *types.Info, obj gotypes.Object) (*WorkspaceEdit, error) {
+// renameObject builds a workspace edit for renaming obj.
+func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo *types.Info, obj gotypes.Object) (*WorkspaceEdit, error) {
 	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil || xgoutil.NodeTokenFile(result.proj.Fset, defIdent) == nil {
+	if defIdent == nil || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
 		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
 	}
 
-	defLoc := s.locationForNode(result.proj, defIdent)
+	defLoc := s.locationForNode(proj, defIdent)
 
 	workspaceEdit := WorkspaceEdit{
 		Changes: map[DocumentURI][]TextEdit{
 			defLoc.URI: {
 				{
-					Range:   RangeForNode(result.proj, defIdent),
+					Range:   defLoc.Range,
 					NewText: params.NewName,
 				},
 			},
 		},
 	}
-	refLocs := s.findReferenceLocations(result.proj, obj)
-	kwargRefLocs := s.kwargReferenceLocations(result.proj, obj)
+	refLocs := s.findReferenceLocations(proj, obj)
+	kwargRefLocs := s.kwargReferenceLocations(proj, obj)
 	kwargNewName := kwargRenameText(obj, params.NewName)
 	kwargRefSet := make(map[Location]struct{}, len(kwargRefLocs))
 	for _, refLoc := range kwargRefLocs {
@@ -132,7 +138,7 @@ func (s *Server) renameObjectAtPosition(result *compileResult, params *RenamePar
 
 	// Check if the renamed object is a property and send notification if needed
 	if isPropertyOfEnclosingType(obj) {
-		_ = s.notifyPropertyRenamed(obj, params)
+		s.notifyPropertyRenamed(obj, params)
 	}
 	return &workspaceEdit, nil
 }
