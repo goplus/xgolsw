@@ -49,7 +49,7 @@ func buildASTFileCache(proj *Project, path string, file *File) (cache any, err e
 		mode |= parser.ParseXGoClass
 	}
 	astFile, parserErr := parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
-		ClassKind: proj.Mod.ClassKind,
+		ClassInfo: proj.Mod.ClassInfo,
 		Mode:      mode,
 	})
 	cache = &astFileCache{astFile, parserErr}
