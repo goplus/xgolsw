@@ -29,75 +29,275 @@ func (i semanticTokenPositionImporter) Import(path string) (*gotypes.Package, er
 }
 
 func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.turn Left
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	MySprite.turn Right
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "Gop", filename: "main.gop"},
+		{name: "NormalClass", filename: "Record.gox"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"functions.xgo": []byte("func consume(value int) {}\n"),
+				tt.filename:     []byte("consume 1\n"),
+			})
+			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, tokens)
+			assert.Equal(t, []uint32{
+				0, 0, 1, 13, 0, // {
+				0, 0, 7, 7, 0, // consume
+				0, 8, 1, 12, 0, // 1
+				0, 1, 1, 13, 0, // }
+			}, tokens.Data)
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+
+	for _, tt := range []struct {
+		name     string
+		filename string
+		want     []uint32
+	}{
+		{
+			name:     "ProjectMethod",
+			filename: "main_fixture.gox",
+			want: []uint32{
+				1, 0, 1, 13, 0, // {
+				0, 0, 6, 6, 0, // Worker
+				0, 6, 1, 13, 0, // .
+				0, 1, 5, 8, 0, // apply
+				0, 6, 3, 5, 6, // Low
+				0, 3, 1, 13, 0, // }
+			},
+		},
+		{
+			name:     "WorkCallback",
+			filename: "Worker_fixture.gox",
+			want: []uint32{
+				1, 0, 1, 13, 0, // {
+				0, 0, 7, 8, 0, // onValue
+				0, 8, 6, 4, 1, // amount
+				0, 7, 2, 13, 0, // =>
+				0, 3, 1, 13, 0, // {
+				1, 1, 6, 6, 0, // Worker
+				0, 6, 1, 13, 0, // .
+				0, 1, 5, 8, 0, // apply
+				0, 6, 6, 5, 0, // amount
+				1, 0, 1, 13, 0, // }
+				0, 1, 1, 13, 0, // }
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"main_fixture.gox":   []byte("\nWorker.apply Low\n"),
+				"Worker_fixture.gox": []byte("\nonValue amount => {\n\tWorker.apply amount\n}\n"),
+			})
+			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, tokens)
+			assert.Equal(t, tt.want, tokens.Data)
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+
+	for _, tt := range []struct {
+		name     string
+		filename string
+		source   string
+	}{
+		{
+			name:     "ProjectField",
+			filename: "main_fixture.gox",
+			source:   "var count int\nonStart => {\n\tcount = 1\n}\n",
+		},
+		{
+			name:     "WorkField",
+			filename: "Worker_fixture.gox",
+			source:   "var count int\nonValue amount => {\n\tcount = amount\n}\n",
+		},
+		{
+			name:     "NormalClassField",
+			filename: "Record.gox",
+			source:   "var count int\nfunc run() {\n\tcount = 1\n}\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string][]byte{"main_fixture.gox": []byte("\n")}
+			files[tt.filename] = []byte(tt.source)
+			s := newTestServer(t, files)
+			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, tokens)
+			declaration := decodedSemanticToken{line: 0, character: 4, length: 5, tokenType: VariableType}
+			reference := decodedSemanticToken{line: 2, character: 1, length: 5, tokenType: VariableType}
+			assertSemanticTokenModifierMask(t, tokens.Data, declaration, getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModDeclaration}))
+			assertSemanticTokenModifierMask(t, tokens.Data, reference, 0)
+			_, err = s.workspaceRootFS.TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+
+	t.Run("VariableKinds", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("var count int\nfunc use(value int) {\n\tlocal := value\n\tcount = local\n}\nuse count\n"),
+		})
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		declarationMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModDeclaration})
+		for _, tt := range []struct {
+			token decodedSemanticToken
+			mask  uint32
+		}{
+			{decodedSemanticToken{line: 0, character: 4, length: 5, tokenType: VariableType}, declarationMask},
+			{decodedSemanticToken{line: 1, character: 9, length: 5, tokenType: ParameterType}, declarationMask},
+			{decodedSemanticToken{line: 2, character: 1, length: 5, tokenType: VariableType}, declarationMask},
+			{decodedSemanticToken{line: 2, character: 10, length: 5, tokenType: VariableType}, 0},
+			{decodedSemanticToken{line: 3, character: 1, length: 5, tokenType: VariableType}, 0},
+			{decodedSemanticToken{line: 3, character: 9, length: 5, tokenType: VariableType}, 0},
+			{decodedSemanticToken{line: 5, character: 4, length: 5, tokenType: VariableType}, 0},
+		} {
+			assertSemanticTokenModifierMask(t, tokens.Data, tt.token, tt.mask)
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		mainSpxTokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mainSpxTokens)
-		assert.Equal(t, []uint32{
-			1, 0, 1, 13, 0, // {
-			0, 0, 8, 6, 0, // MySprite
-			0, 8, 1, 13, 0, // .
-			0, 1, 4, 8, 0, // turn
-			0, 5, 4, 5, 6, // Left
-			0, 4, 1, 13, 0, // }
-		}, mainSpxTokens.Data)
-
-		mySpriteTokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteTokens)
-		assert.Equal(t, []uint32{
-			1, 0, 1, 13, 0, //{
-			0, 0, 7, 8, 0, // onStart
-			0, 8, 2, 13, 0, // =>
-			0, 3, 1, 13, 0, // {
-			1, 1, 8, 6, 0, // MySprite
-			0, 8, 1, 13, 0, // .
-			0, 1, 4, 8, 0, // turn
-			0, 5, 5, 5, 6, // Right
-			1, 0, 1, 13, 0, // }
-			0, 1, 1, 13, 0, // }
-		}, mySpriteTokens.Data)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
 	})
 
+	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"enums.xgo": []byte("type Color const (\n\tRed = iota\n)\n"),
+			"main.xgo":  []byte("var color Color = Red\n"),
+		})
+		params := &SemanticTokensParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+		tokens, err := s.textDocumentSemanticTokensFull(params)
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{
+			line: 0, character: 10, length: 5, tokenType: EnumType,
+		})
+		member := decodedSemanticToken{line: 0, character: 18, length: 3, tokenType: EnumMemberType}
+		mask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModStatic, ModReadonly})
+		assertSemanticTokenModifierMask(t, tokens.Data, member, mask)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
+
+		s.ModifyFiles([]FileChange{
+			{Path: "enums.xgo", Content: []byte("type Color int\nconst Red Color = 1\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "main.xgo", Content: []byte("\nvar color Color = Red\n"), Version: 1},
+		})
+		tokens, err = s.textDocumentSemanticTokensFull(params)
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line: 1, character: 10, length: 5, tokenType: TypeType,
+		})
+		constant := decodedSemanticToken{line: 1, character: 18, length: 3, tokenType: VariableType}
+		assertSemanticTokenModifierMask(t, tokens.Data, constant, mask)
+		for _, token := range decoded {
+			assert.Equal(t, uint32(1), token.line)
+			assert.NotEqual(t, EnumType, token.tokenType)
+			assert.NotEqual(t, EnumMemberType, token.tokenType)
+		}
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
+	})
+
+	t.Run("IncompleteSource", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("var count int\ncount = 1\nmissing(\n"),
+		})
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		decoded := decodeSemanticTokens(tokens.Data)
+		for _, want := range []decodedSemanticToken{
+			{line: 0, character: 4, length: 5, tokenType: VariableType},
+			{line: 1, character: 0, length: 5, tokenType: VariableType},
+			{line: 1, character: 8, length: 1, tokenType: NumberType},
+		} {
+			assert.Contains(t, decoded, want)
+		}
+		_, err = s.workspaceRootFS.ASTPackage()
+		assert.Error(t, err)
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.ErrorContains(t, err, "undefined: missing")
+	})
+
+	for _, tt := range []struct {
+		name         string
+		uri          DocumentURI
+		source       string
+		wantError    bool
+		wantASTError bool
+		want         *SemanticTokens
+	}{
+		{name: "EmptyFile", uri: "file:///main.xgo", want: &SemanticTokens{Data: []uint32{}}},
+		{name: "MissingFile", uri: "file:///missing.xgo"},
+		{name: "NonSourceFile", uri: "file:///notes.txt"},
+		{name: "InvalidURI", uri: "https://example.com/main.xgo", wantError: true},
+		{name: "StartWithInvalidChar", uri: "file:///main.xgo", source: "\n\u201c\u201dvar (\n    maps []int\n)\n", wantASTError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{
+				"main.xgo":  []byte(tt.source),
+				"notes.txt": []byte("var count int\n"),
+			})
+			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+				TextDocument: TextDocumentIdentifier{URI: tt.uri},
+			})
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, tokens)
+			_, err = s.workspaceRootFS.ASTPackage()
+			if tt.wantASTError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+
 	t.Run("KwargField", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 type Options struct {
 	Count int
 }
 
 func configure(opts Options?) {}
 
-onStart => {
+func main() {
 	configure count = 1
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{
 			line:      8,
@@ -108,20 +308,24 @@ onStart => {
 	})
 
 	t.Run("XGoUnit", func(t *testing.T) {
-		s := newXGoUnitTestServer(`import "time"
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`import "time"
 
 func wait(d time.Duration) {}
 
-onStart => {
+func main() {
 	wait 1m
 }
-`)
+`),
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{
 			line:      5,
@@ -132,22 +336,17 @@ onStart => {
 	})
 
 	t.Run("UTF16Positions", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var 中文 []int
-	中文 = append(中文, 1)
-	println "非英文", 中文
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("\nfunc main() {\n\tvar \u4e2d\u6587 []int\n\t\u4e2d\u6587 = append(\u4e2d\u6587, 1)\n\tprintln \"\u975e\u82f1\u6587\", \u4e2d\u6587\n}\n"),
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decodedTokens := decodeSemanticTokens(tokens.Data)
 		assert.Contains(t, decodedTokens, decodedSemanticToken{
@@ -165,17 +364,17 @@ onStart => {
 	})
 
 	t.Run("UTF16Encoding", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`var café = "😀"
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("var caf\u00e9 = \"\U0001f600\"\n"),
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		assert.Contains(t, decoded, decodedSemanticToken{
@@ -192,21 +391,45 @@ onStart => {
 		})
 	})
 
+	t.Run("UTF16FollowingArgument", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("println \"\U0001F600\", 1\n"),
+		})
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line: 0, character: 8, length: 4, tokenType: StringType,
+		})
+		assert.Contains(t, decoded, decodedSemanticToken{
+			line: 0, character: 14, length: 1, tokenType: NumberType,
+		})
+		_, err = s.workspaceRootFS.TypeInfo()
+		assert.NoError(t, err)
+	})
+
 	t.Run("MultilineInterpolatedString", func(t *testing.T) {
-		s := newXGoUnitTestServer(`
-onStart => {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
+func main() {
 	name := "world"
 	println ` + "`" + `hello
 ${name}
 done` + "`" + `
 }
-`)
+`),
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decodedTokens := decodeSemanticTokens(tokens.Data)
 		for _, want := range []decodedSemanticToken{
@@ -226,8 +449,8 @@ done` + "`" + `
 	})
 
 	t.Run("EnumAndFuncDecorator", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`func retry(fn func()) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`func retry(fn func()) {
 	fn()
 }
 
@@ -238,14 +461,15 @@ type Color const (
 	Red = iota
 )
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		assert.Contains(t, decoded, decodedSemanticToken{
@@ -275,20 +499,21 @@ type Color const (
 	})
 
 	t.Run("EnumBlankIdentifier", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`type Color const (
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`type Color const (
 	_ = iota
 	Red
 )
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		assert.NotContains(t, decoded, decodedSemanticToken{
@@ -306,8 +531,8 @@ type Color const (
 	})
 
 	t.Run("EnumMemberSharedWithRegularConstant", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`const (
 	Shared = 1
 )
 
@@ -320,14 +545,15 @@ func run() {
 	var color Color = (Shared)
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		declarationMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{
@@ -351,40 +577,53 @@ func run() {
 	})
 
 	t.Run("CrossFileEnumReference", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`var color Color = Red
-`),
-			"enums.xgo": []byte(`type Color const (
+		for _, tt := range []struct {
+			name     string
+			filename string
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "Project", filename: "main_fixture.gox"},
+			{name: "Work", filename: "Worker_fixture.gox"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main_fixture.gox": []byte("\n"),
+					"enums.xgo": []byte(`type Color const (
 	Red = iota
 )
 `),
+				}
+				files[tt.filename] = []byte("var color Color = Red\n")
+				s := newTestServer(t, files)
+
+				tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, tokens)
+				_, err = s.workspaceRootFS.TypeInfo()
+				require.NoError(t, err)
+
+				decoded := decodeSemanticTokens(tokens.Data)
+				assert.Contains(t, decoded, decodedSemanticToken{
+					line:      0,
+					character: 10,
+					length:    5,
+					tokenType: EnumType,
+				})
+				assert.Contains(t, decoded, decodedSemanticToken{
+					line:      0,
+					character: 18,
+					length:    3,
+					tokenType: EnumMemberType,
+				})
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, tokens)
-
-		decoded := decodeSemanticTokens(tokens.Data)
-		assert.Contains(t, decoded, decodedSemanticToken{
-			line:      0,
-			character: 10,
-			length:    5,
-			tokenType: EnumType,
-		})
-		assert.Contains(t, decoded, decodedSemanticToken{
-			line:      0,
-			character: 18,
-			length:    3,
-			tokenType: EnumMemberType,
-		})
 	})
 
 	t.Run("EnumAlias", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`type Shade = Color
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`type Shade = Color
 
 var color Shade = Red
 `),
@@ -392,14 +631,15 @@ var color Shade = Red
 	Red = iota
 )
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		for _, want := range []decodedSemanticToken{
@@ -413,21 +653,22 @@ var color Shade = Red
 	})
 
 	t.Run("EnumPointerAlias", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`type Color const (
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`type Color const (
 	Red = iota
 )
 
 type ColorPtr = *Color
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		assert.Contains(t, decoded, decodedSemanticToken{
@@ -451,22 +692,23 @@ type ColorPtr = *Color
 	})
 
 	t.Run("LocalEnum", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`func run() {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`func run() {
 	type Color const (
 		Red = iota
 	)
 	var color Color = Red
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		for _, want := range []decodedSemanticToken{
@@ -488,8 +730,8 @@ type ColorPtr = *Color
 	})
 
 	t.Run("DuplicateEnumMembers", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`type First const (
 	Unknown = iota
 )
 
@@ -502,14 +744,15 @@ var (
 	second Second = Unknown
 )
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		})
 
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		decoded := decodeSemanticTokens(tokens.Data)
 		declarationMask := getSemanticTokenModifiersMask([]SemanticTokenModifiers{
@@ -533,20 +776,20 @@ var (
 	})
 
 	t.Run("ImportedPositionCollision", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`import "example.com/dep"
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`import "example.com/dep"
 
 var (
 	x = dep.Value
 )
 `),
-		}
-		proj := newProjectWithoutModTime(m)
+		})
+		proj := s.workspaceRootFS
 		astPkg, err := proj.ASTPackage()
 		require.NoError(t, err)
 
 		var referencePos token.Pos
-		ast.Inspect(astPkg.Files["main.spx"], func(node ast.Node) bool {
+		ast.Inspect(astPkg.Files["main.xgo"], func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
 			if ok && selector.Sel.Name == "Value" {
 				referencePos = selector.Sel.Pos()
@@ -560,16 +803,17 @@ var (
 		foreignPos := foreignFile.Pos(int(referencePos) - 1)
 		require.Equal(t, referencePos, foreignPos)
 
-		s := New(proj, nil, fileMapGetter(m), &MockScheduler{})
 		s.workspaceRootFS.Importer = semanticTokenPositionImporter{
 			fallback: s.workspaceRootFS.Importer,
 			pos:      foreignPos,
 		}
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, tokens)
+		_, err = s.workspaceRootFS.TypeInfo()
+		require.NoError(t, err)
 
 		want := decodedSemanticToken{line: 3, character: 9, length: 5, tokenType: VariableType}
 		assert.Contains(t, decodeSemanticTokens(tokens.Data), want)
@@ -660,12 +904,12 @@ func TestSemanticTokenLineLengths(t *testing.T) {
 	}{
 		{
 			name:    "LF",
-			content: []byte("abc\ndef\n中文"),
+			content: []byte("abc\ndef\n\u4e2d\u6587"),
 			want:    []uint32{3, 3, 2},
 		},
 		{
 			name:    "CRLF",
-			content: []byte("abc\r\ndef\r\n中文"),
+			content: []byte("abc\r\ndef\r\n\u4e2d\u6587"),
 			want:    []uint32{3, 3, 2},
 		},
 		{
@@ -690,9 +934,9 @@ func TestSemanticTokenFallbackLength(t *testing.T) {
 	}{
 		{
 			name:        "UTF16SourceSpan",
-			content:     []byte("中文"),
+			content:     []byte("\u4e2d\u6587"),
 			startOffset: 0,
-			endOffset:   len("中文"),
+			endOffset:   len("\u4e2d\u6587"),
 			want:        2,
 		},
 		{

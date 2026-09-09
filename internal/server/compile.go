@@ -155,7 +155,7 @@ func (r *compileResult) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefinition
 	if typeInfo == nil {
 		return nil
 	}
-	if members := r.enumMembersForIdent(typeInfo, ident); len(members) > 0 {
+	if members := r.enumInfo.membersForIdent(r.proj, typeInfo, ident); len(members) > 0 {
 		return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
 	}
 	obj := r.enumInfo.objectForIdent(typeInfo, ident)
