@@ -36,7 +36,10 @@ func RunWhen(__xgo_autoclosure_condition func() bool, callback func()) {}
 func XGot_App_XGox_Create[T any](a *App, name string) *T { return nil }
 
 // Item is the work base class.
-type Item struct{}
+type Item struct {
+	// Value stores the work item's value.
+	Value int
+}
 
 // Main is the work entry point.
 func (i *Item) Main() {}

@@ -17,7 +17,9 @@ import (
 	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/jsonrpc2"
+	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -50,6 +52,7 @@ type Server struct {
 	analyzers          []*analysis.Analyzer
 	fileMapGetter      FileMapGetter // TODO(wyvern): Remove this field.
 	cancelCauseFuncs   sync.Map      // Map of request IDs to cancel functions (with cause).
+	lookupPkgDoc       func(string) (*pkgdoc.PkgDoc, error)
 	scheduler          Scheduler
 	language           i18n.Language // Current language for error message translation
 	initMu             sync.Mutex
@@ -84,6 +87,7 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 		analyzers:        initAnalyzers(true),
 		fileMapGetter:    fileMapGetter,
 		scheduler:        scheduler,
+		lookupPkgDoc:     pkgdata.GetPkgDoc,
 		language:         i18n.LanguageEN, // Default to English until initialize is called
 	}
 }

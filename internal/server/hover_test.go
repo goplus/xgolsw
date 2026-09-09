@@ -1,16 +1,233 @@
 package server
 
 import (
+	"io/fs"
 	"testing"
 
+	"github.com/goplus/xgolsw/internal/testframework"
+	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentHover(t *testing.T) {
+	t.Run("SourceKinds", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			owner    string
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "LegacyXGo", filename: "main.gop"},
+			{name: "StandaloneClass", filename: "Record.gox", owner: "Record."},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker."},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					tt.filename: []byte("// Count documentation.\nvar Count int\nCount = 1\n"),
+				}
+				if tt.name == "WorkClass" {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
+				_, err := s.workspaceRootFS.TypeInfo()
+				require.NoError(t, err)
+				for _, position := range []Position{{Line: 1, Character: 4}, {Line: 2}} {
+					hover, err := s.textDocumentHover(&HoverParams{
+						TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+							Position:     position,
+						},
+					})
+					require.NoError(t, err)
+					require.NotNil(t, hover)
+					assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?`+tt.owner+`Count"`)
+					assert.Contains(t, hover.Contents.Value, "Count documentation.")
+					assert.Equal(t, Range{
+						Start: position,
+						End:   Position{Line: position.Line, Character: position.Character + 5},
+					}, hover.Range)
+				}
+			})
+		}
+	})
+
+	t.Run("Documentation", func(t *testing.T) {
+		for _, markup := range []struct {
+			name string
+			kind MarkupKind
+		}{
+			{name: "Markdown", kind: Markdown}, {name: "PlainText", kind: PlainText},
+		} {
+			for _, tt := range []struct {
+				name     string
+				source   string
+				position Position
+				want     string
+			}{
+				{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8},
+					want: "Package framework provides a minimal classfile framework for language tests."},
+				{name: "Package", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 10},
+					want: "Package framework provides a minimal classfile framework for language tests."},
+				{name: "Type", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 19},
+					want: "Item is the work base class."},
+				{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
+					want: "Apply accepts a value on a work instance."},
+				{name: "Function", source: "import \"example.com/framework\"\nframework.runWhen true, => {}\n", position: Position{Line: 1, Character: 10},
+					want: "RunWhen accepts a deferred condition and a callback."},
+				{name: "Constant", source: "import \"example.com/framework\"\necho framework.Low\n", position: Position{Line: 1, Character: 15},
+					want: "Low and High are values used by framework methods."},
+			} {
+				t.Run(tt.name+markup.name, func(t *testing.T) {
+					s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+					_, err := s.initialize(&InitializeParams{XInitializeParams: protocol.XInitializeParams{
+						Capabilities: protocol.ClientCapabilities{TextDocument: protocol.TextDocumentClientCapabilities{
+							Hover: &protocol.HoverClientCapabilities{ContentFormat: []protocol.MarkupKind{markup.kind}},
+						}},
+					}})
+					require.NoError(t, err)
+					s.finishInitialize(nil)
+					hover, err := s.textDocumentHover(&HoverParams{
+						TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: tt.position,
+						},
+					})
+					require.NoError(t, err)
+					require.NotNil(t, hover)
+					assert.Equal(t, markup.kind, hover.Contents.Kind)
+					assert.Contains(t, hover.Contents.Value, tt.want)
+					if tt.name == "Package" && markup.kind == Markdown {
+						assert.Contains(t, hover.Contents.Value, `def-id="xgo:example.com/framework"`)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("MissingDocumentation", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			source   string
+			position Position
+			want     string
+		}{
+			{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8}},
+			{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
+				want: `overview="func apply(value int)"`},
+			{name: "BuiltinAlias", source: "var number int128\n", position: Position{Character: 12},
+				want: `overview="type Int128"`},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				s.lookupPkgDoc = func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist }
+				hover, err := s.textDocumentHover(&HoverParams{
+					TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: tt.position,
+					},
+				})
+				require.NoError(t, err)
+				if tt.want == "" {
+					assert.Nil(t, hover)
+				} else {
+					require.NotNil(t, hover)
+					assert.Contains(t, hover.Contents.Value, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("BuiltinDocumentation", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var count int8\n")})
+		s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
+			require.Equal(t, "builtin", pkgPath)
+			return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{
+				"int8": {Doc: "A signed 8-bit integer from the test documentation."},
+			}}, nil
+		}
+		hover, err := s.textDocumentHover(&HoverParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: 10},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Contains(t, hover.Contents.Value, "A signed 8-bit integer from the test documentation.")
+		assert.Contains(t, hover.Contents.Value, `def-id="xgo:builtin?int8" overview="type int8"`)
+	})
+
+	t.Run("DocumentationIsolation", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			source   string
+			position Position
+			setDoc   func(*pkgdoc.PkgDoc, string)
+		}{
+			{name: "Method", source: "measure 1\n", position: Position{Character: 1},
+				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["App"].Methods["Measure__0"] = text }},
+			{name: "Type", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 19},
+				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Doc = text }},
+			{name: "Field", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.Value = 1\n", position: Position{Line: 2, Character: 5},
+				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Fields["Value"] = text }},
+			{name: "Constant", source: "import \"example.com/framework\"\necho framework.Low\n", position: Position{Line: 1, Character: 15},
+				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Consts["Low"] = text }},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main_fixture.gox": []byte(tt.source)})
+				params := &HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}, Position: tt.position,
+				}}
+				for _, text := range []string{"First documentation.", "Second documentation."} {
+					doc := testframework.NewPkgDoc(t)
+					tt.setDoc(doc, text)
+					s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
+						require.Equal(t, testframework.PkgPath, pkgPath)
+						return doc, nil
+					}
+					hover, err := s.textDocumentHover(params)
+					require.NoError(t, err)
+					require.NotNil(t, hover)
+					assert.Contains(t, hover.Contents.Value, text)
+				}
+			})
+		}
+	})
+
+	t.Run("DocumentUpdates", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// Before update.\nvar value int\n")})
+		params := &HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 1, Character: 4},
+		}}
+		before, err := s.textDocumentHover(params)
+		require.NoError(t, err)
+		require.NotNil(t, before)
+		assert.Contains(t, before.Contents.Value, "Before update.")
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("// After update.\nvar value string\n"), Version: 1}})
+		after, err := s.textDocumentHover(params)
+		require.NoError(t, err)
+		require.NotNil(t, after)
+		assert.Contains(t, after.Contents.Value, "After update.")
+		assert.Contains(t, after.Contents.Value, "var value string")
+		assert.NotContains(t, after.Contents.Value, "Before update.")
+	})
+
+	t.Run("UTF16Range", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("var count int\r\necho \"\U0001f600\", count\r\n"),
+		})
+		hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 1, Character: 12},
+		}})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Equal(t, Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 16}}, hover.Range)
+		assert.Contains(t, hover.Contents.Value, "var count int")
+	})
+
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main_fixture.gox": []byte(`
 import (
 	"fmt"
 	"image"
@@ -41,33 +258,15 @@ type Point struct {
 }
 
 fmt.Println(int8(1))
-
-play "MySound"
-MySprite.turn Left
-MySprite.setCostume "costume1"
-Game.onClick => {}
-onClick => {}
-Camera.follow "MySprite"
 `),
-			"MySprite.spx": []byte(`
-MySprite.onClick => {}
-onClick => {}
-onStart => {
-	MySprite.turn Right
-	clone
-	imagePoint.X = 100
-}
-onTouchStart "MySprite", => {}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-			"assets/sounds/MySound/index.json":   []byte(`{}`),
+			"Worker_fixture.gox": []byte("imagePoint.X = 100\n"),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+
+		s := newTestServer(t, m)
 
 		varHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 8, Character: 1},
 			},
 		})
@@ -76,7 +275,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.count\" overview=\"var count int\">\ncount is a variable.\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?App.count\" overview=\"var count int\">\ncount is a variable.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 8, Character: 1},
@@ -86,7 +285,7 @@ onTouchStart "MySprite", => {}
 
 		constHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 14, Character: 6},
 			},
 		})
@@ -105,7 +304,7 @@ onTouchStart "MySprite", => {}
 
 		funcHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 17, Character: 5},
 			},
 		})
@@ -114,7 +313,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?Game.Add\" overview=\"func Add(x int, y int) int\">\nAdd is a function.\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:main?App.Add\" overview=\"func Add(x int, y int) int\">\nAdd is a function.\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 17, Character: 5},
@@ -124,7 +323,7 @@ onTouchStart "MySprite", => {}
 
 		typeHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 22, Character: 5},
 			},
 		})
@@ -143,7 +342,7 @@ onTouchStart "MySprite", => {}
 
 		typeFieldHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 24, Character: 1},
 			},
 		})
@@ -162,7 +361,7 @@ onTouchStart "MySprite", => {}
 
 		pkgHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 30, Character: 0},
 			},
 		})
@@ -175,7 +374,7 @@ onTouchStart "MySprite", => {}
 
 		pkgFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 30, Character: 4},
 			},
 		})
@@ -188,7 +387,7 @@ onTouchStart "MySprite", => {}
 
 		builtinFuncHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 30, Character: 12},
 			},
 		})
@@ -197,7 +396,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:builtin?int8\" overview=\"type int8\">\nint8 is the set of all signed 8-bit integers.\nRange: -128 through 127.\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:builtin?int8\" overview=\"type int8\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 30, Character: 12},
@@ -205,189 +404,10 @@ onTouchStart "MySprite", => {}
 			},
 		}, builtinFuncHover)
 
-		mySoundRefHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 32, Character: 5},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySoundRefHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sounds/MySound\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 32, Character: 5},
-				End:   Position{Line: 32, Character: 14},
-			},
-		}, mySoundRefHover)
-
-		mySpriteRefHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 33, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteRefHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 33, Character: 0},
-				End:   Position{Line: 33, Character: 8},
-			},
-		}, mySpriteRefHover)
-
-		mySpriteCostumeRefHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 34, Character: 20},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteCostumeRefHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite/costumes/costume1\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 34, Character: 20},
-				End:   Position{Line: 34, Character: 30},
-			},
-		}, mySpriteCostumeRefHover)
-
-		mySpriteSetCostumeFuncHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 34, Character: 9},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteSetCostumeFuncHover)
-		assert.Equal(t, Range{
-			Start: Position{Line: 34, Character: 9},
-			End:   Position{Line: 34, Character: 19},
-		}, mySpriteSetCostumeFuncHover.Range)
-
-		GameOnClickHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 35, Character: 5},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, GameOnClickHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
-			},
-			Range: Range{
-				Start: Position{Line: 35, Character: 5},
-				End:   Position{Line: 35, Character: 12},
-			},
-		}, GameOnClickHover)
-
-		mainSpxOnClickHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 36, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mainSpxOnClickHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
-			},
-			Range: Range{
-				Start: Position{Line: 36, Character: 0},
-				End:   Position{Line: 36, Character: 7},
-			},
-		}, mainSpxOnClickHover)
-
-		mainSpxCameraFollowHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 37, Character: 8},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mainSpxCameraFollowHover)
-		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Game.follow#1"`)
-		assert.Equal(t, Range{
-			Start: Position{Line: 37, Character: 7},
-			End:   Position{Line: 37, Character: 13},
-		}, mainSpxCameraFollowHover.Range)
-
-		mySpriteOnClickFuncHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 1, Character: 9},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteOnClickFuncHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
-			},
-			Range: Range{
-				Start: Position{Line: 1, Character: 9},
-				End:   Position{Line: 1, Character: 16},
-			},
-		}, mySpriteOnClickFuncHover)
-
-		mySpriteSpxOnClickFuncHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 2, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteSpxOnClickFuncHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
-			},
-			Range: Range{
-				Start: Position{Line: 2, Character: 0},
-				End:   Position{Line: 2, Character: 7},
-			},
-		}, mySpriteSpxOnClickFuncHover)
-
-		mySpriteCloneFuncHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 5, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, mySpriteCloneFuncHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.clone#0\" overview=\"func clone()\">\n</pre>\n",
-			},
-			Range: Range{
-				Start: Position{Line: 5, Character: 1},
-				End:   Position{Line: 5, Character: 6},
-			},
-		}, mySpriteCloneFuncHover)
-
 		imagePointFieldHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 6, Character: 12},
+				TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
+				Position:     Position{Line: 0, Character: 11},
 			},
 		})
 		require.NoError(t, err)
@@ -398,62 +418,72 @@ onTouchStart "MySprite", => {}
 				Value: "<pre is=\"definition-item\" def-id=\"xgo:image?Point.X\" overview=\"field X int\">\n</pre>\n",
 			},
 			Range: Range{
-				Start: Position{Line: 6, Character: 12},
-				End:   Position{Line: 6, Character: 13},
+				Start: Position{Line: 0, Character: 11},
+				End:   Position{Line: 0, Character: 12},
 			},
 		}, imagePointFieldHover)
 
-		onTouchStartFirstArgHover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 8, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, onTouchStartFirstArgHover)
-		assert.Equal(t, &Hover{
-			Contents: MarkupContent{
-				Kind:  Markdown,
-				Value: "<resource-preview resource=\"spx://resources/sprites/MySprite\" />\n",
-			},
-			Range: Range{
-				Start: Position{Line: 8, Character: 13},
-				End:   Position{Line: 8, Character: 23},
-			},
-		}, onTouchStartFirstArgHover)
 	})
 
 	t.Run("Autoclosure", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main_fixture.gox": []byte(`
 onStart => {
-	repeatUntil true, => {}
+	runWhen true, => {}
 }
 `),
-			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 2, Character: 2},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, `overview="func repeatUntil(condition bool, call func())"`)
+		assert.Contains(t, hover.Contents.Value, `overview="func runWhen(condition bool, callback func())"`)
+	})
+
+	t.Run("UnavailableDocument", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			uri       DocumentURI
+			wantError bool
+		}{
+			{name: "Empty", uri: "file:///empty.xgo"},
+			{name: "Missing", uri: "file:///missing.xgo"},
+			{name: "Unsupported", uri: "file:///notes.txt"},
+			{name: "InvalidURI", uri: "https://example.com/main.xgo", wantError: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"empty.xgo": nil,
+					"notes.txt": []byte("var count int\n"),
+				})
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: tt.uri},
+				}})
+				if tt.wantError {
+					assert.ErrorContains(t, err, "failed to get file path")
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Nil(t, hover)
+			})
+		}
 	})
 
 	t.Run("InvalidPosition", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`var x int`),
+			"main.xgo": []byte(`var x int`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 99, Character: 99},
 			},
 		})
@@ -463,20 +493,20 @@ onStart => {
 
 	t.Run("ImportsAtASTFilePosition", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 import (
-	"fmt"
+	"example.com/framework"
 	"image"
 )
 
-fmt.Println("Hello, World!")
+framework.RunWhen true, => {}
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		importHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 1},
 			},
 		})
@@ -485,27 +515,27 @@ fmt.Println("Hello, World!")
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "Package fmt implements formatted I/O with functions analogous to C's printf and scanf.",
+				Value: "Package framework provides a minimal classfile framework for language tests.",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},
-				End:   Position{Line: 2, Character: 6},
+				End:   Position{Line: 2, Character: 24},
 			},
 		}, importHover)
 	})
 
 	t.Run("Append", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 var nums []int
 nums = append(nums, 1)
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 7},
 			},
 		})
@@ -520,16 +550,16 @@ nums = append(nums, 1)
 
 	t.Run("WithXGoBuiltins", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 var num int128
 echo num
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover1, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 1, Character: 8},
 			},
 		})
@@ -543,7 +573,7 @@ echo num
 
 		hover2, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 0},
 			},
 		})
@@ -558,19 +588,13 @@ echo num
 
 	t.Run("WithNonENCharacters", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var 中文 []int
-	中文 = append(中文, 1)
-	println "非英文", 中文
-}
-`),
+			"main.xgo": []byte("\nfunc run() {\n\tvar \u4e2d\u6587 []int\n\t\u4e2d\u6587 = append(\u4e2d\u6587, 1)\n\tprintln \"\u975e\u82f1\u6587\", \u4e2d\u6587\n}\n"),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover1, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 3, Character: 14},
 			},
 		})
@@ -584,7 +608,7 @@ onStart => {
 
 		hover2, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 3, Character: 18},
 			},
 		})
@@ -593,7 +617,7 @@ onStart => {
 
 		hover3, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 4, Character: 17},
 			},
 		})
@@ -608,17 +632,17 @@ onStart => {
 
 	t.Run("VariadicFunctionCall", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
+			"main.xgo": []byte(`
+func run() {
 	echo 1
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 1},
 			},
 		})
@@ -634,63 +658,57 @@ onStart => {
 
 	t.Run("XGotMethodCall", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main_fixture.gox": []byte(`
 onStart => {
-	getWidget Monitor, "myWidget"
+	create int, "value"
 }
 `),
-			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 2, Character: 1},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Game.getWidget"`)
-		assert.Contains(t, hover.Contents.Value, `overview="func getWidget(T Type, name WidgetName) *T"`)
-		assert.Contains(t, hover.Contents.Value, `GetWidget returns the widget instance (in given type) with given name. It panics if not found.`)
+		assert.Contains(t, hover.Contents.Value, `def-id="xgo:example.com/framework?App.create"`)
+		assert.Contains(t, hover.Contents.Value, `overview="func create(T Type, name string) *T"`)
+		assert.Contains(t, hover.Contents.Value, `Create provides a method with an explicit type argument.`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 2, Character: 1},
-			End:   Position{Line: 2, Character: 10},
+			End:   Position{Line: 2, Character: 7},
 		}, hover.Range)
 	})
 
 	t.Run("StartWithInvalidChar", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
-“”var (
-	maps []int
-)
-`),
+			"main.xgo": []byte("\n\u201c\u201dvar (\n\tmaps []int\n)\n"),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 2, Character: 1},
 			},
 		})
 		require.NoError(t, err)
 		require.Nil(t, hover)
-		assert.Empty(t, hover)
 	})
 
 	t.Run("BlankIdentShouldReturnNilHover", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`const _ = 1
+			"main.xgo": []byte(`const _ = 1
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 0, Character: 6},
 			},
 		})
@@ -700,16 +718,16 @@ onStart => {
 
 	t.Run("SyntheticThisShouldReturnNilHover", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`onClick => {
+			"main_fixture.gox": []byte(`onStart => {
     _ = this
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 1, Character: 8},
 			},
 		})
@@ -719,16 +737,16 @@ onStart => {
 
 	t.Run("NonSyntheticThisShouldStillHover", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`// this is a variable.
+			"main.xgo": []byte(`// this is a variable.
 var this int
 this = 1
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 1, Character: 4},
 			},
 		})
@@ -737,31 +755,29 @@ this = 1
 		assert.Contains(t, hover.Contents.Value, `overview="var this int"`)
 	})
 
-	t.Run("SpriteLineStartShouldNotResolveToSyntheticThis", func(t *testing.T) {
+	t.Run("WorkLineStartShouldNotResolveToSyntheticThis", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`onStart => {}
+			"main_fixture.gox": []byte(`onValue value => {}
 `),
-			"MySprite.spx": []byte(`onStart => {
-    step 10
-    turn Left
+			"Worker_fixture.gox": []byte(`onValue value => {
+    apply value
+    apply 2
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
-		// The characters on `onStart` should map to `onStart`, not synthetic `this`.
+		// The characters on `onValue` should map to `onValue`, not synthetic `this`.
 		for _, ch := range []uint32{0, 1, 2, 3, 4, 5, 6} {
 			hover, err := s.textDocumentHover(&HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
 					Position:     Position{Line: 0, Character: ch},
 				},
 			})
 			require.NoError(t, err)
 			require.NotNil(t, hover)
-			assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Sprite.onStart"`)
+			assert.Contains(t, hover.Contents.Value, `def-id="xgo:example.com/framework?Item.onValue"`)
 			assert.NotContains(t, hover.Contents.Value, `var this`)
 		}
 
@@ -770,7 +786,7 @@ this = 1
 			for _, ch := range []uint32{0, 1, 2, 3} {
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
 						Position:     Position{Line: line, Character: ch},
 					},
 				})
@@ -782,7 +798,7 @@ this = 1
 
 	t.Run("KwargField", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 type Options struct {
 	// Count is a kwarg field.
 	Count int
@@ -790,16 +806,16 @@ type Options struct {
 
 func configure(opts Options?) {}
 
-onStart => {
+func run() {
 	configure count = 1
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 9, Character: 12},
 			},
 		})
@@ -819,19 +835,19 @@ onStart => {
 
 	t.Run("MapKwargHasNoHover", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 func configure(opts map[string]int?) {}
 
-onStart => {
+func run() {
 	configure count = 1
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 4, Character: 12},
 			},
 		})
@@ -841,7 +857,7 @@ onStart => {
 
 	t.Run("KwargInterfaceMethod", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 type Client struct{}
 
 type Params interface {
@@ -855,16 +871,16 @@ func (c Client) Params() Params { return nil }
 
 func (c Client) complete(prompt string, params Params?) {}
 
-onStart => {
+func run() {
 	client.complete "hi", maxTokens = 1
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 15, Character: 25},
 			},
 		})
@@ -880,7 +896,7 @@ onStart => {
 
 	t.Run("DuplicateEnumMembers", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+			"main.xgo": []byte(`type First const (
 	// First member documentation.
 	Unknown = iota
 )
@@ -898,11 +914,11 @@ var (
 echo Unknown
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 		hoverAt := func(line, character uint32) *Hover {
 			hover, err := s.textDocumentHover(&HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 					Position:     Position{Line: line, Character: character},
 				},
 			})
@@ -932,7 +948,7 @@ echo Unknown
 
 	t.Run("EnumMemberSharedWithRegularConstant", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`const (
+			"main.xgo": []byte(`const (
 	// Regular documentation.
 	Shared = 1
 )
@@ -948,7 +964,7 @@ func run() {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		for _, tt := range []struct {
 			name        string
@@ -984,7 +1000,7 @@ func run() {
 			t.Run(tt.name, func(t *testing.T) {
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 						Position:     tt.position,
 					},
 				})
@@ -998,7 +1014,7 @@ func run() {
 
 	t.Run("ParenthesizedDuplicateEnumMembers", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+			"main.xgo": []byte(`type First const (
 	// First member documentation.
 	Unknown = iota
 )
@@ -1016,7 +1032,7 @@ func run() {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		for _, position := range []Position{
 			{Line: 13, Character: 22},
@@ -1024,7 +1040,7 @@ func run() {
 		} {
 			hover, err := s.textDocumentHover(&HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 					Position:     position,
 				},
 			})
@@ -1037,7 +1053,7 @@ func run() {
 
 	t.Run("TupleDuplicateEnumMembers", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+			"main.xgo": []byte(`type First const (
 	// First member documentation.
 	Unknown = iota
 )
@@ -1054,7 +1070,7 @@ func run() {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		for _, tt := range []struct {
 			name        string
@@ -1078,7 +1094,7 @@ func run() {
 			t.Run(tt.name, func(t *testing.T) {
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 						Position:     tt.position,
 					},
 				})
@@ -1092,7 +1108,7 @@ func run() {
 
 	t.Run("ContextualDuplicateEnumMembers", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+			"main.xgo": []byte(`type First const (
 	// First member documentation.
 	Unknown = iota
 )
@@ -1137,7 +1153,7 @@ func run(second Second) {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		for _, tt := range []struct {
 			name     string
@@ -1165,7 +1181,7 @@ func run(second Second) {
 			t.Run(tt.name, func(t *testing.T) {
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 						Position:     tt.position,
 					},
 				})
@@ -1186,7 +1202,7 @@ func run(second Second) {
 			t.Run(tt.name, func(t *testing.T) {
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 						Position:     tt.position,
 					},
 				})
@@ -1200,7 +1216,7 @@ func run(second Second) {
 
 	t.Run("ContextualDuplicateEnumMemberInLambda", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`type First const (
+			"main.xgo": []byte(`type First const (
 	// First member documentation.
 	Unknown = iota
 )
@@ -1217,11 +1233,11 @@ func run() {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 13, Character: 9},
 			},
 		})
@@ -1233,7 +1249,7 @@ func run() {
 
 	t.Run("LocalEnumMember", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`func run() {
+			"main.xgo": []byte(`func run() {
 	type Color const (
 		// Local red documentation.
 		Red = iota
@@ -1242,7 +1258,7 @@ func run() {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		for _, position := range []Position{
 			{Line: 3, Character: 2},
@@ -1250,7 +1266,7 @@ func run() {
 		} {
 			hover, err := s.textDocumentHover(&HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 					Position:     position,
 				},
 			})
@@ -1260,62 +1276,55 @@ func run() {
 		}
 	})
 
-	t.Run("XGoUnit", func(t *testing.T) {
-		s := newXGoUnitTestServer(xgoUnitCompletionSource)
+	for _, tt := range []struct {
+		name         string
+		source       string
+		unit         string
+		multiplier   string
+		endCharacter uint32
+	}{
+		{
+			name:         "XGoUnit",
+			source:       "import \"time\"\n\nfunc wait(d time.Duration) {}\n\nfunc run() {\n\twait 1m\n}\n",
+			unit:         "m",
+			multiplier:   "60000000000",
+			endCharacter: 8,
+		},
+		{
+			name:         "XGoUnicodeUnit",
+			source:       "import \"time\"\n\nfunc wait(d time.Duration) {}\n\nfunc run() {\n\twait 1\u00b5s\n}\n",
+			unit:         "\u00b5s",
+			multiplier:   "1000",
+			endCharacter: 9,
+		},
+		{
+			name:         "XGoUnitImportedAliasFallback",
+			source:       "import \"example.com/unit\"\n\nfunc wait(d unit.Delay) {}\n\nfunc run() {\n\twait 1ms\n}\n",
+			unit:         "ms",
+			multiplier:   "1000000",
+			endCharacter: 9,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+			proj := s.workspaceRootFS
+			proj.Importer = xgoUnitTestImporter{fallback: proj.Importer}
 
-		hover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 15, Character: 7},
-			},
+			hover, err := s.textDocumentHover(&HoverParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 5, Character: 7},
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Equal(t, Range{
+				Start: Position{Line: 5, Character: 7},
+				End:   Position{Line: 5, Character: tt.endCharacter},
+			}, hover.Range)
+			assert.Contains(t, hover.Contents.Value, "unit `"+tt.unit+"`")
+			assert.Contains(t, hover.Contents.Value, "time.Duration")
+			assert.Contains(t, hover.Contents.Value, "Multiplier: `"+tt.multiplier+"`")
 		})
-		require.NoError(t, err)
-		require.NotNil(t, hover)
-		assert.Equal(t, Range{
-			Start: Position{Line: 15, Character: 7},
-			End:   Position{Line: 15, Character: 8},
-		}, hover.Range)
-		assert.Contains(t, hover.Contents.Value, "unit `m`")
-		assert.Contains(t, hover.Contents.Value, "time.Duration")
-		assert.Contains(t, hover.Contents.Value, "Multiplier: `60000000000`")
-	})
-
-	t.Run("XGoUnicodeUnit", func(t *testing.T) {
-		s := newXGoUnitTestServer("import \"time\"\n\nfunc wait(d time.Duration) {}\n\nonStart => {\n\twait 1\u00b5s\n}\n")
-
-		hover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 7},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, hover)
-		assert.Equal(t, Range{
-			Start: Position{Line: 5, Character: 7},
-			End:   Position{Line: 5, Character: 9},
-		}, hover.Range)
-		assert.Contains(t, hover.Contents.Value, "unit `\u00b5s`")
-		assert.Contains(t, hover.Contents.Value, "Multiplier: `1000`")
-	})
-
-	t.Run("XGoUnitImportedAliasFallback", func(t *testing.T) {
-		s := newXGoUnitTestServer("import \"example.com/unit\"\n\nfunc wait(d unit.Delay) {}\n\nonStart => {\n\twait 1ms\n}\n")
-
-		hover, err := s.textDocumentHover(&HoverParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 5, Character: 7},
-			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, hover)
-		assert.Equal(t, Range{
-			Start: Position{Line: 5, Character: 7},
-			End:   Position{Line: 5, Character: 9},
-		}, hover.Range)
-		assert.Contains(t, hover.Contents.Value, "unit `ms`")
-		assert.Contains(t, hover.Contents.Value, "time.Duration")
-		assert.Contains(t, hover.Contents.Value, "Multiplier: `1000000`")
-	})
+	}
 }

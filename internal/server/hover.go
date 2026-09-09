@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	godoc "go/doc"
 	"strings"
 
@@ -16,70 +17,70 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		markupKind = preferredMarkupKind(capabilities.ContentFormat)
 	}
 
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	if astFile == nil {
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
 		return nil, nil
 	}
-	if !astFile.Pos().IsValid() {
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	position := ToPosition(result.proj, astFile, params.Position)
-
-	if spxResourceRef := result.spxResourceRefAtPosition(position); spxResourceRef != nil {
-		return &Hover{
-			Contents: resourceMarkupContent(spxResourceRef.ID.URI(), markupKind),
-			Range:    RangeForNode(result.proj, spxResourceRef.Node),
-		}, nil
+	position := ToPosition(proj, astFile, params.Position)
+	if hover, err := s.hoverForSpxResource(proj, filename, position, markupKind); hover != nil || err != nil {
+		return hover, err
 	}
-
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
-	if hover := hoverForXGoUnit(result.proj, typeInfo, astFile, position, markupKind); hover != nil {
+	ctx := &definitionContext{
+		proj:         proj,
+		enumInfo:     newEnumInfo(astPkg, typeInfo),
+		lookupPkgDoc: s.lookupPkgDoc,
+	}
+	if hover := hoverForXGoUnit(proj, typeInfo, astFile, position, markupKind); hover != nil {
 		return hover, nil
 	}
-	if tokenFile := xgoutil.NodeTokenFile(result.proj.Fset, astFile); tokenFile != nil {
+	if tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile); tokenFile != nil {
 		pos := tokenFile.Pos(position.Offset)
-		if member := result.enumInfo.declarationMemberAt(pos); member != nil {
-			def := result.spxDefinitionForEnumMembers(member)
-			return hoverForSpxDefs(result.proj, []SpxDefinition{def}, member.ident, markupKind), nil
+		if member := ctx.enumInfo.declarationMemberAt(pos); member != nil {
+			def := ctx.spxDefinitionForEnumMembers(member)
+			return hoverForSpxDefs(proj, []SpxDefinition{def}, member.ident, markupKind), nil
 		}
-		if ident, obj := result.enumInfo.regularConstDeclarationAt(pos); ident != nil {
-			return hoverForSpxDefs(result.proj, result.spxDefinitionsFor(obj, ""), ident, markupKind), nil
+		if ident, obj := ctx.enumInfo.regularConstDeclarationAt(pos); ident != nil {
+			return hoverForSpxDefs(proj, ctx.spxDefinitionsFor(obj, ""), ident, markupKind), nil
 		}
 	}
-	ident, obj, kwargTarget := objectAtPosition(result.proj, typeInfo, astFile, position)
+	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
 		return hoverForSpxDefs(
-			result.proj, result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident, markupKind,
+			proj, ctx.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident, markupKind,
 		), nil
 	}
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
-		rpkg := result.spxImportsAtASTFilePosition(astFile, position)
-		if rpkg != nil {
-			return &Hover{
-				Contents: MarkupContent{
-					Kind:  markupKind,
-					Value: godoc.Synopsis(rpkg.Pkg.Doc),
-				},
-				Range: RangeForNode(result.proj, rpkg.Node),
-			}, nil
-		}
-		return nil, nil
-	}
-	if ident.Name == "this" {
-		astPkg, _ := result.proj.ASTPackage()
-		if xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+		rpkg := ctx.spxImportsAtASTFilePosition(astFile, position)
+		if rpkg == nil {
 			return nil, nil
 		}
+		return &Hover{
+			Contents: MarkupContent{
+				Kind:  markupKind,
+				Value: godoc.Synopsis(rpkg.Pkg.Doc),
+			},
+			Range: RangeForNode(proj, rpkg.Node),
+		}, nil
 	}
-	return hoverForSpxDefs(result.proj, result.spxDefinitionsForIdent(ident), ident, markupKind), nil
+	if ident.Name == "this" && xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+		return nil, nil
+	}
+	return hoverForSpxDefs(proj, ctx.spxDefinitionsForIdent(ident), ident, markupKind), nil
 }
 
 // hoverForSpxDefs renders spx definitions into a hover at node.

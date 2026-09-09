@@ -1194,7 +1194,7 @@ func enumNumericConstantConstraint(value constant.Value) gotypes.BasicInfo {
 
 // spxDefinitionForEnumMembers returns one definition for a non-empty set of
 // source-level members.
-func (r *compileResult) spxDefinitionForEnumMembers(members ...*enumMemberInfo) SpxDefinition {
+func (r *definitionContext) spxDefinitionForEnumMembers(members ...*enumMemberInfo) SpxDefinition {
 	first := members[0]
 	var def SpxDefinition
 	for _, member := range members {
@@ -1249,7 +1249,7 @@ func (r *compileResult) spxDefinitionForEnumMembers(members ...*enumMemberInfo) 
 
 // spxDefinitionsForEnumTypes returns definitions for members of the given
 // types. Members with the same source name are represented by one definition.
-func (r *compileResult) spxDefinitionsForEnumTypes(expectedTypes ...gotypes.Type) []SpxDefinition {
+func (r *definitionContext) spxDefinitionsForEnumTypes(expectedTypes ...gotypes.Type) []SpxDefinition {
 	if len(expectedTypes) == 0 {
 		return nil
 	}
