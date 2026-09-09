@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"fmt"
 	gotypes "go/types"
 	"strings"
 
@@ -16,15 +17,21 @@ const autoclosureParamDocumentation = "Deferred expression. The callee controls 
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_signatureHelp
 func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*SignatureHelp, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	if astFile == nil {
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
 		return nil, nil
 	}
-	pos := PosAt(result.proj, astFile, params.Position)
-	typeInfo, _ := result.proj.TypeInfo()
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
+		return nil, nil
+	}
+	pos := PosAt(proj, astFile, params.Position)
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
@@ -44,7 +51,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if callExpr != nil {
 		fun, sig, resolvedParams = xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
 		if fun == nil || sig == nil || resolvedParams == nil {
-			return overloadSignatureHelp(result.proj, typeInfo, callExpr, pos), nil
+			return overloadSignatureHelp(proj, typeInfo, callExpr, pos), nil
 		}
 		activeParameter = signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
 		if funcDecorator {
@@ -75,7 +82,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 
 	displayedName := ""
 	if callExpr != nil {
-		displayedName = signatureHelpResolvedCallName(result.proj, typeInfo, callExpr, fun)
+		displayedName = signatureHelpResolvedCallName(proj, typeInfo, callExpr, fun)
 	}
 	help := &SignatureHelp{
 		Signatures: []SignatureInformation{signatureHelpInformation(fun, sig, resolvedParams, displayedName)},

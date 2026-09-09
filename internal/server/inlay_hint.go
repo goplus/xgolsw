@@ -2,36 +2,41 @@ package server
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_inlayHint
 func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	if astFile == nil {
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
 		return nil, nil
 	}
-	if !astFile.Pos().IsValid() {
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 
-	rangeStart := PosAt(result.proj, astFile, params.Range.Start)
-	rangeEnd := PosAt(result.proj, astFile, params.Range.End)
-	return collectInlayHints(result, astFile, rangeStart, rangeEnd), nil
+	rangeStart := PosAt(proj, astFile, params.Range.Start)
+	rangeEnd := PosAt(proj, astFile, params.Range.End)
+	return collectInlayHints(proj, astFile, rangeStart, rangeEnd), nil
 }
 
 // collectInlayHints collects inlay hints from the given AST file. If
 // rangeStart and rangeEnd positions are provided (non-zero), only hints within
 // the range are included.
-func collectInlayHints(result *compileResult, astFile *ast.File, rangeStart, rangeEnd token.Pos) []InlayHint {
-	typeInfo, _ := result.proj.TypeInfo()
+func collectInlayHints(proj *xgo.Project, astFile *ast.File, rangeStart, rangeEnd token.Pos) []InlayHint {
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
@@ -52,11 +57,11 @@ func collectInlayHints(result *compileResult, astFile *ast.File, rangeStart, ran
 		switch node := node.(type) {
 		case *ast.BranchStmt:
 			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
-				hints := collectInlayHintsFromCallExpr(result, callExpr)
+				hints := collectInlayHintsFromCallExpr(proj, callExpr)
 				inlayHints = append(inlayHints, hints...)
 			}
 		case *ast.CallExpr, *ast.FuncDecorator:
-			hints := collectInlayHintsFromCallExpr(result, callExprFromNode(node))
+			hints := collectInlayHintsFromCallExpr(proj, callExprFromNode(node))
 			inlayHints = append(inlayHints, hints...)
 		}
 		return true
@@ -66,13 +71,13 @@ func collectInlayHints(result *compileResult, astFile *ast.File, rangeStart, ran
 }
 
 // collectInlayHintsFromCallExpr collects inlay hints from a call expression.
-func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr) []InlayHint {
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, callExpr)
+func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []InlayHint {
+	astPkg, _ := proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, callExpr)
 	if astFile == nil {
 		return nil
 	}
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
@@ -80,22 +85,10 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 	hasResolvedSignature := resolvedParams != nil
 
 	var inlayHints []InlayHint
-	type hintKey struct {
-		line      uint32
-		character uint32
-		kind      InlayHintKind
-	}
-	hintKeyFor := func(hint InlayHint) hintKey {
-		return hintKey{
-			line:      hint.Position.Line,
-			character: hint.Position.Character,
-			kind:      hint.Kind,
-		}
-	}
-	hintsByKey := make(map[hintKey]InlayHint)
-	ambiguousHintKeys := make(map[hintKey]struct{})
+	labelsByPosition := make(map[Position]string)
+	ambiguousPositions := make(map[Position]struct{})
 	variadicParamSeen := false
-	for resolvedArg := range resolvedCallExprArgs(result.proj, typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(proj, typeInfo, callExpr) {
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}
@@ -117,31 +110,30 @@ func collectInlayHintsFromCallExpr(result *compileResult, callExpr *ast.CallExpr
 		}
 
 		// Create an inlay hint with the parameter name before the argument.
-		position := result.proj.Fset.Position(resolvedArg.Arg.Pos())
+		position := proj.Fset.Position(resolvedArg.Arg.Pos())
 		label := xgoutil.SourceParamName(resolvedArg.Param)
 		if variadicArg {
 			label += "..."
 		}
 		hint := InlayHint{
-			Position: FromPosition(result.proj, astFile, position),
+			Position: FromPosition(proj, astFile, position),
 			Label:    label,
 			Kind:     Parameter,
 		}
 		if _, ok := xgoutil.AutoclosureParamResultType(resolvedArg.Param); ok {
 			hint.Tooltip = &InlayHintTooltip{Value: autoclosureParamDocumentation}
 		}
-		key := hintKeyFor(hint)
-		if existingHint, ok := hintsByKey[key]; ok {
-			if existingHint.Label != hint.Label {
-				ambiguousHintKeys[key] = struct{}{}
+		if existingLabel, ok := labelsByPosition[hint.Position]; ok {
+			if existingLabel != hint.Label {
+				ambiguousPositions[hint.Position] = struct{}{}
 			}
 			continue
 		}
-		hintsByKey[key] = hint
+		labelsByPosition[hint.Position] = hint.Label
 		inlayHints = append(inlayHints, hint)
 	}
 	return slices.DeleteFunc(inlayHints, func(hint InlayHint) bool {
-		_, ok := ambiguousHintKeys[hintKeyFor(hint)]
+		_, ok := ambiguousPositions[hint.Position]
 		return ok
 	})
 }

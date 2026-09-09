@@ -10,6 +10,48 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsInSpxPkg(t *testing.T) {
+	t.Run("NilObject", func(t *testing.T) {
+		assert.False(t, IsInSpxPkg(nil))
+	})
+
+	for _, tt := range []struct {
+		name string
+		pkg  *gotypes.Package
+		want bool
+	}{
+		{name: "NoPackage"},
+		{name: "OtherPackageNamedSpx", pkg: gotypes.NewPackage("example.com/spx", "spx")},
+		{name: "SpxSubpackage", pkg: gotypes.NewPackage(SpxPkgPath+"/subpkg", "subpkg")},
+		{name: "SpxPackage", pkg: GetSpxPkg(), want: true},
+		{name: "DistinctSpxPackage", pkg: gotypes.NewPackage(SpxPkgPath, "spx")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := gotypes.NewTypeName(token.NoPos, tt.pkg, "Value", gotypes.Typ[gotypes.Int])
+			assert.Equal(t, tt.want, IsInSpxPkg(obj))
+		})
+	}
+}
+
+func TestGetSimplifiedTypeString(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		pkg  *gotypes.Package
+		want string
+	}{
+		{name: "NoPackage", want: "Value"},
+		{name: "OtherPackage", pkg: gotypes.NewPackage("example.com/sample", "sample"), want: "sample.Value"},
+		{name: "OtherPackageNamedSpx", pkg: gotypes.NewPackage("example.com/spx", "spx"), want: "spx.Value"},
+		{name: "SpxPackage", pkg: GetSpxPkg(), want: "Value"},
+		{name: "DistinctSpxPackage", pkg: gotypes.NewPackage(SpxPkgPath, "spx"), want: "spx.Value"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, tt.pkg, "Value", nil), gotypes.NewStruct(nil, nil), nil)
+			assert.Equal(t, tt.want, GetSimplifiedTypeString(named))
+		})
+	}
+}
+
 func TestResolvedNamedType(t *testing.T) {
 	pkg := gotypes.NewPackage("example.com/pkg", "pkg")
 	named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Point", nil), gotypes.NewStruct(nil, nil), nil)

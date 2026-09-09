@@ -23,6 +23,12 @@ func (a *App) Measure__0(value int) int { return value }
 // Measure__1 is the string overload of Measure.
 func (a *App) Measure__1(value string) int { return len(value) }
 
+// RunWhen accepts a deferred condition and a callback.
+func RunWhen(__xgo_autoclosure_condition func() bool, callback func()) {}
+
+// XGot_App_XGox_Create provides a method with an explicit type argument.
+func XGot_App_XGox_Create[T any](a *App, name string) *T { return nil }
+
 // Item is the work base class.
 type Item struct{}
 
