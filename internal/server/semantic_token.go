@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"cmp"
+	"fmt"
 	gotypes "go/types"
 	"slices"
 	"strings"
@@ -84,23 +85,26 @@ func semanticTokenLegendStrings[T ~string](legend []T) []string {
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_semanticTokens
 func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*SemanticTokens, error) {
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	if astFile == nil {
-		return nil, nil
-	}
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil, nil
-	}
-	astPkg, _ := result.proj.ASTPackage()
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
 	}
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
+		return nil, nil
+	}
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil, nil
+	}
+	enums := newEnumInfo(astPkg, typeInfo)
 
-	fset := result.proj.Fset
+	fset := proj.Fset
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos token.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
 		if !startPos.IsValid() || !endPos.IsValid() {
@@ -158,7 +162,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			return
 		}
 		for _, kwarg := range callExpr.Kwargs {
-			if len(lookupCallExprKwargTargets(result.proj, typeInfo, callExpr, kwarg.Name.Name)) == 0 {
+			if len(lookupCallExprKwargTargets(proj, typeInfo, callExpr, kwarg.Name.Name)) == 0 {
 				continue
 			}
 			addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
@@ -182,11 +186,11 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Semicolon, node.Semicolon+1, OperatorType, nil)
 			}
 		case *ast.Ident:
-			if result.enumInfo.declarationType(node) != nil {
+			if enums.declarationType(node) != nil {
 				addToken(node.Pos(), node.End(), EnumType, []SemanticTokenModifiers{ModDeclaration})
 				return true
 			}
-			if result.enumInfo.declarationMember(node) != nil {
+			if enums.declarationMember(node) != nil {
 				addToken(
 					node.Pos(),
 					node.End(),
@@ -195,7 +199,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				)
 				return true
 			}
-			obj := result.enumInfo.objectForIdent(typeInfo, node)
+			obj := enums.objectForIdent(typeInfo, node)
 			if obj == nil {
 				if token.Lookup(node.Name).IsKeyword() {
 					addToken(node.Pos(), node.End(), KeywordType, nil)
@@ -206,14 +210,14 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			var (
 				tokenType SemanticTokenTypes
 				modifiers []SemanticTokenModifiers
-				isDef     = typeInfo.ObjToDef[obj] == node || result.enumInfo.isRegularConstDeclaration(node)
+				isDef     = typeInfo.ObjToDef[obj] == node || enums.isRegularConstDeclaration(node)
 			)
 			switch obj := obj.(type) {
 			case *gotypes.Builtin:
 				tokenType = KeywordType
 				modifiers = append(modifiers, ModDefaultLibrary)
 			case *gotypes.TypeName:
-				if result.enumInfo.typeFor(obj.Type()) != nil {
+				if enums.typeFor(obj.Type()) != nil {
 					tokenType = EnumType
 					break
 				}
@@ -230,25 +234,21 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 					tokenType = TypeType
 				}
 			case *gotypes.Var:
+				tokenType = VariableType
 				switch obj.Kind() {
 				case gotypes.FieldVar:
 					if xgoutil.IsInMainPkg(obj) &&
-						xgoutil.IsDefinedInClassFieldsDecl(result.proj.Fset, typeInfo, astPkg, obj) {
-						tokenType = VariableType
-					} else {
-						tokenType = PropertyType
+						xgoutil.IsDefinedInClassFieldsDecl(fset, typeInfo, astPkg, obj) {
+						break
 					}
-				case gotypes.PackageVar:
+					tokenType = PropertyType
+				case gotypes.ParamVar:
 					if isDef {
 						tokenType = ParameterType
-					} else {
-						tokenType = VariableType
 					}
-				default:
-					tokenType = VariableType
 				}
 			case *gotypes.Const:
-				if len(result.enumMembersForIdent(typeInfo, node)) > 0 {
+				if len(enums.membersForIdent(proj, typeInfo, node)) > 0 {
 					tokenType = EnumMemberType
 				} else {
 					tokenType = VariableType
@@ -566,8 +566,8 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		typeIndex := getSemanticTokenTypeIndex(info.tokenType)
 		modifiersMask := getSemanticTokenModifiersMask(info.tokenModifiers)
 		for _, segment := range semanticTokenSegments(
-			FromPosition(result.proj, astFile, start),
-			FromPosition(result.proj, astFile, end),
+			FromPosition(proj, astFile, start),
+			FromPosition(proj, astFile, end),
 			lineLengths,
 			semanticTokenFallbackLength(astFile.Code, start.Offset, end.Offset),
 		) {

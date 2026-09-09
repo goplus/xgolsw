@@ -330,24 +330,24 @@ func (i *enumInfo) membersForExpectedTypes(members []*enumMemberInfo, expectedTy
 	return selected
 }
 
-// enumMembersForIdent resolves the source-level enum members represented by ident.
-func (r *compileResult) enumMembersForIdent(typeInfo *types.Info, ident *ast.Ident) []*enumMemberInfo {
-	if member := r.enumInfo.declarationMember(ident); member != nil {
+// membersForIdent resolves the source-level enum members represented by ident.
+func (i *enumInfo) membersForIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Ident) []*enumMemberInfo {
+	if member := i.declarationMember(ident); member != nil {
 		return []*enumMemberInfo{member}
 	}
-	if r.enumInfo.isRegularConstDeclaration(ident) {
+	if i.isRegularConstDeclaration(ident) {
 		return nil
 	}
 	obj := typeInfo.ObjectOf(ident)
-	members := r.enumInfo.membersForObject(obj)
+	members := i.membersForObject(obj)
 	if len(members) == 0 {
 		return nil
 	}
-	context := r.enumContextAtIdent(typeInfo, ident)
-	if selected := r.enumInfo.membersForExpectedTypes(members, context.expectedTypes); len(selected) > 0 {
+	context := enumContextAtIdent(proj, typeInfo, ident)
+	if selected := i.membersForExpectedTypes(members, context.expectedTypes); len(selected) > 0 {
 		return selected
 	}
-	if r.enumInfo.isRegularConstObject(obj) {
+	if i.isRegularConstObject(obj) {
 		return nil
 	}
 	return members
@@ -355,9 +355,9 @@ func (r *compileResult) enumMembersForIdent(typeInfo *types.Info, ident *ast.Ide
 
 // enumContextAtIdent returns the enum context provided by ident's surrounding
 // expression.
-func (r *compileResult) enumContextAtIdent(typeInfo *types.Info, ident *ast.Ident) enumIdentContext {
-	astPkg, _ := r.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(r.proj.Fset, astPkg, ident)
+func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Ident) enumIdentContext {
+	astPkg, _ := proj.ASTPackage()
+	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, ident)
 	if astFile == nil {
 		return enumIdentContext{}
 	}
@@ -501,7 +501,7 @@ func (r *compileResult) enumContextAtIdent(typeInfo *types.Info, ident *ast.Iden
 				}
 				return contextForTypes(builtinContext.expectedTypes)
 			}
-			expected, allowConversion := enumExpectedTypesForCallArg(r.proj, typeInfo, call, target)
+			expected, allowConversion := enumExpectedTypesForCallArg(proj, typeInfo, call, target)
 			if len(expected) > 0 {
 				context := contextForTypes(expected)
 				context.allowConversion = allowConversion && len(typePath) == 0

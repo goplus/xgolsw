@@ -467,7 +467,7 @@ func (ctx *completionContext) analyze() {
 	}
 	if len(ctx.result.enumInfo.members) > 0 {
 		if ident := xgoutil.EnclosingNode[*ast.Ident](path); ident != nil {
-			ctx.enumContext = ctx.result.enumContextAtIdent(ctx.typeInfo, ident)
+			ctx.enumContext = enumContextAtIdent(ctx.proj, ctx.typeInfo, ident)
 		}
 	}
 
