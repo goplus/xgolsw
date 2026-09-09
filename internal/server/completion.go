@@ -1861,7 +1861,7 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 // collectPropertyNamesFromNamedType collects property name completion items
 // from the given named type, including embedded types.
 func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc) {
-	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc)) {
+	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc, ctx.result.lookupPkgDoc)) {
 		insertText := m.Name
 		if !ctx.inStringLit {
 			insertText = strconv.Quote(m.Name)

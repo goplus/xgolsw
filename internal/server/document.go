@@ -57,14 +57,13 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	for ident := range typeInfo.Uses {
 		addLinksForIdent(ident)
 	}
-	links = append(links, kwargDocumentLinks(ctx, typeInfo, astFile)...)
+	links = appendKwargDocumentLinks(links, ctx, typeInfo, astFile)
 	sortDocumentLinks(links)
 	return links, nil
 }
 
-// kwargDocumentLinks returns definition links for kwarg names in astFile.
-func kwargDocumentLinks(ctx *definitionContext, typeInfo *types.Info, astFile *ast.File) []DocumentLink {
-	var links []DocumentLink
+// appendKwargDocumentLinks appends definition links for kwarg names in astFile.
+func appendKwargDocumentLinks(links []DocumentLink, ctx *definitionContext, typeInfo *types.Info, astFile *ast.File) []DocumentLink {
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
 		if !ok {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -172,31 +171,23 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		return nil, fmt.Errorf("target %q not found", params.Target)
 	}
 
-	// Get the type of the object
-	var namedType *gotypes.Named
-	switch obj := obj.(type) {
-	case *gotypes.TypeName:
-		// If it's a type name (e.g., "Game"), get its underlying type
-		// Unalias to handle type aliases (e.g., type MyGame = Game)
-		typ := gotypes.Unalias(obj.Type())
-		typ = xgoutil.DerefType(typ)
-		if named, ok := typ.(*gotypes.Named); ok {
-			namedType = named
-		} else {
-			return nil, fmt.Errorf("target %q is not a named type", params.Target)
-		}
-	default:
+	typeName, ok := obj.(*gotypes.TypeName)
+	if !ok {
 		return nil, fmt.Errorf("target %q is not a type", params.Target)
 	}
 
-	// Get underlying struct type
+	typ := gotypes.Unalias(typeName.Type())
+	namedType, ok := xgoutil.DerefType(typ).(*gotypes.Named)
+	if !ok {
+		return nil, fmt.Errorf("target %q is not a named type", params.Target)
+	}
 	if _, ok := namedType.Underlying().(*gotypes.Struct); !ok {
 		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
 	}
 
 	mainPkgDoc, _ := proj.PkgDoc()
 
-	properties := collectPropertiesFromNamedType(namedType, mainPkgDoc)
+	properties := collectPropertiesFromNamedType(namedType, makePkgDocFor(mainPkgDoc, s.lookupPkgDoc))
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -344,22 +335,22 @@ func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) 
 }
 
 // makePkgDocFor returns a function that resolves the [pkgdoc.PkgDoc] for a
-// given package, using mainPkgDoc for the main package and pre-built package
-// data for all others.
-func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc) func(*gotypes.Package) *pkgdoc.PkgDoc {
+// given package, using mainPkgDoc for the main package and lookupPkgDoc for
+// imported packages.
+func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) func(*gotypes.Package) *pkgdoc.PkgDoc {
 	return func(pkg *gotypes.Package) *pkgdoc.PkgDoc {
 		if xgoutil.IsMainPkg(pkg) {
 			return mainPkgDoc
 		}
-		doc, _ := pkgdata.GetPkgDoc(xgoutil.PkgPath(pkg))
+		doc, _ := lookupPkgDoc(xgoutil.PkgPath(pkg))
 		return doc
 	}
 }
 
 // collectPropertiesFromNamedType recursively collects properties from a named type.
-func collectPropertiesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc) []XGoProperty {
+func collectPropertiesFromNamedType(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) []XGoProperty {
 	var properties []XGoProperty
-	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc)) {
+	for m := range propertyMembers(namedType, pkgDocFor) {
 		properties = append(properties, XGoProperty{
 			Name:       m.Name,
 			Type:       GetSimplifiedTypeString(m.Type),
