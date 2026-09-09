@@ -2,58 +2,53 @@ package server
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_documentLink
 func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]DocumentLink, error) {
-	result, spxFile, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
+	}
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
+		return nil, nil
+	}
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
+		return nil, nil
+	}
+	links, err := s.documentLinksForSpxResources(proj, filename)
 	if err != nil {
 		return nil, err
 	}
-	if astFile == nil {
-		return nil, nil
-	}
-
-	// Add links for spx resource references.
-	links := make([]DocumentLink, 0, len(result.spxResourceRefs))
-	for _, spxResourceRef := range result.spxResourceRefs {
-		if xgoutil.NodeFilename(result.proj.Fset, spxResourceRef.Node) != spxFile {
-			continue
-		}
-		if !result.spxResourceSet.Contains(spxResourceRef.ID) {
-			continue
-		}
-		target := URI(spxResourceRef.ID.URI())
-		links = append(links, DocumentLink{
-			Range:  RangeForNode(result.proj, spxResourceRef.Node),
-			Target: &target,
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: spxResourceRef.Kind,
-			},
-		})
-	}
-
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
-	astPkg, _ := result.proj.ASTPackage()
+	ctx := &definitionContext{
+		proj:         proj,
+		enumInfo:     newEnumInfo(astPkg, typeInfo),
+		lookupPkgDoc: s.lookupPkgDoc,
+	}
 
-	// Add links for spx definitions.
-	links = slices.Grow(links, len(typeInfo.Defs)+len(typeInfo.Uses))
+	// Add links for symbol definitions and uses in this file.
 	addLinksForIdent := func(ident *ast.Ident) {
-		if ident.Implicit() || xgoutil.NodeFilename(result.proj.Fset, ident) != spxFile {
+		if ident.Implicit() || xgoutil.NodeFilename(proj.Fset, ident) != filename {
 			return
 		}
-		if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
+		if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 			return
 		}
-		if spxDefs := result.spxDefinitionsForIdent(ident); spxDefs != nil {
-			links = appendSpxDefinitionDocumentLinks(links, RangeForNode(result.proj, ident), spxDefs)
+		if spxDefs := ctx.spxDefinitionsForIdent(ident); spxDefs != nil {
+			links = appendSpxDefinitionDocumentLinks(links, RangeForNode(proj, ident), spxDefs)
 		}
 	}
 	for ident := range typeInfo.Defs {
@@ -62,18 +57,13 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	for ident := range typeInfo.Uses {
 		addLinksForIdent(ident)
 	}
-	links = append(links, kwargDocumentLinks(result, astFile)...)
+	links = append(links, kwargDocumentLinks(ctx, typeInfo, astFile)...)
 	sortDocumentLinks(links)
 	return links, nil
 }
 
-// kwargDocumentLinks returns spx definition links for kwarg names in astFile.
-func kwargDocumentLinks(result *compileResult, astFile *ast.File) []DocumentLink {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-
+// kwargDocumentLinks returns definition links for kwarg names in astFile.
+func kwargDocumentLinks(ctx *definitionContext, typeInfo *types.Info, astFile *ast.File) []DocumentLink {
 	var links []DocumentLink
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
@@ -82,13 +72,13 @@ func kwargDocumentLinks(result *compileResult, astFile *ast.File) []DocumentLink
 		}
 
 		for _, kwarg := range callExpr.Kwargs {
-			for _, target := range lookupCallExprKwargTargets(result.proj, typeInfo, callExpr, kwarg.Name.Name) {
+			for _, target := range lookupCallExprKwargTargets(ctx.proj, typeInfo, callExpr, kwarg.Name.Name) {
 				obj := kwargTargetObject(target)
 				if obj == nil {
 					continue
 				}
-				spxDefs := result.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj))
-				links = appendSpxDefinitionDocumentLinks(links, RangeForNode(result.proj, kwarg.Name), spxDefs)
+				spxDefs := ctx.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj))
+				links = appendSpxDefinitionDocumentLinks(links, RangeForNode(ctx.proj, kwarg.Name), spxDefs)
 			}
 		}
 		return true

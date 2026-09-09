@@ -455,6 +455,19 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 	replier := newMockReplier()
 	server := New(project, replier, fileMapGetter(files), &MockScheduler{})
 	initializeServerForTest(t, server, replier)
+	var changeCount int
+	t.Cleanup(func() {
+		// Finish background diagnostics before another test uses shared imported packages.
+		require.Eventually(t, func() bool {
+			var diagnosticCount int
+			for _, message := range replier.getMessages() {
+				if notification, ok := message.(*jsonrpc2.Notification); ok && notification.Method() == "textDocument/publishDiagnostics" {
+					diagnosticCount++
+				}
+			}
+			return diagnosticCount == changeCount
+		}, 5*time.Second, time.Millisecond)
+	})
 
 	for _, params := range []DidChangeTextDocumentParams{
 		{
@@ -487,6 +500,7 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 		notification, err := jsonrpc2.NewNotification("textDocument/didChange", params)
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(notification))
+		changeCount++
 	}
 
 	file, ok := project.File("main.spx")
