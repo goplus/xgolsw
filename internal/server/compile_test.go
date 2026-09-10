@@ -26,6 +26,10 @@ func plain() string {
 	return "plain"
 }
 
+func excess() string {
+	return "resourceWithExtraValue", "extraValue"
+}
+
 func nested() string {
 	return func() string {
 		return "nestedFunction"
@@ -54,7 +58,7 @@ func nested() string {
 				gotypes.NewVar(token.NoPos, nil, "", resourceType),
 				gotypes.NewVar(token.NoPos, nil, "", stringType),
 			)
-		case "nested":
+		case "nested", "excess":
 			results = gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", resourceType))
 		default:
 			results = gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", stringType))
@@ -85,6 +89,8 @@ func nested() string {
 
 	assert.Equal(t, resourceType, gotByValue[`"resource"`])
 	assert.Equal(t, resourceType, gotByValue[`"nested"`])
+	assert.Equal(t, resourceType, gotByValue[`"resourceWithExtraValue"`])
+	assert.NotContains(t, gotByValue, `"extraValue"`)
 	assert.NotContains(t, gotByValue, `"ordinary"`)
 	assert.NotContains(t, gotByValue, `"plain"`)
 	assert.NotContains(t, gotByValue, `"nestedFunction"`)
