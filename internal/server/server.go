@@ -52,6 +52,7 @@ type Server struct {
 	analyzers          []*analysis.Analyzer
 	fileMapGetter      FileMapGetter // TODO(wyvern): Remove this field.
 	cancelCauseFuncs   sync.Map      // Map of request IDs to cancel functions (with cause).
+	listPkgs           func() ([]string, error)
 	lookupPkgDoc       func(string) (*pkgdoc.PkgDoc, error)
 	scheduler          Scheduler
 	language           i18n.Language // Current language for error message translation
@@ -87,6 +88,7 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 		analyzers:        initAnalyzers(true),
 		fileMapGetter:    fileMapGetter,
 		scheduler:        scheduler,
+		listPkgs:         pkgdata.ListPkgs,
 		lookupPkgDoc:     pkgdata.GetPkgDoc,
 		language:         i18n.LanguageEN, // Default to English until initialize is called
 	}

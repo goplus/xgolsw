@@ -16,7 +16,6 @@ import (
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -63,6 +62,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 			lookupPkgDoc: s.lookupPkgDoc,
 		},
 		itemSet:        newCompletionItemSet(documentationKind),
+		listPkgs:       s.listPkgs,
 		typeInfo:       typeInfo,
 		filename:       filename,
 		astFile:        astFile,
@@ -116,7 +116,8 @@ const (
 type completionContext struct {
 	definitionContext
 
-	itemSet *completionItemSet
+	itemSet  *completionItemSet
+	listPkgs func() ([]string, error)
 
 	typeInfo       *types.Info
 	spxResult      *compileResult
@@ -1170,7 +1171,7 @@ func (ctx *completionContext) collectGeneral() error {
 
 // collectImport collects import completions.
 func (ctx *completionContext) collectImport() error {
-	pkgs, err := pkgdata.ListPkgs()
+	pkgs, err := ctx.listPkgs()
 	if err != nil {
 		return fmt.Errorf("failed to list packages: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	gotypes "go/types"
 	"io/fs"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/goplus/mod/modfile"
@@ -118,6 +119,176 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 		items := completionItemsAt(t, s, "Worker_fixture.gox", Position{Line: 2, Character: 1})
 		for _, label := range []string{"Count", "Value", "apply", "value"} {
 			assert.Contains(t, completionItemLabels(items), label)
+		}
+	})
+
+	t.Run("FrameworkMethodOverloads", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			position Position
+		}{
+			{name: "ImplicitReceiver", filename: "main_fixture.gox", source: "onStart => {\n\n}\n", position: Position{Line: 1}},
+			{name: "ExplicitReceiver", filename: "main.xgo", source: "import \"example.com/framework\"\nvar app framework.App\napp.measure(1)\n", position: Position{Line: 2, Character: 5}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
+				_, err := s.workspaceRootFS.TypeInfo()
+				require.NoError(t, err)
+				items := completionItemsAt(t, s, tt.filename, tt.position)
+				assert.Equal(t, 2, countCompletionItemLabel(items, "measure"))
+				assert.NotContains(t, completionItemLabels(items), "Measure__0")
+				assert.NotContains(t, completionItemLabels(items), "Measure__1")
+				overloads := make(map[string]CompletionItem)
+				for _, item := range items {
+					if item.Label != "measure" {
+						continue
+					}
+					data := requireValueAs[*CompletionItemData](t, item.Data)
+					require.NotNil(t, data.Definition)
+					assert.Equal(t, ToPtr(testframework.PkgPath), data.Definition.Package)
+					assert.Equal(t, ToPtr("App.measure"), data.Definition.Name)
+					require.NotNil(t, data.Definition.OverloadID)
+					overloads[*data.Definition.OverloadID] = item
+				}
+				require.Len(t, overloads, 2)
+				for _, overload := range []struct {
+					id       string
+					typeName string
+					doc      string
+				}{
+					{id: "0", typeName: "int", doc: "Measure__0 is the integer overload of Measure."},
+					{id: "1", typeName: "string", doc: "Measure__1 is the string overload of Measure."},
+				} {
+					item, ok := overloads[overload.id]
+					require.True(t, ok, overload.id)
+					assert.Equal(t, FunctionCompletion, item.Kind)
+					assert.Equal(t, "measure", item.InsertText)
+					assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+					require.NotNil(t, item.Documentation)
+					doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+					assert.Contains(t, doc.Value, `overview="func measure(value `+overload.typeName+`) int"`)
+					assert.Contains(t, doc.Value, overload.doc)
+				}
+			})
+		}
+	})
+
+	t.Run("ClassfileImplicitPackages", func(t *testing.T) {
+		for _, sourceKind := range []struct {
+			name     string
+			filename string
+			isClass  bool
+		}{
+			{name: "Project", filename: "main_fixture.gox", isClass: true},
+			{name: "Work", filename: "Worker_fixture.gox", isClass: true},
+			{name: "XGo", filename: "main.xgo"},
+		} {
+			t.Run(sourceKind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name     string
+					withMath bool
+				}{
+					{name: "FrameworkOnly"},
+					{name: "WithAdditionalPackage", withMath: true},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						files := map[string][]byte{"main_fixture.gox": nil}
+						files[sourceKind.filename] = []byte("func run() {\n\n}\n")
+						s := newTestServer(t, files)
+						if tt.withMath {
+							class, ok := s.workspaceRootFS.Mod.LookupClass("_fixture.gox")
+							require.True(t, ok)
+							class.PkgPaths = append(class.PkgPaths, "math")
+						}
+						lookup := s.lookupPkgDoc
+						s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
+							if pkgPath == "math" {
+								return &pkgdoc.PkgDoc{Funcs: map[string]string{"Abs": "Additional package documentation."}}, nil
+							}
+							return lookup(pkgPath)
+						}
+						_, err := s.workspaceRootFS.TypeInfo()
+						require.NoError(t, err)
+						items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 1})
+						assert.Equal(t, sourceKind.isClass, slices.Contains(completionItemLabels(items), "runWhen"))
+						item := completionItemByLabel(items, "abs")
+						if !sourceKind.isClass || !tt.withMath {
+							assert.Nil(t, item)
+							return
+						}
+						require.NotNil(t, item)
+						assert.Equal(t, FunctionCompletion, item.Kind)
+						data := requireValueAs[*CompletionItemData](t, item.Data)
+						require.NotNil(t, data.Definition)
+						assert.Equal(t, "xgo:math?abs", data.Definition.String())
+						require.NotNil(t, item.Documentation)
+						doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+						assert.Contains(t, doc.Value, "Additional package documentation.")
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("EmbeddedInterfaceMethods", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			declarations string
+			embedded     string
+		}{
+			{name: "Direct", embedded: "fmt.Stringer"},
+			{name: "Alias", declarations: "type External = fmt.Stringer\n", embedded: "External"},
+			{name: "Nested", declarations: "type External interface { fmt.Stringer }\n", embedded: "External"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "import \"fmt\"\n" + tt.declarations + `type Combined interface {
+	` + tt.embedded + `
+	methodOne()
+}
+
+func run() {
+	var value Combined
+	value.methodOne()
+}
+`
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				lookup := s.lookupPkgDoc
+				s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
+					if pkgPath == "fmt" {
+						return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{
+							"Stringer": {Methods: map[string]string{"String": "Imported method documentation."}},
+						}}, nil
+					}
+					return lookup(pkgPath)
+				}
+				_, err := s.workspaceRootFS.TypeInfo()
+				require.NoError(t, err)
+				items := completionItemsAt(t, s, "main.xgo", Position{
+					Line:      uint32(strings.Count(source[:strings.Index(source, "\tvalue.methodOne()")], "\n")),
+					Character: uint32(UTF16Len("\tvalue.m")),
+				})
+				assert.ElementsMatch(t, []string{"string", "methodOne"}, completionItemLabels(items))
+				for _, method := range []struct {
+					label      string
+					definition string
+					doc        string
+				}{
+					{label: "string", definition: "xgo:fmt?Stringer.string", doc: "Imported method documentation."},
+					{label: "methodOne", definition: "xgo:main?Combined.methodOne", doc: `overview="func methodOne()"`},
+				} {
+					item := completionItemByLabel(items, method.label)
+					require.NotNil(t, item)
+					assert.Equal(t, FunctionCompletion, item.Kind)
+					data := requireValueAs[*CompletionItemData](t, item.Data)
+					require.NotNil(t, data.Definition)
+					assert.Equal(t, method.definition, data.Definition.String())
+					require.NotNil(t, item.Documentation)
+					doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+					assert.Contains(t, doc.Value, method.doc)
+				}
+			})
 		}
 	})
 

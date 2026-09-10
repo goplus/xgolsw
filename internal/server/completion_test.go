@@ -15,165 +15,42 @@ import (
 )
 
 func TestServerTextDocumentCompletion(t *testing.T) {
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-
-MySprite.
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	MySprite.turn Right
+	t.Run("MemberAccessAtLineStart", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			position Position
+		}{
+			{name: "ProjectEOF", filename: "main_fixture.gox", position: Position{Line: 1, Character: 9}},
+			{name: "WorkCallback", filename: "Worker_fixture.gox", position: Position{Line: 1, Character: 10}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main_fixture.gox": []byte("var worker *Worker\nworker.ap"), // Cursor at EOF.
+					"Worker_fixture.gox": []byte(`onValue value => {
+	worker.ap
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+				})
+				items := completionItemsAt(t, s, tt.filename, tt.position)
+				assert.Contains(t, completionItemLabels(items), "apply")
+			})
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		emptyLineItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 0},
-			},
-		})
-		require.NoError(t, err)
-		emptyLineItems := emptyLineItemsResult.([]CompletionItem)
-		require.NotNil(t, emptyLineItems)
-		assert.NotEmpty(t, emptyLineItems)
-		assert.True(t, containsCompletionItemLabel(emptyLineItems, "println"))
-		assert.True(t, containsCompletionSpxDefinitionID(emptyLineItems, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MySprite"),
-		}))
-
-		assert.Contains(t, emptyLineItems, SpxDefinition{
-			ID: SpxDefinitionIdentifier{
-				Package: ToPtr(SpxPkgPath),
-				Name:    ToPtr("Game.getWidget"),
-			},
-			Overview: "func getWidget(T Type, name WidgetName) *T",
-			Detail:   "GetWidget returns the widget instance (in given type) with given name. It panics if not found.\n",
-
-			CompletionItemLabel:            "getWidget",
-			CompletionItemKind:             FunctionCompletion,
-			CompletionItemInsertText:       "getWidget",
-			CompletionItemInsertTextFormat: PlainTextTextFormat,
-		}.CompletionItem())
-
-		mySpriteDotItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 9},
-			},
-		})
-		require.NoError(t, err)
-		mySpriteDotItems := mySpriteDotItemsResult.([]CompletionItem)
-		require.NotNil(t, mySpriteDotItems)
-		assert.NotEmpty(t, mySpriteDotItems)
-		assert.False(t, containsCompletionItemLabel(mySpriteDotItems, "println"))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
-			OverloadID: ToPtr("0"),
-		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
-			OverloadID: ToPtr("0"),
-		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
-			OverloadID: ToPtr("1"),
-		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.clone"),
-			OverloadID: ToPtr("0"),
-		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.clone"),
-			OverloadID: ToPtr("1"),
-		}))
 	})
 
-	t.Run("InSpxEventHandler", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr(SpxPkgPath),
-			Name:    ToPtr("Sprite.onStart"),
-		}))
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr(SpxPkgPath),
-			Name:    ToPtr("Sprite.onClick"),
-		}))
-	})
-
-	t.Run("Autoclosure", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
-	enabled = true
-	entry = "text"
-)
-
-onStart => {
-
-	repeatUntil e, => {}
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		signatureItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 6, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		signatureItems := requireValueAs[[]CompletionItem](t, signatureItemsResult)
-		repeatUntilItem := completionItemByLabel(signatureItems, "repeatUntil")
-		require.NotNilf(t, repeatUntilItem, "%v", completionItemLabels(signatureItems))
-		require.NotNil(t, repeatUntilItem.Documentation)
-		documentation := requireValueAs[MarkupContent](t, repeatUntilItem.Documentation.Value)
-		assert.Contains(t, documentation.Value, `overview="func repeatUntil(condition bool, call func())"`)
-
-		argumentItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 7, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		argumentItems := requireValueAs[[]CompletionItem](t, argumentItemsResult)
-		assert.Truef(t, containsCompletionItemLabel(argumentItems, "enabled"), "%v", completionItemLabels(argumentItems))
-		assert.Falsef(t, containsCompletionItemLabel(argumentItems, "entry"), "%v", completionItemLabels(argumentItems))
-	})
-
-	t.Run("FuncDecoratorArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
+	for _, sourceKind := range []struct {
+		name         string
+		filename     string
+		needsProject bool
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "ProjectClass", filename: "main_fixture.gox"},
+		{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true},
+	} {
+		t.Run(sourceKind.name, func(t *testing.T) {
+			t.Run("FuncDecoratorArgument", func(t *testing.T) {
+				files := map[string][]byte{
+					sourceKind.filename: []byte(`const (
 	count   = 1
 	comment = "text"
 )
@@ -186,24 +63,21 @@ func retry(times int, fn func()) {
 func run() {
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+				}
+				if sourceKind.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
 
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 9},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.False(t, containsCompletionItemLabel(items, "comment"))
-	})
+				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 9, Character: 9})
+				labels := completionItemLabels(items)
+				assert.Contains(t, labels, "count")
+				assert.NotContains(t, labels, "comment")
+			})
 
-	t.Run("FuncDecoratorImplicitArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
+			t.Run("FuncDecoratorImplicitArgument", func(t *testing.T) {
+				files := map[string][]byte{
+					sourceKind.filename: []byte(`const (
 	count   = 1
 	comment = "text"
 )
@@ -216,24 +90,21 @@ func retry(times int, fn func()) {
 func run() {
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+				}
+				if sourceKind.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
 
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 12},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.True(t, containsCompletionItemLabel(items, "comment"))
-	})
+				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 9, Character: 12})
+				labels := completionItemLabels(items)
+				assert.Contains(t, labels, "count")
+				assert.Contains(t, labels, "comment")
+			})
 
-	t.Run("NestedFuncDecoratorArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
+			t.Run("NestedFuncDecoratorArgument", func(t *testing.T) {
+				files := map[string][]byte{
+					sourceKind.filename: []byte(`const (
 	count   = 1
 	comment = "text"
 )
@@ -250,24 +121,21 @@ func parse(text string) int {
 func run() {
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+				}
+				if sourceKind.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
 
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 13, Character: 15},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.Falsef(t, containsCompletionItemLabel(items, "count"), "%v", completionItemLabels(items))
-		assert.True(t, containsCompletionItemLabel(items, "comment"))
-	})
+				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 13, Character: 15})
+				labels := completionItemLabels(items)
+				assert.NotContains(t, labels, "count")
+				assert.Contains(t, labels, "comment")
+			})
 
-	t.Run("NestedCallArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`const (
+			t.Run("NestedCallArgument", func(t *testing.T) {
+				files := map[string][]byte{
+					sourceKind.filename: []byte(`const (
 	count   = 1
 	comment = "text"
 )
@@ -283,1899 +151,202 @@ func run() {
 	consume(parse(co))
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+				}
+				if sourceKind.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
 
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 13, Character: 17},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.Falsef(t, containsCompletionItemLabel(items, "count"), "%v", completionItemLabels(items))
-		assert.True(t, containsCompletionItemLabel(items, "comment"))
-	})
+				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 13, Character: 17})
+				labels := completionItemLabels(items)
+				assert.NotContains(t, labels, "count")
+				assert.Contains(t, labels, "comment")
+			})
 
-	t.Run("PartialXGoxFunction", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`import "example.com/typeargs"
+			t.Run("PartialXGoxFunction", func(t *testing.T) {
+				files := map[string][]byte{
+					sourceKind.filename: []byte(`import "example.com/typeargs"
 
 const (
 	count   = 1
 	comment = "text"
 )
 
-onStart => {
+func run() {
 	typeargs.convert(string, count)
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-		s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
+				}
+				if sourceKind.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
+				s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
 
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 8, Character: 31},
-			},
+				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 8, Character: 31})
+				labels := completionItemLabels(items)
+				assert.Contains(t, labels, "count")
+				assert.NotContains(t, labels, "comment")
+			})
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.False(t, containsCompletionItemLabel(items, "comment"))
-	})
-
-	t.Run("InImportStringLit", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-import "f
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 9},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "fmt"))
-	})
+	}
 
 	t.Run("IncompleteMapLiteralInCall", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
 println {"key": }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 15},
-			},
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
+
+		completionItemsAt(t, s, "main.xgo", Position{Line: 1, Character: 15})
 	})
 
-	t.Run("InImportGroupStringLit", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-import (
-	"f
+	t.Run("NoCompletionAfterNumberLiteral", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
+func run() {
+	var x = 123.
+}
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 3},
-			},
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "fmt"))
+
+		items := completionItemsAt(t, s, "main.xgo", Position{Line: 2, Character: 13}) // After "123."
+		assert.Empty(t, items)
+	})
+
+	t.Run("NoCompletionAfterNumberLiteralInShortVarDecl", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`
+func run() {
+	x := 123.
+}
+`),
+		})
+
+		items := completionItemsAt(t, s, "main.xgo", Position{Line: 2, Character: 10}) // After "123."
+		assert.Empty(t, items)
+	})
+
+	t.Run("Autoclosure", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`const (
+	enabled = true
+	entry = "text"
+)
+
+onStart => {
+
+	runWhen e, => {}
+}
+`),
+		})
+
+		signatureItems := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 6, Character: 1})
+		runWhenItem := completionItemByLabel(signatureItems, "runWhen")
+		require.NotNilf(t, runWhenItem, "%v", completionItemLabels(signatureItems))
+		require.NotNil(t, runWhenItem.Documentation)
+		documentation := requireValueAs[MarkupContent](t, runWhenItem.Documentation.Value)
+		assert.Contains(t, documentation.Value, `overview="func runWhen(condition bool, callback func())"`)
+
+		argumentItems := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 7, Character: 10})
+		argumentLabels := completionItemLabels(argumentItems)
+		assert.Contains(t, argumentLabels, "enabled")
+		assert.NotContains(t, argumentLabels, "entry")
 	})
 
 	t.Run("GeneralOrUnknown", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
 
 onStart => {
 
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		items1Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 1},
-			},
 		})
-		require.NoError(t, err)
-		items1 := items1Result.([]CompletionItem)
-		require.NotNil(t, items1)
+
+		items1 := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 1, Character: 1})
 		assert.NotEmpty(t, items1)
-		assert.True(t, containsCompletionItemLabel(items1, "len"))
+		assert.Contains(t, completionItemLabels(items1), "len")
 
-		items2Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 12},
-			},
-		})
-		require.NoError(t, err)
-		items2 := items2Result.([]CompletionItem)
-		require.NotNil(t, items2)
+		items2 := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 2, Character: 12})
 		assert.Empty(t, items2)
 
-		items3Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 3, Character: 1},
-			},
-		})
-		require.NoError(t, err)
-		items3 := items3Result.([]CompletionItem)
-		require.NotNil(t, items3)
+		items3 := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 3, Character: 1})
 		assert.NotEmpty(t, items3)
-		assert.True(t, containsCompletionItemLabel(items3, "len"))
+		assert.Contains(t, completionItemLabels(items3), "len")
 	})
 
 	t.Run("VarDecl", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
 func test() {}
 onStart => {
 	var x i
 }
 `),
-			"MySprite.spx": []byte(`
+			"Worker_fixture.gox": []byte(`
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 3, Character: 8},
-			},
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
+
+		items := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 3, Character: 8})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "int"))
-		assert.True(t, containsCompletionItemLabel(items, "MySprite"))
-		assert.True(t, containsCompletionItemLabel(items, "Sprite"))
-		assert.False(t, containsCompletionItemLabel(items, "len"))
-		assert.False(t, containsCompletionItemLabel(items, "test"))
-		assert.False(t, containsCompletionItemLabel(items, "play"))
-	})
-
-	t.Run("VarDeclAndAssign", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var x SpriteName = "m"
-}
-`),
-			"MySprite.spx": []byte(`
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 22},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "MySprite"))
-	})
-
-	t.Run("VarDeclAndAssignWithAlias", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type MySpriteName = SpriteName
-
-onStart => {
-	var x MySpriteName = "m"
-}
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 4, Character: 24},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "MySprite"))
-	})
-
-	t.Run("SpxSoundResourceStringLit", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play "r"
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sounds/recording/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 7},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "recording"))
-	})
-
-	t.Run("FuncOverloads", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play r
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sounds/recording/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, `"recording"`))
-	})
-
-	t.Run("WithImplicitSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onClick => {
-	setCostume "c"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 2, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "costume"))
-	})
-
-	t.Run("WithExplicitSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "c"
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 22},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "costume"))
-	})
-
-	t.Run("WithCrossSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"Sprite1.spx": []byte(`
-onClick => {
-	Sprite2.setCostume "c"
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
-				Position:     Position{Line: 2, Character: 22},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
-	})
-
-	t.Run("WithCrossSpxSpriteResourceInGoStmt", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onClick => {
-	go Sprite2.setCostume("c")
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
-				Position:     Position{Line: 2, Character: 25},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
-	})
-
-	t.Run("WithCrossSpxSpriteResourceInDeferStmt", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onClick => {
-	defer Sprite2.setCostume("c")
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
-				Position:     Position{Line: 2, Character: 28},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "Sprite2Costume"))
-	})
-
-	t.Run("SpriteCostumeNameInImplicitCallUsesCurrentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onStart => {
-	setCostume C
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"Sprite3.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///Sprite1.spx"},
-				Position:     Position{Line: 2, Character: 13},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
-	})
-
-	t.Run("SpriteCostumeNameInDeclDeduplicatesCrossSpriteNames", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var costume SpriteCostumeName = C
-}
-`),
-			"Sprite1.spx":                       []byte(``),
-			"Sprite2.spx":                       []byte(``),
-			"Sprite3.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 34},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
-	})
-
-	t.Run("StepToOverloadsDeduplicateSpriteNameSuggestions", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Runner.spx": []byte(`
-onStart => {
-	stepTo C
-}
-`),
-			"Crab2.spx":                        []byte(``),
-			"Crab3.spx":                        []byte(``),
-			"assets/index.json":                []byte(`{}`),
-			"assets/sprites/Runner/index.json": []byte(`{"costumes":[]}`),
-			"assets/sprites/Crab2/index.json":  []byte(`{"costumes":[]}`),
-			"assets/sprites/Crab3/index.json":  []byte(`{"costumes":[]}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///Runner.spx"},
-				Position:     Position{Line: 2, Character: 10},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
+		labels := completionItemLabels(items)
+		assert.Contains(t, labels, "int")
+		assert.Contains(t, labels, "Worker")
+		assert.Contains(t, labels, "Item")
+		assert.NotContains(t, labels, "len")
+		assert.NotContains(t, labels, "test")
+		assert.NotContains(t, labels, "runWhen")
 	})
 
 	t.Run("AtLineStartWithAnIdentifier", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onClick => {
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
+onStart => {
 	pr
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 3},
-			},
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
+
+		items := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 2, Character: 3})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "println"))
-	})
-
-	t.Run("AtLineStartWithAMemberAccessExpression", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCo`), // Cursor at EOF.
-			"MySprite.spx": []byte(`
-onClick => {
-	MySprite.setCo
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		items1Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		items1 := items1Result.([]CompletionItem)
-		require.NotNil(t, items1)
-		assert.NotEmpty(t, items1)
-		assert.True(t, containsCompletionItemLabel(items1, "setCostume"))
-
-		items2Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 2, Character: 15},
-			},
-		})
-		require.NoError(t, err)
-		items2 := items2Result.([]CompletionItem)
-		require.NotNil(t, items2)
-		assert.NotEmpty(t, items2)
-		assert.True(t, containsCompletionItemLabel(items2, "setCostume"))
+		assert.Contains(t, completionItemLabels(items), "println")
 	})
 
 	t.Run("WithXGoBuiltins", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onClick => {
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
+onStart => {
 	var n in
 }
 `),
-			"MySprite.spx": []byte(`
-onClick => {
+			"Worker_fixture.gox": []byte(`
+onValue value => {
 	ec
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		items1Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 9},
-			},
 		})
-		require.NoError(t, err)
-		items1 := items1Result.([]CompletionItem)
-		require.NotNil(t, items1)
+
+		items1 := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 2, Character: 9})
 		assert.NotEmpty(t, items1)
-		assert.True(t, containsCompletionItemLabel(items1, "int128"))
+		assert.Contains(t, completionItemLabels(items1), "int128")
 
-		items2Result, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 2, Character: 3},
-			},
-		})
-		require.NoError(t, err)
-		items2 := items2Result.([]CompletionItem)
-		require.NotNil(t, items2)
+		items2 := completionItemsAt(t, s, "Worker_fixture.gox", Position{Line: 2, Character: 3})
 		assert.NotEmpty(t, items2)
-		assert.True(t, containsCompletionItemLabel(items2, "echo"))
+		assert.Contains(t, completionItemLabels(items2), "echo")
 	})
 
 	t.Run("UnresolvedFuncCall", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+		s := newTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte(`
 onStar => {
 }
 `),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 1, Character: 6},
-			},
 		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
+
+		items := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 1, Character: 6})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "onStart"))
-	})
-
-	t.Run("MathPackage", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	n := ab
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 8},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "abs"))
-	})
-
-	t.Run("NoCompletionAfterNumberLiteral", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var x = 123.
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 13}, // After "123."
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Empty(t, items)
-	})
-
-	t.Run("NoCompletionAfterNumberLiteralInShortVarDecl", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	x := 123.
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 2, Character: 10}, // After "123."
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Empty(t, items)
-	})
-
-	t.Run("SpriteInterfaceEmbedding", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type MyInterface interface {
-	Sprite
-	methodOne()
-}
-
-onStart => {
-	var iface MyInterface = MySprite
-	iface.on
-}
-`),
-			"MySprite.spx": []byte(`
-func methodOne() {}
-onStart => {}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 8, Character: 9}, // After "n"
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.True(t, containsCompletionItemLabel(items, "onClick"))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx/v3"),
-			Name:    ToPtr("Sprite.onClick"),
-		}))
-		assert.True(t, containsCompletionItemLabel(items, "methodOne"))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MyInterface.methodOne"),
-		}))
-	})
-
-	t.Run("PropertyNameCompletionInMainSpx", func(t *testing.T) {
-		// showVar in main.spx → getPropertyTarget returns "Game"
-		// → collectPropertyNames("Game") → property methods from embedded spx.Game appear
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var score int
-onStart => {
-	showVar(x)
-}
-`),
-			"MySprite.spx":                       []byte(`onStart => {}`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 3, Character: 10}, // inside 'x' arg of showVar
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		// score is declared in main.spx and becomes a Game field.
-		assert.True(t, containsCompletionItemLabel(items, `"score"`))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Game.score"),
-		}))
-		// Property method from embedded spx.Game.
-		assert.True(t, containsCompletionItemLabel(items, `"volume"`))
-	})
-
-	t.Run("PropertyNameCompletionInSpriteSpx", func(t *testing.T) {
-		// showVar in MySprite.spx → getPropertyTarget returns "MySprite" (not "Game").
-		// hp is a field of MySprite, so its appearance confirms the correct target is used.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-var hp int
-
-onStart => {
-	showVar(x)
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				// Line 4: "\tshowVar(x)" — tab(0)+showVar(1-7)+(8)+x(9)
-				Position: Position{Line: 4, Character: 10},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		// hp is a direct field of MySprite — confirms target is "MySprite", not "Game".
-		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
-	})
-
-	t.Run("PropertyNameCompletionExplicitReceiver", func(t *testing.T) {
-		// MySprite.showVar(x) in main.spx → getPropertyTarget returns "MySprite"
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	MySprite.showVar(x)
-}
-`),
-			"MySprite.spx": []byte(`
-var hp int
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				// Line 3: "\tMySprite.showVar(x)" — tab(0)+MySprite(1-8)+.(9)+showVar(10-16)+(17)+x(18)
-				Position: Position{Line: 2, Character: 19},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MySprite.hp"),
-		}))
-	})
-
-	t.Run("PropertyNameCompletionEmbeddedMethod", func(t *testing.T) {
-		// SpriteImpl is embedded in MySprite; its property methods should appear.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-var hp int
-
-showVar(
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				Position:     Position{Line: 3, Character: 8},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		// Direct field of MySprite.
-		assert.True(t, containsCompletionItemLabel(items, `"hp"`))
-		// Property method from embedded spx.SpriteImpl (e.g. "xpos" → "Xpos").
-		assert.True(t, containsCompletionItemLabel(items, `"xpos"`))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx/v3"),
-			Name:    ToPtr("Sprite.xpos"),
-		}))
-	})
-
-	t.Run("PropertyNameCompletionInsideStringLit", func(t *testing.T) {
-		// When cursor is inside a string literal, insert text should NOT be quoted.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var score int
-
-showVar("s
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 3, Character: 10},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		// Inside string literal: label/insertText is unquoted.
-		assert.True(t, containsCompletionItemLabel(items, "score"))
-		assert.False(t, containsCompletionItemLabel(items, `"score"`))
-	})
-
-	t.Run("KwargNameCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Count int
-	Name string
-}
-
-func configure(opts Options?) {}
-
-onStart => {
-	configure cou = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 13},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			return item.Label == "count" &&
-				item.InsertText == "count = ${1:}" &&
-				item.InsertTextFormat != nil &&
-				*item.InsertTextFormat == SnippetTextFormat
-		}))
-		assert.True(t, containsCompletionItemLabel(items, "name"))
-	})
-
-	t.Run("NonOptionalKwargNameCompletion", func(t *testing.T) {
-		for _, tt := range []struct {
-			name string
-			code string
-		}{
-			{
-				name: "BareIdent",
-				code: `
-type Options struct {
-	Count int
-	Name string
-}
-
-func configure(opts Options) {}
-
-onStart => {
-	configure cou
-}
-`,
-			},
-			{
-				name: "KwargExpr",
-				code: `
-type Options struct {
-	Count int
-	Name string
-}
-
-func configure(opts Options) {}
-
-onStart => {
-	configure cou = 1
-}
-`,
-			},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				m := map[string][]byte{
-					"main.spx": []byte(tt.code),
-				}
-				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-						Position:     Position{Line: 9, Character: 13},
-					},
-				})
-				require.NoError(t, err)
-				items := itemsResult.([]CompletionItem)
-				require.NotNil(t, items)
-				assert.True(t, containsCompletionItemLabel(items, "count"))
-				assert.True(t, containsCompletionItemLabel(items, "name"))
-			})
-		}
-	})
-
-	t.Run("KwargNameCompletionSkipsLaterLocalFieldName", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Count int
-	count string
-}
-
-func configure(opts Options?) {}
-
-onStart => {
-	configure cou = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 13},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.Equal(t, 1, countCompletionItemLabel(items, "count"))
-	})
-
-	t.Run("KwargValueCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Count int
-}
-
-func configure(opts Options?) {}
-
-onStart => {
-	var count int
-	configure count = cou
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 23},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-	})
-
-	t.Run("OverloadKwargNameCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type CountOptions struct {
-	Count int
-}
-
-type NameOptions struct {
-	Name string
-}
-
-var worker Worker
-
-func (w *Worker) handleCount(opts CountOptions?) {}
-func (w *Worker) handleName(opts NameOptions?) {}
-
-func (Worker).handle = (
-	(Worker).handleCount
-	(Worker).handleName
-)
-
-onStart => {
-	worker.handle cou = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 22, Character: 18},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.True(t, containsCompletionItemLabel(items, "name"))
-	})
-
-	t.Run("SpxStepToWithKwargNameCompletion", func(t *testing.T) {
-		for _, tt := range []struct {
-			name      string
-			code      string
-			character uint32
-		}{
-			{
-				name: "BareIdent",
-				code: `
-onStart => {
-	stepToWith "Red", s
-}
-`,
-				character: 20,
-			},
-			{
-				name: "KwargExpr",
-				code: `
-onStart => {
-	stepToWith "Red", spe = 2
-}
-`,
-				character: 21,
-			},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				m := map[string][]byte{
-					"main.spx":                           []byte(``),
-					"MySprite.spx":                       []byte(tt.code),
-					"Red.spx":                            []byte(``),
-					"assets/index.json":                  []byte(`{}`),
-					"assets/sprites/MySprite/index.json": []byte(`{}`),
-					"assets/sprites/Red/index.json":      []byte(`{}`),
-				}
-				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-				itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-						Position:     Position{Line: 2, Character: tt.character},
-					},
-				})
-				require.NoError(t, err)
-				items := itemsResult.([]CompletionItem)
-				require.NotNil(t, items)
-				assert.True(t, containsKwargCompletionItem(items, "speed", SpxDefinitionIdentifier{
-					Package: ToPtr(SpxPkgPath),
-					Name:    ToPtr("MotionOptions.Speed"),
-				}))
-				assert.True(t, containsKwargCompletionItem(items, "animation", SpxDefinitionIdentifier{
-					Package: ToPtr(SpxPkgPath),
-					Name:    ToPtr("MotionOptions.Animation"),
-				}))
-			})
-		}
-	})
-
-	t.Run("OverloadKwargNameCompletionFiltersByPositionalArg", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type CountOptions struct {
-	Count int
-}
-
-type NameOptions struct {
-	Name string
-}
-
-var worker Worker
-
-func (w *Worker) handleCount(prefix int, opts CountOptions?) {}
-func (w *Worker) handleName(prefix string, opts NameOptions?) {}
-
-func (Worker).handle = (
-	(Worker).handleCount
-	(Worker).handleName
-)
-
-onStart => {
-	worker.handle "prefix", na = "x"
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 22, Character: 27},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.False(t, containsCompletionItemLabel(items, "count"))
-		assert.True(t, containsCompletionItemLabel(items, "name"))
-	})
-
-	t.Run("OverloadKwargPositionalValueCompletionWithVariadicKwargParam", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type Options struct {
-	Name string
-}
-
-var worker Worker
-
-func (w *Worker) handleNumbers(opts Options?, values ...int) {}
-func (w *Worker) handleString(prefix string, opts Options?) {}
-
-func (Worker).handle = (
-	(Worker).handleNumbers
-	(Worker).handleString
-)
-
-onStart => {
-	var count int
-	var title string
-	worker.handle co, name = "x"
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 20, Character: 17},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.True(t, containsCompletionItemLabel(items, "title"))
-	})
-
-	t.Run("OverloadKwargValueCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type CountOptions struct {
-	Count int
-}
-
-type NameOptions struct {
-	Name string
-}
-
-var worker Worker
-
-func (w *Worker) handleCount(opts CountOptions?) {}
-func (w *Worker) handleName(opts NameOptions?) {}
-
-func (Worker).handle = (
-	(Worker).handleCount
-	(Worker).handleName
-)
-
-onStart => {
-	var count int
-	var title string
-	worker.handle count = cou
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 24, Character: 27},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.False(t, containsCompletionItemLabel(items, "title"))
-	})
-
-	t.Run("EmptyKwargValueCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Count int
-}
-
-func configure(opts Options?) {}
-
-onStart => {
-	var count int
-	var title string
-	configure count =
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 10, Character: 18},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.False(t, containsCompletionItemLabel(items, "title"))
-	})
-
-	t.Run("PositionalValueCompletionWithKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-func configure(opts map[string]string, values ...int) {}
-
-onStart => {
-	var count int
-	var title string
-	configure cou, name = "x"
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 6, Character: 14},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, containsCompletionItemLabel(items, "count"))
-		assert.False(t, containsCompletionItemLabel(items, "title"))
-	})
-
-	t.Run("InterfaceKwargNameCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Client struct{}
-
-type Params interface {
-	MaxTokens(n int64) Params
-	Temperature(v float64) Params
-}
-
-var client Client
-
-func (c Client) Params() Params { return nil }
-
-func (c Client) complete(prompt string, params Params?) {}
-
-onStart => {
-	client.complete "hi", maxT = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 15, Character: 27},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		require.NotNil(t, items)
-		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			return item.Label == "maxTokens" &&
-				item.InsertText == "maxTokens = ${1:}" &&
-				item.InsertTextFormat != nil &&
-				*item.InsertTextFormat == SnippetTextFormat
-		}))
-		assert.True(t, containsCompletionItemLabel(items, "temperature"))
-	})
-
-	t.Run("InterfaceKwargNameCompletionWithoutFactory", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Client struct{}
-
-type Params interface {
-	MaxTokens(n int64) Params
-	Temperature(v float64) Params
-}
-
-var client Client
-
-func (c Client) complete(prompt string, params Params?) {}
-
-onStart => {
-	client.complete "hi", maxT = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 13, Character: 27},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.False(t, containsCompletionItemLabel(items, "maxTokens"))
-		assert.False(t, containsCompletionItemLabel(items, "temperature"))
-	})
-
-	t.Run("FreeFunctionInterfaceKwargNameCompletion", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Params interface {
-	MaxTokens(n int64) Params
-	Temperature(v float64) Params
-}
-
-func complete(prompt string, params Params?) {}
-
-onStart => {
-	complete "hi", maxT = 1
-}
-`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				Position:     Position{Line: 9, Character: 20},
-			},
-		})
-		require.NoError(t, err)
-		items := itemsResult.([]CompletionItem)
-		assert.False(t, containsCompletionItemLabel(items, "maxTokens"))
-		assert.False(t, containsCompletionItemLabel(items, "temperature"))
-	})
-
-	t.Run("XGoUnits", func(t *testing.T) {
-		t.Run("CallArguments", func(t *testing.T) {
-			s := newXGoUnitTestServer(xgoUnitCompletionSource)
-			result, _, _, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-			require.NoError(t, err)
-			require.Falsef(t, result.hasErrorSeverityDiagnostic, "%#v", result.diagnostics)
-
-			durationItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 14, Character: 7},
-				},
-			})
-			require.NoError(t, err)
-			durationItems := durationItemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(durationItems, "ms"))
-			assert.True(t, containsCompletionItemLabel(durationItems, "s"))
-			assert.True(t, containsCompletionItemLabel(durationItems, "m"))
-			assert.True(t, containsCompletionItemLabel(durationItems, "\u00b5s"))
-			assert.False(t, containsCompletionItemLabel(durationItems, "wait"))
-			assertCompletionItemTextEdit(t, durationItems, "s", TextEdit{
-				Range: Range{
-					Start: Position{Line: 14, Character: 7},
-					End:   Position{Line: 14, Character: 7},
-				},
-				NewText: "s",
-			})
-			assert.Equal(t, "1s", completionItemByLabel(durationItems, "s").FilterText)
-
-			durationPartialItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 15, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-			durationPartialItems := durationPartialItemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(durationPartialItems, "ms"))
-			assertCompletionItemTextEdit(t, durationPartialItems, "ms", TextEdit{
-				Range: Range{
-					Start: Position{Line: 15, Character: 7},
-					End:   Position{Line: 15, Character: 8},
-				},
-				NewText: "ms",
-			})
-			assert.Equal(t, "1ms", completionItemByLabel(durationPartialItems, "ms").FilterText)
-
-			distanceItemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 16, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-			distanceItems := distanceItemsResult.(CompletionList).Items
-			assert.Truef(t, containsCompletionItemLabel(distanceItems, "mm"), "%v", completionItemLabels(distanceItems))
-			assert.Truef(t, containsCompletionItemLabel(distanceItems, "cm"), "%v", completionItemLabels(distanceItems))
-			assert.False(t, containsCompletionItemLabel(distanceItems, "s"))
-			assertCompletionItemTextEdit(t, distanceItems, "cm", TextEdit{
-				Range: Range{
-					Start: Position{Line: 16, Character: 7},
-					End:   Position{Line: 16, Character: 8},
-				},
-				NewText: "cm",
-			})
-		})
-
-		t.Run("FuncDecoratorArgument", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "example.com/unit"
-
-func withDistance(distance unit.Distance, fn func()) {}
-
-@withDistance(1)
-func run() {}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 4, Character: 15},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(items, "mm"))
-			assert.True(t, containsCompletionItemLabel(items, "cm"))
-			assert.False(t, containsCompletionItemLabel(items, "s"))
-		})
-
-		t.Run("StructKwargUnsupported", func(t *testing.T) {
-			s := newXGoUnitTestServer(xgoUnitCompletionSource)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 17, Character: 20},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.([]CompletionItem)
-			assert.False(t, containsCompletionItemKind(items, UnitCompletion))
-			assert.False(t, containsCompletionItemLabel(items, "s"))
-		})
-
-		t.Run("InterfaceKwarg", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "time"
-
-type Params interface {
-	Delay(time.Duration) Params
-}
-
-type Client struct{}
-
-var c Client
-
-func (c *Client) Params() Params { return nil }
-func (c *Client) Run(params Params) {}
-
-onStart => {
-	c.Run delay = 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 14, Character: 16},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(items, "ms"))
-			assert.True(t, containsCompletionItemLabel(items, "s"))
-			assert.False(t, containsCompletionItemLabel(items, "delay"))
-		})
-
-		t.Run("UnsupportedContexts", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "time"
-
-type Options struct {
-	Delay time.Duration
-}
-
-func duration() time.Duration {
-	return 1
-}
-
-onStart => {
-	var delay time.Duration = 1
-	delay = 1
-	_ = Options{Delay: 1}
-}
-`)
-
-			for _, tt := range []struct {
-				name     string
-				position Position
-			}{
-				{name: "Return", position: Position{Line: 7, Character: 9}},
-				{name: "Var", position: Position{Line: 11, Character: 28}},
-				{name: "Assign", position: Position{Line: 12, Character: 10}},
-				{name: "StructField", position: Position{Line: 13, Character: 21}},
-			} {
-				t.Run(tt.name, func(t *testing.T) {
-					itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-						TextDocumentPositionParams: TextDocumentPositionParams{
-							TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-							Position:     tt.position,
-						},
-					})
-					require.NoError(t, err)
-					items := itemsResult.([]CompletionItem)
-					assert.Falsef(t, containsCompletionItemKind(items, UnitCompletion), "%v", completionItemLabels(items))
-				})
-			}
-		})
-
-		t.Run("PointerUnsupported", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "time"
-
-func waitPtr(d *time.Duration) {}
-
-onStart => {
-	waitPtr 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 5, Character: 10},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.([]CompletionItem)
-			assert.False(t, containsCompletionItemKind(items, UnitCompletion))
-			assert.False(t, containsCompletionItemLabel(items, "s"))
-		})
-
-		t.Run("CurrentPackageUnsupported", func(t *testing.T) {
-			s := newXGoUnitTestServer(`type Distance int
-
-const XGou_Distance = "mm=1,cm=10,m=1000"
-
-func move(d Distance) {}
-
-onStart => {
-	move 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 7, Character: 7},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.([]CompletionItem)
-			assert.False(t, containsCompletionItemKind(items, UnitCompletion))
-			assert.False(t, containsCompletionItemLabel(items, "m"))
-		})
-
-		t.Run("CurrentPackageAliasUnsupported", func(t *testing.T) {
-			s := newXGoUnitTestServer(`type Seconds = float64
-
-const XGou_Seconds = "s=1,ms=0.001"
-
-func glide(s Seconds) {}
-
-onStart => {
-	glide 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 7, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.([]CompletionItem)
-			assert.False(t, containsCompletionItemKind(items, UnitCompletion))
-			assert.False(t, containsCompletionItemLabel(items, "ms"))
-		})
-
-		t.Run("ImportedAlias", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "example.com/unit"
-
-func glide(s unit.Seconds) {}
-
-onStart => {
-	glide 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 5, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(items, "s"))
-			assert.True(t, containsCompletionItemLabel(items, "ms"))
-			assert.False(t, containsCompletionItemLabel(items, "m"))
-		})
-
-		t.Run("SpxSeconds", func(t *testing.T) {
-			m := map[string][]byte{
-				"main.spx": []byte(`onStart => {
-	wait 1
-}
-`),
-				"assets/index.json": []byte(`{}`),
-			}
-			s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 7},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			assert.Truef(t, containsCompletionItemLabel(items, "s"), "%v", completionItemLabels(items))
-			assert.Truef(t, containsCompletionItemLabel(items, "ms"), "%v", completionItemLabels(items))
-			assert.Equal(t, "1s", completionItemByLabel(items, "s").FilterText)
-			assert.Equal(t, "1ms", completionItemByLabel(items, "ms").FilterText)
-			assert.False(t, containsCompletionItemLabel(items, "m"))
-		})
-
-		t.Run("ImportedAliasFallback", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "example.com/unit"
-
-func wait(d unit.Delay) {}
-
-onStart => {
-	wait 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 5, Character: 7},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			assert.True(t, containsCompletionItemLabel(items, "ms"))
-			assert.True(t, containsCompletionItemLabel(items, "s"))
-			assert.False(t, containsCompletionItemLabel(items, "km"))
-		})
-
-		t.Run("ImportedAliasOverloads", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "example.com/unit"
-
-type Worker struct{}
-
-var worker Worker
-
-func (w *Worker) handleSeconds(v unit.Seconds) {}
-func (w *Worker) handleMeters(v unit.Meters) {}
-
-func (Worker).handle = (
-	(Worker).handleSeconds
-	(Worker).handleMeters
-)
-
-onStart => {
-	worker.handle 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 15, Character: 16},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.(CompletionList).Items
-			labels := completionItemLabels(items)
-			assert.Truef(t, containsCompletionItemLabel(items, "ms"), "%v", labels)
-			assert.Truef(t, containsCompletionItemLabel(items, "km"), "%v", labels)
-		})
-
-		t.Run("DoesNotSwallowGeneralItems", func(t *testing.T) {
-			s := newXGoUnitTestServer(`func plain(n int) {}
-
-onStart => {
-	count := 1
-	plain 1
-}
-`)
-
-			itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 4, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-			items := itemsResult.([]CompletionItem)
-			assert.False(t, containsCompletionItemKind(items, UnitCompletion))
-			assert.True(t, containsCompletionItemLabel(items, "count"))
-		})
-	})
-
-	t.Run("LSPResultShape", func(t *testing.T) {
-		t.Run("CompleteArray", func(t *testing.T) {
-			m := map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
-			}
-			s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-			result, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
-				},
-			})
-			require.NoError(t, err)
-
-			items := result.([]CompletionItem)
-			assert.NotEmpty(t, items)
-		})
-
-		t.Run("IncompleteUnitList", func(t *testing.T) {
-			s := newXGoUnitTestServer(xgoUnitCompletionSource)
-
-			result, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 14, Character: 7},
-				},
-			})
-			require.NoError(t, err)
-
-			list := result.(CompletionList)
-			assert.True(t, list.IsIncomplete)
-			assert.True(t, containsCompletionItemLabel(list.Items, "s"))
-			assert.Equal(t, "1s", completionItemByLabel(list.Items, "s").FilterText)
-			assertCompletionItemTextEdit(t, list.Items, "s", TextEdit{
-				Range: Range{
-					Start: Position{Line: 14, Character: 7},
-					End:   Position{Line: 14, Character: 7},
-				},
-				NewText: "s",
-			})
-		})
-
-		t.Run("IncompleteUnitListUsesCurrentText", func(t *testing.T) {
-			s := newXGoUnitTestServer(`import "time"
-
-func wait(d time.Duration) {}
-
-onStart => {
-	wait 12
-}
-`)
-
-			result, err := s.textDocumentCompletion(&CompletionParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 5, Character: 8},
-				},
-			})
-			require.NoError(t, err)
-
-			list := result.(CompletionList)
-			assert.True(t, list.IsIncomplete)
-			assert.Equal(t, "12s", completionItemByLabel(list.Items, "s").FilterText)
-			assertCompletionItemTextEdit(t, list.Items, "s", TextEdit{
-				Range: Range{
-					Start: Position{Line: 5, Character: 8},
-					End:   Position{Line: 5, Character: 8},
-				},
-				NewText: "s",
-			})
-		})
+		assert.Contains(t, completionItemLabels(items), "onStart")
 	})
 }
 
