@@ -10,34 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const xgoUnitCompletionSource = `import (
-	"time"
-	"example.com/unit"
-)
-
-type Options struct {
-	Delay time.Duration
-}
-
-func wait(d time.Duration) {}
-func move(d unit.Distance) {}
-func configure(opts Options?) {}
-
-onStart => {
-	wait 1
-	wait 1m
-	move 1m
-	configure delay = 1
-}
-`
-
-func newXGoUnitTestServer(source string) *Server {
-	m := map[string][]byte{
-		"main.spx":          []byte(source),
-		"assets/index.json": []byte(`{}`),
-	}
-	proj := newProjectWithoutModTime(m)
-	s := New(proj, nil, fileMapGetter(m), &MockScheduler{})
+func newXGoUnitTestServer(t *testing.T, source string) *Server {
+	t.Helper()
+	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	s.workspaceRootFS.Importer = xgoUnitTestImporter{fallback: s.workspaceRootFS.Importer}
 	return s
 }

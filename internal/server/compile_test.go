@@ -26,6 +26,12 @@ func plain() string {
 	return "plain"
 }
 
+func unresolved() string {
+	return "unresolved"
+}
+
+func external() string
+
 func excess() string {
 	return "resourceWithExtraValue", "extraValue"
 }
@@ -53,6 +59,9 @@ func nested() string {
 		}
 		var results *gotypes.Tuple
 		switch funcDecl.Name.Name {
+		case "unresolved":
+			// Incomplete type information can omit a function's definition.
+			continue
 		case "resource":
 			results = gotypes.NewTuple(
 				gotypes.NewVar(token.NoPos, nil, "", resourceType),
@@ -93,6 +102,7 @@ func nested() string {
 	assert.NotContains(t, gotByValue, `"extraValue"`)
 	assert.NotContains(t, gotByValue, `"ordinary"`)
 	assert.NotContains(t, gotByValue, `"plain"`)
+	assert.NotContains(t, gotByValue, `"unresolved"`)
 	assert.NotContains(t, gotByValue, `"nestedFunction"`)
 }
 

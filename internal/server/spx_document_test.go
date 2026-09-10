@@ -12,6 +12,27 @@ import (
 )
 
 func TestServerTextDocumentDocumentLinkSpx(t *testing.T) {
+	t.Run("UnresolvedCallKeepsResourceReferences", func(t *testing.T) {
+		files := map[string][]byte{
+			"main.spx": []byte(`func resource() SoundName { return "KnownSound" }
+func broken() { missing "UnusedSound" }
+`),
+			"assets/index.json":                    []byte(`{}`),
+			"assets/sounds/KnownSound/index.json":  []byte(`{}`),
+			"assets/sounds/UnusedSound/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		_, err := s.workspaceRootFS.TypeInfo()
+		require.ErrorContains(t, err, "undefined: missing")
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		targets := documentLinkTargets(t, links)
+		assert.Contains(t, targets, "spx://resources/sounds/KnownSound")
+		assert.NotContains(t, targets, "spx://resources/sounds/UnusedSound")
+	})
+
 	t.Run("OtherFramework", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
 		proj := s.workspaceRootFS

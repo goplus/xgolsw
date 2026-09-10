@@ -17,6 +17,7 @@ func newTestServer(t *testing.T, files map[string][]byte) *Server {
 	s := New(proj, nil, fileMapGetter(files), &MockScheduler{})
 	proj.Mod = testframework.NewModule(t)
 	proj.Importer = testframework.NewImporter(t, proj.Fset)
+	s.listPkgs = func() ([]string, error) { return []string{testframework.PkgPath}, nil }
 	frameworkDoc := testframework.NewPkgDoc(t)
 	s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 		t.Helper()

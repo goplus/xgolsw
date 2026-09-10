@@ -564,7 +564,7 @@ onStart => {
 	})
 
 	t.Run("XGoUnitValue", func(t *testing.T) {
-		s := newXGoUnitTestServer(`import "time"
+		s := newSpxUnitTestServer(t, `import "time"
 
 func wait(d time.Duration) {}
 
@@ -591,7 +591,7 @@ onStart => {
 	})
 
 	t.Run("XGoUnitImportedAliasFallbackValue", func(t *testing.T) {
-		s := newXGoUnitTestServer(`import "example.com/unit"
+		s := newSpxUnitTestServer(t, `import "example.com/unit"
 
 func wait(d unit.Delay) {}
 
@@ -618,7 +618,7 @@ onStart => {
 	})
 
 	t.Run("XGoUnitInterfaceKwargValue", func(t *testing.T) {
-		s := newXGoUnitTestServer(`import "time"
+		s := newSpxUnitTestServer(t, `import "time"
 
 type Params interface {
 	Delay(time.Duration) Params
@@ -654,7 +654,7 @@ onStart => {
 	})
 
 	t.Run("XGoUnitUnsupportedContexts", func(t *testing.T) {
-		s := newXGoUnitTestServer(`import "time"
+		s := newSpxUnitTestServer(t, `import "time"
 
 type Options struct {
 	Delay time.Duration
@@ -2314,4 +2314,19 @@ func findAddressInputSlot(inputSlots []SpxInputSlot, name string) *SpxInputSlot 
 		}
 	}
 	return nil
+}
+
+// newSpxUnitTestServer provides XGo unit fixtures for input slot tests,
+// whose command entry point still requires an spx document.
+func newSpxUnitTestServer(t *testing.T, source string) *Server {
+	t.Helper()
+
+	m := map[string][]byte{
+		"main.spx":          []byte(source),
+		"assets/index.json": []byte(`{}`),
+	}
+	proj := newProjectWithoutModTime(m)
+	s := New(proj, nil, fileMapGetter(m), &MockScheduler{})
+	s.workspaceRootFS.Importer = xgoUnitTestImporter{fallback: s.workspaceRootFS.Importer}
+	return s
 }
