@@ -390,17 +390,6 @@ func getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lo
 	}, nil
 }
 
-var (
-	// GetMathPkg returns the math package.
-	GetMathPkg = sync.OnceValue(func() *gotypes.Package {
-		mathPkg, err := internal.Importer.Import("math")
-		if err != nil {
-			panic(fmt.Errorf("failed to import math package: %w", err))
-		}
-		return mathPkg
-	})
-)
-
 // SpxPkgPath is the path to the spx package.
 const SpxPkgPath = "github.com/goplus/spx/v3"
 

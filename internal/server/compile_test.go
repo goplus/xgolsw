@@ -121,44 +121,6 @@ func BenchmarkServerDocumentLinkWithLargeList(b *testing.B) {
 	}
 }
 
-func BenchmarkServerGetInputSlotsWithLargeList(b *testing.B) {
-	const slotCount = 20_001
-	files := largeListProjectFiles(slotCount)
-	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
-	params := []XGoGetInputSlotsParams{{
-		TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-	}}
-	slots, err := server.spxGetInputSlots(params)
-	require.NoError(b, err)
-	require.Len(b, slots, slotCount)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		_, err := server.spxGetInputSlots(params)
-		require.NoError(b, err)
-	}
-}
-
-func BenchmarkServerGetInputSlotsWithMixedLargeList(b *testing.B) {
-	const expressionCount = 8_000
-	files := mixedListProjectFiles(expressionCount)
-	server := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
-	params := []XGoGetInputSlotsParams{{
-		TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-	}}
-	slots, err := server.spxGetInputSlots(params)
-	require.NoError(b, err)
-	require.Len(b, slots, expressionCount*3)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		_, err := server.spxGetInputSlots(params)
-		require.NoError(b, err)
-	}
-}
-
 func largeListProjectFiles(elementCount int) map[string][]byte {
 	mainSpx := `var large List = NewList("value"` + strings.Repeat(`, "value"`, elementCount-1) + ")\n"
 	return map[string][]byte{
@@ -167,11 +129,32 @@ func largeListProjectFiles(elementCount int) map[string][]byte {
 	}
 }
 
-func mixedListProjectFiles(expressionCount int) map[string][]byte {
-	mainSpx := `var large List = NewList(` + strings.Repeat(`1 + 2, `, expressionCount) +
-		`"value"` + strings.Repeat(`, "value"`, expressionCount-1) + ")\n"
-	return map[string][]byte{
-		"main.spx":          []byte(mainSpx),
-		"assets/index.json": []byte(`{}`),
-	}
+func TestServerCompileAndGetASTFileForDocumentURI(t *testing.T) {
+	t.Run("NoSpxFiles", func(t *testing.T) {
+		s := newTestServer(t, nil)
+		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		require.ErrorIs(t, err, errNoMainSpxFile)
+		assert.Nil(t, result)
+		assert.Nil(t, astFile)
+	})
+}
+
+func TestServerInspectSpxResourceRefsForCallExpr(t *testing.T) {
+	t.Run("UnknownKwarg", func(t *testing.T) {
+		files := map[string][]byte{
+			"main.spx": []byte(`type Options struct { Target SpriteName }
+func configure(opts Options?) {}
+configure target = "OtherSprite", unknown = 9
+`),
+			"OtherSprite.spx":                       nil,
+			"assets/index.json":                     []byte(`{}`),
+			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
+		}
+		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.spxResourceRefs, 1)
+		assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), result.spxResourceRefs[0].ID.URI())
+	})
 }

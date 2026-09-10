@@ -27,7 +27,7 @@ const PkgPath = "example.com/framework"
 var source string
 
 // NewModule returns a fresh module with the test framework registered.
-func NewModule(t *testing.T) *xgomod.Module {
+func NewModule(t testing.TB) *xgomod.Module {
 	t.Helper()
 
 	mod := xgomod.New(modload.Module{
@@ -44,7 +44,7 @@ func NewModule(t *testing.T) *xgomod.Module {
 }
 
 // NewImporter type checks the framework and returns an importer that rejects spx.
-func NewImporter(t *testing.T, fset *token.FileSet) gotypes.Importer {
+func NewImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
 	t.Helper()
 
 	astFile, err := goparser.ParseFile(fset, "testdata/framework.go", source, 0)
@@ -60,7 +60,7 @@ func NewImporter(t *testing.T, fset *token.FileSet) gotypes.Importer {
 
 // importer supplies the test framework and delegates other imports.
 type importer struct {
-	t         *testing.T
+	t         testing.TB
 	framework *gotypes.Package
 	fallback  gotypes.Importer
 }
@@ -78,7 +78,7 @@ func (i *importer) Import(pkgPath string) (*gotypes.Package, error) {
 }
 
 // NewPkgDoc returns documentation parsed from the framework source.
-func NewPkgDoc(t *testing.T) *pkgdoc.PkgDoc {
+func NewPkgDoc(t testing.TB) *pkgdoc.PkgDoc {
 	t.Helper()
 
 	astFile, err := goparser.ParseFile(token.NewFileSet(), "testdata/framework.go", source, goparser.ParseComments)
