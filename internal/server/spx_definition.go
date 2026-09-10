@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/goplus/xgolsw/internal"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -253,11 +252,6 @@ var (
 	}
 )
 
-// GetSpxDefinitionForBuiltinObj returns the spx definition for the given object.
-func GetSpxDefinitionForBuiltinObj(obj gotypes.Object) SpxDefinition {
-	return getDefinitionForBuiltinObj(obj, internal.Importer, pkgdata.GetPkgDoc)
-}
-
 // getDefinitionForBuiltinObj describes a builtin using the provided package data.
 func getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) SpxDefinition {
 	const pkgPath = "builtin"
@@ -327,8 +321,8 @@ func getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, l
 	}
 }
 
-// GetBuiltinSpxDefinitions returns the builtin spx definitions.
-var GetBuiltinSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
+// builtinDefinitions describes builtins using the provided importer and documentation lookup.
+func builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) []SpxDefinition {
 	names := gotypes.Universe.Names()
 	defs := make([]SpxDefinition, 0, len(names)+len(xgoBuiltinAliases))
 	for _, name := range names {
@@ -336,18 +330,18 @@ var GetBuiltinSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
 			continue
 		}
 		if obj := gotypes.Universe.Lookup(name); obj != nil && obj.Pkg() == nil {
-			defs = append(defs, GetSpxDefinitionForBuiltinObj(obj))
+			defs = append(defs, getDefinitionForBuiltinObj(obj, importer, lookupPkgDoc))
 		}
 	}
 	for alias := range xgoBuiltinAliases {
-		def, err := getDefinitionForXGoBuiltinAlias(alias, internal.Importer, pkgdata.GetPkgDoc)
+		def, err := getDefinitionForXGoBuiltinAlias(alias, importer, lookupPkgDoc)
 		if err != nil {
-			panic(fmt.Errorf("failed to get spx definition for xgo builtin alias %q: %w", alias, err))
+			continue
 		}
 		defs = append(defs, def)
 	}
 	return slices.Clip(defs)
-})
+}
 
 // getDefinitionForXGoBuiltinAlias resolves a builtin alias using the provided package data.
 func getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) (SpxDefinition, error) {
@@ -404,17 +398,6 @@ var (
 			panic(fmt.Errorf("failed to import math package: %w", err))
 		}
 		return mathPkg
-	})
-
-	// GetMathPkgSpxDefinitions returns the spx definitions for the math package.
-	GetMathPkgSpxDefinitions = sync.OnceValue(func() []SpxDefinition {
-		mathPkg := GetMathPkg()
-		mathPkgPath := xgoutil.PkgPath(mathPkg)
-		mathPkgDoc, err := pkgdata.GetPkgDoc(mathPkgPath)
-		if err != nil {
-			panic(fmt.Errorf("failed to get math package doc: %w", err))
-		}
-		return GetSpxDefinitionsForPkg(mathPkg, mathPkgDoc)
 	})
 )
 
@@ -533,17 +516,6 @@ var (
 		return spxPkg.Scope().Lookup("PropertyName").Type().(*gotypes.Alias)
 	})
 
-	// GetSpxPkgDefinitions returns the spx definitions for the spx package.
-	GetSpxPkgDefinitions = sync.OnceValue(func() []SpxDefinition {
-		spxPkg := GetSpxPkg()
-		spxPkgPath := xgoutil.PkgPath(spxPkg)
-		spxPkgDoc, err := pkgdata.GetPkgDoc(spxPkgPath)
-		if err != nil {
-			panic(fmt.Errorf("failed to get spx package doc: %w", err))
-		}
-		return GetSpxDefinitionsForPkg(spxPkg, spxPkgDoc)
-	})
-
 	// GetSpxHSBFunc returns the [spx.HSB] type.
 	GetSpxHSBFunc = sync.OnceValue(func() *gotypes.Func {
 		spxPkg := GetSpxPkg()
@@ -558,16 +530,23 @@ var (
 )
 
 // nonMainPkgSpxDefsCache is a cache of non-main package spx definitions.
-var nonMainPkgSpxDefsCache sync.Map // map[*types.Package][]SpxDefinition
+var nonMainPkgSpxDefsCache sync.Map // map[nonMainPkgSpxDefsCacheKey][]SpxDefinition
+
+// nonMainPkgSpxDefsCacheKey identifies a package and its documentation.
+type nonMainPkgSpxDefsCacheKey struct {
+	pkg    *gotypes.Package
+	pkgDoc *pkgdoc.PkgDoc
+}
 
 // GetSpxDefinitionsForPkg returns the spx definitions for the given package.
 func GetSpxDefinitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
 	if !xgoutil.IsMainPkg(pkg) {
-		if defsIface, ok := nonMainPkgSpxDefsCache.Load(pkg); ok {
+		cacheKey := nonMainPkgSpxDefsCacheKey{pkg, pkgDoc}
+		if defsIface, ok := nonMainPkgSpxDefsCache.Load(cacheKey); ok {
 			return defsIface.([]SpxDefinition)
 		}
 		defer func() {
-			nonMainPkgSpxDefsCache.Store(pkg, defs)
+			nonMainPkgSpxDefsCache.Store(cacheKey, defs)
 		}()
 	}
 
