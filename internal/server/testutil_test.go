@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestServer(t *testing.T, files map[string][]byte) *Server {
+func newTestServer(t testing.TB, files map[string][]byte) *Server {
 	t.Helper()
 
 	proj := newProjectWithoutModTime(files)
