@@ -11,40 +11,43 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/pkgdoc"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_completion
 func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
-	result, spxFile, astFile, err := s.compileAndGetASTFileForDocumentURI(params.TextDocument.URI)
+	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	if astFile == nil {
+	proj := s.getProjWithFile()
+	astPkg, _ := proj.ASTPackage()
+	if astPkg == nil {
 		return nil, nil
 	}
-	if !astFile.Pos().IsValid() {
+	astFile := astPkg.Files[filename]
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 
-	pos := PosAt(result.proj, astFile, params.Position)
+	pos := PosAt(proj, astFile, params.Position)
 	if !pos.IsValid() {
 		return nil, nil
 	}
-	typeInfo, _ := result.proj.TypeInfo()
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
 
-	astPkg, _ := result.proj.ASTPackage()
-	innermostScope := xgoutil.InnermostScopeAt(result.proj.Fset, typeInfo, astPkg, pos)
+	innermostScope := xgoutil.InnermostScopeAt(proj.Fset, typeInfo, astPkg, pos)
 	if innermostScope == nil {
 		return nil, nil
 	}
@@ -54,16 +57,23 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		documentationKind = preferredMarkupKind(clientCapabilities.CompletionItem.DocumentationFormat)
 	}
 	ctx := &completionContext{
+		definitionContext: definitionContext{
+			proj:         proj,
+			enumInfo:     newEnumInfo(astPkg, typeInfo),
+			lookupPkgDoc: s.lookupPkgDoc,
+		},
 		itemSet:        newCompletionItemSet(documentationKind),
-		proj:           result.proj,
 		typeInfo:       typeInfo,
-		result:         result,
-		spxFile:        spxFile,
+		filename:       filename,
 		astFile:        astFile,
 		astFileScope:   typeInfo.Scopes[astFile],
-		tokenFile:      xgoutil.NodeTokenFile(result.proj.Fset, astFile),
+		tokenFile:      xgoutil.NodeTokenFile(proj.Fset, astFile),
 		pos:            pos,
 		innermostScope: innermostScope,
+	}
+	ctx.spxResult, err = s.compileForSpxCompletion(proj, filename)
+	if err != nil {
+		return nil, err
 	}
 	ctx.analyze()
 	if err := ctx.collect(); err != nil {
@@ -104,12 +114,13 @@ const (
 
 // completionContext represents the context for completion operations.
 type completionContext struct {
+	definitionContext
+
 	itemSet *completionItemSet
 
-	proj           *xgo.Project
 	typeInfo       *types.Info
-	result         *compileResult
-	spxFile        string
+	spxResult      *compileResult
+	filename       string
 	astFile        *ast.File
 	astFileScope   *gotypes.Scope
 	tokenFile      *token.File
@@ -465,13 +476,15 @@ func (ctx *completionContext) analyze() {
 			}
 		}
 	}
-	if len(ctx.result.enumInfo.members) > 0 {
+	if len(ctx.enumInfo.members) > 0 {
 		if ident := xgoutil.EnclosingNode[*ast.Ident](path); ident != nil {
 			ctx.enumContext = enumContextAtIdent(ctx.proj, ctx.typeInfo, ident)
 		}
 	}
 
-	ctx.inSpxEventHandler = ctx.result.isInSpxEventHandler(ctx.pos)
+	if ctx.spxResult != nil {
+		ctx.inSpxEventHandler = ctx.spxResult.isInSpxEventHandler(ctx.pos)
+	}
 }
 
 // analyzeCallExpr updates the completion context for a call expression.
@@ -1021,9 +1034,7 @@ func (ctx *completionContext) collectGeneral() error {
 	ctx.addVisibleEnumMembers(enumContext.expectedTypes...)
 
 	for _, expectedType := range ctx.expectedTypes {
-		if err := ctx.collectTypeSpecific(expectedType); err != nil {
-			return err
-		}
+		ctx.collectSpxTypeSpecific(expectedType)
 	}
 
 	if ctx.inStringLit {
@@ -1065,6 +1076,7 @@ func (ctx *completionContext) collectGeneral() error {
 
 	// Add local definitions from innermost scope and its parents.
 	pkg := ctx.typeInfo.Pkg
+	className, _ := cl.GetFileClassType(ctx.astFile, ctx.filename, ctx.proj.Mod.LookupClass)
 	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
 		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
@@ -1072,33 +1084,31 @@ func (ctx *completionContext) collectGeneral() error {
 			if !xgoutil.IsExportedOrInMainPkg(obj) {
 				continue
 			}
-			if !ctx.valueExpression {
-				if slices.Contains(ctx.assignTargets, obj) {
-					continue
-				}
+			if !ctx.valueExpression && slices.Contains(ctx.assignTargets, obj) {
+				continue
 			}
 
-			ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(obj, "")...)
+			ctx.itemSet.addSpxDefs(ctx.spxDefinitionsFor(obj, "")...)
 
-			isThis := name == "this"
-			isSpxFileMatch := ctx.spxFile == name+".spx" || (ctx.spxFile == ctx.result.mainSpxFile && name == "Game")
-			isMainScopeObj := isInMainScope && isSpxFileMatch
-			if isThis || isMainScopeObj {
-				named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
-				if ok && xgoutil.IsNamedStructType(named) {
-					for _, def := range ctx.result.spxDefinitionsForNamedStruct(named) {
-						if ctx.inSpxEventHandler && def.ID.Name != nil {
-							name := *def.ID.Name
-							if idx := strings.LastIndex(name, "."); idx >= 0 {
-								name = name[idx+1:]
-							}
-							if IsSpxEventHandlerFuncName(name) {
-								continue
-							}
-						}
-						ctx.itemSet.addSpxDefs(def)
+			isMainScopeObj := isInMainScope && name == className
+			if name != "this" && !isMainScopeObj {
+				continue
+			}
+			named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
+			if !ok || !xgoutil.IsNamedStructType(named) {
+				continue
+			}
+			for _, def := range ctx.spxDefinitionsForNamedStruct(named) {
+				if ctx.inSpxEventHandler && def.ID.Name != nil {
+					name := *def.ID.Name
+					if idx := strings.LastIndex(name, "."); idx >= 0 {
+						name = name[idx+1:]
+					}
+					if IsSpxEventHandlerFuncName(name) {
+						continue
 					}
 				}
+				ctx.itemSet.addSpxDefs(def)
 			}
 		}
 	}
@@ -1112,9 +1122,9 @@ func (ctx *completionContext) collectGeneral() error {
 		if err != nil {
 			continue
 		}
-		pkgDoc, err := pkgdata.GetPkgDoc(pkgPath)
-		if err != nil {
-			continue
+		var detail string
+		if pkgDoc, err := ctx.lookupPkgDoc(pkgPath); err == nil {
+			detail = pkgDoc.Doc
 		}
 
 		pkgPathBase := path.Base(pkgPath)
@@ -1128,7 +1138,7 @@ func (ctx *completionContext) collectGeneral() error {
 				Package: &pkgPath,
 			},
 			Overview: "package " + pkgPathBase,
-			Detail:   pkgDoc.Doc,
+			Detail:   detail,
 
 			CompletionItemLabel:            pkgName,
 			CompletionItemKind:             ModuleCompletion,
@@ -1138,9 +1148,18 @@ func (ctx *completionContext) collectGeneral() error {
 	}
 
 	// Add other definitions.
-	ctx.itemSet.addSpxDefs(GetSpxPkgDefinitions()...)
-	ctx.itemSet.addSpxDefs(GetMathPkgSpxDefinitions()...)
-	ctx.itemSet.addSpxDefs(GetBuiltinSpxDefinitions()...)
+	if ctx.astFile.IsClass {
+		if class, ok := ctx.proj.Mod.LookupClass(modfile.ClassExt(ctx.filename)); ok {
+			for _, pkgPath := range class.PkgPaths {
+				pkg, err := ctx.proj.Importer.Import(pkgPath)
+				if err != nil {
+					continue
+				}
+				ctx.collectPackageMembers(pkg)
+			}
+		}
+	}
+	ctx.itemSet.addSpxDefs(builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
 	ctx.itemSet.addSpxDefs(GeneralSpxDefinitions...)
 	if ctx.innermostScope == ctx.astFileScope {
 		ctx.itemSet.addSpxDefs(FileScopeSpxDefinitions...)
@@ -1156,7 +1175,7 @@ func (ctx *completionContext) collectImport() error {
 		return fmt.Errorf("failed to list packages: %w", err)
 	}
 	for _, pkgPath := range pkgs {
-		pkgDoc, err := pkgdata.GetPkgDoc(pkgPath)
+		pkgDoc, err := ctx.lookupPkgDoc(pkgPath)
 		if err != nil {
 			continue
 		}
@@ -1185,7 +1204,8 @@ func (ctx *completionContext) collectDot() error {
 	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
 		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
 			if pkgName, ok := obj.(*gotypes.PkgName); ok {
-				return ctx.collectPackageMembers(pkgName.Imported())
+				ctx.collectPackageMembers(pkgName.Imported())
+				return nil
 			}
 		}
 	}
@@ -1211,7 +1231,7 @@ func (ctx *completionContext) collectDot() error {
 	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
 		ctx.collectInterfaceMethodCompletions(iface, named, nil)
 	} else if named != nil && xgoutil.IsNamedStructType(named) {
-		ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsForNamedStruct(named)...)
+		ctx.itemSet.addSpxDefs(ctx.spxDefinitionsForNamedStruct(named)...)
 	}
 	return nil
 }
@@ -1300,7 +1320,7 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.I
 			}
 		}
 
-		spxDef := ctx.result.spxDefinitionForMethod(method, recvTypeName)
+		spxDef := ctx.spxDefinitionForMethod(method, recvTypeName)
 		ctx.itemSet.addSpxDefs(spxDef)
 	}
 
@@ -1341,25 +1361,19 @@ func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.I
 }
 
 // collectPackageMembers collects members of a package.
-func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) error {
+func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
 	if pkg == nil {
-		return nil
+		return
 	}
 
 	var pkgDoc *pkgdoc.PkgDoc
 	if xgoutil.IsMainPkg(pkg) {
 		pkgDoc, _ = ctx.proj.PkgDoc()
 	} else {
-		pkgPath := xgoutil.PkgPath(pkg)
-		var err error
-		pkgDoc, err = pkgdata.GetPkgDoc(pkgPath)
-		if err != nil {
-			return nil
-		}
+		pkgDoc, _ = ctx.lookupPkgDoc(xgoutil.PkgPath(pkg))
 	}
 
 	ctx.itemSet.addSpxDefs(GetSpxDefinitionsForPkg(pkg, pkgDoc)...)
-	return nil
 }
 
 // collectCall collects function call completions.
@@ -1568,12 +1582,12 @@ func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argC
 				if _, ok := usedTargets[target.Field]; ok {
 					continue
 				}
-				spxDef = ctx.result.spxDefinitionForField(target.Field, selectorTypeName)
+				spxDef = ctx.spxDefinitionForField(target.Field, selectorTypeName)
 			case target.Method != nil:
 				if _, ok := usedTargets[target.Method]; ok {
 					continue
 				}
-				spxDef = ctx.result.spxDefinitionForMethod(target.Method, selectorTypeName)
+				spxDef = ctx.spxDefinitionForMethod(target.Method, selectorTypeName)
 			default:
 				continue
 			}
@@ -1625,95 +1639,6 @@ func (ctx *completionContext) collectDecl() error {
 // collectReturn collects return value completions.
 func (ctx *completionContext) collectReturn() error {
 	return ctx.collectGeneral()
-}
-
-// collectTypeSpecific collects type-specific completions.
-func (ctx *completionContext) collectTypeSpecific(typ gotypes.Type) error {
-	if !xgoutil.IsValidType(typ) {
-		return nil
-	}
-
-	if named := resolvedNamedType(typ); named != nil {
-		switch named {
-		case GetSpxSpriteType(), GetSpxSpriteImplType():
-			for spxSprite := range ctx.result.spxSpriteResourceAutoBindings {
-				if spxSprite.Type() == named {
-					ctx.itemSet.addSpxDefs(ctx.result.spxDefinitionsFor(spxSprite, "Game")...)
-				}
-			}
-		}
-	}
-
-	// Handle spx.PropertyName type - provide property name completions.
-	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
-		if target := ctx.getPropertyTarget(); target != "" {
-			ctx.collectPropertyNames(target)
-		}
-		return nil
-	}
-
-	var spxResourceIDs []SpxResourceID
-	switch canonicalSpxResourceNameType(typ) {
-	case GetSpxBackdropNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.backdrops))
-		for spxBackdropName := range ctx.result.spxResourceSet.backdrops {
-			spxResourceIDs = append(spxResourceIDs, SpxBackdropResourceID{spxBackdropName})
-		}
-	case GetSpxSpriteNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sprites))
-		for spxSpriteName := range ctx.result.spxResourceSet.sprites {
-			spxResourceIDs = append(spxResourceIDs, SpxSpriteResourceID{spxSpriteName})
-		}
-	case GetSpxSpriteCostumeNameType():
-		expectedSpxSprite := ctx.getSpxSpriteResource()
-		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
-			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
-				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.NormalCostumes))
-				for _, spxSpriteCostume := range spxSprite.NormalCostumes {
-					spxResourceIDs = append(spxResourceIDs, SpxSpriteCostumeResourceID{spxSprite.Name, spxSpriteCostume.Name})
-				}
-			}
-		}
-	case GetSpxSpriteAnimationNameType():
-		expectedSpxSprite := ctx.getSpxSpriteResource()
-		for _, spxSprite := range ctx.result.spxResourceSet.sprites {
-			if expectedSpxSprite == nil || spxSprite == expectedSpxSprite {
-				spxResourceIDs = slices.Grow(spxResourceIDs, len(spxSprite.Animations))
-				for _, spxSpriteAnimation := range spxSprite.Animations {
-					spxResourceIDs = append(spxResourceIDs, SpxSpriteAnimationResourceID{spxSprite.Name, spxSpriteAnimation.Name})
-				}
-			}
-		}
-	case GetSpxSoundNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.sounds))
-		for spxSoundName := range ctx.result.spxResourceSet.sounds {
-			spxResourceIDs = append(spxResourceIDs, SpxSoundResourceID{spxSoundName})
-		}
-	case GetSpxWidgetNameType():
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.result.spxResourceSet.widgets))
-		for spxWidgetName := range ctx.result.spxResourceSet.widgets {
-			spxResourceIDs = append(spxResourceIDs, SpxWidgetResourceID{spxWidgetName})
-		}
-	}
-	seenResourceNames := make(map[string]struct{}, len(spxResourceIDs))
-	for _, spxResourceID := range spxResourceIDs {
-		name := spxResourceID.Name()
-		if _, ok := seenResourceNames[name]; ok {
-			continue
-		}
-		seenResourceNames[name] = struct{}{}
-		if !ctx.inStringLit {
-			name = strconv.Quote(name)
-		}
-		ctx.itemSet.add(CompletionItem{
-			Label:            name,
-			Kind:             TextCompletion,
-			Documentation:    completionDocumentation(resourceMarkupContent(spxResourceID.URI(), ctx.itemSet.documentationKind)),
-			InsertText:       name,
-			InsertTextFormat: ToPtr(PlainTextTextFormat),
-		})
-	}
-	return nil
 }
 
 // collectXGoUnitCompletions collects unit suffix completions for number literals.
@@ -1781,105 +1706,6 @@ func (ctx *completionContext) currentXGoUnitCompletionRange() (Range, string, bo
 	return Range{}, "", false
 }
 
-// getSpxSpriteResource returns a [SpxSpriteResource] for the current context.
-// It returns nil if no [SpxSpriteResource] can be inferred.
-func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
-	callExpr := ctx.getEnclosingCallExpr()
-	if callExpr != nil {
-		return inferSpxSpriteResourceEnclosingNode(ctx.result, callExpr)
-	}
-	return ctx.getCurrentFileSpxSpriteResource()
-}
-
-// getEnclosingCallExpr returns the closest call expression in the current
-// completion context.
-func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
-	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
-		return callExpr
-	}
-	return ctx.enclosingCallExpr
-}
-
-// getCurrentFileSpxSpriteResource returns the sprite resource represented by
-// the current spx file.
-func (ctx *completionContext) getCurrentFileSpxSpriteResource() *SpxSpriteResource {
-	if ctx.spxFile == "" || path.Base(ctx.spxFile) == path.Base(ctx.result.mainSpxFile) {
-		return nil
-	}
-	return ctx.result.spxResourceSet.sprites[strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")]
-}
-
-// getPropertyTarget returns the target type name for property name completions.
-// It looks at the enclosing call expression's receiver type (if any) and falls
-// back to the current file's type.
-func (ctx *completionContext) getPropertyTarget() string {
-	if ctx.kind == completionKindCall {
-		if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
-			named := PropertyTargetNamedTypeForCall(ctx.typeInfo, callExpr, ctx.spxFile, ctx.result.mainSpxFile)
-			if named != nil {
-				// For explicit-receiver calls, only consider main-package types.
-				if _, hasSel := callExpr.Fun.(*ast.SelectorExpr); hasSel && !xgoutil.IsInMainPkg(named.Obj()) {
-					return ""
-				}
-				return named.Obj().Name()
-			}
-			return ""
-		}
-	}
-	// For implicit receiver calls, derive target from the current file's type.
-	if ctx.spxFile == "" {
-		return ""
-	}
-	if ctx.spxFile == ctx.result.mainSpxFile {
-		return "Game"
-	}
-	return strings.TrimSuffix(path.Base(ctx.spxFile), ".spx")
-}
-
-// collectPropertyNames collects property name completion items for the given target type.
-func (ctx *completionContext) collectPropertyNames(target string) {
-	pkgScope := ctx.typeInfo.Pkg.Scope()
-	obj := pkgScope.Lookup(target)
-	if obj == nil {
-		return
-	}
-	typeName, ok := obj.(*gotypes.TypeName)
-	if !ok {
-		return
-	}
-	typ := gotypes.Unalias(typeName.Type())
-	typ = xgoutil.DerefType(typ)
-	namedType, ok := typ.(*gotypes.Named)
-	if !ok {
-		return
-	}
-
-	mainPkgDoc, _ := ctx.proj.PkgDoc()
-	ctx.collectPropertyNamesFromNamedType(namedType, mainPkgDoc)
-}
-
-// collectPropertyNamesFromNamedType collects property name completion items
-// from the given named type, including embedded types.
-func (ctx *completionContext) collectPropertyNamesFromNamedType(namedType *gotypes.Named, mainPkgDoc *pkgdoc.PkgDoc) {
-	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc, ctx.result.lookupPkgDoc)) {
-		insertText := m.Name
-		if !ctx.inStringLit {
-			insertText = strconv.Quote(m.Name)
-		}
-		def := m.SpxDef
-		// TypeHint must be nil so addSpxDefs does not filter property-name
-		// items by expected type compatibility.
-		def.TypeHint = nil
-		// Regardless of whether the property is backed by a field or a method,
-		// it is presented as a property to the user.
-		def.CompletionItemKind = PropertyCompletion
-		def.CompletionItemLabel = insertText
-		def.CompletionItemInsertText = insertText
-		def.CompletionItemInsertTextFormat = PlainTextTextFormat
-		ctx.itemSet.addSpxDefs(def)
-	}
-}
-
 // collectStructLit collects struct literal completions.
 func (ctx *completionContext) collectStructLit() error {
 	if ctx.expectedStructType == nil || ctx.compositeLitType == nil {
@@ -1913,7 +1739,7 @@ func (ctx *completionContext) collectStructLit() error {
 			continue
 		}
 
-		spxDef := ctx.result.spxDefinitionForField(field, selectorTypeName)
+		spxDef := ctx.spxDefinitionForField(field, selectorTypeName)
 		spxDef.CompletionItemInsertText = field.Name() + ": ${1:}"
 		spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
 		ctx.itemSet.addSpxDefs(spxDef)
@@ -1927,7 +1753,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 	if ctx.switchStmt.Tag == nil {
 		for _, name := range []string{"int", "string", "bool", "error"} {
 			if obj := gotypes.Universe.Lookup(name); obj != nil {
-				ctx.itemSet.addSpxDefs(GetSpxDefinitionForBuiltinObj(obj))
+				ctx.itemSet.addSpxDefs(ctx.spxDefinitionsFor(obj, "")...)
 			}
 		}
 		return nil
@@ -1937,7 +1763,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
-	if ctx.result.enumInfo.typeFor(typ) != nil {
+	if ctx.enumInfo.typeFor(typ) != nil {
 		ctx.addVisibleEnumMembers(typ)
 		return nil
 	}
@@ -1955,7 +1781,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 		pkgDoc, _ = ctx.proj.PkgDoc()
 	} else {
 		pkgPath := xgoutil.PkgPath(pkg)
-		pkgDoc, _ = pkgdata.GetPkgDoc(pkgPath)
+		pkgDoc, _ = ctx.lookupPkgDoc(pkgPath)
 	}
 
 	scope := pkg.Scope()
@@ -1976,9 +1802,9 @@ func (ctx *completionContext) collectSwitchCase() error {
 // addVisibleEnumMembers adds members of the given types that are not shadowed
 // at the completion position.
 func (ctx *completionContext) addVisibleEnumMembers(expectedTypes ...gotypes.Type) {
-	for _, def := range ctx.result.spxDefinitionsForEnumTypes(expectedTypes...) {
+	for _, def := range ctx.spxDefinitionsForEnumTypes(expectedTypes...) {
 		_, obj := ctx.innermostScope.LookupParent(def.CompletionItemLabel, ctx.pos)
-		if len(ctx.result.enumInfo.membersForObject(obj)) > 0 {
+		if len(ctx.enumInfo.membersForObject(obj)) > 0 {
 			ctx.itemSet.addSpxDefs(def)
 		}
 	}

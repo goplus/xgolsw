@@ -121,7 +121,7 @@ func (r *definitionContext) spxDefinitionsForNamedStruct(named *gotypes.Named) [
 // optional selector type name.
 func (r *definitionContext) spxDefinitionForField(field *gotypes.Var, selectorTypeName string) SpxDefinition {
 	typeInfo, _ := r.proj.TypeInfo()
-	if typeInfo == nil {
+	if typeInfo == nil || !xgoutil.IsInMainPkg(field) {
 		pkgDoc, _ := r.lookupPkgDoc(xgoutil.PkgPath(field.Pkg()))
 		return GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
 	}
@@ -142,7 +142,7 @@ func (r *definitionContext) spxDefinitionForField(field *gotypes.Var, selectorTy
 // optional selector type name.
 func (r *definitionContext) spxDefinitionForMethod(method *gotypes.Func, selectorTypeName string) SpxDefinition {
 	typeInfo, _ := r.proj.TypeInfo()
-	if typeInfo == nil {
+	if typeInfo == nil || !xgoutil.IsInMainPkg(method) {
 		if idx := strings.LastIndex(selectorTypeName, "."); idx >= 0 {
 			selectorTypeName = selectorTypeName[idx+1:]
 		}
