@@ -20,13 +20,14 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBuildPkgDocCache(t *testing.T) {
 	t.Run("ValidProject", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox": file(`var (
 	// Total counts the items.
 	total int
@@ -66,7 +67,7 @@ func Reset() {
 	})
 
 	t.Run("ParserError", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"invalid_fixture.gox": file(`invalid syntax {{{`),
 		}, FeatASTCache)
 
@@ -81,24 +82,39 @@ func Reset() {
 func TestProjectPkgDoc(t *testing.T) {
 	t.Run("FileKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name        string
-			filename    string
-			projectFile string
-			workPrefix  string
-			className   string
+			name       string
+			filename   string
+			className  string
+			newProject testProjectFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "Gop", filename: "main.gop"},
-			{name: "NormalClass", filename: "Record.gox", className: "Record"},
-			{name: "ProjectClass", filename: "main_fixture.gox", className: "App"},
-			{name: "WorkClass", filename: "items/Worker_fixture.gox", className: "Worker"},
-			{name: "NamedProject", filename: "Root_fixture.gox", projectFile: "Root_fixture.gox", className: "Root"},
-			{name: "PrefixedWork", filename: "Worker_fixture.gox", workPrefix: "Task", className: "TaskWorker"},
-			{name: "NormalizedClassName", filename: "work-item_fixture.gox", className: "work_item"},
-			{name: "TestClass", filename: "Check_test.gox", className: "caseCheck"},
+			{name: "XGo", filename: "main.xgo", newProject: newTestProject},
+			{name: "Gop", filename: "main.gop", newProject: newTestProject},
+			{name: "NormalClass", filename: "Record.gox", className: "Record", newProject: newTestProject},
+			{name: "ProjectClass", filename: "main_fixture.gox", className: "App", newProject: newFrameworkTestProject},
+			{name: "WorkClass", filename: "items/Worker_fixture.gox", className: "Worker", newProject: newFrameworkTestProject},
+			{name: "NamedProject", filename: "Root_fixture.gox", className: "Root", newProject: func(t *testing.T, files map[string]*File, feats uint) *Project {
+				t.Helper()
+
+				mod := testframework.NewModule(t)
+				class, ok := mod.LookupClass("_fixture.gox")
+				require.True(t, ok)
+				class.FullExt = "Root_fixture.gox"
+				return newFrameworkTestProjectWithModule(t, files, feats, mod)
+			}},
+			{name: "PrefixedWork", filename: "Worker_fixture.gox", className: "TaskWorker", newProject: func(t *testing.T, files map[string]*File, feats uint) *Project {
+				t.Helper()
+
+				mod := testframework.NewModule(t)
+				class, ok := mod.LookupClass("_fixture.gox")
+				require.True(t, ok)
+				class.Works[0].Prefix = "Task"
+				return newFrameworkTestProjectWithModule(t, files, feats, mod)
+			}},
+			{name: "NormalizedClassName", filename: "work-item_fixture.gox", className: "work_item", newProject: newFrameworkTestProject},
+			{name: "TestClass", filename: "Check_test.gox", className: "caseCheck", newProject: newTestProject},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				proj := newTestProject(t, map[string]*File{
+				proj := tt.newProject(t, map[string]*File{
 					tt.filename: file(`var (
 	// Value stores the count.
 	value int
@@ -110,13 +126,6 @@ func Increment() {
 }
 `),
 				}, FeatASTCache|FeatPkgDocCache)
-				framework, ok := proj.Mod.LookupClass("_fixture.gox")
-				require.True(t, ok)
-				if tt.projectFile != "" {
-					framework.FullExt = tt.projectFile
-				}
-				framework.Works[0].Prefix = tt.workPrefix
-
 				doc, err := proj.PkgDoc()
 				require.NoError(t, err)
 				require.NotNil(t, doc)
@@ -143,7 +152,7 @@ func Increment() {
 	})
 
 	t.Run("MixedFiles", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox": file(`var (
 	// Total belongs to the project.
 	total int
@@ -201,7 +210,11 @@ func (a *App) Read() int { return a.total }
 	})
 
 	t.Run("EmptyClassName", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		mod := testframework.NewModule(t)
+		class, ok := mod.LookupClass("_fixture.gox")
+		require.True(t, ok)
+		class.Class = ""
+		proj := newFrameworkTestProjectWithModule(t, map[string]*File{
 			"main_fixture.gox": file(`var (
 	// Total belongs to the unnamed project class.
 	total int
@@ -221,10 +234,7 @@ func Reset() {}
 			"helpers.xgo": file(`// Reset is a package function.
 func Reset() {}
 `),
-		}, FeatASTCache|FeatPkgDocCache)
-		framework, ok := proj.Mod.LookupClass("_fixture.gox")
-		require.True(t, ok)
-		framework.Class = ""
+		}, FeatASTCache|FeatPkgDocCache, mod)
 
 		doc, err := proj.PkgDoc()
 		require.NoError(t, err)
@@ -266,7 +276,7 @@ type Color const (
 	})
 
 	t.Run("Cache", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"Worker_fixture.gox": file(`var (
 	// Value stores the count.
 	value int
