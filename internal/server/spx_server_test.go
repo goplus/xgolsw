@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -41,7 +43,8 @@ func TestHandleMessageCallSpx(t *testing.T) {
 			} {
 				t.Run(tt.name, func(t *testing.T) {
 					replier := newMockReplier()
-					s := New(newProjectWithoutModTime(tt.files), replier, fileMapGetter(tt.files), &MockScheduler{})
+					s := newSpxTestServer(t, tt.files)
+					s.replier = replier
 					initializeServerForTest(t, s, replier)
 					call, err := jsonrpc2.NewCall(jsonrpc2.NewIntID(1), "workspace/executeCommand", ExecuteCommandParams{
 						Command:   command.command,

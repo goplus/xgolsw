@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -25,7 +27,7 @@ onTouchStart 123, (s) => { // type mismatch
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
 		}

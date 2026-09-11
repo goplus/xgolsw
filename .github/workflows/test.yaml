@@ -26,6 +26,21 @@ jobs:
           token: ${{secrets.CODECOV_TOKEN}}
           disable_search: true
           files: coverage.out
+  test-no-pkgdata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+      - name: Download Go modules
+        run: go mod download
+      - name: Test without embedded package data
+        run: >-
+          go test -v -race -shuffle=on -tags=test_no_pkgdata
+          -overlay=testdata/no-pkgdata/overlay.json -bench=. -benchtime=1x ./...
   test-go-build:
     needs: test
     runs-on: ubuntu-latest

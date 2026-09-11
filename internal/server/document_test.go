@@ -2,14 +2,76 @@ package server
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
+	"github.com/goplus/mod/modfile"
+	"github.com/goplus/mod/modload"
+	"github.com/goplus/mod/xgomod"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentDocumentLink(t *testing.T) {
+	t.Run("LargeList", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			filename     string
+			owner        string
+			needsProject bool
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", needsProject: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := documentLinkLargeListFiles(tt.filename, 20_001)
+				if tt.needsProject {
+					files["main_fixture.gox"] = nil
+				}
+				s := newTestServer(t, files)
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				})
+				require.NoError(t, err)
+				_, err = s.getProj().TypeInfo()
+				require.NoError(t, err)
+				assert.Contains(t, links, DocumentLink{
+					Range:  Range{Start: Position{Character: 12}, End: Position{Character: 16}},
+					Target: toURI("xgo:main?list"),
+				})
+				assert.Contains(t, links, DocumentLink{
+					Range:  Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: 17}},
+					Target: toURI("xgo:main?" + tt.owner + "large"),
+				})
+			})
+		}
+	})
+
+	t.Run("OtherFrameworkWithSpxExtension", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
+		proj := s.workspaceRootFS
+		proj.Mod = xgomod.New(modload.Module{
+			Opt: &modfile.File{Projects: []*modfile.Project{{
+				Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
+				Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
+			}}},
+		})
+		require.NoError(t, proj.Mod.ImportClasses())
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []DocumentLink{
+			{Range: Range{Start: Position{Character: 4}, End: Position{Character: 9}}, Target: toURI("xgo:main?App.Count")},
+			{Range: Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 5}}, Target: toURI("xgo:main?App.Count")},
+		}, links)
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name     string
@@ -449,4 +511,34 @@ func TestSortDocumentLinks(t *testing.T) {
 		assert.Equal(t, uint32(5), links[2].Range.Start.Character)
 		assert.Equal(t, uint32(15), links[3].Range.Start.Character)
 	})
+}
+
+func documentLinkLargeListFiles(filename string, elementCount int) map[string][]byte {
+	source := `var large = list("value"` + strings.Repeat(`, "value"`, elementCount-1) + ")\n" +
+		"println len(large)\n"
+	return map[string][]byte{
+		filename:   []byte(source),
+		"list.xgo": []byte("func list(values ...string) []string { return values }\n"),
+	}
+}
+
+func BenchmarkServerDocumentLinkWithLargeList(b *testing.B) {
+	files := documentLinkLargeListFiles("main.xgo", 20_001)
+	s := newTestServer(b, files)
+	params := &DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+	links, err := s.textDocumentDocumentLink(params)
+	require.NoError(b, err)
+	_, err = s.getProj().TypeInfo()
+	require.NoError(b, err)
+	require.Contains(b, links, DocumentLink{
+		Range:  Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: 17}},
+		Target: toURI("xgo:main?large"),
+	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_, err := s.textDocumentDocumentLink(params)
+		require.NoError(b, err)
+	}
 }

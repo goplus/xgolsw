@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -45,7 +47,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json":    []byte(`{}`),
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
 		inputSlots, err := s.xgoGetInputSlots(params)
@@ -268,7 +270,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json":    []byte(`{}`),
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		inputSlots, err := s.xgoGetInputSlots([]SpxGetInputSlotsParams{
 			{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}},
@@ -306,7 +308,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json":    []byte(`{}`),
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
 		inputSlots, err := s.xgoGetInputSlots(params)
@@ -329,7 +331,7 @@ onStart => {
 
 	t.Run("MissingProjectFile", func(t *testing.T) {
 		files := map[string][]byte{"Worker.spx": []byte("println 5\n")}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///Worker.spx"}}})
 		require.NoError(t, err)
 		assert.Nil(t, slots)
@@ -340,7 +342,7 @@ onStart => {
 			"main.spx":          []byte("println HSB(1, 2, 3"),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
 		require.NoError(t, err)
 		require.Len(t, slots, 3)
@@ -354,7 +356,7 @@ onStart => {
 			"main.spx":          []byte(`var values List = NewList(1 + 2, "value")`),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
 		require.NoError(t, err)
 		require.Len(t, slots, 3)
@@ -375,7 +377,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
 		require.NoError(t, err)
 		slot := findInputSlot(slots, nil, "target", SpxInputTypeSpriteInstance, XGoInputKindPredefined)
@@ -467,7 +469,7 @@ onStart => {
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
-	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	s := newSpxTestServer(t, m)
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -628,7 +630,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	s := newSpxTestServer(t, m)
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -711,7 +713,7 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 		"assets/sprites/MySprite/index.json":    []byte(`{}`),
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
-	s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+	s := newSpxTestServer(t, files)
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
 	require.False(t, result.hasErrorSeverityDiagnostic)
@@ -765,7 +767,7 @@ onStart => {
 		"assets/sprites/MySprite/index.json": []byte(`{}`),
 		"assets/sounds/MySound/index.json":   []byte(`{}`),
 	}
-	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	s := newSpxTestServer(t, m)
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -855,7 +857,7 @@ onStart => {
 			"assets/index.json":                []byte(`{}`),
 			"assets/sounds/MySound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 		require.NoError(t, err)
@@ -902,7 +904,7 @@ onStart => {
 `),
 		"assets/index.json": []byte(`{}`),
 	}
-	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	s := newSpxTestServer(t, m)
 
 	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 	require.NoError(t, err)
@@ -1102,7 +1104,7 @@ func run() {}
 		"assets/sprites/MySprite/index.json":        []byte(`{"costumes":[{"name":"costume1"}]}`),
 		"assets/sprites/DecoratedSprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 	}
-	s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+	s := newSpxTestServer(t, m)
 
 	t.Run("MainFile", func(t *testing.T) {
 		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")

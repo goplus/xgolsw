@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -15,7 +17,7 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 			"assets/index.json":              []byte(`{}`),
 			"assets/sounds/Sound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		const wantDoc = "Documentation supplied by the server."
 		doc := &pkgdoc.PkgDoc{
 			Path:  "fmt",
@@ -83,7 +85,7 @@ onTouchStart "MySprite", => {}
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 			"assets/sounds/MySound/index.json":   []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		mySoundRefHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -293,7 +295,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{"zorder":[{"name":"myWidget"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -324,7 +326,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		// The characters on `onStart` should map to `onStart`, not synthetic `this`.
 		for _, ch := range []uint32{0, 1, 2, 3, 4, 5, 6} {

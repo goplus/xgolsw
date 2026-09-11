@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -17,7 +19,7 @@ func TestServerXGoGetPropertiesSpx(t *testing.T) {
 func GetDamage() int { return 10 }
 `),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
 		for _, tt := range []struct {
@@ -58,7 +60,7 @@ func GetDamage() int { return 10 }
 			"main.spx":     []byte("var MySprite Sprite\n"),
 			"MySprite.spx": []byte("var hp int\n"),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		typeInfo, err := s.workspaceRootFS.TypeInfo()
 		require.ErrorContains(t, err, "MySprite conflicts with class name")
 		require.NotNil(t, typeInfo)
@@ -79,7 +81,7 @@ func GetDamage() int { return 10 }
 func CurrentValue() Value { return value }
 func CurrentList() List { return list }
 `)}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Game"})
