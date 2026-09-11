@@ -1,16 +1,15 @@
 package server
 
 import (
+	"fmt"
 	"io/fs"
-	"strings"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,15 +20,16 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 
 	proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 	proj.PkgPath = "main"
-	proj.Mod = xgomod.New(modload.Module{Opt: &modfile.File{}})
-	require.NoError(t, proj.Mod.ImportClasses())
+	proj.Mod = testframework.NewBaseModule(t)
 	proj.Importer = testframework.NewBaseImporter(t, proj.Fset)
 	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{},
 		func() ([]string, error) { return nil, nil },
 		func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 			t.Helper()
 
-			requireNonSpxDocumentation(t, pkgPath)
+			if err := checkNonSpxDocumentation(t, pkgPath); err != nil {
+				return nil, err
+			}
 			return nil, fs.ErrNotExist
 		},
 	)
@@ -65,7 +65,9 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 	lookupPkgDoc := func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 		t.Helper()
 
-		requireNonSpxDocumentation(t, pkgPath)
+		if err := checkNonSpxDocumentation(t, pkgPath); err != nil {
+			return nil, err
+		}
 		if pkgPath == testframework.PkgPath {
 			return frameworkDoc, nil
 		}
@@ -74,11 +76,15 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
 }
 
-func requireNonSpxDocumentation(t testing.TB, pkgPath string) {
+func checkNonSpxDocumentation(t testing.TB, pkgPath string) error {
 	t.Helper()
 
-	require.False(t, pkgPath == "github.com/goplus/spx" || strings.HasPrefix(pkgPath, "github.com/goplus/spx/"),
-		"unexpected spx documentation lookup: %s", pkgPath)
+	if testframework.IsSpxPath(pkgPath) {
+		err := fmt.Errorf("unexpected spx documentation lookup: %s", pkgPath)
+		assert.Fail(t, err.Error())
+		return err
+	}
+	return nil
 }
 
 func newFileMap(files map[string][]byte) map[string]*xgo.File {

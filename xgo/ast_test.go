@@ -78,15 +78,16 @@ func Test() {
 			isClass     bool
 			isProj      bool
 			isNormalGox bool
+			newProject  testProjectFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "Gop", filename: "main.gop"},
-			{name: "NormalClass", filename: "Record.gox", isClass: true, isNormalGox: true},
-			{name: "ProjectClass", filename: "main_fixture.gox", isClass: true, isProj: true},
-			{name: "WorkClass", filename: "Worker_fixture.gox", isClass: true},
+			{name: "XGo", filename: "main.xgo", newProject: newTestProject},
+			{name: "Gop", filename: "main.gop", newProject: newTestProject},
+			{name: "NormalClass", filename: "Record.gox", isClass: true, isNormalGox: true, newProject: newTestProject},
+			{name: "ProjectClass", filename: "main_fixture.gox", isClass: true, isProj: true, newProject: newFrameworkTestProject},
+			{name: "WorkClass", filename: "Worker_fixture.gox", isClass: true, newProject: newFrameworkTestProject},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				proj := newTestProject(t, map[string]*File{tt.filename: file(`var value int`)}, FeatASTCache)
+				proj := tt.newProject(t, map[string]*File{tt.filename: file(`var value int`)}, FeatASTCache)
 				cache, err := buildASTFileCache(proj, tt.filename, proj.files[tt.filename])
 				require.NoError(t, err)
 				astCache, ok := cache.(*astFileCache)
@@ -239,7 +240,7 @@ func ValidFunc() {}
 
 func TestProjectASTPackage(t *testing.T) {
 	t.Run("ValidPackage", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox": file(`
 // Main file.
 var mainVar int

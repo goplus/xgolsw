@@ -145,7 +145,7 @@ func Double() int {
 	})
 
 	t.Run("FrameworkClasses", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox": file(`var total int
 
 onStart => {
@@ -227,7 +227,7 @@ echo label
 	})
 
 	t.Run("FrameworkTypeError", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox": file(`var total int`),
 			"Worker_fixture.gox": file(`onValue amount => {
 	total = "invalid"
@@ -246,7 +246,7 @@ echo label
 	})
 
 	t.Run("FrameworkCacheInvalidation", func(t *testing.T) {
-		proj := newTestProject(t, map[string]*File{
+		proj := newFrameworkTestProject(t, map[string]*File{
 			"main_fixture.gox":   file(`var total int`),
 			"Worker_fixture.gox": file(`var value int`),
 		}, FeatASTCache|FeatTypeInfoCache)

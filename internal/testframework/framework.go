@@ -3,6 +3,7 @@ package testframework
 
 import (
 	_ "embed"
+	"fmt"
 	goast "go/ast"
 	goparser "go/parser"
 	gotypes "go/types"
@@ -16,6 +17,7 @@ import (
 	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +29,16 @@ const PkgPath = "example.com/framework"
 //go:embed testdata/framework.go
 var source string
 
-// NewModule returns a fresh module with the test framework registered.
+// NewBaseModule returns a fresh module with only XGo's builtin classfiles.
+func NewBaseModule(t testing.TB) *xgomod.Module {
+	t.Helper()
+
+	mod := xgomod.New(modload.Module{Opt: &modfile.File{}})
+	require.NoError(t, mod.ImportClasses())
+	return mod
+}
+
+// NewModule returns a fresh module with one framework project and one work class.
 func NewModule(t testing.TB) *xgomod.Module {
 	t.Helper()
 
@@ -77,8 +88,11 @@ type importer struct {
 func (i *importer) Import(pkgPath string) (*gotypes.Package, error) {
 	i.t.Helper()
 
-	require.False(i.t, pkgPath == "github.com/goplus/spx" || strings.HasPrefix(pkgPath, "github.com/goplus/spx/"),
-		"unexpected spx import: %s", pkgPath)
+	if IsSpxPath(pkgPath) {
+		err := fmt.Errorf("unexpected spx import: %s", pkgPath)
+		assert.Fail(i.t, err.Error())
+		return nil, err
+	}
 	if pkgPath == PkgPath {
 		if i.framework == nil {
 			return nil, fs.ErrNotExist
@@ -86,6 +100,11 @@ func (i *importer) Import(pkgPath string) (*gotypes.Package, error) {
 		return i.framework, nil
 	}
 	return i.fallback.Import(pkgPath)
+}
+
+// IsSpxPath reports whether pkgPath belongs to spx, including versioned packages.
+func IsSpxPath(pkgPath string) bool {
+	return pkgPath == "github.com/goplus/spx" || strings.HasPrefix(pkgPath, "github.com/goplus/spx/")
 }
 
 // NewPkgDoc returns documentation parsed from the framework source.
