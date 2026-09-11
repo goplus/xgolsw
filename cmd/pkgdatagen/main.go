@@ -34,7 +34,6 @@ import (
 	"slices"
 
 	"github.com/goplus/xgolsw/pkgdoc"
-	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/gcexportdata"
 
 	_ "github.com/goplus/spx/v3"
@@ -170,12 +169,7 @@ func generate(pkgPaths []string, outputFile string) error {
 			continue
 		}
 
-		var pkgName string
-		if prefix, _, ok := module.SplitPathVersion(pkgPath); ok {
-			pkgName = path.Base(prefix)
-		} else {
-			pkgName = path.Base(buildPkg.ImportPath)
-		}
+		pkgName := buildPkg.Name
 
 		var pkgDoc *pkgdoc.PkgDoc
 		if pkgPath == "builtin" {
