@@ -72,7 +72,7 @@ func (s *Server) getProjWithFile() *xgo.Project {
 	return proj
 }
 
-// New creates a new Server instance.
+// New creates a new Server instance with the default module and package data.
 func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
 	mod := xgomod.New(modload.Default)
 	if err := mod.ImportClasses(); err != nil {
@@ -81,6 +81,18 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 	proj.PkgPath = "main"
 	proj.Mod = mod
 	proj.Importer = internal.Importer
+	return newServer(proj, replier, fileMapGetter, scheduler, pkgdata.ListPkgs, pkgdata.GetPkgDoc)
+}
+
+// newServer creates a server from a configured project and package data providers.
+func newServer(
+	proj *xgo.Project,
+	replier MessageReplier,
+	fileMapGetter FileMapGetter,
+	scheduler Scheduler,
+	listPkgs func() ([]string, error),
+	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
+) *Server {
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
@@ -88,8 +100,8 @@ func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter,
 		analyzers:        initAnalyzers(true),
 		fileMapGetter:    fileMapGetter,
 		scheduler:        scheduler,
-		listPkgs:         pkgdata.ListPkgs,
-		lookupPkgDoc:     pkgdata.GetPkgDoc,
+		listPkgs:         listPkgs,
+		lookupPkgDoc:     lookupPkgDoc,
 		language:         i18n.LanguageEN, // Default to English until initialize is called
 	}
 }

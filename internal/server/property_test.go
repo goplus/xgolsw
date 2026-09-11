@@ -15,16 +15,17 @@ import (
 func TestServerXGoGetProperties(t *testing.T) {
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			target   string
-			class    bool
+			name      string
+			filename  string
+			target    string
+			class     bool
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo", target: "Record"},
-			{name: "LegacyXGo", filename: "main.gop", target: "Record"},
-			{name: "StandaloneClass", filename: "Record.gox", target: "Record", class: true},
-			{name: "ProjectClass", filename: "main_fixture.gox", target: "App", class: true},
-			{name: "WorkClass", filename: "Worker_fixture.gox", target: "Worker", class: true},
+			{name: "XGo", filename: "main.xgo", target: "Record", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", target: "Record", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", target: "Record", class: true, newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", target: "App", class: true, newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", target: "Worker", class: true, newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source := `type Record struct {
@@ -47,7 +48,7 @@ func GetScore() int { return score }
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: tt.target})
@@ -143,7 +144,7 @@ type RecordPointer = *Record
 	})
 
 	t.Run("ImportedDocumentationUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`import "example.com/framework"
+		s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import "example.com/framework"
 type Record struct { framework.Item }
 `)})
 		lookupPkgDoc := s.lookupPkgDoc
@@ -219,7 +220,7 @@ var count int
 }
 
 func TestIsPropertyOfEnclosingType(t *testing.T) {
-	s := newTestServer(t, map[string][]byte{
+	s := newFrameworkTestServer(t, map[string][]byte{
 		"main_fixture.gox": nil,
 		"Worker_fixture.gox": []byte(`var (
     x int
@@ -264,7 +265,7 @@ func XGo_Internal() int { return 0 }
 
 func TestFindEnclosingType(t *testing.T) {
 	t.Run("ClassMembers", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": nil,
 			"Worker_fixture.gox": []byte(`var (
     x int

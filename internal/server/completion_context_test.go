@@ -14,12 +14,13 @@ func TestServerTextDocumentCompletionContext(t *testing.T) {
 			name         string
 			filename     string
 			needsProject bool
+			newServer    testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox"},
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true, newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -37,7 +38,7 @@ func candidateVoid() {}
 				if tt.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 
@@ -132,7 +133,7 @@ func candidateVoid() {}
 `
 						files := map[string][]byte{"main_fixture.gox": nil}
 						files[class.filename] = []byte(prefix + tt.body)
-						s := newTestServer(t, files)
+						s := newFrameworkTestServer(t, files)
 						_, err := s.workspaceRootFS.TypeInfo()
 						require.NoError(t, err)
 

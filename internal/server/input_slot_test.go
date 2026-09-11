@@ -8,12 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -442,31 +438,23 @@ func main() {
 
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
+			name      string
+			filename  string
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox"},
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox"},
-			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx"},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 5\n")}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
-				if tt.name == "OtherFrameworkWithSpxExtension" {
-					s.workspaceRootFS.Mod = xgomod.New(modload.Module{
-						Opt: &modfile.File{Projects: []*modfile.Project{{
-							Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
-							Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
-						}}},
-					})
-					require.NoError(t, s.workspaceRootFS.Mod.ImportClasses())
-				}
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{

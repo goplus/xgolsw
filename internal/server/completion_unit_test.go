@@ -42,7 +42,7 @@ func TestServerTextDocumentCompletionUnits(t *testing.T) {
 				const line = "\t/* \U0001f600 */ move 1m"
 				files := map[string][]byte{"main_fixture.gox": nil}
 				files[tt.filename] = []byte("import \"example.com/unit\"\r\nfunc move(d unit.Distance) {}\r\n" + tt.callback + "\r\n" + line + "\r\n}\r\n")
-				s := newTestServer(t, files)
+				s := newFrameworkTestServer(t, files)
 				s.workspaceRootFS.Importer = xgoUnitTestImporter{fallback: s.workspaceRootFS.Importer}
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)

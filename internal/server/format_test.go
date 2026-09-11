@@ -9,6 +9,7 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/format"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,39 +18,45 @@ import (
 func TestServerTextDocumentFormatting(t *testing.T) {
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			source   string
-			want     string
+			name      string
+			filename  string
+			source    string
+			want      string
+			newServer testServerFactory
 		}{
 			{
 				name: "XGo", filename: "main.xgo",
-				source: "var first=1\nvar second=2\ntype Count int\necho first,second\n",
-				want:   "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				source:    "var first=1\nvar second=2\ntype Count int\necho first,second\n",
+				want:      "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				newServer: newTestServer,
 			},
 			{
 				name: "LegacyXGo", filename: "main.gop",
-				source: "var first=1\nvar second=2\ntype Count int\necho first,second\n",
-				want:   "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				source:    "var first=1\nvar second=2\ntype Count int\necho first,second\n",
+				want:      "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				newServer: newTestServer,
 			},
 			{
 				name: "StandaloneClass", filename: "Record.gox",
-				source: "var count Count\ntype Count int\n",
-				want:   "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source:    "var count Count\ntype Count int\n",
+				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				newServer: newTestServer,
 			},
 			{
 				name: "ProjectClass", filename: "main_fixture.gox",
-				source: "var count Count\ntype Count int\n",
-				want:   "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source:    "var count Count\ntype Count int\n",
+				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				newServer: newFrameworkTestServer,
 			},
 			{
 				name: "WorkClass", filename: "Worker_fixture.gox",
-				source: "var count Count\ntype Count int\n",
-				want:   "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source:    "var count Count\ntype Count int\n",
+				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				newServer: newFrameworkTestServer,
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
+				s := tt.newServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
 				params := &DocumentFormattingParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 				}
@@ -67,7 +74,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 	})
 
 	t.Run("ClassfileRegistration", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.unit": []byte("var count Count\ntype Count int\n")})
+		s := newFrameworkTestServer(t, map[string][]byte{"main.unit": []byte("var count Count\ntype Count int\n")})
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.unit"},
 		}
@@ -89,12 +96,13 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 	})
 
 	t.Run("AutoLambda", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("onStart {echo \"ready\"}\nonEvent \"value\", (value)=>{echo \"value\"}\n"),
-		})
-		class, ok := s.workspaceRootFS.Mod.LookupClass("_fixture.gox")
+		mod := testframework.NewModule(t)
+		class, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
 		class.AutoLambdas = map[string]int{"onStart": 0}
+		s := newFrameworkTestServerWithModule(t, map[string][]byte{
+			"main_fixture.gox": []byte("onStart {echo \"ready\"}\nonEvent \"value\", (value)=>{echo \"value\"}\n"),
+		}, mod)
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
 		params := &DocumentFormattingParams{
@@ -112,7 +120,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 	})
 
 	t.Run("FileUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte("onStart => {\n\techo \"old\"\n}\n"),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -151,7 +159,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte(tt.source),
 					"Worker_fixture.gox": []byte("var count int\n"),
 				})
@@ -190,7 +198,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 	})
 
 	t.Run("OtherFileASTIsolation", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   []byte("onEvent \"value\", (value) => {\n\techo \"ready\"\n}\n"),
 			"Worker_fixture.gox": []byte("var count int\n"),
 		})
@@ -211,7 +219,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 	})
 
 	t.Run("PlainXGoLambda", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main.xgo": []byte("import \"example.com/framework\"\nvar app framework.App\napp.onEvent \"value\", (value)=>{echo \"ready\"}\n"),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -276,7 +284,7 @@ var (
 type Score int
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -318,7 +326,7 @@ func retry(delay time.Duration, fn func()) {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -355,7 +363,7 @@ width int
 type Rect int
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -390,7 +398,7 @@ var (
 	})
 
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := newTestServer(t, nil)
+		s := newFrameworkTestServer(t, nil)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///notexist_fixture.gox"},
 		}
@@ -404,7 +412,7 @@ var (
 		m := map[string][]byte{
 			"main_fixture.gox": []byte("onStart => {\n\techo \"ready\"\n}\n"),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -422,7 +430,7 @@ var title string
 !InvalidSyntax
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -468,7 +476,7 @@ var (
 )
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -504,7 +512,7 @@ var (
 ) // Class fields.
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -529,7 +537,7 @@ var (
 	)
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -557,7 +565,7 @@ var (
 )
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -577,7 +585,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -599,7 +607,7 @@ onEvent "value", (value) => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -688,7 +696,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -740,7 +748,7 @@ onStart => {
 		m := map[string][]byte{
 			"main_fixture.gox": []byte(``),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -754,7 +762,7 @@ onStart => {
 		m := map[string][]byte{
 			"main_fixture.gox": []byte(` `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -798,7 +806,7 @@ const b = "123"
 // floating comment5
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -850,7 +858,7 @@ var a int // trailing comment for var a
 func test() {} // trailing comment for func test
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -891,7 +899,7 @@ func (Foo) Bar() {}
 func Bar() {}
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -932,7 +940,7 @@ var (
 
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -955,7 +963,7 @@ var (
 		m := map[string][]byte{
 			"main_fixture.gox": []byte("var ( )\n"),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -980,7 +988,7 @@ var (
 
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -1009,7 +1017,7 @@ var (
 
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -1045,7 +1053,7 @@ var name string = "Player"
 
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -1069,7 +1077,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}

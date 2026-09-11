@@ -120,7 +120,7 @@ onValue amount => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		workerRefs, err := s.textDocumentReferences(&ReferenceParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

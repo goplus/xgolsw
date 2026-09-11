@@ -94,7 +94,7 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{
+			s := newFrameworkTestServer(t, map[string][]byte{
 				"main_fixture.gox":   []byte("\nWorker.apply Low\n"),
 				"Worker_fixture.gox": []byte("\nonValue amount => {\n\tWorker.apply amount\n}\n"),
 			})
@@ -110,30 +110,38 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name     string
-		filename string
-		source   string
+		name        string
+		filename    string
+		source      string
+		projectFile string
+		newServer   testServerFactory
 	}{
 		{
-			name:     "ProjectField",
-			filename: "main_fixture.gox",
-			source:   "var count int\nonStart => {\n\tcount = 1\n}\n",
+			name:      "ProjectField",
+			filename:  "main_fixture.gox",
+			source:    "var count int\nonStart => {\n\tcount = 1\n}\n",
+			newServer: newFrameworkTestServer,
 		},
 		{
-			name:     "WorkField",
-			filename: "Worker_fixture.gox",
-			source:   "var count int\nonValue amount => {\n\tcount = amount\n}\n",
+			name:        "WorkField",
+			filename:    "Worker_fixture.gox",
+			source:      "var count int\nonValue amount => {\n\tcount = amount\n}\n",
+			projectFile: "main_fixture.gox",
+			newServer:   newFrameworkTestServer,
 		},
 		{
-			name:     "NormalClassField",
-			filename: "Record.gox",
-			source:   "var count int\nfunc run() {\n\tcount = 1\n}\n",
+			name:      "NormalClassField",
+			filename:  "Record.gox",
+			source:    "var count int\nfunc run() {\n\tcount = 1\n}\n",
+			newServer: newTestServer,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			files := map[string][]byte{"main_fixture.gox": []byte("\n")}
-			files[tt.filename] = []byte(tt.source)
-			s := newTestServer(t, files)
+			files := map[string][]byte{tt.filename: []byte(tt.source)}
+			if tt.projectFile != "" {
+				files[tt.projectFile] = nil
+			}
+			s := tt.newServer(t, files)
 			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 			})
@@ -578,23 +586,27 @@ func run() {
 
 	t.Run("CrossFileEnumReference", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
+			name        string
+			filename    string
+			projectFile string
+			newServer   testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "Project", filename: "main_fixture.gox"},
-			{name: "Work", filename: "Worker_fixture.gox"},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "Project", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "Work", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
-					"main_fixture.gox": []byte("\n"),
 					"enums.xgo": []byte(`type Color const (
 	Red = iota
 )
 `),
 				}
 				files[tt.filename] = []byte("var color Color = Red\n")
-				s := newTestServer(t, files)
+				if tt.projectFile != "" {
+					files[tt.projectFile] = nil
+				}
+				s := tt.newServer(t, files)
 
 				tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},

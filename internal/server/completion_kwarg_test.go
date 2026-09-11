@@ -16,12 +16,13 @@ func TestServerTextDocumentCompletionKwargs(t *testing.T) {
 			name         string
 			filename     string
 			needsProject bool
+			newServer    testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox"},
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true, newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -40,7 +41,7 @@ func run() {
 				if tt.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, Position{Line: 2, Character: 23})
 				assert.NotContains(t, completionItemLabels(items), "count")
 				item := completionItemByLabel(items, "name")
@@ -79,7 +80,7 @@ func run() {
 						t.Run(tt.name, func(t *testing.T) {
 							files := map[string][]byte{"main_fixture.gox": nil}
 							files[class.filename] = []byte("func configure(opts Item?) {}\n" + class.callback + "\n" + tt.call + "\n}\n")
-							s := newTestServer(t, files)
+							s := newFrameworkTestServer(t, files)
 							items := completionItemsAt(t, s, class.filename, Position{Line: 2, Character: 13})
 							item := completionItemByLabel(items, "value")
 							require.NotNil(t, item)
@@ -115,7 +116,7 @@ func run() {
 								"}",
 								"",
 							}, tt.eol))
-							s := newTestServer(t, files)
+							s := newFrameworkTestServer(t, files)
 							_, err := s.workspaceRootFS.TypeInfo()
 							require.NoError(t, err)
 
@@ -145,7 +146,7 @@ func run() {
 			{name: "ImplicitReceiver", factory: "func Params() Params { return nil }\n"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"options.xgo": []byte(`type Params interface {
 	Count(n int) Params
 	Name(v string) Params
