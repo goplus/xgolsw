@@ -7,9 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +35,7 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 			{name: "BuiltinAlias", pkgPath: "github.com/qiniu/x/osx"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox": []byte("import \"fmt\"\nvar Count int\nCount = 1\n\n"),
 				})
 				proj := s.workspaceRootFS
@@ -56,32 +53,24 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			owner    string
+			name      string
+			filename  string
+			owner     string
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox", owner: "Record."},
-			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
-			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker."},
-			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", owner: "App."},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", owner: "Record.", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App.", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", newServer: newFrameworkTestServer},
+			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", owner: "App.", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("// Count documentation.\nvar Count int\nCount = 1\n\n")}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
-				if tt.name == "OtherFrameworkWithSpxExtension" {
-					s.workspaceRootFS.Mod = xgomod.New(modload.Module{
-						Opt: &modfile.File{Projects: []*modfile.Project{{
-							Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
-							Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
-						}}},
-					})
-					require.NoError(t, s.workspaceRootFS.Mod.ImportClasses())
-				}
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				items := completionItemsAt(t, s, tt.filename, Position{Line: 3})
@@ -110,7 +99,7 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 	})
 
 	t.Run("CallbackScope", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   nil,
 			"Worker_fixture.gox": []byte("var Count int\nonValue value => {\n\t\n}\n"),
 		})
@@ -133,7 +122,7 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 			{name: "ExplicitReceiver", filename: "main.xgo", source: "import \"example.com/framework\"\nvar app framework.App\napp.measure(1)\n", position: Position{Line: 2, Character: 5}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
+				s := newFrameworkTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				items := completionItemsAt(t, s, tt.filename, tt.position)
@@ -196,12 +185,13 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 					t.Run(tt.name, func(t *testing.T) {
 						files := map[string][]byte{"main_fixture.gox": nil}
 						files[sourceKind.filename] = []byte("func run() {\n\n}\n")
-						s := newTestServer(t, files)
+						mod := testframework.NewModule(t)
 						if tt.withMath {
-							class, ok := s.workspaceRootFS.Mod.LookupClass("_fixture.gox")
+							class, ok := mod.LookupClass("_fixture.gox")
 							require.True(t, ok)
 							class.PkgPaths = append(class.PkgPaths, "math")
 						}
+						s := newFrameworkTestServerWithModule(t, files, mod)
 						lookup := s.lookupPkgDoc
 						s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 							if pkgPath == "math" {
@@ -324,55 +314,73 @@ func main() {
 
 	t.Run("DocumentationUpdates", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			source   string
-			position Position
-			label    string
-			pkgPath  string
-			setDoc   func(*pkgdoc.PkgDoc, string)
+			name      string
+			source    string
+			position  Position
+			label     string
+			pkgPath   string
+			newDoc    func(string) *pkgdoc.PkgDoc
+			newServer testServerFactory
 		}{
 			{name: "Package", source: "import f \"example.com/framework\"\n\n", position: Position{Line: 1}, label: "f", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Doc = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Doc: text}
+				}, newServer: newFrameworkTestServer},
 			{name: "PackageType", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "Item", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Doc = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Doc: text}}}
+				}, newServer: newFrameworkTestServer},
 			{name: "PackageConstant", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "Low", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Consts["Low"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Consts: map[string]string{"Low": text}}
+				}, newServer: newFrameworkTestServer},
 			{name: "PackageFunction", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "runWhen", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Funcs["RunWhen"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Funcs: map[string]string{"RunWhen": text}}
+				}, newServer: newFrameworkTestServer},
 			{name: "StructField", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.\n", position: Position{Line: 2, Character: 5}, label: "Value", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Fields["Value"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Fields: map[string]string{"Value": text}}}}
+				}, newServer: newFrameworkTestServer},
 			{name: "StructMethod", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.\n", position: Position{Line: 2, Character: 5}, label: "apply", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Methods["Apply"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Methods: map[string]string{"Apply": text}}}}
+				}, newServer: newFrameworkTestServer},
 			{name: "StructLiteralField", source: "import \"example.com/framework\"\nitem := framework.Item{}\n", position: Position{Line: 1, Character: 23}, label: "Value", pkgPath: testframework.PkgPath,
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Fields["Value"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Fields: map[string]string{"Value": text}}}}
+				}, newServer: newFrameworkTestServer},
 			{name: "InterfaceMethod", source: "import \"fmt\"\nvar s fmt.Stringer\ns.\n", position: Position{Line: 2, Character: 2}, label: "string", pkgPath: "fmt",
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) {
-					doc.Types["Stringer"] = &pkgdoc.TypeDoc{Methods: map[string]string{"String": text}}
-				}},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Stringer": {Methods: map[string]string{"String": text}}}}
+				}, newServer: newTestServer},
 			{name: "Builtin", source: "\n\n", position: Position{Line: 1}, label: "len", pkgPath: "builtin",
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Funcs["len"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Funcs: map[string]string{"len": text}}
+				}, newServer: newTestServer},
 			{name: "BuiltinAlias", source: "\n\n", position: Position{Line: 1}, label: "echo", pkgPath: "fmt",
-				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Funcs["Println"] = text }},
+				newDoc: func(text string) *pkgdoc.PkgDoc {
+					return &pkgdoc.PkgDoc{Funcs: map[string]string{"Println": text}}
+				}, newServer: newTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				s := tt.newServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
 				lookup := s.lookupPkgDoc
 				var doc *pkgdoc.PkgDoc
 				s.lookupPkgDoc = func(pkgPath string) (*pkgdoc.PkgDoc, error) {
-					if pkgPath == tt.pkgPath {
-						if doc == nil {
-							return nil, fs.ErrNotExist
-						}
-						return doc, nil
+					if pkgPath != tt.pkgPath {
+						return lookup(pkgPath)
 					}
-					return lookup(pkgPath)
+					if doc == nil {
+						return nil, fs.ErrNotExist
+					}
+					return doc, nil
 				}
 				for _, text := range []string{"First documentation.", "Second documentation.", "", "Restored documentation."} {
 					if text == "" {
 						doc = nil
 					} else {
-						doc = testframework.NewPkgDoc(t)
-						tt.setDoc(doc, text)
+						doc = tt.newDoc(text)
 					}
 					items := completionItemsAt(t, s, "main.xgo", tt.position)
 					item := completionItemByLabel(items, tt.label)
@@ -408,7 +416,7 @@ func main() {
 	})
 
 	t.Run("UTF16Position", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main.xgo": []byte("import \"example.com/framework\"\r\nvar item framework.Item\r\necho \"\U0001f600\", item.\r\n"),
 		})
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 2, Character: 16})

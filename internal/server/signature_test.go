@@ -70,7 +70,7 @@ func TestServerTextDocumentSignatureHelp(t *testing.T) {
 					"Worker_fixture.gox": {},
 				}
 				files[tt.filename] = []byte(tt.source)
-				s := newTestServer(t, files)
+				s := newFrameworkTestServer(t, files)
 				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
 						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
@@ -231,7 +231,7 @@ func TestServerTextDocumentSignatureHelp(t *testing.T) {
 	}
 
 	t.Run("Autoclosure", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStart => {
 	runWhen true, => {}
@@ -349,7 +349,7 @@ func run() error {
 	}
 
 	t.Run("XGoxMethod", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStart => {
 	create Item, "sample"

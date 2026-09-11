@@ -52,7 +52,7 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte("var total int\n"),
 					"Worker_fixture.gox": []byte("onValue amount => {\n    total = amount\n}\n"),
 				})
@@ -70,17 +70,21 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 
 	t.Run("ThisPtr", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
+			name        string
+			filename    string
+			projectFile string
+			newServer   testServerFactory
 		}{
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox"},
-			{name: "NormalClass", filename: "Record.gox"},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{"main_fixture.gox": nil}
-				files[tt.filename] = []byte("_ = this\n")
-				s := newTestServer(t, files)
+				files := map[string][]byte{tt.filename: []byte("_ = this\n")}
+				if tt.projectFile != "" {
+					files[tt.projectFile] = nil
+				}
+				s := tt.newServer(t, files)
 				uri := s.toDocumentURI(tt.filename)
 				position := Position{Line: 0, Character: 4}
 				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
@@ -104,24 +108,28 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 
 	t.Run("NotRenameable", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			source   string
-			position Position
+			name        string
+			filename    string
+			source      string
+			position    Position
+			needsWorker bool
+			newServer   testServerFactory
 		}{
-			{name: "BlankIdent", filename: "main.xgo", source: "const _ = 1\n", position: Position{Line: 0, Character: 6}},
-			{name: "BuiltinType", filename: "main.xgo", source: "var value int\n", position: Position{Line: 0, Character: 10}},
-			{name: "BuiltinFunc", filename: "main.xgo", source: "println 1\n"},
-			{name: "ImportedPackage", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1}},
-			{name: "ImportedMember", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1, Character: 4}},
-			{name: "StringLiteral", filename: "main.xgo", source: "_ = \"value\"\n", position: Position{Line: 0, Character: 5}},
-			{name: "GeneratedClass", filename: "main_fixture.gox", source: "Worker.apply Low\n"},
-			{name: "ImportedFrameworkMember", filename: "main_fixture.gox", source: "Worker.apply Low\n", position: Position{Line: 0, Character: 7}},
+			{name: "BlankIdent", filename: "main.xgo", source: "const _ = 1\n", position: Position{Line: 0, Character: 6}, newServer: newTestServer},
+			{name: "BuiltinType", filename: "main.xgo", source: "var value int\n", position: Position{Line: 0, Character: 10}, newServer: newTestServer},
+			{name: "BuiltinFunc", filename: "main.xgo", source: "println 1\n", newServer: newTestServer},
+			{name: "ImportedPackage", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1}, newServer: newTestServer},
+			{name: "ImportedMember", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1, Character: 4}, newServer: newTestServer},
+			{name: "StringLiteral", filename: "main.xgo", source: "_ = \"value\"\n", position: Position{Line: 0, Character: 5}, newServer: newTestServer},
+			{name: "GeneratedClass", filename: "main_fixture.gox", source: "Worker.apply Low\n", needsWorker: true, newServer: newFrameworkTestServer},
+			{name: "ImportedFrameworkMember", filename: "main_fixture.gox", source: "Worker.apply Low\n", position: Position{Line: 0, Character: 7}, needsWorker: true, newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{"main_fixture.gox": nil, "Worker_fixture.gox": nil}
-				files[tt.filename] = []byte(tt.source)
-				s := newTestServer(t, files)
+				files := map[string][]byte{tt.filename: []byte(tt.source)}
+				if tt.needsWorker {
+					files["Worker_fixture.gox"] = nil
+				}
+				s := tt.newServer(t, files)
 				uri := s.toDocumentURI(tt.filename)
 				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: uri},
@@ -352,7 +360,7 @@ func TestServerTextDocumentRename(t *testing.T) {
 			{name: "Reference", uri: "file:///Worker_fixture.gox", position: Position{Line: 0, Character: 4}, want: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte("const title = \"Example\"\n"),
 					"Worker_fixture.gox": []byte("_ = title\n"),
 				})
@@ -418,7 +426,7 @@ func TestServerTextDocumentRename(t *testing.T) {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte("var total int\n"),
 					"Worker_fixture.gox": []byte("var value int\nonValue amount => {\n    total = amount\n    value = amount\n}\n"),
 				})

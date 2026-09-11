@@ -203,7 +203,7 @@ onValue amount => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		workerHighlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{

@@ -14,15 +14,16 @@ import (
 func TestServerTextDocumentHover(t *testing.T) {
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			owner    string
+			name      string
+			filename  string
+			owner     string
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox", owner: "Record."},
-			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
-			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker."},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", owner: "Record.", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App.", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -31,7 +32,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				for _, position := range []Position{{Line: 1, Character: 4}, {Line: 2}} {
@@ -81,7 +82,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 					want: "Low and High are values used by framework methods."},
 			} {
 				t.Run(tt.name+markup.name, func(t *testing.T) {
-					s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+					s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
 					_, err := s.initialize(&InitializeParams{XInitializeParams: protocol.XInitializeParams{
 						Capabilities: protocol.ClientCapabilities{TextDocument: protocol.TextDocumentClientCapabilities{
 							Hover: &protocol.HoverClientCapabilities{ContentFormat: []protocol.MarkupKind{markup.kind}},
@@ -108,19 +109,20 @@ func TestServerTextDocumentHover(t *testing.T) {
 
 	t.Run("MissingDocumentation", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			source   string
-			position Position
-			want     string
+			name      string
+			source    string
+			position  Position
+			want      string
+			newServer testServerFactory
 		}{
-			{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8}},
+			{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8}, newServer: newFrameworkTestServer},
 			{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
-				want: `overview="func apply(value int)"`},
+				want: `overview="func apply(value int)"`, newServer: newFrameworkTestServer},
 			{name: "BuiltinAlias", source: "var number int128\n", position: Position{Character: 12},
-				want: `overview="type Int128"`},
+				want: `overview="type Int128"`, newServer: newTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				s := tt.newServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
 				s.lookupPkgDoc = func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist }
 				hover, err := s.textDocumentHover(&HoverParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
@@ -174,7 +176,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Consts["Low"] = text }},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{"main_fixture.gox": []byte(tt.source)})
+				s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(tt.source)})
 				params := &HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}, Position: tt.position,
 				}}
@@ -262,7 +264,7 @@ fmt.Println(int8(1))
 			"Worker_fixture.gox": []byte("imagePoint.X = 100\n"),
 		}
 
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		varHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -433,7 +435,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -502,7 +504,7 @@ import (
 framework.RunWhen true, => {}
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		importHover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -664,7 +666,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -723,7 +725,7 @@ onStart => {
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -765,7 +767,7 @@ this = 1
 }
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		// The characters on `onValue` should map to `onValue`, not synthetic `this`.
 		for _, ch := range []uint32{0, 1, 2, 3, 4, 5, 6} {

@@ -69,7 +69,7 @@ func TestServerTextDocumentDefinition(t *testing.T) {
 	})
 
 	t.Run("FrameworkClasses", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 Worker.apply Low
 `),
@@ -134,7 +134,7 @@ onValue amount => {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox": []byte("var total int\n"),
 					"Worker_fixture.gox": []byte(`onValue amount => {
     total = amount
@@ -172,17 +172,21 @@ var x int
 
 	t.Run("ThisPtr", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
+			name        string
+			filename    string
+			projectFile string
+			newServer   testServerFactory
 		}{
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox"},
-			{name: "NormalClass", filename: "Record.gox"},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{"main_fixture.gox": nil}
-				files[tt.filename] = []byte("println this\n")
-				s := newTestServer(t, files)
+				files := map[string][]byte{tt.filename: []byte("println this\n")}
+				if tt.projectFile != "" {
+					files[tt.projectFile] = nil
+				}
+				s := tt.newServer(t, files)
 				def, err := s.textDocumentDefinition(&DefinitionParams{
 					TextDocumentPositionParams: TextDocumentPositionParams{
 						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
@@ -698,7 +702,7 @@ func main() {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte(tt.source),
 					"Worker_fixture.gox": nil,
 				})

@@ -4,9 +4,6 @@ import (
 	"io/fs"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/testframework"
@@ -62,7 +59,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 )
 `),
 		}
-		s := newTestServer(t, m)
+		s := newFrameworkTestServer(t, m)
 
 		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///Foo_fixture.gox"},
@@ -148,7 +145,7 @@ onStart => {
 	x, y = calcPos()
 }
 `)
-		s := newTestServer(t, fileMap)
+		s := newFrameworkTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
@@ -362,7 +359,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 			"main_fixture.gox": []byte("println 1\n"),
 			"broken.xgo":       []byte("var (\n    x int\n"),
 		}
-		s := newTestServer(t, files)
+		s := newFrameworkTestServer(t, files)
 		proj := s.getProj()
 		importer := proj.Importer
 		proj.Importer = completionTestImporter{Importer: importer, unavailablePath: testframework.PkgPath}
@@ -501,33 +498,24 @@ func TestServerDiagnosticsAt(t *testing.T) {
 
 	t.Run("Classfiles", func(t *testing.T) {
 		for _, tt := range []struct {
-			name         string
-			filename     string
-			projectFile  string
-			spxExtension bool
+			name        string
+			filename    string
+			projectFile string
+			newServer   testServerFactory
 		}{
-			{name: "PlainXGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox"},
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox"},
-			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", spxExtension: true},
+			{name: "PlainXGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("println missing\n")}
 				if tt.projectFile != "" {
 					files[tt.projectFile] = nil
 				}
-				s := newTestServer(t, files)
-				if tt.spxExtension {
-					s.workspaceRootFS.Mod = xgomod.New(modload.Module{
-						Opt: &modfile.File{Projects: []*modfile.Project{{
-							Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
-							Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
-						}}},
-					})
-					require.NoError(t, s.workspaceRootFS.Mod.ImportClasses())
-				}
+				s := tt.newServer(t, files)
 				report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 				require.NoError(t, err)
 				require.Len(t, report.Items, len(files))

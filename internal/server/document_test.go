@@ -5,10 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
-	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,17 +17,18 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 			filename     string
 			owner        string
 			needsProject bool
+			newServer    testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
-			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", needsProject: true},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App.", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", needsProject: true, newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := documentLinkLargeListFiles(tt.filename, 20_001)
 				if tt.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 				})
@@ -51,15 +48,8 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	})
 
 	t.Run("OtherFrameworkWithSpxExtension", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
+		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
 		proj := s.workspaceRootFS
-		proj.Mod = xgomod.New(modload.Module{
-			Opt: &modfile.File{Projects: []*modfile.Project{{
-				Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
-				Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
-			}}},
-		})
-		require.NoError(t, proj.Mod.ImportClasses())
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
@@ -74,22 +64,23 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			owner    string
+			name      string
+			filename  string
+			owner     string
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox", owner: "Record."},
-			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App."},
-			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker."},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", owner: "Record.", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", owner: "App.", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 1\n")}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
@@ -106,7 +97,7 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	})
 
 	t.Run("CrossFileClassSymbols", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   []byte("var Count int\n"),
 			"Worker_fixture.gox": []byte("onValue value => {\n    Count = value\n    apply Count\n}\n"),
 		})
@@ -137,7 +128,7 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	t.Run("ImportedSymbols", func(t *testing.T) {
 		for _, name := range []string{"WithDocumentation", "MissingDocumentation"} {
 			t.Run(name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main.xgo": []byte("import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\nvar number int128\n"),
 				})
 				if name == "MissingDocumentation" {
@@ -163,7 +154,7 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	})
 
 	t.Run("FrameworkCalls", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte("measure 1\nmeasure \"one\"\ncreate int, \"item\"\nrunWhen true, => {}\n"),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -190,7 +181,7 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	})
 
 	t.Run("CrossFileEnumMembers", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"types.xgo":        []byte("type Color const (\n    Red = iota\n)\n"),
 			"main_fixture.gox": []byte("var color Color = Red\n"),
 		})
@@ -209,16 +200,18 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 
 	t.Run("This", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
-			source   string
-			want     []DocumentLink
+			name      string
+			filename  string
+			source    string
+			want      []DocumentLink
+			newServer testServerFactory
 		}{
 			{
 				name: "Synthetic", filename: "main_fixture.gox", source: "onStart => {\n    _ = this\n}\n",
 				want: []DocumentLink{{
 					Range: Range{Start: Position{}, End: Position{Character: 7}}, Target: toURI("xgo:example.com/framework?App.onStart"),
 				}},
+				newServer: newFrameworkTestServer,
 			},
 			{
 				name: "UserVariable", filename: "main.xgo", source: "var this = 1\nthis = 2\n",
@@ -226,10 +219,11 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 					{Range: Range{Start: Position{Character: 4}, End: Position{Character: 8}}, Target: toURI("xgo:main?this")},
 					{Range: Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 4}}, Target: toURI("xgo:main?this")},
 				},
+				newServer: newTestServer,
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
+				s := tt.newServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 				})

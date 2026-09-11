@@ -93,7 +93,7 @@ func main() {
 	})
 
 	t.Run("ClassMembersAndCallback", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   nil,
 			"Worker_fixture.gox": []byte("var Count int\nonValue value => {\n\tprintln 5\n}\n"),
 		})
@@ -117,10 +117,11 @@ func main() {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{"main_fixture.gox": nil}
 				files[tt.filename] = []byte("println 5\n")
-				s := newTestServer(t, files)
-				class, ok := s.workspaceRootFS.Mod.LookupClass("_fixture.gox")
+				mod := testframework.NewModule(t)
+				class, ok := mod.LookupClass("_fixture.gox")
 				require.True(t, ok)
 				class.PkgPaths = append(class.PkgPaths, "os", "io")
+				s := newFrameworkTestServerWithModule(t, files, mod)
 				ctx := inputSlotTestContext(t, s, tt.filename)
 				literal := inputSlotLiteral(t, ctx, "5")
 				names := collectPredefinedNames(ctx, literal, nil)
@@ -139,7 +140,7 @@ func main() {
 	})
 
 	t.Run("UnavailableImplicitPackage", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main_fixture.gox": []byte("var Count int\nprintln 5\n")})
+		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("var Count int\nprintln 5\n")})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
 		s.workspaceRootFS.Importer = completionTestImporter{Importer: s.workspaceRootFS.Importer, unavailablePath: testframework.PkgPath}

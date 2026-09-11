@@ -6,6 +6,7 @@ import (
 	goast "go/ast"
 	goparser "go/parser"
 	gotypes "go/types"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -58,7 +59,14 @@ func NewImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
 	}
 }
 
-// importer supplies the test framework and delegates other imports.
+// NewBaseImporter returns an importer without the framework package and rejects spx.
+func NewBaseImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
+	t.Helper()
+
+	return &importer{t: t, fallback: packages.NewImporter(fset)}
+}
+
+// importer rejects spx, optionally supplies the test framework, and delegates other imports.
 type importer struct {
 	t         testing.TB
 	framework *gotypes.Package
@@ -72,6 +80,9 @@ func (i *importer) Import(pkgPath string) (*gotypes.Package, error) {
 	require.False(i.t, pkgPath == "github.com/goplus/spx" || strings.HasPrefix(pkgPath, "github.com/goplus/spx/"),
 		"unexpected spx import: %s", pkgPath)
 	if pkgPath == PkgPath {
+		if i.framework == nil {
+			return nil, fs.ErrNotExist
+		}
 		return i.framework, nil
 	}
 	return i.fallback.Import(pkgPath)

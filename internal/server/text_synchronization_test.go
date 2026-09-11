@@ -156,17 +156,18 @@ func TestServerDocumentSynchronization(t *testing.T) {
 		name        string
 		filename    string
 		projectFile string
+		newServer   testServerFactory
 	}{
-		{name: "PlainXGo", filename: "main.xgo"},
-		{name: "ProjectClass", filename: "main_fixture.gox"},
-		{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox"},
+		{name: "PlainXGo", filename: "main.xgo", newServer: newTestServer},
+		{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+		{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			files := map[string][]byte{tt.filename: nil}
 			if tt.projectFile != "" {
 				files[tt.projectFile] = nil
 			}
-			s := newTestServer(t, files)
+			s := tt.newServer(t, files)
 			replier := newMockReplier()
 			s.replier = replier
 			uri := s.toDocumentURI(tt.filename)

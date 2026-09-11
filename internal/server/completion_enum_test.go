@@ -12,14 +12,15 @@ import (
 func TestServerTextDocumentCompletionEnums(t *testing.T) {
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
-			name     string
-			filename string
+			name      string
+			filename  string
+			newServer testServerFactory
 		}{
-			{name: "XGo", filename: "main.xgo"},
-			{name: "LegacyXGo", filename: "main.gop"},
-			{name: "StandaloneClass", filename: "Record.gox"},
-			{name: "ProjectClass", filename: "main_fixture.gox"},
-			{name: "WorkClass", filename: "Worker_fixture.gox"},
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "LegacyXGo", filename: "main.gop", newServer: newTestServer},
+			{name: "StandaloneClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte(`type Color const (
@@ -33,7 +34,7 @@ echo color
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 
@@ -59,11 +60,12 @@ echo color
 			firstFile  string
 			secondFile string
 			useFile    string
+			newServer  testServerFactory
 		}{
-			{name: "XGo", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "main.xgo"},
-			{name: "ProjectClass", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "main_fixture.gox"},
-			{name: "WorkClass", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "Worker_fixture.gox"},
-			{name: "ClassfileDeclarations", firstFile: "main_fixture.gox", secondFile: "Worker_fixture.gox", useFile: "main.xgo"},
+			{name: "XGo", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "main.xgo", newServer: newTestServer},
+			{name: "ProjectClass", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", firstFile: "first.xgo", secondFile: "second.xgo", useFile: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "ClassfileDeclarations", firstFile: "main_fixture.gox", secondFile: "Worker_fixture.gox", useFile: "main.xgo", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -87,7 +89,7 @@ echo color
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := tt.newServer(t, files)
 				_, err := s.workspaceRootFS.TypeInfo()
 				require.NoError(t, err)
 
@@ -134,7 +136,7 @@ func run() {
 `
 				files := map[string][]byte{"main_fixture.gox": nil}
 				files[tt.filename] = []byte(prefix + tt.expression + "\n}\n")
-				s := newTestServer(t, files)
+				s := newFrameworkTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, Position{
 					Line:      uint32(strings.Count(prefix, "\n")),
 					Character: uint32(UTF16Len(tt.expression[:strings.Index(tt.expression, "Un")+len("Un")])),
@@ -151,7 +153,7 @@ func run() {
 	})
 
 	t.Run("CrossFileDocumentUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"enums.xgo": []byte(`type Color const (
 	Ready = iota
 	// Red documentation.

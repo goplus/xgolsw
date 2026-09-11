@@ -37,7 +37,7 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 	}
 
 	t.Run("FrameworkMethods", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   []byte("onStart => {\n    Worker.apply 3\n    _ = create(Item, \"sample\")\n}\n"),
 			"Worker_fixture.gox": []byte("onValue amount => {\n    apply amount\n}\n"),
 		})
@@ -202,7 +202,7 @@ func run() {
 	})
 
 	t.Run("Autoclosure", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStart => {
 	runWhen true, => {}

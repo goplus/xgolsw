@@ -25,7 +25,7 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 			{name: "WorkCallback", filename: "Worker_fixture.gox", position: Position{Line: 1, Character: 10}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox": []byte("var worker *Worker\nworker.ap"), // Cursor at EOF.
 					"Worker_fixture.gox": []byte(`onValue value => {
 	worker.ap
@@ -42,10 +42,11 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 		name         string
 		filename     string
 		needsProject bool
+		newServer    testServerFactory
 	}{
-		{name: "XGo", filename: "main.xgo"},
-		{name: "ProjectClass", filename: "main_fixture.gox"},
-		{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true},
+		{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+		{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+		{name: "WorkClass", filename: "Worker_fixture.gox", needsProject: true, newServer: newFrameworkTestServer},
 	} {
 		t.Run(sourceKind.name, func(t *testing.T) {
 			t.Run("FuncDecoratorArgument", func(t *testing.T) {
@@ -67,7 +68,7 @@ func run() {
 				if sourceKind.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := sourceKind.newServer(t, files)
 
 				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 9, Character: 9})
 				labels := completionItemLabels(items)
@@ -94,7 +95,7 @@ func run() {
 				if sourceKind.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := sourceKind.newServer(t, files)
 
 				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 9, Character: 12})
 				labels := completionItemLabels(items)
@@ -125,7 +126,7 @@ func run() {
 				if sourceKind.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := sourceKind.newServer(t, files)
 
 				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 13, Character: 15})
 				labels := completionItemLabels(items)
@@ -155,7 +156,7 @@ func run() {
 				if sourceKind.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := sourceKind.newServer(t, files)
 
 				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 13, Character: 17})
 				labels := completionItemLabels(items)
@@ -180,7 +181,7 @@ func run() {
 				if sourceKind.needsProject {
 					files["main_fixture.gox"] = nil
 				}
-				s := newTestServer(t, files)
+				s := sourceKind.newServer(t, files)
 				s.workspaceRootFS.Importer = xgoxTestImporter{fallback: s.workspaceRootFS.Importer}
 
 				items := completionItemsAt(t, s, sourceKind.filename, Position{Line: 8, Character: 31})
@@ -228,7 +229,7 @@ func run() {
 	})
 
 	t.Run("Autoclosure", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`const (
 	enabled = true
 	entry = "text"
@@ -255,7 +256,7 @@ onStart => {
 	})
 
 	t.Run("GeneralOrUnknown", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 
 onStart => {
@@ -277,7 +278,7 @@ onStart => {
 	})
 
 	t.Run("VarDecl", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 func test() {}
 onStart => {
@@ -300,7 +301,7 @@ onStart => {
 	})
 
 	t.Run("AtLineStartWithAnIdentifier", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStart => {
 	pr
@@ -314,7 +315,7 @@ onStart => {
 	})
 
 	t.Run("WithXGoBuiltins", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStart => {
 	var n in
@@ -337,7 +338,7 @@ onValue value => {
 	})
 
 	t.Run("UnresolvedFuncCall", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
+		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": []byte(`
 onStar => {
 }

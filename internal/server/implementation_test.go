@@ -106,7 +106,7 @@ func (Local) String() string { return "local" }
 			{name: "ImportedMethod", position: Position{Line: 0, Character: 7}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox":   []byte("Worker.apply Low\n"),
 					"Worker_fixture.gox": nil,
 				})

@@ -20,7 +20,7 @@ func TestServerTextDocumentCompletionImports(t *testing.T) {
 		{name: "InImportGroupStringLit", source: "\nimport (\n\t\"f\n", position: Position{Line: 2, Character: 3}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+			s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
 			s.listPkgs = func() ([]string, error) {
 				return []string{"fmt", testframework.PkgPath, "example.com/missing"}, nil
 			}
