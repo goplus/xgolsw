@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -48,7 +50,7 @@ func TestServerDiagnosticsForSpx(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := New(newProjectWithoutModTime(tt.files), nil, fileMapGetter(tt.files), &MockScheduler{})
+			s := newSpxTestServer(t, tt.files)
 			proj := s.getProj()
 			class, ok := proj.Mod.LookupClass(".spx")
 			require.True(t, ok)
@@ -94,7 +96,7 @@ func run() {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -116,7 +118,7 @@ func run() {
 	t.Run("NonMainPackageDecl", func(t *testing.T) {
 		fileMap := map[string][]byte{}
 		fileMap["main.spx"] = []byte("package nonmain")
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := newSpxTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		}
@@ -146,7 +148,7 @@ func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 			"values.xgo":        []byte("var (\n    x int\n"),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
 		require.Len(t, report.Items, 2)
@@ -190,7 +192,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -281,7 +283,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -338,7 +340,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -379,7 +381,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -415,7 +417,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -482,7 +484,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -531,7 +533,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -578,7 +580,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -629,7 +631,7 @@ onStart => {
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -685,7 +687,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -708,7 +710,7 @@ onKey [KeyRight, KeyUp, KeyDown], => {}
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)

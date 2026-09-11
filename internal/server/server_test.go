@@ -140,32 +140,6 @@ func (m *mockReplier) waitForResponse(id jsonrpc2.ID, timeout time.Duration) *js
 	return nil
 }
 
-func newProjectWithoutModTime(files map[string][]byte) *xgo.Project {
-	return xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
-}
-
-func newFileMap(files map[string][]byte) map[string]*xgo.File {
-	fileMap := make(map[string]*xgo.File)
-	for k, v := range files {
-		fileMap[k] = &xgo.File{Content: v}
-	}
-	return fileMap
-}
-
-func requireValueAs[T any](t *testing.T, value any) T {
-	t.Helper()
-
-	typed, ok := value.(T)
-	require.True(t, ok)
-	return typed
-}
-
-func fileMapGetter(files map[string][]byte) func() map[string]*xgo.File {
-	return func() map[string]*xgo.File {
-		return newFileMap(files)
-	}
-}
-
 // MockScheduler implements [Scheduler]
 type MockScheduler struct{}
 

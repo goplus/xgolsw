@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -30,7 +32,7 @@ func TestCollectInlayHintsSpx(t *testing.T) {
 				"assets/index.json":                  []byte(`{}`),
 				"assets/sprites/MySprite/index.json": []byte(`{}`),
 			}
-			s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+			s := newSpxTestServer(t, files)
 
 			result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
 			require.NoError(t, err)

@@ -1,0 +1,5 @@
+{
+  "Replace": {
+    "internal/pkgdata/pkgdata.zip": "testdata/no-pkgdata/pkgdata.zip"
+  }
+}

@@ -1,17 +1,30 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/goplus/mod/modfile"
-	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
-	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentDocumentLinkSpx(t *testing.T) {
+	t.Run("LargeList", func(t *testing.T) {
+		files := spxDocumentLinkLargeListFiles(20_001)
+		s := newSpxTestServer(t, files)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+		})
+		require.NoError(t, err)
+		_, err = s.getProj().TypeInfo()
+		require.NoError(t, err)
+		targets := documentLinkTargets(t, links)
+		assert.Contains(t, targets, "xgo:main?Game.large")
+		assert.Contains(t, targets, "spx://resources/sounds/KnownSound")
+	})
+
 	t.Run("UnresolvedCallKeepsResourceReferences", func(t *testing.T) {
 		files := map[string][]byte{
 			"main.spx": []byte(`func resource() SoundName { return "KnownSound" }
@@ -21,7 +34,7 @@ func broken() { missing "UnusedSound" }
 			"assets/sounds/KnownSound/index.json":  []byte(`{}`),
 			"assets/sounds/UnusedSound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.ErrorContains(t, err, "undefined: missing")
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
@@ -33,31 +46,9 @@ func broken() { missing "UnusedSound" }
 		assert.NotContains(t, targets, "spx://resources/sounds/UnusedSound")
 	})
 
-	t.Run("OtherFramework", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
-		proj := s.workspaceRootFS
-		proj.Mod = xgomod.New(modload.Module{
-			Opt: &modfile.File{Projects: []*modfile.Project{{
-				Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
-				Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
-			}}},
-		})
-		require.NoError(t, proj.Mod.ImportClasses())
-		_, err := proj.TypeInfo()
-		require.NoError(t, err)
-		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, []DocumentLink{
-			{Range: Range{Start: Position{Character: 4}, End: Position{Character: 9}}, Target: toURI("xgo:main?App.Count")},
-			{Range: Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 5}}, Target: toURI("xgo:main?App.Count")},
-		}, links)
-	})
-
 	t.Run("MissingMainFile", func(t *testing.T) {
 		files := map[string][]byte{"Worker.spx": []byte("var Count = 1\n")}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///Worker.spx"},
 		})
@@ -88,7 +79,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}],"fAnimations":{"anim1":{}}}`),
 			"assets/sounds/MySound/index.json":   []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -286,7 +277,7 @@ onStart => {
 			"assets/sounds/MapSound/index.json":       []byte(`{}`),
 			"assets/sounds/InterfaceSound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -327,7 +318,7 @@ onStart => {
 			"assets/sounds/OverloadSound/index.json":     []byte(`{}`),
 			"assets/sounds/UnreferencedSound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -349,7 +340,7 @@ const (
 			"assets/index.json":                []byte(`{}`),
 			"assets/sounds/MySound/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -430,7 +421,7 @@ func getMixedTypesMySprite() (int, SpriteCostumeName, string, SpriteAnimationNam
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}],"fAnimations":{"anim1":{}}}`),
 			"assets/sounds/MySound/index.json":   []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -508,7 +499,7 @@ setup backdrop = "backdrop1"
 `),
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -545,7 +536,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{"backdrops":[{"name":"backdrop1"}],"zorder":[]}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[],"fAnimations":{}}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
@@ -569,7 +560,7 @@ onStart => {
 	})
 }
 
-func documentLinkTargets(t *testing.T, links []DocumentLink) []string {
+func documentLinkTargets(t testing.TB, links []DocumentLink) []string {
 	t.Helper()
 
 	targets := make([]string, 0, len(links))
@@ -579,4 +570,34 @@ func documentLinkTargets(t *testing.T, links []DocumentLink) []string {
 		}
 	}
 	return targets
+}
+
+func BenchmarkServerDocumentLinkWithLargeListSpx(b *testing.B) {
+	files := spxDocumentLinkLargeListFiles(20_001)
+	server := newSpxTestServer(b, files)
+	params := &DocumentLinkParams{
+		TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+	}
+	links, err := server.textDocumentDocumentLink(params)
+	require.NoError(b, err)
+	_, err = server.getProj().TypeInfo()
+	require.NoError(b, err)
+	require.Contains(b, documentLinkTargets(b, links), "spx://resources/sounds/KnownSound")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_, err := server.textDocumentDocumentLink(params)
+		require.NoError(b, err)
+	}
+}
+
+func spxDocumentLinkLargeListFiles(elementCount int) map[string][]byte {
+	mainSpx := `var large List = NewList("value"` + strings.Repeat(`, "value"`, elementCount-1) + ")\n" +
+		"play \"KnownSound\"\n"
+	return map[string][]byte{
+		"main.spx":                            []byte(mainSpx),
+		"assets/index.json":                   []byte(`{}`),
+		"assets/sounds/KnownSound/index.json": []byte(`{}`),
+	}
 }

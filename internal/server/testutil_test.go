@@ -7,13 +7,14 @@ import (
 
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestServer(t testing.TB, files map[string][]byte) *Server {
 	t.Helper()
 
-	proj := newProjectWithoutModTime(files)
+	proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 	s := New(proj, nil, fileMapGetter(files), &MockScheduler{})
 	proj.Mod = testframework.NewModule(t)
 	proj.Importer = testframework.NewImporter(t, proj.Fset)
@@ -30,4 +31,26 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 		return nil, fs.ErrNotExist
 	}
 	return s
+}
+
+func newFileMap(files map[string][]byte) map[string]*xgo.File {
+	fileMap := make(map[string]*xgo.File)
+	for k, v := range files {
+		fileMap[k] = &xgo.File{Content: v}
+	}
+	return fileMap
+}
+
+func requireValueAs[T any](t *testing.T, value any) T {
+	t.Helper()
+
+	typed, ok := value.(T)
+	require.True(t, ok)
+	return typed
+}
+
+func fileMapGetter(files map[string][]byte) func() map[string]*xgo.File {
+	return func() map[string]*xgo.File {
+		return newFileMap(files)
+	}
 }

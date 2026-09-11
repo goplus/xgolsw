@@ -1,3 +1,5 @@
+//go:build !test_no_pkgdata
+
 package server
 
 import (
@@ -10,7 +12,7 @@ import (
 func TestServerTextDocumentCompletionSpx(t *testing.T) {
 	t.Run("ImportFrameworkPackage", func(t *testing.T) {
 		files := map[string][]byte{"main.spx": []byte("import \"github.com/goplus/spx\n")}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		items := completionItemsAt(t, s, "main.spx", Position{Character: 28})
 		item := completionItemByLabel(items, SpxPkgPath)
 		require.NotNil(t, item)
@@ -52,7 +54,7 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 					"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"other"}],"fAnimations":{"jump":{},"walk":{}}}`),
 				}
 				files[tt.filename] = []byte("func test() {\n\t" + tt.source + "}\n")
-				s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+				s := newSpxTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, Position{Line: 1, Character: tt.position.Character + 1})
 				for _, label := range tt.want {
 					item := completionItemByLabel(items, label)
@@ -86,7 +88,7 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 					"Other.spx":  []byte("var mana int\n"),
 				}
 				files[tt.filename] = append(files[tt.filename], []byte("func test() {\n\tvar property PropertyName = P\n}\n")...)
-				s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+				s := newSpxTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, Position{Line: 2, Character: 30})
 				for _, label := range tt.want {
 					item := completionItemByLabel(items, label)
@@ -109,7 +111,7 @@ func test() {
 	sprite.showVar P
 }
 `)}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 4, Character: 17})
 		assert.NotContains(t, completionItemLabels(items), `"score"`)
 		assert.NotContains(t, completionItemLabels(items), `"xpos"`)
@@ -120,7 +122,7 @@ func test() {
 			"main.spx":                         []byte("var Runner Sprite\nfunc test() {\n\tvar target Sprite = R\n}\n"),
 			"assets/sprites/Runner/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+		s := newSpxTestServer(t, files)
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 22})
 		item := completionItemByLabel(items, "Runner")
 		require.NotNil(t, item)
@@ -163,7 +165,7 @@ onStart => {
 					"assets/sprites/MySprite/index.json": []byte(`{}`),
 					"assets/sprites/Red/index.json":      []byte(`{}`),
 				}
-				s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+				s := newSpxTestServer(t, m)
 
 				items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 2, Character: tt.character})
 				assert.True(t, containsKwargCompletionItem(items, "speed", SpxDefinitionIdentifier{
@@ -192,7 +194,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		emptyLineItems := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 0})
 		assert.NotEmpty(t, emptyLineItems)
@@ -254,7 +256,7 @@ onStart => {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 1})
 		assert.NotEmpty(t, items)
@@ -280,7 +282,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 22})
 		assert.NotEmpty(t, items)
@@ -300,7 +302,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 4, Character: 24})
 		assert.NotEmpty(t, items)
@@ -315,7 +317,7 @@ play "r"
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 7})
 		assert.NotEmpty(t, items)
@@ -330,7 +332,7 @@ play r
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sounds/recording/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 6})
 		assert.NotEmpty(t, items)
@@ -349,7 +351,7 @@ onClick => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 2, Character: 14})
 		assert.NotEmpty(t, items)
@@ -365,7 +367,7 @@ MySprite.setCostume "c"
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 22})
 		assert.NotEmpty(t, items)
@@ -386,7 +388,7 @@ onClick => {
 			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 22})
 		assert.NotEmpty(t, items)
@@ -406,7 +408,7 @@ onClick => {
 			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 25})
 		assert.NotEmpty(t, items)
@@ -426,7 +428,7 @@ onClick => {
 			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 28})
 		assert.NotEmpty(t, items)
@@ -448,7 +450,7 @@ onStart => {
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
 			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 13})
 		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
@@ -470,7 +472,7 @@ onStart => {
 			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
 			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 34})
 		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
@@ -492,7 +494,7 @@ onStart => {
 			"assets/sprites/Crab2/index.json":  []byte(`{"costumes":[]}`),
 			"assets/sprites/Crab3/index.json":  []byte(`{"costumes":[]}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "Runner.spx", Position{Line: 2, Character: 10})
 		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
@@ -511,7 +513,7 @@ onClick => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items1 := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 14})
 		assert.NotEmpty(t, items1)
@@ -530,7 +532,7 @@ onStart => {
 }
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 8})
 		assert.NotEmpty(t, items)
@@ -557,7 +559,7 @@ onStart => {}
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 8, Character: 9}) // After "n"
 		assert.Contains(t, completionItemLabels(items), "onClick")
@@ -586,7 +588,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 3, Character: 10}) // inside 'x' arg of showVar
 		// score is declared in main.spx and becomes a Game field.
@@ -615,7 +617,7 @@ onStart => {
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -645,7 +647,7 @@ var hp int
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -677,7 +679,7 @@ showVar(
 			"assets/index.json":                  []byte(`{}`),
 			"assets/sprites/MySprite/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 3, Character: 8})
 		// Direct field of MySprite.
@@ -700,7 +702,7 @@ showVar("s
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 3, Character: 10})
 		// Inside string literal: label/insertText is unquoted.
@@ -716,7 +718,7 @@ showVar("s
 `),
 			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newSpxTestServer(t, m)
 
 		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
