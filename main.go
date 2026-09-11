@@ -107,7 +107,9 @@ func (s *JSScheduler) Sched() {
 }
 
 // SetCustomPkgdataZip sets custom package data that will be used with higher
-// priority than the embedded package data.
+// priority than the embedded package data and clears cached package documentation.
+// Set export data before creating a language server. Already imported types are
+// not refreshed.
 func SetCustomPkgdataZip(this js.Value, args []js.Value) any {
 	if len(args) != 1 {
 		return errors.New("SetCustomPkgdataZip: expected 1 argument")

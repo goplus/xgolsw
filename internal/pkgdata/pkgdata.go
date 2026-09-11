@@ -22,14 +22,23 @@ var (
 	//go:embed pkgdata.zip
 	pkgdataZip []byte
 
+	// pkgdataMu synchronizes package data replacement with reads and cache updates.
+	pkgdataMu sync.RWMutex
+
 	// customPkgdataZip holds the user-provided package data which has
 	// higher priority than the embedded one.
 	customPkgdataZip []byte
 )
 
-// SetCustomPkgdataZip sets the customPkgdataZip.
+// SetCustomPkgdataZip replaces the custom package data and clears cached documentation.
+// It does not refresh types already loaded by importers. Set export data before
+// importing the affected packages. The caller must not modify data after this call.
 func SetCustomPkgdataZip(data []byte) {
+	pkgdataMu.Lock()
+	defer pkgdataMu.Unlock()
+
 	customPkgdataZip = data
+	pkgDocCache.Clear()
 }
 
 const (
@@ -39,6 +48,9 @@ const (
 
 // ListPkgs lists all packages in the pkgdata.zip file.
 func ListPkgs() ([]string, error) {
+	pkgdataMu.RLock()
+	defer pkgdataMu.RUnlock()
+
 	pkgs, err := listPkgs(pkgdataZip)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list embed packages: %w", err)
@@ -72,6 +84,9 @@ func listPkgs(zipData []byte) ([]string, error) {
 
 // OpenExport opens a package export file.
 func OpenExport(pkgPath string) (io.ReadCloser, error) {
+	pkgdataMu.RLock()
+	defer pkgdataMu.RUnlock()
+
 	if len(customPkgdataZip) > 0 {
 		rc, err := openExport(customPkgdataZip, pkgPath)
 		if err == nil {
@@ -103,6 +118,9 @@ var pkgDocCache sync.Map // map[string]*pkgdoc.PkgDoc
 
 // GetPkgDoc gets the documentation for a package.
 func GetPkgDoc(pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
+	pkgdataMu.RLock()
+	defer pkgdataMu.RUnlock()
+
 	if pkgDocIface, ok := pkgDocCache.Load(pkgPath); ok {
 		return pkgDocIface.(*pkgdoc.PkgDoc), nil
 	}

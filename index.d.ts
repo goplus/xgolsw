@@ -24,7 +24,8 @@ declare global {
   function NewXGoLanguageServer(filesProvider: () => Files, messageReplier: (message: ResponseMessage | NotificationMessage) => void): XGoLanguageServer | Error
 
   /**
-   * Sets custom package data that will be used with higher priority than the embedded package data.
+   * Sets custom package data that will be used with higher priority than the embedded package data and clears cached
+   * package documentation. Set export data before creating a language server. Already imported types are not refreshed.
    *
    * @param data - Custom package data as a Uint8Array containing a valid pkgdata.zip file.
    */

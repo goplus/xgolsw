@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	gotypes "go/types"
+	"io"
 	"sync"
 
 	"github.com/goplus/xgo/token"
@@ -10,24 +11,24 @@ import (
 	"golang.org/x/tools/go/gcexportdata"
 )
 
-// importer implements [types.Importer].
+// importer implements [go/types.Importer].
 type importer struct {
-	mu     sync.Mutex
-	fset   *token.FileSet
-	loaded map[string]*gotypes.Package
+	mu         sync.Mutex
+	fset       *token.FileSet
+	loaded     map[string]*gotypes.Package
+	openExport func(string) (io.ReadCloser, error)
 }
 
-// newImporter creates a new instance of [importer].
-func newImporter() *importer {
-	loaded := make(map[string]*gotypes.Package)
-	loaded["unsafe"] = gotypes.Unsafe
+// newImporter creates an importer that reads export data using openExport.
+func newImporter(openExport func(string) (io.ReadCloser, error)) *importer {
 	return &importer{
-		fset:   token.NewFileSet(),
-		loaded: loaded,
+		fset:       token.NewFileSet(),
+		loaded:     map[string]*gotypes.Package{"unsafe": gotypes.Unsafe},
+		openExport: openExport,
 	}
 }
 
-// Import implements [types.Importer].
+// Import implements [go/types.Importer].
 func (imp *importer) Import(path string) (*gotypes.Package, error) {
 	imp.mu.Lock()
 	defer imp.mu.Unlock()
@@ -36,7 +37,7 @@ func (imp *importer) Import(path string) (*gotypes.Package, error) {
 		return pkg, nil
 	}
 
-	export, err := pkgdata.OpenExport(path)
+	export, err := imp.openExport(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open package export file: %w", err)
 	}
@@ -50,4 +51,4 @@ func (imp *importer) Import(path string) (*gotypes.Package, error) {
 }
 
 // Importer is the global instance of [importer].
-var Importer = newImporter()
+var Importer = newImporter(pkgdata.OpenExport)
