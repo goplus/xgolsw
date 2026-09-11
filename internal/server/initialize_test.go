@@ -45,7 +45,8 @@ func stringsAsAny(values []string) []any {
 func TestServerInitialize(t *testing.T) {
 	t.Run("Capabilities", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{
 			XInitializeParams: protocol.XInitializeParams{
 				RootURI: "file:///workspace",
@@ -253,7 +254,8 @@ func TestServerInitialize(t *testing.T) {
 
 	t.Run("WorkspaceFolderRoot", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{
 			XInitializeParams: protocol.XInitializeParams{
 				RootURI: "file:///root-uri",
@@ -283,24 +285,25 @@ func TestServerInitialize(t *testing.T) {
 				name:        "UnixPath",
 				rootPath:    "/legacy-root",
 				wantRootURI: "file:///legacy-root/",
-				documentURI: "file:///legacy-root/main.spx",
+				documentURI: "file:///legacy-root/main.xgo",
 			},
 			{
 				name:        "WindowsDrivePath",
 				rootPath:    `C:\Users\me\proj`,
 				wantRootURI: "file:///C:/Users/me/proj/",
-				documentURI: "file:///C:/Users/me/proj/main.spx",
+				documentURI: "file:///C:/Users/me/proj/main.xgo",
 			},
 			{
 				name:        "WindowsUNCPath",
 				rootPath:    `\\server\share\proj`,
 				wantRootURI: "file://server/share/proj/",
-				documentURI: "file://server/share/proj/main.spx",
+				documentURI: "file://server/share/proj/main.xgo",
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				replier := newMockReplier()
-				server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+				server := newTestServer(t, nil)
+				server.replier = replier
 				call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{
 					XInitializeParams: protocol.XInitializeParams{
 						RootPath: tt.rootPath,
@@ -314,7 +317,7 @@ func TestServerInitialize(t *testing.T) {
 
 				path, err := server.fromDocumentURI(tt.documentURI)
 				require.NoError(t, err)
-				assert.Equal(t, "main.spx", path)
+				assert.Equal(t, "main.xgo", path)
 			})
 		}
 	})

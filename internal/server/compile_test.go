@@ -15,6 +15,23 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
+func TestServerCompileAt(t *testing.T) {
+	t.Run("UnregisteredClassfile", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.spx": []byte("println 1\n")})
+		result, err := s.compileAt(s.getProj())
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Empty(t, result.mainSpxFile)
+		assert.True(t, result.hasErrorSeverityDiagnostic)
+		assert.Equal(t, map[DocumentURI][]Diagnostic{
+			"file:///main.spx": {{
+				Severity: SeverityError,
+				Message:  "failed to parse source file: unknown file kind",
+			}},
+		}, result.diagnostics)
+	})
+}
+
 func TestSpxResourceReturnTypes(t *testing.T) {
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, "main.spx", `
@@ -157,4 +174,36 @@ configure target = "OtherSprite", unknown = 9
 		require.Len(t, result.spxResourceRefs, 1)
 		assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), result.spxResourceRefs[0].ID.URI())
 	})
+}
+
+func TestCompileResultIsInSpxEventHandler(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		content  string
+		position Position
+		want     bool
+	}{
+		{
+			name:     "OrdinaryCallback",
+			content:  "func invoke(fn func()) { fn() }\ninvoke => {\n    println 1\n}\n",
+			position: Position{Line: 2, Character: 8},
+		},
+		{
+			name:     "NestedOrdinaryCallback",
+			content:  "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        println 1\n    }\n}\n",
+			position: Position{Line: 3, Character: 12},
+			want:     true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string][]byte{"main.spx": []byte(tt.content), "assets/index.json": []byte(`{}`)}
+			s := New(newProjectWithoutModTime(files), nil, fileMapGetter(files), &MockScheduler{})
+			result, err := s.compile()
+			require.NoError(t, err)
+			require.Empty(t, result.diagnostics["file:///main.spx"])
+			astFile, err := result.proj.ASTFile("main.spx")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result.isInSpxEventHandler(PosAt(result.proj, astFile, tt.position)))
+		})
+	}
 }

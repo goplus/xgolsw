@@ -229,6 +229,10 @@ func ValidFunc() {}
 		require.NotNil(t, astPackageCache.astPkg)
 		assert.Error(t, astPackageCache.parserErr)
 		assert.Contains(t, astPackageCache.parserErr.Error(), ErrUnknownCacheKind.Error())
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, astPackageCache.parserErr, &parserErrs)
+		require.Len(t, parserErrs, 1)
+		assert.Equal(t, "main.xgo", parserErrs[0].Pos.Filename)
 		assert.Empty(t, astPackageCache.astPkg.Files)
 	})
 }

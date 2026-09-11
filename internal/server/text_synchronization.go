@@ -5,13 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/goplus/gogen"
-	"github.com/goplus/xgo/scanner"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
-	"github.com/qiniu/x/errors"
 )
 
 // didOpen handles the textDocument/didOpen notification from the LSP client.
@@ -83,35 +79,16 @@ func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
 	return s.publishDiagnostics(params.TextDocument.URI, nil)
 }
 
-// didModifyFile is a shared implementation for handling document modifications.
-// It updates the project with file changes and asynchronously publishes diagnostics.
-// The function:
-//  1. Updates the project's files with the provided changes
-//  2. Starts a goroutine to generate and publish diagnostics for each changed file
-//  3. Returns immediately after updating files for better responsiveness
+// didModifyFile updates project files synchronously and publishes diagnostics
+// asynchronously so document modifications do not wait for analysis.
 func (s *Server) didModifyFile(changes []FileChange) error {
-	// 1. Update files synchronously
 	s.ModifyFiles(changes)
 
-	// 2. Asynchronously generate and publish diagnostics
-	// This allows for quick response while diagnostics computation happens in background
 	go func() {
 		for _, change := range changes {
-			// Convert path to URI for diagnostics
 			uri := s.toDocumentURI(change.Path)
-
-			// Get diagnostics from AST and type checking
-			diagnostics, err := s.getDiagnostics(change.Path)
-			if err != nil {
-				// Log error but continue processing other files
-				continue
-			}
-
-			// Publish diagnostics
-			if err := s.publishDiagnostics(uri, diagnostics); err != nil {
-				// Log error but continue
-				continue
-			}
+			diagnostics := s.getDiagnostics(change.Path)
+			s.publishDiagnostics(uri, diagnostics)
 		}
 	}()
 
@@ -183,87 +160,15 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 	return content, nil
 }
 
-// getDiagnostics generates diagnostic information for a specific file.
-// It performs two checks:
-//  1. AST parsing - reports syntax errors
-//  2. Type checking - reports type errors
-//
-// If AST parsing fails, only syntax errors are returned as diagnostics.
-// If AST parsing succeeds but type checking fails, type errors are returned.
-// Returns a slice of diagnostics and an error (if diagnostic generation failed).
-func (s *Server) getDiagnostics(path string) ([]Diagnostic, error) {
-	var diagnostics []Diagnostic
-
+// getDiagnostics collects syntax and type errors for a modified document.
+// Analyzers and framework-specific checks run through pull diagnostics.
+func (s *Server) getDiagnostics(path string) []Diagnostic {
 	proj := s.getProj()
-
-	// 1. Get AST diagnostics
-	// Parse the file and check for syntax errors
-	astFile, err := proj.ASTFile(path)
-	if err != nil {
-		var (
-			errorList scanner.ErrorList
-			codeError *gogen.CodeError
-		)
-		if errors.As(err, &errorList) {
-			// Handle parse errors.
-			for _, e := range errorList {
-				diagnostics = append(diagnostics, Diagnostic{
-					Severity: SeverityError,
-					Range:    RangeForASTFilePosition(proj, astFile, e.Pos),
-					Message:  e.Msg,
-				})
-			}
-		} else if errors.As(err, &codeError) {
-			// Handle code generation errors.
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForPosEnd(proj, codeError.Pos, codeError.End),
-				Message:  codeError.Msg,
-			})
-		} else {
-			// Handle unknown errors (including recovered panics).
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("failed to parse spx file: %v", err),
-			})
-		}
+	result := newDiagnosticResult()
+	if astFile := s.collectSyntaxDiagnostics(proj, path, &result); astFile != nil {
+		s.collectTypeDiagnostics(proj, &result)
 	}
-
-	if astFile == nil {
-		return diagnostics, nil
-	}
-
-	astFilePos := proj.Fset.Position(astFile.Pos())
-
-	handleErr := func(err error) {
-		if typeErr, ok := err.(typesutil.Error); ok {
-			position := typeErr.Fset.Position(typeErr.Pos)
-			if position.Filename == astFilePos.Filename {
-				diagnostics = append(diagnostics, Diagnostic{
-					Severity: SeverityError,
-					Range:    RangeForPosEnd(proj, typeErr.Pos, typeErr.End),
-					Message:  typeErr.Msg,
-				})
-			}
-		}
-	}
-
-	// 2. Get type checking diagnostics
-	// Perform type checking on the file
-	_, err = proj.TypeInfo()
-	if err != nil {
-		// Add type checking errors to diagnostics
-		switch err := err.(type) {
-		case errors.List:
-			for _, e := range err {
-				handleErr(e)
-			}
-		default:
-			handleErr(err)
-		}
-	}
-
-	return diagnostics, nil
+	return result.diagnostics[s.toDocumentURI(path)]
 }
 
 // FileChange represents a file change.

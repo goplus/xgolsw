@@ -3,20 +3,13 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
-	"iter"
 	"path"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
-	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
-	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
-	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
@@ -32,6 +25,7 @@ var errNoMainSpxFile = errors.New("no valid main.spx file found in main package"
 // the compile process.
 type compileResult struct {
 	definitionContext
+	diagnosticResult
 
 	// mainSpxFile is the main.spx file path.
 	mainSpxFile string
@@ -51,16 +45,6 @@ type compileResult struct {
 
 	// spxSpriteResourceAutoBindings stores spx sprite resource auto-bindings.
 	spxSpriteResourceAutoBindings map[gotypes.Object]struct{}
-
-	// diagnostics stores diagnostic messages for each document.
-	diagnostics map[DocumentURI][]Diagnostic
-
-	// seenDiagnostics stores already reported diagnostics to avoid duplicates.
-	seenDiagnostics map[DocumentURI]map[string]struct{}
-
-	// hasErrorSeverityDiagnostic is true if the compile result has any
-	// diagnostics with error severity.
-	hasErrorSeverityDiagnostic bool
 }
 
 // newCompileResult creates a new [compileResult].
@@ -73,7 +57,7 @@ func newCompileResult(proj *xgo.Project, lookupPkgDoc func(string) (*pkgdoc.PkgD
 		},
 		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
 		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
-		diagnostics:                   make(map[DocumentURI][]Diagnostic),
+		diagnosticResult:              newDiagnosticResult(),
 	}
 }
 
@@ -165,32 +149,6 @@ func (r *compileResult) addSpxResourceRef(ref SpxResourceRef) {
 	r.spxResourceRefs = append(r.spxResourceRefs, ref)
 }
 
-// addDiagnostics adds diagnostics to the compile result.
-func (r *compileResult) addDiagnostics(documentURI DocumentURI, diags ...Diagnostic) {
-	if r.seenDiagnostics == nil {
-		r.seenDiagnostics = make(map[DocumentURI]map[string]struct{})
-	}
-	seenDiagnostics := r.seenDiagnostics[documentURI]
-	if seenDiagnostics == nil {
-		seenDiagnostics = make(map[string]struct{})
-		r.seenDiagnostics[documentURI] = seenDiagnostics
-	}
-
-	r.diagnostics[documentURI] = slices.Grow(r.diagnostics[documentURI], len(diags))
-	for _, diag := range diags {
-		fingerprint := fmt.Sprintf("%d\n%v\n%s", diag.Severity, diag.Range, diag.Message)
-		if _, ok := seenDiagnostics[fingerprint]; ok {
-			continue
-		}
-		seenDiagnostics[fingerprint] = struct{}{}
-
-		r.diagnostics[documentURI] = append(r.diagnostics[documentURI], diag)
-		if diag.Severity == SeverityError {
-			r.hasErrorSeverityDiagnostic = true
-		}
-	}
-}
-
 // compile compiles spx source files and returns compile result. It uses cached
 // result if available.
 func (s *Server) compile() (*compileResult, error) {
@@ -205,56 +163,28 @@ func (s *Server) compile() (*compileResult, error) {
 // compileAt compiles spx source files at the given snapshot and returns the
 // compile result.
 func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
-	var spxFiles []string
+	var hasSpxFile bool
 	for file := range snapshot.Files() {
 		if path.Ext(file) == ".spx" {
-			spxFiles = append(spxFiles, file)
+			hasSpxFile = true
+			break
 		}
 	}
-	if len(spxFiles) == 0 {
+	if !hasSpxFile {
 		return nil, errNoMainSpxFile
 	}
 
 	result := newCompileResult(snapshot, s.lookupPkgDoc)
-	for _, spxFile := range spxFiles {
-		documentURI := s.toDocumentURI(spxFile)
-		result.diagnostics[documentURI] = []Diagnostic{}
-
-		astFile, err := snapshot.ASTFile(spxFile)
-		if err != nil {
-			var (
-				errorList scanner.ErrorList
-				codeError *gogen.CodeError
-			)
-			if errors.As(err, &errorList) && astFile.Pos().IsValid() {
-				// Handle parse errors.
-				for _, e := range errorList {
-					result.addDiagnostics(documentURI, Diagnostic{
-						Severity: SeverityError,
-						Range:    RangeForASTFilePosition(result.proj, astFile, e.Pos),
-						Message:  s.translate(e.Msg),
-					})
-				}
-			} else if errors.As(err, &codeError) {
-				// Handle code generation errors.
-				result.addDiagnostics(documentURI, Diagnostic{
-					Severity: SeverityError,
-					Range:    RangeForPosEnd(result.proj, codeError.Pos, codeError.End),
-					Message:  codeError.Error(),
-				})
-			} else {
-				// Handle unknown errors (including recovered panics).
-				result.addDiagnostics(documentURI, Diagnostic{
-					Severity: SeverityError,
-					Message:  s.translate(fmt.Sprintf("failed to parse spx file: %v", err)),
-				})
-			}
-		}
-		if astFile == nil {
+	astPkg, err := s.collectPackageSyntaxDiagnostics(snapshot, &result.diagnosticResult)
+	if err != nil {
+		return nil, err
+	}
+	for filename, astFile := range astPkg.Files {
+		if path.Ext(filename) != ".spx" {
 			continue
 		}
 		if astFile.Name.Name != "main" && astFile.Pos().IsValid() {
-			result.addDiagnostics(documentURI, Diagnostic{
+			result.addDiagnostics(s.toDocumentURI(filename), Diagnostic{
 				Severity: SeverityError,
 				Range:    RangeForASTFileNode(result.proj, astFile, astFile.Name),
 				Message:  s.translate("package name must be main"),
@@ -262,8 +192,8 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 			continue
 		}
 
-		if spxFileBaseName := path.Base(spxFile); spxFileBaseName == "main.spx" {
-			result.mainSpxFile = spxFile
+		if path.Base(filename) == "main.spx" {
+			result.mainSpxFile = filename
 		}
 	}
 	if result.mainSpxFile == "" {
@@ -273,33 +203,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 		return result, nil
 	}
 
-	handleErr := func(err error) {
-		if typeErr, ok := err.(typesutil.Error); ok {
-			if !typeErr.Pos.IsValid() {
-				panic(fmt.Sprintf("unexpected nopos error: %s", typeErr.Msg))
-			}
-			position := typeErr.Fset.Position(typeErr.Pos)
-			documentURI := s.toDocumentURI(position.Filename)
-			result.addDiagnostics(documentURI, Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForPosEnd(result.proj, typeErr.Pos, typeErr.End),
-				Message:  typeErr.Msg,
-			})
-		}
-	}
-
-	typeInfo, err := snapshot.TypeInfo()
-	if err != nil {
-		switch err := err.(type) {
-		case errors.List:
-			for _, e := range err {
-				handleErr(e)
-			}
-		default:
-			handleErr(err)
-		}
-	}
-	astPkg, _ := snapshot.ASTPackage()
+	typeInfo := s.collectTypeDiagnostics(snapshot, &result.diagnosticResult)
 	result.enumInfo = newEnumInfo(astPkg, typeInfo)
 	pkg := typeInfo.Pkg
 
@@ -324,7 +228,7 @@ func (s *Server) compileAt(snapshot *xgo.Project) (*compileResult, error) {
 
 	s.inspectForSpxResourceSet(snapshot, result)
 	s.inspectForSpxResourceRefs(result)
-	s.inspectDiagnosticsAnalyzers(result)
+	s.inspectDiagnosticsAnalyzers(snapshot, &result.diagnosticResult, spxDiagnosticPass(result))
 
 	return result, nil
 }
@@ -362,89 +266,6 @@ func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *compile
 		return
 	}
 	result.spxResourceSet = *spxResourceSet
-}
-
-// inspectDiagnosticsAnalyzers runs registered analyzers on each spx source file
-// and collects diagnostics.
-//
-// For each spx file in the main package, it:
-//  1. Creates an analysis pass with file-specific information
-//  2. Runs all registered analyzers on the file
-//  3. Collects diagnostics from analyzers
-//  4. Reports any analyzer errors as diagnostics
-//
-// Parameters:
-//   - result: The compilation result containing AST and type information
-//
-// The function updates result.diagnostics with any issues found by analyzers.
-// Diagnostic severity levels include:
-//   - Error: For analyzer failures or serious code issues
-//   - Warning: For potential problems that don't prevent compilation
-func (s *Server) inspectDiagnosticsAnalyzers(result *compileResult) {
-	proj := result.proj
-	fset := proj.Fset
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
-		return
-	}
-	astPkg, _ := proj.ASTPackage()
-	if astPkg == nil {
-		return
-	}
-	propertyNamesCache := make(map[*gotypes.Named]map[string]struct{})
-	for spxFile, astFile := range astPkg.Files {
-		var diagnostics []Diagnostic
-		pass := &protocol.Pass{
-			Fset:      fset,
-			Files:     []*ast.File{astFile},
-			Pkg:       typeInfo.Pkg,
-			TypesInfo: typeInfo,
-			Report: func(d protocol.Diagnostic) {
-				diagnostics = append(diagnostics, Diagnostic{
-					Range:    RangeForPosEnd(proj, d.Pos, d.End),
-					Severity: SeverityError,
-					Message:  s.translate(d.Message),
-				})
-			},
-			ResultOf: map[*protocol.Analyzer]any{
-				inspect.Analyzer: inspector.New([]*ast.File{astFile}),
-			},
-			IsPropertyNameType: IsSpxPropertyNameType,
-			GetPropertyNamesForCall: func(call *ast.CallExpr) map[string]struct{} {
-				named := PropertyTargetNamedTypeForCall(typeInfo, call, spxFile, result.mainSpxFile)
-				if named == nil {
-					return nil
-				}
-				if names, ok := propertyNamesCache[named]; ok {
-					return names
-				}
-				names := make(map[string]struct{})
-				for property := range propertyObjects(named) {
-					names[property.Name] = struct{}{}
-				}
-				propertyNamesCache[named] = names
-				return names
-			},
-			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
-				return resolvedCallExprArgs(result.proj, typeInfo, call)
-			},
-		}
-
-		for _, analyzer := range s.analyzers {
-			an := analyzer.Analyzer()
-			if _, err := an.Run(pass); err != nil {
-				diagnostics = append(diagnostics, Diagnostic{
-					Severity: SeverityError,
-					Message:  s.translate(fmt.Sprintf("analyzer %q failed: %v", an.Name, err)),
-				})
-			}
-		}
-
-		if len(diagnostics) > 0 {
-			documentURI := s.toDocumentURI(spxFile)
-			result.addDiagnostics(documentURI, diagnostics...)
-		}
-	}
 }
 
 // inspectForSpxResourceRefs inspects for spx resource references in the code.
