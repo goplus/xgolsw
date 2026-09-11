@@ -2,7 +2,6 @@
 
 [![Test](https://github.com/goplus/xgolsw/actions/workflows/test.yaml/badge.svg)](https://github.com/goplus/xgolsw/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/goplus/xgolsw/branch/main/graph/badge.svg)](https://codecov.io/gh/goplus/xgolsw)
-[![Go Report Card](https://goreportcard.com/badge/github.com/goplus/xgolsw)](https://goreportcard.com/report/github.com/goplus/xgolsw)
 [![Go Reference](https://pkg.go.dev/badge/github.com/goplus/xgolsw.svg)](https://pkg.go.dev/github.com/goplus/xgolsw)
 
 A lightweight XGo language server that runs in the browser using WebAssembly.
