@@ -94,7 +94,7 @@ func buildASTPackageCache(proj *Project) (any, error) {
 				if el, ok := err.(scanner.ErrorList); ok {
 					parserErrs = append(parserErrs, el...)
 				} else {
-					parserErrs.Add(token.Position{}, err.Error())
+					parserErrs.Add(token.Position{Filename: file}, err.Error())
 				}
 			}
 			if astFile != nil {

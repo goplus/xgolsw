@@ -262,7 +262,8 @@ func requireResponseForID(t *testing.T, messages []jsonrpc2.Message, id jsonrpc2
 func TestHandleMessageInitialization(t *testing.T) {
 	t.Run("RequestBeforeInitialize", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("hover"), "textDocument/hover", HoverParams{})
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(call))
@@ -277,7 +278,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 
 	t.Run("NotificationBeforeInitialize", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		notification, err := jsonrpc2.NewNotification("textDocument/didOpen", DidOpenTextDocumentParams{})
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(notification))
@@ -286,7 +288,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 
 	t.Run("CancelRequestBeforeInitialize", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		notification, err := jsonrpc2.NewNotification("$/cancelRequest", CancelParams{ID: "initialize"})
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(notification))
@@ -296,7 +299,9 @@ func TestHandleMessageInitialization(t *testing.T) {
 	t.Run("CancelNotificationDuringInitialize", func(t *testing.T) {
 		replier := newMockReplier()
 		scheduler := newBlockingScheduler()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), scheduler)
+		server := newTestServer(t, nil)
+		server.replier = replier
+		server.scheduler = scheduler
 		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize"), "initialize", InitializeParams{})
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(call))
@@ -320,7 +325,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 
 	t.Run("ExitBeforeInitialize", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		notification, err := jsonrpc2.NewNotification("exit", nil)
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(notification))
@@ -329,7 +335,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 
 	t.Run("InitializeOnlyOnce", func(t *testing.T) {
 		replier := newMockReplier()
-		server := New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server := newTestServer(t, nil)
+		server.replier = replier
 		initializeServerForTest(t, server, replier)
 
 		call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("initialize-again"), "initialize", InitializeParams{})
@@ -354,7 +361,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 			}
 			return server.HandleMessage(shutdownCall)
 		})
-		server = New(newProjectWithoutModTime(nil), replier, fileMapGetter(nil), &MockScheduler{})
+		server = newTestServer(t, nil)
+		server.replier = replier
 		initializeCall, err := jsonrpc2.NewCall(initializeID, "initialize", InitializeParams{})
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(initializeCall))
@@ -373,13 +381,14 @@ func TestHandleMessageInitialization(t *testing.T) {
 func TestServerCancellation(t *testing.T) {
 	t.Run("CancelRequest", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 var x = 100
-echo x
+println x
 `),
 		}
 		replier := newMockReplier()
-		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
+		s := newTestServer(t, files)
+		s.replier = replier
 
 		call1, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-1"), "$/cancelRequest", &CancelParams{ID: "test-request-1"})
 		call2, _ := jsonrpc2.NewCall(jsonrpc2.NewStringID("test-request-2"), "$/cancelRequest", &CancelParams{ID: "test-request-2"})
@@ -426,10 +435,11 @@ echo x
 
 	t.Run("CancelRequestWithInvalidID", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.spx": []byte(`var x = 100`),
+			"main.xgo": []byte(`var x = 100`),
 		}
-		replier := &mockReplier{}
-		s := New(newProjectWithoutModTime(files), replier, fileMapGetter(files), &MockScheduler{})
+		replier := newMockReplier()
+		s := newTestServer(t, files)
+		s.replier = replier
 
 		for _, tc := range []struct {
 			name string
@@ -449,15 +459,16 @@ echo x
 }
 
 func TestHandleMessageNotificationOrdering(t *testing.T) {
-	files := map[string][]byte{"main.spx": []byte("echo \"a\"\n")}
-	project := newProjectWithoutModTime(files)
-	project.PutFile("main.spx", &xgo.File{Content: files["main.spx"], Version: 1})
+	files := map[string][]byte{"main.xgo": []byte("println \"a\"\n")}
+	server := newTestServer(t, files)
+	project := server.getProj()
+	project.PutFile("main.xgo", &xgo.File{Content: files["main.xgo"], Version: 1})
 	replier := newMockReplier()
-	server := New(project, replier, fileMapGetter(files), &MockScheduler{})
+	server.replier = replier
 	initializeServerForTest(t, server, replier)
 	var changeCount int
 	t.Cleanup(func() {
-		// Finish background diagnostics before another test uses shared imported packages.
+		// Wait for every background diagnostic notification before the test ends.
 		require.Eventually(t, func() bool {
 			var diagnosticCount int
 			for _, message := range replier.getMessages() {
@@ -472,26 +483,26 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 	for _, params := range []DidChangeTextDocumentParams{
 		{
 			TextDocument: protocol.VersionedTextDocumentIdentifier{
-				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Version:                2,
 			},
 			ContentChanges: []protocol.TextDocumentContentChangeEvent{{
 				Range: &protocol.Range{
-					Start: protocol.Position{Line: 0, Character: 7},
-					End:   protocol.Position{Line: 0, Character: 7},
+					Start: protocol.Position{Line: 0, Character: 10},
+					End:   protocol.Position{Line: 0, Character: 10},
 				},
 				Text: "b",
 			}},
 		},
 		{
 			TextDocument: protocol.VersionedTextDocumentIdentifier{
-				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Version:                3,
 			},
 			ContentChanges: []protocol.TextDocumentContentChangeEvent{{
 				Range: &protocol.Range{
-					Start: protocol.Position{Line: 0, Character: 8},
-					End:   protocol.Position{Line: 0, Character: 8},
+					Start: protocol.Position{Line: 0, Character: 11},
+					End:   protocol.Position{Line: 0, Character: 11},
 				},
 				Text: "c",
 			}},
@@ -503,9 +514,9 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 		changeCount++
 	}
 
-	file, ok := project.File("main.spx")
+	file, ok := project.File("main.xgo")
 	require.True(t, ok)
-	assert.Equal(t, "echo \"abc\"\n", string(file.Content))
+	assert.Equal(t, "println \"abc\"\n", string(file.Content))
 	assert.Equal(t, 3, file.Version)
 }
 
@@ -533,12 +544,12 @@ func TestHandleMessageCall(t *testing.T) {
 			method: "textDocument/hover",
 			params: &HoverParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 					Position:     Position{Line: 2, Character: 1},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte(`
+				"main.xgo": []byte(`
 import (
 	"fmt"
 	"image"
@@ -554,12 +565,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/completion",
 			params: CompletionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -568,12 +579,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/signatureHelp",
 			params: SignatureHelpParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho(x)"),
+				"main.xgo": []byte("var x = 100\nprintln(x)"),
 			},
 			msgNum: 2,
 		},
@@ -582,12 +593,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/declaration",
 			params: DeclarationParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -596,12 +607,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/definition",
 			params: DefinitionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -610,12 +621,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/typeDefinition",
 			params: TypeDefinitionParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -624,12 +635,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/implementation",
 			params: ImplementationParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -638,15 +649,15 @@ fmt.Println("Hello, World!")
 			method: "textDocument/references",
 			params: ReferenceParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 				Context: ReferenceContext{
 					IncludeDeclaration: true,
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -655,12 +666,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/documentHighlight",
 			params: DocumentHighlightParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-					Position:     Position{Line: 1, Character: 5},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 8},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -668,10 +679,10 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentDocumentLink",
 			method: "textDocument/documentLink",
 			params: DocumentLinkParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte(`import "fmt"`),
+				"main.xgo": []byte(`import "fmt"`),
 			},
 			msgNum: 2,
 		},
@@ -679,10 +690,10 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentDiagnostic",
 			method: "textDocument/diagnostic",
 			params: DocumentDiagnosticParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -691,7 +702,7 @@ fmt.Println("Hello, World!")
 			method: "workspace/diagnostic",
 			params: WorkspaceDiagnosticParams{},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -699,10 +710,10 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentFormatting",
 			method: "textDocument/formatting",
 			params: DocumentFormattingParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x=100\necho   x"),
+				"main.xgo": []byte("var x=100\nprintln   x"),
 			},
 			msgNum: 2,
 		},
@@ -711,12 +722,12 @@ fmt.Println("Hello, World!")
 			method: "textDocument/prepareRename",
 			params: PrepareRenameParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 					Position:     Position{Line: 0, Character: 5},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -724,12 +735,12 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentRename",
 			method: "textDocument/rename",
 			params: RenameParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Position:     Position{Line: 0, Character: 5},
 				NewName:      "y",
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -737,10 +748,10 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentSemanticTokensFull",
 			method: "textDocument/semanticTokens/full",
 			params: SemanticTokensParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
@@ -748,63 +759,22 @@ fmt.Println("Hello, World!")
 			name:   "TextDocumentInlayHint",
 			method: "textDocument/inlayHint",
 			params: InlayHintParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 				Range: Range{
 					Start: Position{Line: 0, Character: 0},
-					End:   Position{Line: 1, Character: 6},
+					End:   Position{Line: 1, Character: 9},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
-			},
-			msgNum: 2,
-		},
-		{
-			name:   "WorkspaceExecuteCommand",
-			method: "workspace/executeCommand",
-			params: ExecuteCommandParams{
-				Command: CommandXGoRenameResources,
-				Arguments: func() []json.RawMessage {
-					arg := map[string]any{
-						"resource": map[string]any{
-							"uri": "spx://resources/sprites/sprite1",
-						},
-						"newName": "sprite2",
-					}
-					data, _ := json.Marshal(arg)
-					return []json.RawMessage{data}
-				}(),
-			},
-			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
-			},
-			msgNum: 2,
-		},
-		{
-			name:   "WorkspaceExecuteCommandLegacy",
-			method: "workspace/executeCommand",
-			params: ExecuteCommandParams{
-				Command: CommandSpxRenameResources,
-				Arguments: func() []json.RawMessage {
-					arg := map[string]any{
-						"resource": map[string]any{
-							"uri": "spx://resources/sprites/sprite1",
-						},
-						"newName": "sprite2",
-					}
-					data, _ := json.Marshal(arg)
-					return []json.RawMessage{data}
-				}(),
-			},
-			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
-			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			server := newTestServer(t, tc.files)
+			server.replier = replier
 			initializeServerForTest(t, server, replier)
 
 			var params json.RawMessage
@@ -825,6 +795,13 @@ fmt.Println("Hello, World!")
 			assert.Len(t, msgs, tc.msgNum,
 				"method %q got %d messages, want %d",
 				tc.method, len(msgs), tc.msgNum)
+			response := requireResponseForID(t, msgs, id)
+			if tc.method == "unknown/method" {
+				require.ErrorIs(t, response.Err(), jsonrpc2.ErrMethodNotFound)
+			} else {
+				require.NoError(t, response.Err())
+				assert.True(t, json.Valid(response.Result()))
+			}
 		})
 	}
 }
@@ -862,14 +839,14 @@ func TestHandleMessageNotification(t *testing.T) {
 			method: "textDocument/didOpen",
 			params: DidOpenTextDocumentParams{
 				TextDocument: protocol.TextDocumentItem{
-					URI:        "file:///main.spx",
-					LanguageID: "spx",
+					URI:        "file:///main.xgo",
+					LanguageID: "xgo",
 					Version:    1,
-					Text:       "var x = 100\necho x",
+					Text:       "var x = 100\nprintln x",
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
@@ -879,18 +856,18 @@ func TestHandleMessageNotification(t *testing.T) {
 			params: DidChangeTextDocumentParams{
 				TextDocument: protocol.VersionedTextDocumentIdentifier{
 					TextDocumentIdentifier: TextDocumentIdentifier{
-						URI: "file:///main.spx",
+						URI: "file:///main.xgo",
 					},
 					Version: 2,
 				},
 				ContentChanges: []protocol.TextDocumentContentChangeEvent{
 					{
-						Text: "var y = 200\necho y",
+						Text: "var y = 200\nprintln y",
 					},
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
@@ -899,15 +876,15 @@ func TestHandleMessageNotification(t *testing.T) {
 			method: "textDocument/didSave",
 			params: DidSaveTextDocumentParams{
 				TextDocument: TextDocumentIdentifier{
-					URI: "file:///main.spx",
+					URI: "file:///main.xgo",
 				},
 				Text: func() *string {
-					text := "var x = 100\necho x"
+					text := "var x = 100\nprintln x"
 					return &text
 				}(),
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
@@ -916,11 +893,11 @@ func TestHandleMessageNotification(t *testing.T) {
 			method: "textDocument/didClose",
 			params: DidCloseTextDocumentParams{
 				TextDocument: TextDocumentIdentifier{
-					URI: "file:///main.spx",
+					URI: "file:///main.xgo",
 				},
 			},
 			files: map[string][]byte{
-				"main.spx": []byte("var x = 100\necho x"),
+				"main.xgo": []byte("var x = 100\nprintln x"),
 			},
 			msgNum: 2, // telemetry event + diagnostics notification
 		},
@@ -933,7 +910,8 @@ func TestHandleMessageNotification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := newMockReplier()
-			server := New(newProjectWithoutModTime(tc.files), replier, fileMapGetter(tc.files), &MockScheduler{})
+			server := newTestServer(t, tc.files)
+			server.replier = replier
 			initializeServerForTest(t, server, replier)
 
 			var params json.RawMessage
@@ -953,6 +931,21 @@ func TestHandleMessageNotification(t *testing.T) {
 			assert.Len(t, msgs, tc.msgNum,
 				"method %q got %d messages, want %d",
 				tc.method, len(msgs), tc.msgNum)
+			if tc.msgNum == 2 {
+				var diagnostics []jsonrpc2.Message
+				for _, message := range msgs {
+					notification := requireValueAs[*jsonrpc2.Notification](t, message)
+					if notification.Method() == "textDocument/publishDiagnostics" {
+						diagnostics = append(diagnostics, notification)
+					}
+				}
+				require.Len(t, diagnostics, 1)
+				notification := requireValueAs[*jsonrpc2.Notification](t, diagnostics[0])
+				var params PublishDiagnosticsParams
+				require.NoError(t, json.Unmarshal(notification.Params(), &params))
+				assert.Equal(t, DocumentURI("file:///main.xgo"), params.URI)
+				assert.Equal(t, []Diagnostic{}, params.Diagnostics)
+			}
 		})
 	}
 }

@@ -1,49 +1,21 @@
 package server
 
 import (
+	"io/fs"
 	"testing"
+
+	"github.com/goplus/mod/modfile"
+	"github.com/goplus/mod/modload"
+	"github.com/goplus/mod/xgomod"
+	"github.com/goplus/xgo/parser"
+	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/internal/testframework"
+	"github.com/goplus/xgolsw/protocol"
+	"github.com/goplus/xgolsw/xgo"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func newTestFileMap() map[string][]byte {
-	return map[string][]byte{
-		"main.spx": []byte(`
-`),
-		"MyAircraft.spx": []byte(`
-onStart => {
-	for {
-		wait 0.1
-		Bullet.clone
-		play "biu"
-		setXYpos mouseX, mouseY
-	}
-}
-`),
-		"Bullet.spx": []byte(`
-onCloned => {
-	setXYpos MyAircraft.xpos, MyAircraft.ypos+5
-	show
-	for {
-		wait 0.04
-		step 10
-		if touching(Edge) {
-			destroy
-		}
-	}
-}
-`),
-		"assets/index.json":                    []byte(`{"backdrops":[{"x":0,"y":0,"faceRight":0,"bitmapResolution":2,"name":"backdrop1","path":"backdrop1.png"}],"backdropIndex":0,"map":{"width":480,"height":360,"mode":"fillRatio"},"run":{"width":480,"height":360},"zorder":["MyAircraft","Bullet"]}`),
-		"assets/backdrop1.png":                 nil,
-		"assets/sprites/MyAircraft/index.json": []byte(`{"heading":90,"x":-14.502367071209733,"y":-151.76923076923077,"size":0.45,"rotationStyle":"normal","costumeIndex":0,"visible":true,"isDraggable":false,"pivot":{"x":0,"y":0},"costumes":[{"x":98,"y":122,"faceRight":0,"bitmapResolution":2,"name":"hero","path":"hero.png"}],"fAnimations":{},"animBindings":{}}`),
-		"assets/sprites/MyAircraft/hero.png":   nil,
-		"assets/sprites/Bullet/index.json":     []byte(`{"heading":0,"x":230,"y":185,"size":0.65,"rotationStyle":"normal","costumeIndex":0,"visible":false,"isDraggable":false,"pivot":{"x":0,"y":0},"costumes":[{"x":8,"y":20,"faceRight":90,"bitmapResolution":2,"name":"bullet","path":"bullet.png"}],"fAnimations":{},"animBindings":{}}`),
-		"assets/sprites/Bullet/bullet.png":     nil,
-		"assets/sounds/biu/index.json":         []byte(`{"rate":0,"sampleCount":0,"path":"biu.wav"}`),
-		"assets/sounds/biu/biu.wav":            nil,
-	}
-}
 
 func requireRelatedFullDocumentDiagnosticReport(t *testing.T, report *DocumentDiagnosticReport) RelatedFullDocumentDiagnosticReport {
 	t.Helper()
@@ -63,9 +35,13 @@ func requireWorkspaceFullDocumentDiagnosticReport(t *testing.T, item WorkspaceDo
 
 func TestServerTextDocumentDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo":   []byte(`println "hello"`),
+			"first.xgo":  []byte(`var first = 1`),
+			"second.xgo": []byte(`var second = 2`),
+		})
 		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		}
 
 		report, err := s.textDocumentDiagnostic(params)
@@ -79,17 +55,17 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 
 	t.Run("EmbeddedWorkClassFieldInitializer", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Bar.spx":  []byte(``),
-			"Foo.spx": []byte(`var (
+			"main_fixture.gox": []byte(``),
+			"Bar_fixture.gox":  []byte(``),
+			"Foo_fixture.gox": []byte(`var (
 	others = [Bar]
 )
 `),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///Foo.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///Foo_fixture.gox"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, report)
@@ -100,7 +76,7 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 
 	t.Run("LocalEnum", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`func check() {
+			"main.xgo": []byte(`func check() {
 	type Permission const (
 		Read = 1 << iota
 		Write
@@ -109,12 +85,11 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 	println(permission)
 }
 `),
-			"assets/index.json": []byte(`{}`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, report)
@@ -123,47 +98,16 @@ func TestServerTextDocumentDiagnostic(t *testing.T) {
 		assert.Empty(t, fullReport.Items)
 	})
 
-	t.Run("FuncDecoratorResourceArgument", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`func withSound(sound SoundName, fn func()) {
-	fn()
-}
-
-@withSound("Missing")
-func run() {
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-
-		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "Missing" not found`,
-			Range: Range{
-				Start: Position{Line: 4, Character: 11},
-				End:   Position{Line: 4, Character: 20},
-			},
-		})
-	})
-
 	t.Run("ParseError", func(t *testing.T) {
-		fileMap := newTestFileMap()
-		fileMap["main.spx"] = []byte(`
+		fileMap := map[string][]byte{}
+		fileMap["main.xgo"] = []byte(`
 // Invalid syntax, missing closing parenthesis
 var (
 	Foobar string
 `)
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := newTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		}
 
 		report, err := s.textDocumentDiagnostic(params)
@@ -192,9 +136,9 @@ var (
 	})
 
 	t.Run("TypeError", func(t *testing.T) {
-		fileMap := newTestFileMap()
+		fileMap := map[string][]byte{}
 		// case for https://github.com/goplus/xgolsw/issues/163
-		fileMap["main.spx"] = []byte(`
+		fileMap["main_fixture.gox"] = []byte(`
 func calcPos() (posX float64, posY float64) {
 	return 1.0, 1.0
 }
@@ -204,9 +148,9 @@ onStart => {
 	x, y = calcPos()
 }
 `)
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := newTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 		}
 
 		report, err := s.textDocumentDiagnostic(params)
@@ -226,16 +170,16 @@ onStart => {
 	})
 
 	t.Run("MissingReturn", func(t *testing.T) {
-		fileMap := newTestFileMap()
-		fileMap["main.spx"] = []byte(`
+		fileMap := map[string][]byte{}
+		fileMap["main.xgo"] = []byte(`
 func getValue() int {
 	var x = 1
 	x++
 }
 `)
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+		s := newTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		}
 
 		report, err := s.textDocumentDiagnostic(params)
@@ -254,10 +198,10 @@ func getValue() int {
 		})
 	})
 
-	t.Run("NonSpxFile", func(t *testing.T) {
-		fileMap := newTestFileMap()
-		fileMap["main.xgo"] = []byte(`echo "Hello, XGo!"`)
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
+	t.Run("PlainXGo", func(t *testing.T) {
+		fileMap := map[string][]byte{}
+		fileMap["main.xgo"] = []byte(`println "Hello, XGo!"`)
+		s := newTestServer(t, fileMap)
 		params := &DocumentDiagnosticParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		}
@@ -271,35 +215,14 @@ func getValue() int {
 		assert.Empty(t, fullReport.Items)
 	})
 
-	t.Run("NonMainPackageDecl", func(t *testing.T) {
-		fileMap := newTestFileMap()
-		fileMap["main.spx"] = []byte("package nonmain")
-		s := New(newProjectWithoutModTime(fileMap), nil, fileMapGetter(fileMap), &MockScheduler{})
-		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		}
-
-		report, err := s.textDocumentDiagnostic(params)
-		require.NoError(t, err)
-		require.NotNil(t, report)
-
-		fullReport := requireRelatedFullDocumentDiagnosticReport(t, report)
-		assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-		require.Len(t, fullReport.Items, 1)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  "package name must be main",
-			Range: Range{
-				Start: Position{Line: 0, Character: 8},
-				End:   Position{Line: 0, Character: 15},
-			},
-		})
-	})
-
 	t.Run("FileNotFound", func(t *testing.T) {
-		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo":   []byte(`println "hello"`),
+			"first.xgo":  []byte(`var first = 1`),
+			"second.xgo": []byte(`var second = 2`),
+		})
 		params := &DocumentDiagnosticParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.spx"},
+			TextDocument: TextDocumentIdentifier{URI: "file:///notexist.xgo"},
 		}
 
 		report, err := s.textDocumentDiagnostic(params)
@@ -314,7 +237,11 @@ func getValue() int {
 
 func TestServerWorkspaceDiagnostic(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
-		s := New(newProjectWithoutModTime(newTestFileMap()), nil, fileMapGetter(newTestFileMap()), &MockScheduler{})
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo":   []byte(`println "hello"`),
+			"first.xgo":  []byte(`var first = 1`),
+			"second.xgo": []byte(`var second = 2`),
+		})
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -329,23 +256,21 @@ func TestServerWorkspaceDiagnostic(t *testing.T) {
 			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
 			assert.Empty(t, fullReport.Items)
 		}
-		assert.Contains(t, foundFiles, "main.spx")
-		assert.Contains(t, foundFiles, "MyAircraft.spx")
-		assert.Contains(t, foundFiles, "Bullet.spx")
+		assert.Contains(t, foundFiles, "main.xgo")
+		assert.Contains(t, foundFiles, "first.xgo")
+		assert.Contains(t, foundFiles, "second.xgo")
 	})
 
 	t.Run("ParseError", func(t *testing.T) {
 		m := map[string][]byte{
-			"main.spx": []byte(`
+			"main.xgo": []byte(`
 // Invalid syntax, missing closing parenthesis
 var (
 	Foobar string
 `),
-			"MyAircraft.spx":                       []byte(`var x int`),
-			"assets/index.json":                    []byte(`{}`),
-			"assets/sprites/MyAircraft/index.json": []byte(`{}`),
+			"first.xgo": []byte(`var x int`),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, m)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -353,7 +278,7 @@ var (
 		assert.Len(t, report.Items, 2)
 		for _, item := range report.Items {
 			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			if fullReport.URI == "file:///main.spx" {
+			if fullReport.URI == "file:///main.xgo" {
 				require.Len(t, fullReport.Items, 2)
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
@@ -378,563 +303,287 @@ var (
 	})
 
 	t.Run("EmptyWorkspace", func(t *testing.T) {
-		s := New(newProjectWithoutModTime(map[string][]byte{}), nil, fileMapGetter(map[string][]byte{}), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.EqualError(t, err, "no valid main.spx file found in main package")
-		require.Nil(t, report)
-	})
-
-	t.Run("SoundResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play "Sound1"
-`),
-			"MySprite.spx": []byte(`
-const ConstSoundName = "ConstSoundName"
-var (
-	VarSoundName string
-)
-VarSoundName = "VarSoundName"
-onStart => {
-	play ""
-	play ConstSoundName
-	play "LiteralSoundName"
-	play VarSoundName
-	play "Sound1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, nil)
 
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
 		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "Sound1" not found`,
-					Range: Range{
-						Start: Position{Line: 1, Character: 5},
-						End:   Position{Line: 1, Character: 13},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 4)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sound resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 7, Character: 6},
-						End:   Position{Line: 7, Character: 8},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "ConstSoundName" not found`,
-					Range: Range{
-						Start: Position{Line: 8, Character: 6},
-						End:   Position{Line: 8, Character: 20},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "LiteralSoundName" not found`,
-					Range: Range{
-						Start: Position{Line: 9, Character: 6},
-						End:   Position{Line: 9, Character: 24},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "Sound1" not found`,
-					Range: Range{
-						Start: Position{Line: 11, Character: 6},
-						End:   Position{Line: 11, Character: 14},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
+		assert.Equal(t, []WorkspaceDocumentDiagnosticReport{}, report.Items)
 	})
-
-	t.Run("SoundResourceNotFoundInKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Sound SoundName
 }
 
-var client Client
+func TestServerGetDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		content string
+		want    []Diagnostic
+	}{
 
-func configure(opts Options?) {}
-
-func configureMap(opts map[string]SoundName?) {}
-
-type Player interface {
-	Sound(sound SoundName) Player
-}
-
-type Client struct{}
-
-func (c Client) Player() Player { return nil }
-
-func (c Client) play(params Player?) {}
-
-onStart => {
-	configure sound = "MissingStructSound"
-	configureMap sound = "MissingMapSound"
-	client.play sound = "MissingInterfaceSound"
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		require.Len(t, report.Items, 1)
-		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-		require.Len(t, fullReport.Items, 3)
-		assert.Contains(t, fullReport.Items, Diagnostic{
+		{name: "IncompletePackage", content: "package", want: []Diagnostic{{
 			Severity: SeverityError,
-			Message:  `sound resource "MissingStructSound" not found`,
-			Range: Range{
-				Start: Position{Line: 22, Character: 19},
-				End:   Position{Line: 22, Character: 39},
-			},
+			Message:  "failed to parse source file: main.xgo:1:8: expected ';', found 'EOF' (and 1 more errors)",
+		}}},
+		{name: "NoError", content: "println 1\n", want: []Diagnostic{}},
+		{name: "UndefinedImport", content: "fmt.println \"hello\"\n", want: []Diagnostic{{
+			Severity: SeverityError, Message: "undefined: fmt",
+			Range: Range{Start: Position{}, End: Position{Character: 3}},
+		}}},
+		{name: "SyntaxError", content: "var (\n    x int\n", want: []Diagnostic{
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+		}},
+		{name: "UTF16SyntaxError", content: "var (\n    x int // \U0001f600\n", want: []Diagnostic{
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 15}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 15}}},
+		}},
+		{name: "MultipleTypeErrors", content: "var x int = \"string\"\nvar y bool = 42\n", want: []Diagnostic{
+			{Severity: SeverityError, Message: "cannot use \"string\" (type untyped string) as type int in assignment", Range: Range{Start: Position{Character: 12}, End: Position{Character: 20}}},
+			{Severity: SeverityError, Message: "cannot use 42 (type untyped int) as type bool in assignment", Range: Range{Start: Position{Line: 1, Character: 13}, End: Position{Line: 1, Character: 15}}},
+		}},
+		{name: "UTF16", content: "println \"\U0001f600\", missing\n", want: []Diagnostic{{
+			Severity: SeverityError, Message: "undefined: missing",
+			Range: Range{Start: Position{Character: 14}, End: Position{Character: 21}},
+		}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.content)})
+			diagnostics := s.getDiagnostics("main.xgo")
+			assert.ElementsMatch(t, tt.want, diagnostics)
+			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
 		})
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingMapSound" not found`,
-			Range: Range{
-				Start: Position{Line: 23, Character: 22},
-				End:   Position{Line: 23, Character: 39},
-			},
-		})
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingInterfaceSound" not found`,
-			Range: Range{
-				Start: Position{Line: 24, Character: 21},
-				End:   Position{Line: 24, Character: 44},
-			},
-		})
-	})
-
-	t.Run("SoundResourceNotFoundInOverloadKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type Options struct {
-	Sound SoundName
+	}
 }
 
-var worker Worker
-
-func (w *Worker) playSound(opts Options?) {}
-
-func (Worker).play = (
-	(Worker).playSound
-)
-
-onStart => {
-	worker.play sound = "MissingOverloadSound"
-}
-`),
-			"assets/index.json": []byte(`{}`),
+func TestServerDiagnosticsAt(t *testing.T) {
+	t.Run("UnavailableFramework", func(t *testing.T) {
+		files := map[string][]byte{
+			"main_fixture.gox": []byte("println 1\n"),
+			"broken.xgo":       []byte("var (\n    x int\n"),
 		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
+		s := newTestServer(t, files)
+		proj := s.getProj()
+		importer := proj.Importer
+		proj.Importer = completionTestImporter{Importer: importer, unavailablePath: testframework.PkgPath}
+		_, err := proj.TypeInfo()
+		var typeErr typesutil.Error
+		require.ErrorAs(t, err, &typeErr)
+		require.False(t, typeErr.Pos.IsValid())
+		require.Equal(t, fs.ErrNotExist.Error(), typeErr.Msg)
 
+		want := map[DocumentURI][]Diagnostic{
+			"file:///main_fixture.gox": {},
+			"file:///broken.xgo": {
+				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+			},
+		}
+		for filename := range files {
+			assert.Equal(t, want[s.toDocumentURI(filename)], s.getDiagnostics(filename))
+		}
+		replier := newMockReplier()
+		s.replier = replier
+		require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+			TextDocument: protocol.TextDocumentItem{
+				URI: "file:///main_fixture.gox", Version: 1, Text: string(files["main_fixture.gox"]),
+			},
+		}))
+		assert.Equal(t, []Diagnostic{}, requirePublishedDiagnostics(t, replier, "file:///main_fixture.gox"))
+		for uri, diagnostics := range want {
+			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+			require.NoError(t, err)
+			assert.Equal(t, diagnostics, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
+		}
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
-		require.NotNil(t, report)
-		require.Len(t, report.Items, 1)
-		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-		require.Len(t, fullReport.Items, 1)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingOverloadSound" not found`,
-			Range: Range{
-				Start: Position{Line: 16, Character: 21},
-				End:   Position{Line: 16, Character: 43},
-			},
-		})
-	})
-
-	t.Run("PropertyNameNotFoundInOverloadKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type Options struct {
-	Name PropertyName
-}
-
-var worker Worker
-
-func (w *Worker) configureOptions(opts Options?) {}
-
-func (Worker).configure = (
-	(Worker).configureOptions
-)
-
-onStart => {
-	worker.configure name = "unknownProperty"
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		require.Len(t, report.Items, 1)
-		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-		require.Len(t, fullReport.Items, 1)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `unknown property "unknownProperty"`,
-			Range: Range{
-				Start: Position{Line: 16, Character: 25},
-				End:   Position{Line: 16, Character: 42},
-			},
-		})
-	})
-
-	t.Run("BackdropResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onBackdrop "", func() {}
-onBackdrop "NonExistentBackdrop", func() {}
-`),
-			"MySprite.spx": []byte(`
-const ConstBackdropName = "ConstBackdropName"
-var VarBackdropName string
-VarBackdropName = "VarBackdropName"
-onStart => {
-	onBackdrop ConstBackdropName, func() {}
-	onBackdrop "LiteralBackdropName", func() {}
-	onBackdrop VarBackdropName, func() {}
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
+		require.Len(t, report.Items, len(want))
+		got := make(map[DocumentURI][]Diagnostic)
 		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
+			full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+			got[full.URI] = full.Items
+		}
+		assert.Equal(t, want, got)
+
+		// A later edit must refresh diagnostics after the framework becomes available.
+		proj.Importer = importer
+		require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+			TextDocument: protocol.VersionedTextDocumentIdentifier{
+				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///broken.xgo"}, Version: 1,
+			},
+			ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: "var value int = \"bad\"\n"}},
+		}))
+		wantTypeError := []Diagnostic{{
+			Severity: SeverityError, Message: "cannot use \"bad\" (type untyped string) as type int in assignment",
+			Range: Range{Start: Position{Character: 16}, End: Position{Character: 21}},
+		}}
+		assert.Equal(t, wantTypeError, requirePublishedDiagnostics(t, replier, "file:///broken.xgo"))
+		documentReport, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///broken.xgo"}})
+		require.NoError(t, err)
+		assert.Equal(t, wantTypeError, requireRelatedFullDocumentDiagnosticReport(t, documentReport).Items)
+	})
+
+	t.Run("NoAST", func(t *testing.T) {
+		for _, tt := range []struct {
+			name            string
+			withParsedFiles bool
+		}{
+			{name: "OnlyFailedFiles"},
+			{name: "MixedFiles", withParsedFiles: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx":           []byte("println 1\n"),
+					"nested/Unknown.spx": []byte("println 2\n"),
+					"notes.txt":          []byte("not source code"),
+				}
+				parseFailure := []Diagnostic{{
 					Severity: SeverityError,
-					Message:  "backdrop resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 1, Character: 11},
-						End:   Position{Line: 1, Character: 13},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "NonExistentBackdrop" not found`,
-					Range: Range{
-						Start: Position{Line: 2, Character: 11},
-						End:   Position{Line: 2, Character: 32},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "ConstBackdropName" not found`,
-					Range: Range{
-						Start: Position{Line: 5, Character: 12},
-						End:   Position{Line: 5, Character: 29},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "LiteralBackdropName" not found`,
-					Range: Range{
-						Start: Position{Line: 6, Character: 12},
-						End:   Position{Line: 6, Character: 33},
-					},
-				})
+					Message:  "failed to parse source file: unknown file kind",
+				}}
+				want := map[DocumentURI][]Diagnostic{
+					"file:///main.spx":           parseFailure,
+					"file:///nested/Unknown.spx": parseFailure,
+				}
+				if tt.withParsedFiles {
+					files["helper.xgo"] = []byte("var value = 1\n")
+					files["broken.xgo"] = []byte("var (\n    x int\n")
+					want["file:///helper.xgo"] = []Diagnostic{}
+					want["file:///broken.xgo"] = []Diagnostic{
+						{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+						{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+					}
+				}
+				s := newTestServer(t, files)
+				replier := newMockReplier()
+				s.replier = replier
+				for _, filename := range []string{"main.spx", "nested/Unknown.spx"} {
+					astFile, err := s.getProj().ASTFile(filename)
+					require.ErrorIs(t, err, parser.ErrUnknownFileKind)
+					require.Nil(t, astFile)
+					uri := s.toDocumentURI(filename)
+					require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+						TextDocument: protocol.TextDocumentItem{URI: uri, Version: 1, Text: string(files[filename])},
+					}))
+					assert.Equal(t, parseFailure, requirePublishedDiagnostics(t, replier, uri))
+				}
+				for uri, diagnostics := range want {
+					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+					require.NoError(t, err)
+					full := requireRelatedFullDocumentDiagnosticReport(t, report)
+					assert.Equal(t, string(DiagnosticFull), full.Kind)
+					assert.Equal(t, diagnostics, full.Items)
+				}
+				report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+				require.NoError(t, err)
+				require.Len(t, report.Items, len(want))
+				got := make(map[DocumentURI][]Diagnostic)
+				for _, item := range report.Items {
+					full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+					assert.Equal(t, string(DiagnosticFull), full.Kind)
+					got[full.URI] = full.Items
+				}
+				assert.Equal(t, want, got)
+			})
+		}
+	})
+
+	t.Run("UnavailableAST", func(t *testing.T) {
+		s := newTestServer(t, nil)
+		s.workspaceRootFS = xgo.NewProject(nil, nil, 0)
+		documentReport, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+		require.ErrorIs(t, err, xgo.ErrUnknownCacheKind)
+		assert.Nil(t, documentReport)
+		workspaceReport, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.ErrorIs(t, err, xgo.ErrUnknownCacheKind)
+		assert.Nil(t, workspaceReport)
+	})
+
+	t.Run("Classfiles", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			filename     string
+			projectFile  string
+			spxExtension bool
+		}{
+			{name: "PlainXGo", filename: "main.xgo"},
+			{name: "LegacyXGo", filename: "main.gop"},
+			{name: "StandaloneClass", filename: "Record.gox"},
+			{name: "ProjectClass", filename: "main_fixture.gox"},
+			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox"},
+			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", spxExtension: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{tt.filename: []byte("println missing\n")}
+				if tt.projectFile != "" {
+					files[tt.projectFile] = nil
+				}
+				s := newTestServer(t, files)
+				if tt.spxExtension {
+					s.workspaceRootFS.Mod = xgomod.New(modload.Module{
+						Opt: &modfile.File{Projects: []*modfile.Project{{
+							Ext: ".spx", FullExt: "main.spx", Class: "App", PkgPaths: []string{testframework.PkgPath},
+							Works: []*modfile.Class{{Ext: ".spx", Class: "Item", Embedded: true}},
+						}}},
+					})
+					require.NoError(t, s.workspaceRootFS.Mod.ImportClasses())
+				}
+				report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+				require.NoError(t, err)
+				require.Len(t, report.Items, len(files))
+				for _, item := range report.Items {
+					full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+					assert.Equal(t, string(DiagnosticFull), full.Kind)
+					if full.URI == s.toDocumentURI(tt.filename) {
+						assert.Equal(t, []Diagnostic{{
+							Severity: SeverityError, Message: "undefined: missing",
+							Range: Range{Start: Position{Character: 8}, End: Position{Character: 15}},
+						}}, full.Items)
+					} else {
+						assert.Equal(t, []Diagnostic{}, full.Items)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("CrossFileTypeError", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo":   []byte("println value()\n"),
+			"values.xgo": []byte("func value() int {\n    var number int = \"bad\"\n    return 1\n}\n"),
+			"notes.txt":  []byte("not source code"),
+		})
+		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.NoError(t, err)
+		require.Len(t, report.Items, 2)
+		want := []Diagnostic{{
+			Severity: SeverityError, Message: "cannot use \"bad\" (type untyped string) as type int in assignment",
+			Range: Range{Start: Position{Line: 1, Character: 21}, End: Position{Line: 1, Character: 26}},
+		}}
+		for _, item := range report.Items {
+			full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+			switch full.URI {
+			case "file:///values.xgo":
+				assert.Equal(t, want, full.Items)
+			case "file:///main.xgo":
+				assert.Equal(t, []Diagnostic{}, full.Items)
 			default:
-				assert.Empty(t, fullReport.Items)
+				assert.Fail(t, "unexpected diagnostic document", "%s", full.URI)
 			}
 		}
+		diagnostics := s.getDiagnostics("main.xgo")
+		assert.Empty(t, diagnostics)
+		diagnostics = s.getDiagnostics("values.xgo")
+		assert.Equal(t, want, diagnostics)
 	})
 
-	t.Run("SpriteResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.say "hi"
-MySprite.touching "OtherSprite"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	say "hi"
-	touching "OtherSprite"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+	t.Run("Analyzer", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("values := [1, 2]\nvalues = append(values)\n")})
+		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "OtherSprite" not found`,
-					Range: Range{
-						Start: Position{Line: 2, Character: 18},
-						End:   Position{Line: 2, Character: 31},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "OtherSprite" not found`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 10},
-						End:   Position{Line: 3, Character: 23},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("SpriteCostumeResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume ""
-	setCostume "NonExistentCostume"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sprite costume resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 2, Character: 12},
-						End:   Position{Line: 2, Character: 14},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `costume resource "NonExistentCostume" not found in sprite "MySprite"`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 12},
-						End:   Position{Line: 3, Character: 32},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("SpriteAnimationResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate ""
-	animate "roll-in"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sprite animation resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 2, Character: 9},
-						End:   Position{Line: 2, Character: 11},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `animation resource "roll-in" not found in sprite "MySprite"`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 9},
-						End:   Position{Line: 3, Character: 18},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("WidgetResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-const ConstWidgetName = "ConstWidgetName"
-var VarWidgetName string
-VarWidgetName = "VarWidgetName"
-onStart => {
-	getWidget Monitor, ""
-	getWidget Monitor, ConstWidgetName
-	getWidget Monitor, "LiteralWidgetName"
-	getWidget Monitor, VarWidgetName
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 3)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "widget resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 5, Character: 20},
-						End:   Position{Line: 5, Character: 22},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `widget resource "ConstWidgetName" not found`,
-					Range: Range{
-						Start: Position{Line: 6, Character: 20},
-						End:   Position{Line: 6, Character: 35},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `widget resource "LiteralWidgetName" not found`,
-					Range: Range{
-						Start: Position{Line: 7, Character: 20},
-						End:   Position{Line: 7, Character: 39},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("WithNonBasicTypeAliases", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-import "image/color"
-
-onStart => {
-	touchingColor HSBA(0, 0, 0, 0)
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			assert.Empty(t, fullReport.Items)
-		}
-	})
-
-	t.Run("OnKey", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onKey KeyLeft, => {}
-
-onKey [KeyRight, KeyUp, KeyDown], => {}
-
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := New(newProjectWithoutModTime(m), nil, fileMapGetter(m), &MockScheduler{})
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 1)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			assert.Empty(t, fullReport.Items)
-		}
+		assert.Equal(t, []Diagnostic{{
+			Severity: SeverityError, Message: "append with no values",
+			Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 23}},
+		}}, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
 	})
 }

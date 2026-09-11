@@ -460,6 +460,9 @@ func (s *Server) sendTelemetryEvent(data map[string]any) error {
 
 // publishDiagnostics sends diagnostic notifications to the client.
 func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) error {
+	if diagnostics == nil {
+		diagnostics = []Diagnostic{}
+	}
 	params := &PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: diagnostics,
