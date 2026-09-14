@@ -170,12 +170,18 @@ func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 		}, got)
 	})
 
-	t.Run("SoundResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
+	for _, tt := range []struct {
+		name  string
+		files map[string][]byte
+		want  map[DocumentURI][]Diagnostic
+	}{
+		{
+			name: "SoundResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
 play "Sound1"
 `),
-			"MySprite.spx": []byte(`
+				"MySprite.spx": []byte(`
 const ConstSoundName = "ConstSoundName"
 var (
 	VarSoundName string
@@ -189,68 +195,184 @@ onStart => {
 	play "Sound1"
 }
 `),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "Sound1" not found`,
-					Range: Range{
-						Start: Position{Line: 1, Character: 5},
-						End:   Position{Line: 1, Character: 13},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 4)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sound resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 7, Character: 6},
-						End:   Position{Line: 7, Character: 8},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "ConstSoundName" not found`,
-					Range: Range{
-						Start: Position{Line: 8, Character: 6},
-						End:   Position{Line: 8, Character: 20},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "LiteralSoundName" not found`,
-					Range: Range{
-						Start: Position{Line: 9, Character: 6},
-						End:   Position{Line: 9, Character: 24},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sound resource "Sound1" not found`,
-					Range: Range{
-						Start: Position{Line: 11, Character: 6},
-						End:   Position{Line: 11, Character: 14},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
+				"assets/index.json":                  []byte(`{}`),
+				"assets/sprites/MySprite/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {
+					{Severity: SeverityError, Message: `sound resource "Sound1" not found`,
+						Range: Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 13}}},
+				},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: "sound resource name cannot be empty",
+						Range: Range{Start: Position{Line: 7, Character: 6}, End: Position{Line: 7, Character: 8}}},
+					{Severity: SeverityError, Message: `sound resource "ConstSoundName" not found`,
+						Range: Range{Start: Position{Line: 8, Character: 6}, End: Position{Line: 8, Character: 20}}},
+					{Severity: SeverityError, Message: `sound resource "LiteralSoundName" not found`,
+						Range: Range{Start: Position{Line: 9, Character: 6}, End: Position{Line: 9, Character: 24}}},
+					{Severity: SeverityError, Message: `sound resource "Sound1" not found`,
+						Range: Range{Start: Position{Line: 11, Character: 6}, End: Position{Line: 11, Character: 14}}},
+				},
+			},
+		},
+		{
+			name: "BackdropResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
+onBackdrop "", func() {}
+onBackdrop "NonExistentBackdrop", func() {}
+`),
+				"MySprite.spx": []byte(`
+const ConstBackdropName = "ConstBackdropName"
+var VarBackdropName string
+VarBackdropName = "VarBackdropName"
+onStart => {
+	onBackdrop ConstBackdropName, func() {}
+	onBackdrop "LiteralBackdropName", func() {}
+	onBackdrop VarBackdropName, func() {}
+}
+`),
+				"assets/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {
+					{Severity: SeverityError, Message: "backdrop resource name cannot be empty",
+						Range: Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 13}}},
+					{Severity: SeverityError, Message: `backdrop resource "NonExistentBackdrop" not found`,
+						Range: Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 32}}},
+				},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: `backdrop resource "ConstBackdropName" not found`,
+						Range: Range{Start: Position{Line: 5, Character: 12}, End: Position{Line: 5, Character: 29}}},
+					{Severity: SeverityError, Message: `backdrop resource "LiteralBackdropName" not found`,
+						Range: Range{Start: Position{Line: 6, Character: 12}, End: Position{Line: 6, Character: 33}}},
+				},
+			},
+		},
+		{
+			name: "SpriteResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
+MySprite.say "hi"
+MySprite.touching "OtherSprite"
+`),
+				"MySprite.spx": []byte(`
+onStart => {
+	say "hi"
+	touching "OtherSprite"
+}
+`),
+				"assets/index.json":                  []byte(`{}`),
+				"assets/sprites/MySprite/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {
+					{Severity: SeverityError, Message: `sprite resource "OtherSprite" not found`,
+						Range: Range{Start: Position{Line: 2, Character: 18}, End: Position{Line: 2, Character: 31}}},
+				},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: `sprite resource "OtherSprite" not found`,
+						Range: Range{Start: Position{Line: 3, Character: 10}, End: Position{Line: 3, Character: 23}}},
+				},
+			},
+		},
+		{
+			name: "SpriteCostumeResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
+`),
+				"MySprite.spx": []byte(`
+onStart => {
+	setCostume ""
+	setCostume "NonExistentCostume"
+}
+`),
+				"assets/index.json":                  []byte(`{}`),
+				"assets/sprites/MySprite/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: "sprite costume resource name cannot be empty",
+						Range: Range{Start: Position{Line: 2, Character: 12}, End: Position{Line: 2, Character: 14}}},
+					{Severity: SeverityError, Message: `costume resource "NonExistentCostume" not found in sprite "MySprite"`,
+						Range: Range{Start: Position{Line: 3, Character: 12}, End: Position{Line: 3, Character: 32}}},
+				},
+			},
+		},
+		{
+			name: "SpriteAnimationResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
+`),
+				"MySprite.spx": []byte(`
+onStart => {
+	animate ""
+	animate "roll-in"
+}
+`),
+				"assets/index.json":                  []byte(`{}`),
+				"assets/sprites/MySprite/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: "sprite animation resource name cannot be empty",
+						Range: Range{Start: Position{Line: 2, Character: 9}, End: Position{Line: 2, Character: 11}}},
+					{Severity: SeverityError, Message: `animation resource "roll-in" not found in sprite "MySprite"`,
+						Range: Range{Start: Position{Line: 3, Character: 9}, End: Position{Line: 3, Character: 18}}},
+				},
+			},
+		},
+		{
+			name: "WidgetResourceNotFound",
+			files: map[string][]byte{
+				"main.spx": []byte(`
+`),
+				"MySprite.spx": []byte(`
+const ConstWidgetName = "ConstWidgetName"
+var VarWidgetName string
+VarWidgetName = "VarWidgetName"
+onStart => {
+	getWidget Monitor, ""
+	getWidget Monitor, ConstWidgetName
+	getWidget Monitor, "LiteralWidgetName"
+	getWidget Monitor, VarWidgetName
+}
+`),
+				"assets/index.json": []byte(`{}`),
+			},
+			want: map[DocumentURI][]Diagnostic{
+				"file:///main.spx": {},
+				"file:///MySprite.spx": {
+					{Severity: SeverityError, Message: "widget resource name cannot be empty",
+						Range: Range{Start: Position{Line: 5, Character: 20}, End: Position{Line: 5, Character: 22}}},
+					{Severity: SeverityError, Message: `widget resource "ConstWidgetName" not found`,
+						Range: Range{Start: Position{Line: 6, Character: 20}, End: Position{Line: 6, Character: 35}}},
+					{Severity: SeverityError, Message: `widget resource "LiteralWidgetName" not found`,
+						Range: Range{Start: Position{Line: 7, Character: 20}, End: Position{Line: 7, Character: 39}}},
+				},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSpxTestServer(t, tt.files)
+			report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+			require.NoError(t, err)
+			require.Len(t, report.Items, len(tt.want))
+			got := make(map[DocumentURI][]Diagnostic)
+			for _, item := range report.Items {
+				full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+				assert.Equal(t, string(DiagnosticFull), full.Kind)
+				got[full.URI] = full.Items
 			}
-		}
-	})
+			require.Len(t, got, len(tt.want))
+			for uri, diagnostics := range tt.want {
+				assert.Contains(t, got, uri)
+				assert.ElementsMatch(t, diagnostics, got[uri], uri)
+			}
+		})
+	}
 
 	t.Run("SoundResourceNotFoundInKwargs", func(t *testing.T) {
 		m := map[string][]byte{
@@ -397,280 +519,6 @@ onStart => {
 				End:   Position{Line: 16, Character: 42},
 			},
 		})
-	})
-
-	t.Run("BackdropResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onBackdrop "", func() {}
-onBackdrop "NonExistentBackdrop", func() {}
-`),
-			"MySprite.spx": []byte(`
-const ConstBackdropName = "ConstBackdropName"
-var VarBackdropName string
-VarBackdropName = "VarBackdropName"
-onStart => {
-	onBackdrop ConstBackdropName, func() {}
-	onBackdrop "LiteralBackdropName", func() {}
-	onBackdrop VarBackdropName, func() {}
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "backdrop resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 1, Character: 11},
-						End:   Position{Line: 1, Character: 13},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "NonExistentBackdrop" not found`,
-					Range: Range{
-						Start: Position{Line: 2, Character: 11},
-						End:   Position{Line: 2, Character: 32},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "ConstBackdropName" not found`,
-					Range: Range{
-						Start: Position{Line: 5, Character: 12},
-						End:   Position{Line: 5, Character: 29},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `backdrop resource "LiteralBackdropName" not found`,
-					Range: Range{
-						Start: Position{Line: 6, Character: 12},
-						End:   Position{Line: 6, Character: 33},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("SpriteResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.say "hi"
-MySprite.touching "OtherSprite"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	say "hi"
-	touching "OtherSprite"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///main.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "OtherSprite" not found`,
-					Range: Range{
-						Start: Position{Line: 2, Character: 18},
-						End:   Position{Line: 2, Character: 31},
-					},
-				})
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 1)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `sprite resource "OtherSprite" not found`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 10},
-						End:   Position{Line: 3, Character: 23},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("SpriteCostumeResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume ""
-	setCostume "NonExistentCostume"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sprite costume resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 2, Character: 12},
-						End:   Position{Line: 2, Character: 14},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `costume resource "NonExistentCostume" not found in sprite "MySprite"`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 12},
-						End:   Position{Line: 3, Character: 32},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("SpriteAnimationResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate ""
-	animate "roll-in"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 2)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "sprite animation resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 2, Character: 9},
-						End:   Position{Line: 2, Character: 11},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `animation resource "roll-in" not found in sprite "MySprite"`,
-					Range: Range{
-						Start: Position{Line: 3, Character: 9},
-						End:   Position{Line: 3, Character: 18},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
-	})
-
-	t.Run("WidgetResourceNotFound", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-const ConstWidgetName = "ConstWidgetName"
-var VarWidgetName string
-VarWidgetName = "VarWidgetName"
-onStart => {
-	getWidget Monitor, ""
-	getWidget Monitor, ConstWidgetName
-	getWidget Monitor, "LiteralWidgetName"
-	getWidget Monitor, VarWidgetName
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		assert.Len(t, report.Items, 2)
-		for _, item := range report.Items {
-			fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, item)
-			assert.Equal(t, string(DiagnosticFull), fullReport.Kind)
-			switch fullReport.URI {
-			case "file:///MySprite.spx":
-				require.Len(t, fullReport.Items, 3)
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  "widget resource name cannot be empty",
-					Range: Range{
-						Start: Position{Line: 5, Character: 20},
-						End:   Position{Line: 5, Character: 22},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `widget resource "ConstWidgetName" not found`,
-					Range: Range{
-						Start: Position{Line: 6, Character: 20},
-						End:   Position{Line: 6, Character: 35},
-					},
-				})
-				assert.Contains(t, fullReport.Items, Diagnostic{
-					Severity: SeverityError,
-					Message:  `widget resource "LiteralWidgetName" not found`,
-					Range: Range{
-						Start: Position{Line: 7, Character: 20},
-						End:   Position{Line: 7, Character: 39},
-					},
-				})
-			default:
-				assert.Empty(t, fullReport.Items)
-			}
-		}
 	})
 
 	t.Run("WithNonBasicTypeAliases", func(t *testing.T) {

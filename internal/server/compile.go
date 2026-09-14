@@ -96,30 +96,40 @@ func (r *compileResult) isInSpxEventHandler(pos token.Pos) bool {
 	return isIn
 }
 
-// spxResourceRefAtPosition returns the spx resource reference at the given position.
-func (r *compileResult) spxResourceRefAtPosition(position token.Position) *SpxResourceRef {
+// spxResourceRefAtPosition returns the smallest resource reference containing
+// position and its source file, including the position immediately after its
+// source text.
+func (r *compileResult) spxResourceRefAtPosition(position token.Position) (*SpxResourceRef, *ast.File) {
 	var (
 		bestRef      *SpxResourceRef
+		bestFile     *ast.File
 		bestNodeSpan int
 	)
 	fset := r.proj.Fset
 	for _, ref := range r.spxResourceRefs {
-		nodePos := fset.Position(ref.Node.Pos())
-		nodeEnd := fset.Position(ref.Node.End())
-		if nodePos.Filename != position.Filename ||
-			position.Line != nodePos.Line ||
-			position.Column < nodePos.Column ||
-			position.Column > nodeEnd.Column {
+		nodePos := fset.PositionFor(ref.Node.Pos(), false)
+		if nodePos.Filename != position.Filename {
+			continue
+		}
+		astFile := sourceASTFile(r.proj, ref.Node.Pos())
+		if astFile == nil {
+			continue
+		}
+		nodeEnd := fset.PositionFor(resourceNodeEnd(fset, astFile, ref.Node), false)
+		if position.Line < nodePos.Line || position.Line > nodeEnd.Line ||
+			position.Line == nodePos.Line && position.Column < nodePos.Column ||
+			position.Line == nodeEnd.Line && position.Column > nodeEnd.Column {
 			continue
 		}
 
-		nodeSpan := nodeEnd.Column - nodePos.Column
+		nodeSpan := nodeEnd.Offset - nodePos.Offset
 		if bestRef == nil || nodeSpan < bestNodeSpan {
 			bestRef = &ref
+			bestFile = astFile
 			bestNodeSpan = nodeSpan
 		}
 	}
-	return bestRef
+	return bestRef, bestFile
 }
 
 // hasSpxSpriteType reports whether the given type is an spx sprite type.
@@ -710,22 +720,32 @@ func (s *Server) inspectSpxResourceRefForTypeAtExpr(result *compileResult, expr 
 
 // addEmptySpxResourceNameDiagnostic adds a diagnostic for empty spx resource name.
 func (s *Server) addEmptySpxResourceNameDiagnostic(result *compileResult, expr ast.Expr, resourceType string) {
-	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
+	astFile := sourceASTFile(result.proj, expr.Pos())
+	if astFile == nil {
+		return
+	}
+	uri := s.toDocumentURI(result.proj.Fset.File(expr.Pos()).Name())
+	result.addDiagnostics(uri, Diagnostic{
 		Severity: SeverityError,
-		Range:    RangeForNode(result.proj, expr),
+		Range:    resourceRange(result.proj, astFile, expr),
 		Message:  s.translate(fmt.Sprintf("%s resource name cannot be empty", resourceType)),
 	})
 }
 
 // addSpxResourceNotFoundDiagnostic adds a diagnostic for spx resource not found.
 func (s *Server) addSpxResourceNotFoundDiagnostic(result *compileResult, expr ast.Expr, resourceType, resourceName, contextSpriteName string) {
+	astFile := sourceASTFile(result.proj, expr.Pos())
+	if astFile == nil {
+		return
+	}
 	message := fmt.Sprintf("%s resource %q not found", resourceType, resourceName)
 	if contextSpriteName != "" {
 		message = fmt.Sprintf("%s in sprite %q", message, contextSpriteName)
 	}
-	result.addDiagnostics(s.nodeDocumentURI(result.proj, expr), Diagnostic{
+	uri := s.toDocumentURI(result.proj.Fset.File(expr.Pos()).Name())
+	result.addDiagnostics(uri, Diagnostic{
 		Severity: SeverityError,
-		Range:    RangeForNode(result.proj, expr),
+		Range:    resourceRange(result.proj, astFile, expr),
 		Message:  s.translate(message),
 	})
 }

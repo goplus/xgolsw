@@ -154,7 +154,7 @@ func buildUTF16ColumnIndex(code []byte) []uint32 {
 // position converts pos to an LSP position using the precomputed UTF-16
 // column index.
 func (c *inputSlotContext) position(pos token.Pos) Position {
-	filePosition := c.proj.Fset.Position(pos)
+	filePosition := c.proj.Fset.PositionFor(pos, false)
 	offset := min(max(filePosition.Offset, 0), len(c.astFile.Code))
 	return Position{
 		Line:      uint32(max(filePosition.Line, 1) - 1),
@@ -653,7 +653,7 @@ func createValueInputSlotFromBasicLit(ctx *inputSlotContext, lit *ast.BasicLit, 
 		Accept:          accept,
 		Input:           input,
 		PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
-		Range:           ctx.rangeForNode(lit),
+		Range:           ctx.rangeForPosEnd(lit.Pos(), basicLitEnd(ctx.proj.Fset, ctx.astFile, lit)),
 	}
 }
 

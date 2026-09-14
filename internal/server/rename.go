@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	gotypes "go/types"
 	"slices"
@@ -9,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -157,13 +155,16 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 	if typeInfo == nil {
 		return changes
 	}
-	astPkg, _ := result.proj.ASTPackage()
 	for _, ref := range result.spxResourceRefs {
 		if ref.ID != id {
 			continue
 		}
 
 		node := ref.Node
+		astFile := sourceASTFile(result.proj, node.Pos())
+		if astFile == nil {
+			continue
+		}
 		if ref.Kind == SpxResourceRefKindConstantReference {
 			// Constant references are identifiers recorded by the collector.
 			// Resolve their initializers by source position because XGo can
@@ -172,7 +173,7 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			if obj == nil {
 				continue
 			}
-			defFile := xgoutil.PosASTFile(fset, astPkg, obj.Pos())
+			defFile := sourceASTFile(result.proj, obj.Pos())
 			if defFile == nil {
 				continue
 			}
@@ -191,9 +192,10 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 				continue
 			}
 			node = spec.Values[idx]
+			astFile = defFile
 		}
 
-		textEdit := TextEdit{Range: resourceRenameRange(result.proj, node), NewText: newName}
+		textEdit := TextEdit{Range: resourceRange(result.proj, astFile, node), NewText: newName}
 		switch ref.Kind {
 		case SpxResourceRefKindStringLiteral, SpxResourceRefKindConstantReference:
 			// Escape dollar signs to prevent XGo interpolation and dollar escapes.
@@ -216,7 +218,7 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 			}
 		}
 
-		documentURI := s.nodeDocumentURI(result.proj, node)
+		documentURI := s.toDocumentURI(fset.File(node.Pos()).Name())
 		if _, ok := seenTextEdits[documentURI]; !ok {
 			seenTextEdits[documentURI] = make(map[TextEdit]struct{})
 		}
@@ -228,30 +230,6 @@ func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID
 		changes[documentURI] = append(changes[documentURI], textEdit)
 	}
 	return changes
-}
-
-// resourceRenameRange returns the source range of a resource reference or
-// constant initializer, including carriage returns omitted from raw literals.
-func resourceRenameRange(proj *xgo.Project, node ast.Node) Range {
-	endNode := node
-	for {
-		binary, ok := endNode.(*ast.BinaryExpr)
-		if !ok {
-			break
-		}
-		endNode = binary.Y
-	}
-	lit, ok := endNode.(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING || lit.Value[0] != '`' {
-		return RangeForNode(proj, node)
-	}
-	astPkg, _ := proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, lit)
-	offset := proj.Fset.Position(lit.Pos()).Offset
-	// The recorded string has a closing delimiter. Its source span can be
-	// longer than BasicLit.Value because the parser strips carriage returns.
-	length := bytes.IndexByte(astFile.Code[offset+1:], '`') + 2
-	return RangeForPosEnd(proj, node.Pos(), lit.Pos()+token.Pos(length))
 }
 
 // spxRenameBackdropResource renames an spx backdrop resource.

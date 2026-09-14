@@ -64,7 +64,7 @@ func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
 			for _, orderedRefs := range [][]SpxResourceRef{refs, {refs[2], refs[1], refs[0]}} {
 				result := newCompileResult(proj, s.lookupPkgDoc)
 				result.spxResourceRefs = orderedRefs
-				ref := result.spxResourceRefAtPosition(token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
+				ref, _ := result.spxResourceRefAtPosition(token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
 				if tt.want < 0 {
 					assert.Nil(t, ref)
 				} else {
@@ -73,6 +73,84 @@ func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("SourceRanges", func(t *testing.T) {
+		type positionCheck struct {
+			position Position
+			want     int
+		}
+		for _, tt := range []struct {
+			name   string
+			source string
+			checks []positionCheck
+		}{
+			{
+				name: "Multiline", source: "echo (\n    `Long first line\nx\nend`), \"Beep\"\n",
+				checks: []positionCheck{
+					{Position{Line: 0, Character: 4}, -1},
+					{Position{Line: 0, Character: 5}, 0},
+					{Position{Line: 1, Character: 1}, 0},
+					{Position{Line: 1, Character: 4}, 1},
+					{Position{Line: 1, Character: 17}, 1},
+					{Position{Line: 2, Character: 0}, 1},
+					{Position{Line: 3, Character: 3}, 1},
+					{Position{Line: 3, Character: 4}, 1},
+					{Position{Line: 3, Character: 5}, 0},
+					{Position{Line: 3, Character: 6}, -1},
+					{Position{Line: 3, Character: 8}, 2},
+				},
+			},
+			{
+				name: "CarriageReturns", source: "echo (`S\rtu\r\rdio\r`), \"Beep\"\n",
+				checks: []positionCheck{
+					{Position{Character: 15}, 1},
+					{Position{Character: 17}, 1},
+					{Position{Character: 18}, 1},
+					{Position{Character: 19}, 0},
+					{Position{Character: 20}, -1},
+				},
+			},
+			{
+				name: "CRLFAndUnicode", source: "echo (\r\n    `\U0001f600\r\nx\r\n\U0001f600`), \"Beep\"\r\n",
+				checks: []positionCheck{
+					{Position{Line: 1, Character: 5}, 1},
+					{Position{Line: 2, Character: 0}, 1},
+					{Position{Line: 3, Character: 2}, 1},
+					{Position{Line: 3, Character: 3}, 1},
+					{Position{Line: 3, Character: 4}, 0},
+					{Position{Line: 3, Character: 5}, -1},
+					{Position{Line: 3, Character: 7}, 2},
+				},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				proj := s.getProj()
+				call := spxResourceTestCall(t, proj, "main.xgo")
+				require.Len(t, call.Args, 2)
+				paren := requireValueAs[*ast.ParenExpr](t, call.Args[0])
+				refs := []SpxResourceRef{
+					{ID: SpxSpriteResourceID{SpriteName: "Runner"}, Node: paren},
+					{ID: SpxBackdropResourceID{BackdropName: "Studio"}, Node: paren.X},
+					{ID: SpxSoundResourceID{SoundName: "Beep"}, Node: call.Args[1]},
+				}
+				file, err := proj.ASTFile("main.xgo")
+				require.NoError(t, err)
+				for _, order := range [][]SpxResourceRef{refs, {refs[2], refs[1], refs[0]}} {
+					result := newCompileResult(proj, s.lookupPkgDoc)
+					result.spxResourceRefs = order
+					for _, check := range tt.checks {
+						ref, _ := result.spxResourceRefAtPosition(ToPosition(proj, file, check.position))
+						if check.want < 0 {
+							assert.Nil(t, ref, "at %v", check.position)
+						} else {
+							assert.Equal(t, &refs[check.want], ref, "at %v", check.position)
+						}
+					}
+				}
+			})
+		}
+	})
 }
 
 func spxResourceTestCall(t *testing.T, proj *xgo.Project, filename string) *ast.CallExpr {

@@ -619,6 +619,32 @@ func TestFromPosition(t *testing.T) {
 	}
 }
 
+func TestBasicLitEnd(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		directive string
+		filename  string
+	}{
+		{"OriginalFile", "", "test.gop"},
+		{"RenamedFile", "//line virtual.gop:100\n", "virtual.gop"},
+		{"RemappedColumn", "//line virtual.gop:100:20\n", "virtual.gop"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source := tt.directive + "const Name = `Stu\rdio`\n"
+			proj, file := testProjectFile(t, source)
+			require.Len(t, file.Decls, 1)
+			decl := requireValueAs[*ast.GenDecl](t, file.Decls[0])
+			require.Len(t, decl.Specs, 1)
+			spec := requireValueAs[*ast.ValueSpec](t, decl.Specs[0])
+			require.Len(t, spec.Values, 1)
+			lit := requireValueAs[*ast.BasicLit](t, spec.Values[0])
+			assert.Equal(t, tt.filename, proj.Fset.Position(lit.Pos()).Filename)
+			assert.Equal(t, "`Studio`", lit.Value)
+			assert.Equal(t, len(source)-1, proj.Fset.File(lit.Pos()).Offset(basicLitEnd(proj.Fset, file, lit)))
+		})
+	}
+}
+
 func TestIsRangesOverlap(t *testing.T) {
 	for _, tt := range []struct {
 		name string
