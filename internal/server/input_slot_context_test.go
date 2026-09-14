@@ -162,3 +162,29 @@ func inputSlotLiteral(t *testing.T, ctx *inputSlotContext, value string) *ast.Ba
 	require.NotNil(t, literal)
 	return literal
 }
+
+func inputSlotCall(t *testing.T, ctx *inputSlotContext, name string) *ast.CallExpr {
+	t.Helper()
+
+	var found *ast.CallExpr
+	ast.Inspect(ctx.astFile, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		var callee string
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			callee = fun.Name
+		case *ast.SelectorExpr:
+			callee = fun.Sel.Name
+		}
+		if callee == name {
+			found = call
+			return false
+		}
+		return true
+	})
+	require.NotNil(t, found, name)
+	return found
+}

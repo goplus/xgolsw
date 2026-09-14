@@ -635,17 +635,7 @@ func createValueInputSlotFromBasicLit(ctx *inputSlotContext, lit *ast.BasicLit, 
 		accept.Type = ctx.inferInputType(declaredType)
 	}
 	if accept.Type == SpxInputTypeResourceName {
-		for _, spxResourceRef := range ctx.spxResult.spxResourceRefs {
-			if spxResourceRef.Node == lit {
-				input.Type = SpxInputTypeResourceName
-				input.Value = spxResourceRef.ID.URI()
-				accept.ResourceContext = ToPtr(spxResourceRef.ID.ContextURI())
-				break
-			}
-		}
-		if accept.ResourceContext == nil {
-			return nil
-		}
+		return createSpxResourceInputSlot(ctx, lit, declaredType)
 	}
 
 	return &XGoInputSlot{
@@ -726,22 +716,9 @@ func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, decl
 		SpxInputTypeKey,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
-		obj := ctx.typeInfo.ObjectOf(ident)
-		if obj != nil && !IsInSpxPkg(obj) {
-			break
+		if cnst, ok := ctx.typeInfo.ObjectOf(ident).(*gotypes.Const); ok && IsInSpxPkg(cnst) {
+			input = spxEnumInput(cnst, input.Type)
 		}
-		cnst, ok := obj.(*gotypes.Const)
-		if !ok {
-			break
-		}
-		input.Kind = XGoInputKindInPlace
-		switch input.Type {
-		case SpxInputTypeDirection:
-			input.Value, _ = strconv.ParseFloat(cnst.Val().ExactString(), 64)
-		default:
-			input.Value = cnst.Name()
-		}
-		input.Name = ""
 	}
 
 	accept := XGoInputSlotAccept{Type: input.Type}
