@@ -7,13 +7,52 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerSpxGetInputSlots(t *testing.T) {
+	t.Run("ColorCalls", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			expression string
+			want       *XGoInputSpxColorValue
+		}{
+			{"HSB", "sdk.HSB(12, 34, 56)", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
+			{"HSBA", "sdk.HSBA(12, 34, 56, 78)", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSBA, Args: []float64{12, 34, 56, 78}}},
+			{"TooMany", "sdk.HSB(12, 34, 56, 78)", nil},
+			{"ExtraExpression", "sdk.HSB(12, 34, 56, rand(100))", nil},
+			{"ExtraKwarg", "sdk.HSB(12, 34, 56, extra=78)", nil},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const prefix = "import sdk \"github.com/goplus/spx/v3\"\nvar color = "
+				source := prefix + tt.expression + "\n"
+				s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
+				require.NoError(t, err)
+				if tt.want == nil {
+					for _, slot := range slots {
+						assert.NotEqual(t, XGoInputTypeSpxColor, slot.Input.Type)
+					}
+					for _, value := range []int64{12, 34, 56} {
+						assert.NotNil(t, findInputSlot(slots, value, "", XGoInputTypeInteger, XGoInputKindInPlace))
+					}
+					return
+				}
+				require.Len(t, slots, 1)
+				slot := slots[0]
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeSpxColor, Value: *tt.want}, slot.Input)
+				assert.Equal(t, Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: uint32(12 + len(tt.expression))}}, slot.Range)
+				start := PositionOffset([]byte(source), slot.Range.Start)
+				end := PositionOffset([]byte(source), slot.Range.End)
+				updated := source[:start] + "sdk.HSB(10, 20, 30)" + source[end:]
+				assert.Equal(t, prefix+"sdk.HSB(10, 20, 30)\n", updated)
+				_, err = newSpxTestServer(t, map[string][]byte{"main.spx": []byte(updated)}).getProj().TypeInfo()
+				require.NoError(t, err)
+			})
+		}
+	})
+
 	t.Run("ResourceContextsWithLineDirectives", func(t *testing.T) {
 		for _, tt := range []struct {
 			name     string
@@ -60,244 +99,181 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 		}
 	})
 
-	t.Run("Normal", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	// Literals of different types.
-	count := 5
-	message := "Hello"
-	isVisible := true
+	t.Run("InPlaceValues", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx": []byte(`onStart => {
 	direction := Left
 	layerAction := Front
 	dirAction := Forward
-
-	// Function calls with different types.
-	println 42, 3.14, "text"
 	myColor := HSB(255, 0, 0)
 	otherColor := HSBA(0, 255, 0, 128)
-
-	// Conditions and calculations.
-	if count > 3 && isVisible {
-		println "Count is greater than 3 and is visible"
-	}
-
-	// Spx resource name.
-	MySprite.stepTo "OtherSprite"
-	MySprite.stepTo OtherSprite
+	Runner.stepTo "Other"
+	Runner.stepTo Other
 }
 `),
-			"MySprite.spx":                          []byte(``),
-			"OtherSprite.spx":                       []byte(``),
-			"assets/index.json":                     []byte(`{}`),
-			"assets/sprites/MySprite/index.json":    []byte(`{}`),
-			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		params := []SpxGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}}
-		inputSlots, err := s.xgoGetInputSlots(params)
+			"Runner.spx": nil, "Other.spx": nil,
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+			"assets/sprites/Other/index.json":  []byte(`{}`),
+		})
+		_, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
-		require.NotNil(t, inputSlots)
-		assert.Greater(t, len(inputSlots), 10)
-
-		t.Run("InPlaceValues", func(t *testing.T) {
-			for _, tt := range []struct {
-				name                     string
-				value                    any
-				acceptType               SpxInputType
-				inputType                SpxInputType
-				inputKind                SpxInputKind
-				shouldExist              bool
-				wantEmptyPredefinedNames bool
-			}{
-				{
-					name:        "String",
-					value:       "Hello",
-					acceptType:  SpxInputTypeString,
-					inputType:   SpxInputTypeString,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "Integer",
-					value:       int64(5),
-					acceptType:  SpxInputTypeInteger,
-					inputType:   SpxInputTypeInteger,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "Boolean",
-					value:       true,
-					acceptType:  SpxInputTypeBoolean,
-					inputType:   SpxInputTypeBoolean,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "Direction",
-					value:       float64(-90),
-					acceptType:  SpxInputTypeDecimal,
-					inputType:   SpxInputTypeDirection,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:                     "LayerAction",
-					value:                    "Front",
-					acceptType:               SpxInputTypeLayerAction,
-					inputType:                SpxInputTypeLayerAction,
-					inputKind:                SpxInputKindInPlace,
-					shouldExist:              true,
-					wantEmptyPredefinedNames: true,
-				},
-				{
-					name:                     "DirAction",
-					value:                    "Forward",
-					acceptType:               SpxInputTypeDirAction,
-					inputType:                SpxInputTypeDirAction,
-					inputKind:                SpxInputKindInPlace,
-					shouldExist:              true,
-					wantEmptyPredefinedNames: true,
-				},
-				{
-					name: "HSB",
-					value: SpxColorInputValue{
-						Constructor: SpxInputTypeSpxColorConstructorHSB,
-						Args:        []float64{255, 0, 0},
-					},
-					acceptType:               SpxInputTypeColor,
-					inputType:                SpxInputTypeColor,
-					inputKind:                SpxInputKindInPlace,
-					shouldExist:              true,
-					wantEmptyPredefinedNames: true,
-				},
-				{
-					name: "HSBA",
-					value: SpxColorInputValue{
-						Constructor: SpxInputTypeSpxColorConstructorHSBA,
-						Args:        []float64{0, 255, 0, 128},
-					},
-					acceptType:  SpxInputTypeColor,
-					inputType:   SpxInputTypeColor,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "SpxResourceName",
-					value:       SpxResourceURI("spx://resources/sprites/OtherSprite"),
-					acceptType:  SpxInputTypeResourceName,
-					inputType:   SpxInputTypeResourceName,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "SpxSpriteInstance",
-					value:       SpxResourceURI("spx://resources/sprites/OtherSprite"),
-					acceptType:  SpxInputTypeSpriteInstance,
-					inputType:   SpxInputTypeSpriteInstance,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: true,
-				},
-				{
-					name:        "NonExistentValue",
-					value:       int64(999),
-					acceptType:  SpxInputTypeInteger,
-					inputType:   SpxInputTypeInteger,
-					inputKind:   SpxInputKindInPlace,
-					shouldExist: false,
-				},
-			} {
-				t.Run(tt.name, func(t *testing.T) {
-					slot := findInputSlot(inputSlots, tt.value, "", tt.inputType, tt.inputKind)
-					if !tt.shouldExist {
-						assert.Nil(t, slot)
-						return
-					}
-					require.NotNil(t, slot)
-					assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
-					assert.Equal(t, tt.acceptType, slot.Accept.Type)
-					assert.Equal(t, tt.inputKind, slot.Input.Kind)
-					assert.Equal(t, tt.inputType, slot.Input.Type)
-					assert.Equal(t, tt.value, slot.Input.Value)
-					if tt.wantEmptyPredefinedNames {
-						assert.Empty(t, slot.PredefinedNames)
-					} else {
-						assert.NotEmpty(t, slot.PredefinedNames)
-					}
-					assert.NotEmpty(t, slot.Range)
-				})
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
+		require.NoError(t, err)
+		var values []XGoInputSlot
+		for _, slot := range slots {
+			if slot.Kind == XGoInputSlotKindValue {
+				values = append(values, slot)
 			}
-		})
-
-		t.Run("SpxSpriteInstanceContext", func(t *testing.T) {
-			slot := findInputSlot(
-				inputSlots,
-				SpxResourceURI("spx://resources/sprites/OtherSprite"),
-				"",
-				SpxInputTypeSpriteInstance,
-				SpxInputKindInPlace,
-			)
-			require.NotNil(t, slot)
-			assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
-			assert.Contains(t, slot.PredefinedNames, "OtherSprite")
-		})
-
-		t.Run("PredefinedValues", func(t *testing.T) {
-			for _, tt := range []struct {
-				name        string
-				inputName   string
-				inputType   SpxInputType
-				inputKind   SpxInputKind
-				shouldExist bool
-			}{
-				{"Variable", "count", SpxInputTypeUnknown, SpxInputKindPredefined, true},
-				{"NonExistentName", "nonExistent", SpxInputTypeUnknown, SpxInputKindPredefined, false},
-			} {
-				t.Run(tt.name, func(t *testing.T) {
-					slot := findInputSlot(inputSlots, nil, tt.inputName, tt.inputType, tt.inputKind)
-					if !tt.shouldExist {
-						assert.Nil(t, slot)
-						return
-					}
-					require.NotNil(t, slot)
-					assert.Equal(t, tt.inputType, slot.Accept.Type)
-					assert.Equal(t, tt.inputKind, slot.Input.Kind)
-					assert.Equal(t, tt.inputType, slot.Input.Type)
-					assert.Equal(t, tt.inputName, slot.Input.Name)
-					assert.NotEmpty(t, slot.PredefinedNames)
-					assert.NotEmpty(t, slot.Range)
-				})
+		}
+		require.Len(t, values, 7)
+		for i, want := range []struct {
+			inputType  XGoInputType
+			value      any
+			accept     XGoInputSlotAccept
+			start, end uint32
+			emptyNames bool
+		}{
+			{
+				inputType: XGoInputTypeSpxDirection, value: float64(-90),
+				accept: XGoInputSlotAccept{Type: XGoInputTypeDecimal},
+				start:  14, end: 18,
+			},
+			{
+				inputType: XGoInputTypeSpxLayerAction, value: "Front",
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxLayerAction},
+				start:  16, end: 21,
+				emptyNames: true,
+			},
+			{
+				inputType: XGoInputTypeSpxDirAction, value: "Forward",
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxDirAction},
+				start:  14, end: 21,
+				emptyNames: true,
+			},
+			{
+				inputType: XGoInputTypeSpxColor,
+				value:     XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{255, 0, 0}},
+				accept:    XGoInputSlotAccept{Type: XGoInputTypeSpxColor},
+				start:     12, end: 26,
+				emptyNames: true,
+			},
+			{
+				inputType: XGoInputTypeSpxColor,
+				value:     XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSBA, Args: []float64{0, 255, 0, 128}},
+				accept:    XGoInputSlotAccept{Type: XGoInputTypeSpxColor},
+				start:     15, end: 35,
+			},
+			{
+				inputType: XGoInputTypeSpxResourceName, value: SpxResourceURI("spx://resources/sprites/Other"),
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(SpxSpriteResourceContextURI)},
+				start:  15, end: 22,
+			},
+			{
+				inputType: XGoInputTypeSpxSpriteInstance, value: SpxResourceURI("spx://resources/sprites/Other"),
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxSpriteInstance, ResourceContext: ToPtr(SpxSpriteResourceContextURI)},
+				start:  15, end: 20,
+			},
+		} {
+			slot := values[i]
+			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: want.inputType, Value: want.value}, slot.Input, "slot %d", i)
+			assert.Equal(t, want.accept, slot.Accept, "slot %d", i)
+			assert.Equal(t, Range{Start: Position{Line: uint32(i + 1), Character: want.start}, End: Position{Line: uint32(i + 1), Character: want.end}}, slot.Range, "slot %d", i)
+			if want.emptyNames {
+				assert.Empty(t, slot.PredefinedNames, "slot %d", i)
+			} else {
+				assert.NotEmpty(t, slot.PredefinedNames, "slot %d", i)
 			}
-		})
+		}
+		assert.Equal(t, []string{"myColor"}, values[4].PredefinedNames)
+		assert.Contains(t, values[6].PredefinedNames, "Other")
+	})
 
-		t.Run("AddressSlots", func(t *testing.T) {
-			for _, tt := range []struct {
-				name        string
-				inputName   string
-				shouldExist bool
-			}{
-				{"CountVariable", "count", true},
-				{"NonExistentVariable", "nonExistent", false},
-			} {
-				t.Run(tt.name, func(t *testing.T) {
-					slot := findAddressInputSlot(inputSlots, tt.inputName)
-					if !tt.shouldExist {
-						assert.Nil(t, slot)
-						return
-					}
-					require.NotNil(t, slot)
-					assert.Equal(t, SpxInputSlotKindAddress, slot.Kind)
-					assert.Equal(t, SpxInputTypeUnknown, slot.Accept.Type)
-					assert.Equal(t, SpxInputKindPredefined, slot.Input.Kind)
-					assert.Equal(t, SpxInputTypeUnknown, slot.Input.Type)
-					assert.Equal(t, tt.inputName, slot.Input.Name)
-					assert.NotEmpty(t, slot.PredefinedNames)
-					assert.NotEmpty(t, slot.Range)
-				})
-			}
-		})
+	t.Run("ResourceIdentifiers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			call    string
+			context SpxResourceContextURI
+		}{
+			{"Backdrop", "setBackdrop choice", SpxBackdropResourceContextURI},
+			{"Sound", "play choice", SpxSoundResourceContextURI},
+			{"Sprite", "Runner.stepTo choice", SpxSpriteResourceContextURI},
+			{"Costume", "Runner.setCostume choice", FormatSpxSpriteCostumeResourceContextURI("Runner")},
+			{"Animation", "Runner.animate choice", FormatSpxSpriteAnimationResourceContextURI("Runner")},
+			{"Widget", "getWidget Monitor, choice", SpxWidgetResourceContextURI},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				for _, declaration := range []struct {
+					name   string
+					source string
+				}{
+					{"Constant", `const choice = "Item"`},
+					{"Variable", `var choice = "Item"`},
+				} {
+					t.Run(declaration.name, func(t *testing.T) {
+						source := "onStart => {\n\t" + declaration.source + "\n\t" + tt.call + "\n}\n"
+						s := newSpxTestServer(t, map[string][]byte{
+							"main.spx": []byte(source), "Runner.spx": nil, "Item.spx": nil,
+							"assets/index.json":                []byte(`{"costumes":[{"name":"Item"}],"zorder":[{"name":"Item","type":"monitor"}]}`),
+							"assets/sounds/Item/index.json":    []byte(`{}`),
+							"assets/sprites/Item/index.json":   []byte(`{}`),
+							"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"Item"}],"fAnimations":{"Item":{}}}`),
+						})
+						_, err := s.getProj().TypeInfo()
+						require.NoError(t, err)
+						slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
+						require.NoError(t, err)
+						slot := findInputSlot(slots, nil, "choice", XGoInputTypeString, XGoInputKindPredefined)
+						require.NotNil(t, slot)
+						assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
+						assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeString, Name: "choice"}, slot.Input)
+						assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(tt.context)}, slot.Accept)
+						assert.Contains(t, slot.PredefinedNames, "choice")
+						assert.Equal(t, Range{Start: Position{Line: 2, Character: uint32(1 + len(tt.call) - len("choice"))}, End: Position{Line: 2, Character: uint32(1 + len(tt.call))}}, slot.Range)
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("UnboundResourceReceiver", func(t *testing.T) {
+		for _, receiver := range []struct {
+			name        string
+			declaration string
+			expression  string
+		}{
+			{"Local", "target := Runner", "target"},
+			{"Shadowed", "Runner := Other", "Runner"},
+		} {
+			t.Run(receiver.name, func(t *testing.T) {
+				for _, method := range []struct {
+					name string
+					call string
+				}{
+					{"Costume", "setCostume"},
+					{"Animation", "animate"},
+				} {
+					t.Run(method.name, func(t *testing.T) {
+						source := "onStart => {\n\tconst choice = \"Item\"\n\t" + receiver.declaration + "\n\t" + receiver.expression + "." + method.call + " choice\n}\n"
+						s := newSpxTestServer(t, map[string][]byte{
+							"main.spx": nil, "Host.spx": []byte(source), "Runner.spx": nil, "Other.spx": nil,
+							"assets/index.json":                []byte(`{}`),
+							"assets/sprites/Host/index.json":   []byte(`{"costumes":[{"name":"Item"}],"fAnimations":{"Item":{}}}`),
+							"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"Item"}],"fAnimations":{"Item":{}}}`),
+							"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"Item"}],"fAnimations":{"Item":{}}}`),
+						})
+						_, err := s.getProj().TypeInfo()
+						require.NoError(t, err)
+						slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///Host.spx"}}})
+						require.NoError(t, err)
+						assert.NotNil(t, findInputSlot(slots, "Item", "", XGoInputTypeString, XGoInputKindInPlace))
+						for _, slot := range slots {
+							assert.NotEqual(t, uint32(3), slot.Range.Start.Line, "an unbound receiver cannot supply a resource context")
+						}
+					})
+				}
+			})
+		}
 	})
 
 	t.Run("SpxSpriteInstanceVariable", func(t *testing.T) {
@@ -439,65 +415,11 @@ func TestFindInputSlotsSpx(t *testing.T) {
 	m := map[string][]byte{
 		"main.spx": []byte(`
 onStart => {
-	// Initialize variables
-	count := 5
-	message := "Hello"
-	isVisible := true
 	direction := Left
-
-	// CallExpr with various arg types
-	println 42, 3.14, "text", true, Left, LeftRight
-
-	// BinaryExpr
-	sum := 10 + 20
-	isEqual := count == 5
-
-	// UnaryExpr
-	notTrue := !isVisible
-
-	// AssignStmt
-	count = 10
+	println LeftRight
 	myColor := HSB(255, 0, 0)
-
-	// IfStmt
-	if count > 3 {
-		println "Greater than 3"
-	}
-
-	// ForStmt
-	for i := 0; i < 5; i++ {
-		println i
-	}
-
-	// ReturnStmt in a function
-	calculateValue := func() int {
-		return 100
-	}
-
-	// SwitchStmt and CaseClause
-	switch direction {
-	case Left:
-		println "Going left"
-	case Right:
-		println "Going right"
-	default:
-		println "Other direction"
-	}
-
-	// RangeStmt
-	numbers := []int{1, 2, 3}
-	for index, value := range numbers {
-		println index, value
-	}
-
-	// IncDecStmt
-	count++
-
-	// Spx resource name
 	MySprite.stepTo "OtherSprite"
 	MySprite.stepTo OtherSprite
-
-	// Other commands
 	MySprite.turn MySprite.heading
 	getWidget Monitor, "myWidget"
 }
@@ -654,102 +576,6 @@ onStart => {
 
 }
 
-func TestCheckValueInputSlotSpx(t *testing.T) {
-	m := map[string][]byte{
-		"main.spx": []byte(`
-onStart => {
-	// Basic literals.
-	numValue := 42
-	floatValue := 3.14
-	strValue := "hello"
-
-	// Identifiers.
-	dirValue := Left
-	boolValue := true
-
-	// Color function calls.
-	colorValue := HSB(255, 0, 0)
-
-	// Other expressions.
-	arrayValue := []int{1, 2, 3}
-}
-`),
-		"assets/index.json": []byte(`{}`),
-	}
-	s := newSpxTestServer(t, m)
-
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.False(t, result.hasErrorSeverityDiagnostic)
-	require.NotNil(t, astFile)
-	ctx := newSpxInputSlotContext(t, result, astFile)
-
-	for _, tt := range []struct {
-		name           string
-		exprPosition   Position
-		exprFilter     func(ast.Node) bool
-		wantNil        bool
-		wantKind       SpxInputSlotKind
-		wantAcceptType SpxInputType
-		wantInputKind  SpxInputKind
-		wantInputType  SpxInputType
-		wantInputValue any
-		wantInputName  string
-	}{
-		{
-			name:           "DirectionIdentifier",
-			exprPosition:   Position{Line: 8, Character: 14},
-			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.Ident); return ok },
-			wantKind:       SpxInputSlotKindValue,
-			wantAcceptType: SpxInputTypeDirection,
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeDirection,
-			wantInputValue: float64(-90),
-		},
-		{
-			name:           "ColorFunctionCall",
-			exprPosition:   Position{Line: 12, Character: 16},
-			exprFilter:     func(node ast.Node) bool { _, ok := node.(*ast.CallExpr); return ok },
-			wantKind:       SpxInputSlotKindValue,
-			wantAcceptType: SpxInputTypeColor,
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeColor,
-			wantInputValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorHSB,
-				Args:        []float64{255, 0, 0},
-			},
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			pos := PosAt(result.proj, astFile, tt.exprPosition)
-			require.True(t, pos.IsValid())
-
-			var expr ast.Expr
-			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-				if node, ok := node.(ast.Expr); ok && tt.exprFilter(node) {
-					expr = node
-					break
-				}
-			}
-			require.NotNil(t, expr)
-
-			got := checkValueInputSlot(ctx, expr, nil)
-			if tt.wantNil {
-				assert.Nil(t, got)
-			} else {
-				require.NotNil(t, got)
-				assert.Equal(t, tt.wantKind, got.Kind)
-				assert.Equal(t, tt.wantAcceptType, got.Accept.Type)
-				assert.Equal(t, tt.wantInputKind, got.Input.Kind)
-				assert.Equal(t, tt.wantInputType, got.Input.Type)
-				assert.Equal(t, tt.wantInputValue, got.Input.Value)
-				assert.Equal(t, tt.wantInputName, got.Input.Name)
-				assert.NotEmpty(t, got.Range)
-			}
-		})
-	}
-}
-
 func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 	files := map[string][]byte{
 		"main.spx":                              []byte(`MySprite.stepTo "OtherSprite"`),
@@ -778,288 +604,106 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 }
 
 func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
-	m := map[string][]byte{
-		"main.spx": []byte(`
-var (
-	regularVar int
-)
-
-onStart => {
-	// Boolean
-	boolVar := true
-
-	// Direction
-	MySprite.turn Left
-
-	// Special object
-	if MySprite.touching(Mouse) {}
-
-	// Special object (variable)
-	myMouse := Mouse
-	if MySprite.touching(myMouse) {}
-
-	// Effect kind
-	setGraphicEffect ColorEffect, 0
-
-	// Key
-	if keyPressed(KeySpace) {}
-
-	// Regular
-	myVar := regularVar
-}
-`),
-		"MySprite.spx":                       []byte(``),
-		"assets/index.json":                  []byte(`{}`),
-		"assets/sprites/MySprite/index.json": []byte(`{}`),
-		"assets/sounds/MySound/index.json":   []byte(`{}`),
-	}
-	s := newSpxTestServer(t, m)
-
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.False(t, result.hasErrorSeverityDiagnostic)
-	require.NotNil(t, astFile)
-	ctx := newSpxInputSlotContext(t, result, astFile)
-
 	for _, tt := range []struct {
-		name           string
-		identPosition  Position
-		wantInputKind  SpxInputKind
-		wantInputType  SpxInputType
-		wantInputValue any
-		wantInputName  string
-		wantBoolValue  *bool
+		name        string
+		declaration string
+		expression  string
+		inputType   XGoInputType
+		want        any
 	}{
-		{
-			name:           "Direction",
-			identPosition:  Position{Line: 10, Character: 16},
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeDirection,
-			wantInputValue: float64(-90),
-		},
-		{
-			name:           "SpecialObject",
-			identPosition:  Position{Line: 13, Character: 23},
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeSpecialObj,
-			wantInputValue: "Mouse",
-		},
-		{
-			name:          "SpecialObjectVariable",
-			identPosition: Position{Line: 17, Character: 23},
-			wantInputKind: SpxInputKindPredefined,
-			wantInputType: SpxInputTypeSpecialObj,
-			wantInputName: "myMouse",
-		},
-		{
-			name:           "EffectKind",
-			identPosition:  Position{Line: 20, Character: 19},
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeEffectKind,
-			wantInputValue: "ColorEffect",
-		},
-		{
-			name:           "Key",
-			identPosition:  Position{Line: 23, Character: 16},
-			wantInputKind:  SpxInputKindInPlace,
-			wantInputType:  SpxInputTypeKey,
-			wantInputValue: "KeySpace",
-		},
+		{"Direction", "", "Left", XGoInputTypeSpxDirection, float64(-90)},
+		{"LayerAction", "", "Front", XGoInputTypeSpxLayerAction, "Front"},
+		{"DirAction", "", "Forward", XGoInputTypeSpxDirAction, "Forward"},
+		{"SpecialObject", "", "Mouse", XGoInputTypeSpxSpecialObj, "Mouse"},
+		{"EffectKind", "", "ColorEffect", XGoInputTypeSpxEffectKind, "ColorEffect"},
+		{"Key", "", "KeySpace", XGoInputTypeSpxKey, "KeySpace"},
+		{"RotationStyle", "", "LeftRight", XGoInputTypeSpxRotationStyle, "LeftRight"},
+		{"SpecialObjectVariable", "var custom = Mouse\n", "custom", XGoInputTypeSpxSpecialObj, nil},
+		{"UserConstant", "const custom Key = KeySpace\n", "custom", XGoInputTypeSpxKey, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			pos := PosAt(result.proj, astFile, tt.identPosition)
-			require.True(t, pos.IsValid())
-
-			var ident *ast.Ident
-			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-				if node, ok := node.(*ast.Ident); ok {
-					ident = node
-					break
-				}
+			source := tt.declaration + "println " + tt.expression + "\n"
+			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
+			result, _, file, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+			require.NoError(t, err)
+			require.False(t, result.hasErrorSeverityDiagnostic)
+			ctx := newSpxInputSlotContext(t, result, file)
+			call := inputSlotCall(t, ctx, "println")
+			require.Len(t, call.Args, 1)
+			ident := requireValueAs[*ast.Ident](t, call.Args[0])
+			slot := createValueInputSlotFromIdent(ctx, ident, nil)
+			require.NotNil(t, slot)
+			want := XGoInput{Kind: XGoInputKindInPlace, Type: tt.inputType, Value: tt.want}
+			if tt.want == nil {
+				want.Kind = XGoInputKindPredefined
+				want.Name = tt.expression
 			}
-			require.NotNil(t, ident)
-
-			got := createValueInputSlotFromIdent(ctx, ident, nil)
-			require.NotNil(t, got)
-			assert.Equal(t, SpxInputSlotKindValue, got.Kind)
-			assert.Equal(t, tt.wantInputType, got.Accept.Type)
-			assert.Equal(t, tt.wantInputKind, got.Input.Kind)
-			assert.Equal(t, tt.wantInputType, got.Input.Type)
-			assert.Equal(t, tt.wantInputValue, got.Input.Value)
-			assert.Equal(t, tt.wantInputName, got.Input.Name)
-			assert.NotEmpty(t, got.Range)
+			assert.Equal(t, want, slot.Input)
+			assert.Equal(t, XGoInputSlotAccept{Type: tt.inputType}, slot.Accept)
+			assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
+			start := PositionOffset([]byte(source), slot.Range.Start)
+			end := PositionOffset([]byte(source), slot.Range.End)
+			assert.Equal(t, tt.expression, source[start:end])
 		})
 	}
 
 	t.Run("AliasDeclaredType", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const mySound = "MySound"
-
-onStart => {
-	play mySound
-}
-`),
-			"assets/index.json":                []byte(`{}`),
-			"assets/sounds/MySound/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":                      []byte("type SoundAlias = SoundName\nconst sound = \"Beep\"\nplay sound\n"),
+			"assets/index.json":             []byte(`{}`),
+			"assets/sounds/Beep/index.json": []byte(`{}`),
+		})
+		result, _, file, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
 		require.NoError(t, err)
 		require.False(t, result.hasErrorSeverityDiagnostic)
-		require.NotNil(t, astFile)
-		ctx := newSpxInputSlotContext(t, result, astFile)
-
-		pos := PosAt(result.proj, astFile, Position{Line: 4, Character: 7})
-		require.True(t, pos.IsValid())
-
-		var ident *ast.Ident
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-			if node, ok := node.(*ast.Ident); ok && node.Name == "mySound" {
-				ident = node
-				break
-			}
-		}
-		require.NotNil(t, ident)
-
-		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
-		declaredType := gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType())
-
-		got := createValueInputSlotFromIdent(ctx, ident, declaredType)
-		require.NotNil(t, got)
-		assert.Equal(t, SpxInputTypeResourceName, got.Accept.Type)
-		assert.Equal(t, ToPtr(SpxSoundResourceContextURI), got.Accept.ResourceContext)
-		assert.Equal(t, SpxInputKindPredefined, got.Input.Kind)
-		assert.Equal(t, SpxInputTypeString, got.Input.Type)
-		assert.Equal(t, "mySound", got.Input.Name)
+		ctx := newSpxInputSlotContext(t, result, file)
+		call := inputSlotCall(t, ctx, "play")
+		require.Len(t, call.Args, 1)
+		ident := requireValueAs[*ast.Ident](t, call.Args[0])
+		target := ctx.typeInfo.Pkg.Scope().Lookup("SoundAlias")
+		require.NotNil(t, target)
+		slot := createValueInputSlotFromIdent(ctx, ident, target.Type())
+		require.NotNil(t, slot)
+		assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(SpxSoundResourceContextURI)}, slot.Accept)
+		assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeString, Name: "sound"}, slot.Input)
 	})
 }
 
 func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
-	m := map[string][]byte{
-		"main.spx": []byte(`
-onStart => {
-	// Color functions.
-	myColor1 := HSB(255, 0, 0)
-	myColor2 := HSBA(255, 0, 0, 128)
-
-	// Non-color function calls.
-	println 1, 2, 3
-}
-`),
-		"assets/index.json": []byte(`{}`),
-	}
-	s := newSpxTestServer(t, m)
-
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.False(t, result.hasErrorSeverityDiagnostic)
-	require.NotNil(t, astFile)
-	ctx := newSpxInputSlotContext(t, result, astFile)
-
 	for _, tt := range []struct {
-		name             string
-		callExprPosition Position
-		wantNil          bool
-		wantValue        SpxColorInputValue
+		name   string
+		source string
+		callee string
+		want   *XGoInputSpxColorValue
 	}{
-		{
-			name:             "HSB",
-			callExprPosition: Position{Line: 3, Character: 14},
-			wantValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorHSB,
-				Args:        []float64{255, 0, 0},
-			},
-		},
-		{
-			name:             "HSBA",
-			callExprPosition: Position{Line: 4, Character: 14},
-			wantValue: SpxColorInputValue{
-				Constructor: SpxInputTypeSpxColorConstructorHSBA,
-				Args:        []float64{255, 0, 0, 128},
-			},
-		},
-		{
-			name:             "RegularFunction",
-			callExprPosition: Position{Line: 7, Character: 2},
-			wantNil:          true,
-		},
+		{"HSB", "println HSB(12, 34, 56)\n", "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
+		{"HSBA", "println HSBA(12, 34, 56, 78)\n", "HSBA", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSBA, Args: []float64{12, 34, 56, 78}}},
+		{"Qualified", "import sdk \"github.com/goplus/spx/v3\"\nprintln sdk.HSB(12, 34, 56)\n", "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
+		{"LocalFunction", "func HSB(h, s, b float64) int { return 0 }\nprintln HSB(12, 34, 56)\n", "HSB", nil},
+		{"OrdinaryFunction", "println 12, 34, 56\n", "println", nil},
+		{"UnknownFunction", "println unknown(12, 34, 56)\n", "unknown", nil},
+		{"TooFewArguments", "println HSB(12, 34)\n", "HSB", nil},
+		{"TooManyArguments", "println HSB(12, 34, 56, 78)\n", "HSB", nil},
+		{"QualifiedExtraArguments", "import sdk \"github.com/goplus/spx/v3\"\nprintln sdk.HSB(12, 34, 56, 78)\n", "HSB", nil},
+		{"ExtraExpression", "println HSB(12, 34, 56, rand(100))\n", "HSB", nil},
+		{"Kwargs", "println HSB(12, 34, 56, extra=78)\n", "HSB", nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			pos := PosAt(result.proj, astFile, tt.callExprPosition)
-			require.True(t, pos.IsValid())
-
-			var callExpr *ast.CallExpr
-			for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-				if node, ok := node.(*ast.CallExpr); ok {
-					callExpr = node
-					break
-				}
+			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(tt.source), "assets/index.json": []byte(`{}`)})
+			ctx := inputSlotTestContext(t, s, "main.spx")
+			ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
+			call := inputSlotCall(t, ctx, tt.callee)
+			slot := createValueInputSlotFromColorFuncCall(ctx, call, nil)
+			if tt.want == nil {
+				assert.Nil(t, slot)
+				return
 			}
-			require.NotNil(t, callExpr)
-
-			got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
-			if tt.wantNil {
-				assert.Nil(t, got)
-			} else {
-				require.NotNil(t, got)
-				assert.Equal(t, SpxInputSlotKindValue, got.Kind)
-				assert.Equal(t, SpxInputTypeColor, got.Accept.Type)
-				assert.Equal(t, SpxInputKindInPlace, got.Input.Kind)
-				assert.Equal(t, SpxInputTypeColor, got.Input.Type)
-
-				colorValue := requireValueAs[SpxColorInputValue](t, got.Input.Value)
-				assert.Equal(t, tt.wantValue.Constructor, colorValue.Constructor)
-				assert.ElementsMatch(t, tt.wantValue.Args, colorValue.Args)
-
-				assert.NotEmpty(t, got.Range)
-			}
+			require.NotNil(t, slot)
+			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeSpxColor, Value: *tt.want}, slot.Input)
+			assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxColor}, slot.Accept)
 		})
 	}
 
-	t.Run("NonIdentifierFunction", func(t *testing.T) {
-		callExpr := &ast.CallExpr{
-			Fun: &ast.SelectorExpr{
-				X:   &ast.Ident{Name: "math"},
-				Sel: &ast.Ident{Name: "Max"},
-			},
-			Args: []ast.Expr{
-				&ast.BasicLit{Kind: token.INT, Value: "1"},
-				&ast.BasicLit{Kind: token.INT, Value: "2"},
-			},
-		}
-		got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
-		assert.Nil(t, got)
-	})
-
-	t.Run("NilFunctionType", func(t *testing.T) {
-		callExpr := &ast.CallExpr{
-			Fun:  &ast.Ident{Name: "unknownFunction"},
-			Args: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "1"}},
-		}
-		got := createValueInputSlotFromColorFuncCall(ctx, callExpr, nil)
-		assert.Nil(t, got)
-	})
-}
-
-func TestIsSpxColorFunc(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		fun  *gotypes.Func
-		want bool
-	}{
-		{"HSB", GetSpxHSBFunc(), true},
-		{"HSBA", GetSpxHSBAFunc(), true},
-		{"SameNameInOtherPackage", gotypes.NewFunc(token.NoPos,
-			gotypes.NewPackage("example.com/colors", "colors"), "HSB",
-			gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)), false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isSpxColorFunc(tt.fun)
-			assert.Equal(t, tt.want, got)
-		})
-	}
 }
 
 func TestInferSpxInputTypeFromType(t *testing.T) {

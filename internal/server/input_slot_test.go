@@ -22,6 +22,39 @@ func (f inputSlotTestImporter) Import(pkgPath string) (*gotypes.Package, error) 
 }
 
 func TestServerXGoGetInputSlots(t *testing.T) {
+	t.Run("ColorFunctionNames", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{"XGo", "main.xgo", newTestServer},
+			{"StandaloneClass", "Record.gox", newTestServer},
+			{"ProjectClass", "main_fixture.gox", newFrameworkTestServer},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					tt.filename: []byte("func HSB(h, s, b float64) float64 { return h }\nprintln HSB(12, 34, 56)\n"),
+				}
+				if tt.name == "WorkClass" {
+					files["main_fixture.gox"] = nil
+				}
+				s := tt.newServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}}})
+				require.NoError(t, err)
+				for _, value := range []int64{12, 34, 56} {
+					assert.NotNil(t, findInputSlot(slots, value, "", XGoInputTypeInteger, XGoInputKindInPlace))
+				}
+				for _, slot := range slots {
+					assert.NotEqual(t, XGoInputTypeSpxColor, slot.Input.Type)
+				}
+			})
+		}
+	})
+
 	t.Run("FileChangesDuringTypeChecking", func(t *testing.T) {
 		const source = "import \"fmt\"\nfmt.println \"\U0001f600\", `Stu\rdio`, 42\n"
 		for _, tt := range []struct {
@@ -548,7 +581,7 @@ func main() {
 			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 5\n")}
+				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 5\nvar Message = \"Hello\"\nvar Visible = true\nprintln Count\n")}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
@@ -559,13 +592,28 @@ func main() {
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 				}})
 				require.NoError(t, err)
-				require.Len(t, slots, 2)
+				require.Len(t, slots, 5)
 				assert.Equal(t, XGoInputSlotKindAddress, slots[0].Kind)
-				assert.Equal(t, "Count", slots[0].Input.Name)
+				assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeUnknown, Name: "Count"}, slots[0].Input)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeUnknown}, slots[0].Accept)
+				assert.Equal(t, Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 5}}, slots[0].Range)
+				assert.Contains(t, slots[0].PredefinedNames, "Count")
 				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeInteger, Value: int64(5)}, slots[1].Input)
 				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeInteger}, slots[1].Accept)
 				assert.Equal(t, Range{Start: Position{Line: 1, Character: 8}, End: Position{Line: 1, Character: 9}}, slots[1].Range)
 				assert.Contains(t, slots[1].PredefinedNames, "Count")
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: "Hello"}, slots[2].Input)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeString}, slots[2].Accept)
+				assert.Equal(t, Range{Start: Position{Line: 2, Character: 14}, End: Position{Line: 2, Character: 21}}, slots[2].Range)
+				assert.NotContains(t, slots[2].PredefinedNames, "Message")
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeBoolean, Value: true}, slots[3].Input)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeBoolean}, slots[3].Accept)
+				assert.Equal(t, Range{Start: Position{Line: 3, Character: 14}, End: Position{Line: 3, Character: 18}}, slots[3].Range)
+				assert.NotContains(t, slots[3].PredefinedNames, "Visible")
+				assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeInteger, Name: "Count"}, slots[4].Input)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeUnknown}, slots[4].Accept)
+				assert.Equal(t, Range{Start: Position{Line: 4, Character: 8}, End: Position{Line: 4, Character: 13}}, slots[4].Range)
+				assert.Contains(t, slots[4].PredefinedNames, "Count")
 			})
 		}
 	})

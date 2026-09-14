@@ -5,10 +5,8 @@ import (
 	gotypes "go/types"
 	"path"
 	"slices"
-	"strconv"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -62,76 +60,13 @@ func createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.
 	}
 
 	fun := xgoutil.FuncFromCallExpr(ctx.typeInfo, callExpr)
-	if fun == nil || !IsInSpxPkg(fun) || !isSpxColorFunc(fun) {
-		return nil
-	}
-
-	constructor := SpxInputTypeSpxColorConstructor(fun.Name())
-	maxArgs := 3
-	switch constructor {
-	case SpxInputTypeSpxColorConstructorHSB:
-	case SpxInputTypeSpxColorConstructorHSBA:
-		maxArgs = 4
-	default:
-		return nil // This should never happen, but just in case.
-	}
-
-	var args []float64
-	for i, argExpr := range callExpr.Args {
-		if i >= maxArgs {
-			break
-		}
-		lit, ok := argExpr.(*ast.BasicLit)
-		if !ok {
-			return nil
-		}
-
-		var val float64
-		switch lit.Kind {
-		case token.FLOAT:
-			floatVal, err := strconv.ParseFloat(lit.Value, 64)
-			if err != nil {
-				return nil
-			}
-			val = floatVal
-		case token.INT:
-			intVal, err := strconv.ParseInt(lit.Value, 0, 64)
-			if err != nil {
-				return nil
-			}
-			val = float64(intVal)
-		default:
-			return nil
-		}
-		args = append(args, val)
-	}
-	if len(args) < maxArgs {
-		return nil
-	}
-
-	return &XGoInputSlot{
-		Kind:   XGoInputSlotKindValue,
-		Accept: XGoInputSlotAccept{Type: SpxInputTypeColor},
-		Input: XGoInput{
-			Kind: XGoInputKindInPlace,
-			Type: SpxInputTypeColor,
-			Value: SpxColorInputValue{
-				Constructor: constructor,
-				Args:        args,
-			},
-		},
-		PredefinedNames: collectPredefinedNames(ctx, callExpr, declaredType),
-		Range:           ctx.rangeForNode(callExpr),
-	}
-}
-
-// isSpxColorFunc checks if the fun is an spx color function.
-func isSpxColorFunc(fun *gotypes.Func) bool {
 	switch fun {
-	case GetSpxHSBFunc(), GetSpxHSBAFunc():
-		return true
+	case GetSpxHSBFunc():
+		return createSpxColorInputSlot(ctx, callExpr, declaredType, XGoInputTypeSpxColorConstructorHSB)
+	case GetSpxHSBAFunc():
+		return createSpxColorInputSlot(ctx, callExpr, declaredType, XGoInputTypeSpxColorConstructorHSBA)
 	}
-	return false
+	return nil
 }
 
 // inferSpxInputTypeFromType attempts to infer the input type from the given type.
