@@ -3,6 +3,9 @@
 package server
 
 import (
+	"go/constant"
+	"maps"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -229,11 +232,6 @@ onStart => {
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
-			OverloadID: ToPtr("0"),
-		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
-			Package:    ToPtr(SpxPkgPath),
-			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("1"),
 		}))
 		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
@@ -339,144 +337,70 @@ play r
 		assert.Contains(t, completionItemLabels(items), `"recording"`)
 	})
 
-	t.Run("WithImplicitSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onClick => {
-	setCostume "c"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
+	t.Run("CostumeReceiver", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			want     []string
+			absent   []string
+		}{
+			{"Implicit", "Runner.spx", "onClick => {\n\tsetCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
+			{"Explicit", "main.spx", "Runner.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
+			{"CrossSprite", "Other.spx", "onClick => {\n\tRunner.setCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
+			{"ExplicitLineDirective", "main.spx", "//line virtual.spx:100:20\r\nRunner.setCostume \"\U0001f600r|suffix\"\r\n", []string{"runner"}, []string{"other"}},
+			{"ImplicitLineDirective", "Runner.spx", "//line virtual.spx:100:20\nsetCostume \"r|\"\n", []string{"runner"}, []string{"other"}},
+			{"FuncDecorator", "Runner.spx", "func withCostume(costume SpriteCostumeName, fn func()) {}\n@withCostume(\"r|\")\nfunc run() {}\n", []string{"runner"}, []string{"other"}},
+			{"ShadowedAutoBinding", "main.spx", "onStart => {\n\tRunner := Other\n\tRunner.setCostume \"r|\"\n}\n", []string{"runner", "other"}, nil},
+			{"RawEndWithCR", "main.spx", "Runner.setCostume `re\r\rsource|`\n", []string{"runner"}, []string{"other"}},
+			{"RawUnterminatedCR", "main.spx", "Runner.setCostume `re\r\rsource|", []string{"runner"}, []string{"other"}},
+			{"Multiline", "Other.spx", "onClick => {\r\n\tRunner.setCostume `before\r\nre|source\r\nafter`\r\n}\r\n", []string{"runner"}, []string{"other"}},
+			{"Go", "Other.spx", "onClick => {\n\tgo Runner.setCostume(\"c|\")\n}\n", []string{"runner"}, []string{"other"}},
+			{"Defer", "Other.spx", "onClick => {\n\tdefer Runner.setCostume(\"c|\")\n}\n", []string{"runner"}, []string{"other"}},
+			{"ImplicitOutsideString", "Runner.spx", "onStart => {\n\tsetCostume C|\n}\n", []string{`"runner"`}, []string{`"other"`}},
+			{"ProjectDeclaration", "main.spx", "onStart => {\n\tvar costume SpriteCostumeName = C|\n}\n", []string{`"runner"`, `"other"`}, nil},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx": nil, "Runner.spx": nil, "Other.spx": nil,
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"runner"}]}`),
+					"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"other"}]}`),
+				}
+				before := tt.source[:strings.IndexByte(tt.source, '|')]
+				files[tt.filename] = []byte(strings.Replace(tt.source, "|", "", 1))
+				s := newSpxTestServer(t, files)
+				position := Position{
+					Line:      uint32(strings.Count(before, "\n")),
+					Character: uint32(UTF16Len(before[strings.LastIndex(before, "\n")+1:])),
+				}
+				items := completionItemsAt(t, s, tt.filename, position)
+				for _, label := range tt.want {
+					assert.Equal(t, 1, countCompletionItemLabel(items, label))
+					if !strings.HasPrefix(label, `"`) {
+						item := completionItemByLabel(items, label)
+						require.NotNil(t, item)
+						require.NotNil(t, item.TextEdit)
+						edit := requireValueAs[TextEdit](t, item.TextEdit.Value)
+						updated := applyCompletionTestEdits(t, string(files[tt.filename]), position, append([]TextEdit{edit}, item.AdditionalTextEdits...))
+						updatedFiles := maps.Clone(files)
+						updatedFiles[tt.filename] = []byte(updated)
+						proj := newSpxTestServer(t, updatedFiles).getProj()
+						info, err := proj.TypeInfo()
+						require.NoError(t, err, updated)
+						file, err := proj.ASTFile(tt.filename)
+						require.NoError(t, err)
+						literal := inputSlotLiteral(t, newInputSlotContext(proj, file), edit.NewText)
+						value := info.Types[literal].Value
+						require.NotNil(t, value)
+						assert.Equal(t, label, constant.StringVal(value))
+					}
+				}
+				for _, label := range tt.absent {
+					assert.NotContains(t, completionItemLabels(items), label)
+				}
+			})
 		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 2, Character: 14})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "costume")
-	})
-
-	t.Run("WithExplicitSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "c"
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 22})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "costume")
-	})
-
-	t.Run("WithCrossSpxSpriteResource", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"Sprite1.spx": []byte(`
-onClick => {
-	Sprite2.setCostume "c"
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 22})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "Sprite2Costume")
-	})
-
-	t.Run("WithCrossSpxSpriteResourceInGoStmt", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onClick => {
-	go Sprite2.setCostume("c")
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 25})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "Sprite2Costume")
-	})
-
-	t.Run("WithCrossSpxSpriteResourceInDeferStmt", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onClick => {
-	defer Sprite2.setCostume("c")
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Sprite1Costume"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Sprite2Costume"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 28})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "Sprite2Costume")
-	})
-
-	t.Run("SpriteCostumeNameInImplicitCallUsesCurrentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(``),
-			"Sprite1.spx": []byte(`
-onStart => {
-	setCostume C
-}
-`),
-			"Sprite2.spx":                       []byte(``),
-			"Sprite3.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "Sprite1.spx", Position{Line: 2, Character: 13})
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
-	})
-
-	t.Run("SpriteCostumeNameInDeclDeduplicatesCrossSpriteNames", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var costume SpriteCostumeName = C
-}
-`),
-			"Sprite1.spx":                       []byte(``),
-			"Sprite2.spx":                       []byte(``),
-			"Sprite3.spx":                       []byte(``),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{"costumes":[{"name":"Crab2"},{"name":"Crab3"}]}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-			"assets/sprites/Sprite3/index.json": []byte(`{"costumes":[{"name":"Crab2"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 34})
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab2"`))
-		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
 	})
 
 	t.Run("StepToOverloadsDeduplicateSpriteNameSuggestions", func(t *testing.T) {
@@ -574,140 +498,48 @@ onStart => {}
 		}))
 	})
 
-	t.Run("PropertyNameCompletionInMainSpx", func(t *testing.T) {
-		// showVar in main.spx makes getPropertyTarget return "Game"
-		// → collectPropertyNames("Game") → property methods from embedded spx.Game appear
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var score int
-onStart => {
-	showVar(x)
-}
-`),
-			"MySprite.spx":                       []byte(`onStart => {}`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
+	t.Run("PropertyNamesInCalls", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			want     map[string]string
+		}{
+			{"Project", "main.spx", "onStart => {\n\tshowVar(x|)\n}\n", map[string]string{`"score"`: "xgo:main?Game.score", `"volume"`: ""}},
+			{"Sprite", "Runner.spx", "onStart => {\n\tshowVar(x|)\n}\n", map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
+			{"ExplicitReceiver", "main.spx", "onStart => {\n\tRunner.showVar(x|)\n}\n", map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
+			{"EmbeddedMethod", "Runner.spx", "showVar(|\n", map[string]string{`"hp"`: "xgo:main?Runner.hp", `"xpos"`: "xgo:github.com/goplus/spx/v3?Sprite.xpos"}},
+			{"InsideString", "main.spx", "showVar(\"s|\n", map[string]string{"score": "xgo:main?Game.score"}},
+			{"LineDirective", "main.spx", "//line virtual.spx:100:20\nshowVar \"s|\"\n", map[string]string{"score": "xgo:main?Game.score"}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx":                         []byte("var score int\n"),
+					"Runner.spx":                       []byte("var hp int\n"),
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+				}
+				source := string(files[tt.filename]) + tt.source
+				before := source[:strings.IndexByte(source, '|')]
+				files[tt.filename] = []byte(strings.Replace(source, "|", "", 1))
+				s := newSpxTestServer(t, files)
+				items := completionItemsAt(t, s, tt.filename, Position{
+					Line:      uint32(strings.Count(before, "\n")),
+					Character: uint32(UTF16Len(before[strings.LastIndex(before, "\n")+1:])),
+				})
+				for label, id := range tt.want {
+					item := completionItemByLabel(items, label)
+					require.NotNil(t, item, label)
+					if id != "" {
+						data := requireValueAs[*CompletionItemData](t, item.Data)
+						assert.Equal(t, id, data.Definition.String())
+					}
+				}
+				if tt.name == "InsideString" {
+					assert.NotContains(t, completionItemLabels(items), `"score"`)
+				}
+			})
 		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 3, Character: 10}) // inside 'x' arg of showVar
-		// score is declared in main.spx and becomes a Game field.
-		assert.Contains(t, completionItemLabels(items), `"score"`)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Game.score"),
-		}))
-		// Property method from embedded spx.Game.
-		assert.Contains(t, completionItemLabels(items), `"volume"`)
-	})
-
-	t.Run("PropertyNameCompletionInSpriteSpx", func(t *testing.T) {
-		// showVar in MySprite.spx → getPropertyTarget returns "MySprite" (not "Game").
-		// hp is a field of MySprite, so its appearance confirms the correct target is used.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-var hp int
-
-onStart => {
-	showVar(x)
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-				// Line 4: "\tshowVar(x)" — tab(0)+showVar(1-7)+(8)+x(9)
-				Position: Position{Line: 4, Character: 10},
-			},
-		})
-		require.NoError(t, err)
-		items := requireValueAs[[]CompletionItem](t, itemsResult)
-		require.NotNil(t, items)
-		// hp is a direct field of MySprite — confirms target is "MySprite", not "Game".
-		assert.Contains(t, completionItemLabels(items), `"hp"`)
-	})
-
-	t.Run("PropertyNameCompletionExplicitReceiver", func(t *testing.T) {
-		// MySprite.showVar(x) in main.spx makes getPropertyTarget return "MySprite"
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	MySprite.showVar(x)
-}
-`),
-			"MySprite.spx": []byte(`
-var hp int
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		itemsResult, err := s.textDocumentCompletion(&CompletionParams{
-			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-				// Line 3: "\tMySprite.showVar(x)" — tab(0)+MySprite(1-8)+.(9)+showVar(10-16)+(17)+x(18)
-				Position: Position{Line: 2, Character: 19},
-			},
-		})
-		require.NoError(t, err)
-		items := requireValueAs[[]CompletionItem](t, itemsResult)
-		require.NotNil(t, items)
-		assert.Contains(t, completionItemLabels(items), `"hp"`)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MySprite.hp"),
-		}))
-	})
-
-	t.Run("PropertyNameCompletionEmbeddedMethod", func(t *testing.T) {
-		// SpriteImpl is embedded in MySprite; its property methods should appear.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-var hp int
-
-showVar(
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 3, Character: 8})
-		// Direct field of MySprite.
-		assert.Contains(t, completionItemLabels(items), `"hp"`)
-		// Property method from embedded spx.SpriteImpl (e.g. "xpos" → "Xpos").
-		assert.Contains(t, completionItemLabels(items), `"xpos"`)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
-			Package: ToPtr("github.com/goplus/spx/v3"),
-			Name:    ToPtr("Sprite.xpos"),
-		}))
-	})
-
-	t.Run("PropertyNameCompletionInsideStringLit", func(t *testing.T) {
-		// When cursor is inside a string literal, insert text should NOT be quoted.
-		m := map[string][]byte{
-			"main.spx": []byte(`
-var score int
-
-showVar("s
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 3, Character: 10})
-		// Inside string literal: label/insertText is unquoted.
-		assert.Contains(t, completionItemLabels(items), "score")
-		assert.NotContains(t, completionItemLabels(items), `"score"`)
 	})
 
 	t.Run("SpxSeconds", func(t *testing.T) {

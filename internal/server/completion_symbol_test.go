@@ -26,6 +26,39 @@ func (i completionTestImporter) Import(pkgPath string) (*gotypes.Package, error)
 }
 
 func TestServerTextDocumentCompletionSymbols(t *testing.T) {
+	t.Run("LineDirectives", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{"XGo", "main.xgo", newTestServer},
+			{"StandaloneClass", "Record.gox", newTestServer},
+			{"ProjectClass", "main_fixture.gox", newFrameworkTestServer},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "var Count string\nfunc run() {\n\tlocal := \"value\"\n//line virtual.xgo:100:20\n\tlocal = \"\U0001f600\" + local\n}\n"
+				files := map[string][]byte{tt.filename: []byte(source)}
+				if tt.name == "WorkClass" {
+					files["main_fixture.gox"] = nil
+				}
+				s := tt.newServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				items := completionItemsAt(t, s, tt.filename, Position{Line: 4, Character: 18})
+				assert.Contains(t, completionItemLabels(items), "local")
+				assert.Contains(t, completionItemLabels(items), "Count")
+				assert.NotContains(t, completionItemLabels(items), "this")
+				// A real file matching the mapped filename must not steal the scope.
+				s.ModifyFiles([]FileChange{{Path: "virtual.xgo", Content: []byte("var other int\n"), Version: 1}})
+				items = completionItemsAt(t, s, tt.filename, Position{Line: 4, Character: 18})
+				assert.Contains(t, completionItemLabels(items), "local")
+				assert.Contains(t, completionItemLabels(items), "Count")
+			})
+		}
+	})
+
 	t.Run("UnavailablePackage", func(t *testing.T) {
 		for _, tt := range []struct {
 			name    string

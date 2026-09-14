@@ -6,7 +6,6 @@ import (
 	"path"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
@@ -53,16 +52,6 @@ func isSpxSpriteInstanceType(result *compileResult, typ gotypes.Type) bool {
 		return true
 	}
 	return gotypes.AssignableTo(typ, GetSpxSpriteType())
-}
-
-// spxSpriteResourceForObject returns the spx sprite resource for obj if it is an
-// auto-bound sprite. It returns nil if obj is nil, obj has no auto-binding, or
-// the corresponding sprite resource is not found in the resource set.
-func spxSpriteResourceForObject(result *compileResult, obj gotypes.Object) *SpxSpriteResource {
-	if obj == nil || !result.hasSpxSpriteResourceAutoBinding(obj) {
-		return nil
-	}
-	return result.spxResourceSet.Sprite(obj.Name())
 }
 
 // createValueInputSlotFromColorFuncCall creates a value input slot from an spx
@@ -182,53 +171,4 @@ func inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
 		}
 	}
 	return XGoInputTypeUnknown
-}
-
-// inferSpxSpriteResourceEnclosingNode infers the enclosing [SpxSpriteResource]
-// for the given node. It returns nil if no [SpxSpriteResource] can be inferred.
-func inferSpxSpriteResourceEnclosingNode(result *compileResult, node ast.Node) *SpxSpriteResource {
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-	spxFile := xgoutil.NodeFilename(result.proj.Fset, node)
-	astPkg, _ := result.proj.ASTPackage()
-	astFile := xgoutil.NodeASTFile(result.proj.Fset, astPkg, node)
-
-	for pathNode := range xgoutil.PathEnclosingIntervalNodes(astFile, node.Pos(), node.End(), false) {
-		if pathNode == nil {
-			continue
-		}
-
-		callExpr := callExprFromNode(pathNode)
-		if callExpr == nil {
-			continue
-		}
-
-		var spxSpriteName string
-		if sel, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
-			ident, ok := sel.X.(*ast.Ident)
-			if !ok {
-				return nil
-			}
-			obj := typeInfo.ObjectOf(ident)
-			if obj == nil {
-				return nil
-			}
-			named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
-			if !ok {
-				return nil
-			}
-
-			if named == GetSpxSpriteType() {
-				spxSpriteName = ident.Name
-			} else if result.hasSpxSpriteType(named) {
-				spxSpriteName = obj.Name()
-			}
-		} else if spxFile != "main.spx" {
-			spxSpriteName = strings.TrimSuffix(spxFile, ".spx")
-		}
-		return result.spxResourceSet.sprites[spxSpriteName]
-	}
-	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -658,4 +659,51 @@ func containsCompletionSpxDefinitionID(items []CompletionItem, id SpxDefinitionI
 		}
 		return itemData.Definition.String() == id.String()
 	})
+}
+
+func newCompletionTestContext(t *testing.T, s *Server, filename string, position Position) *completionContext {
+	t.Helper()
+
+	proj := s.getProj()
+	astPkg, _ := proj.ASTPackage()
+	require.NotNil(t, astPkg)
+	file := astPkg.Files[filename]
+	require.NotNil(t, file)
+	info, _ := proj.TypeInfo()
+	require.NotNil(t, info)
+	pos := PosAt(proj, file, position)
+	require.True(t, pos.IsValid())
+	sourcePos := pos
+	pos = completionASTPosition(proj, file, pos)
+	ctx := &completionContext{
+		definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc, enumInfo: newEnumInfo(astPkg, info)},
+		itemSet:           newCompletionItemSet(Markdown), typeInfo: info, filename: filename,
+		astFile: file, astFileScope: info.Scopes[file], tokenFile: xgoutil.NodeTokenFile(proj.Fset, file),
+		pos: pos, sourcePos: sourcePos, innermostScope: xgoutil.InnermostScopeAt(proj.Fset, info, astPkg, pos),
+	}
+	ctx.analyze()
+	return ctx
+}
+
+func applyCompletionTestEdits(t *testing.T, source string, position Position, edits []TextEdit) string {
+	t.Helper()
+
+	require.NotEmpty(t, edits)
+	primary := edits[0]
+	require.Equal(t, primary.Range.Start.Line, primary.Range.End.Line)
+	require.LessOrEqual(t, comparePositions(primary.Range.Start, position), 0)
+	require.GreaterOrEqual(t, comparePositions(primary.Range.End, position), 0)
+	slices.SortFunc(edits, func(a, b TextEdit) int { return comparePositions(b.Range.Start, a.Range.Start) })
+	content := []byte(source)
+	updated := source
+	for i, edit := range edits {
+		if i > 0 {
+			require.LessOrEqual(t, comparePositions(edit.Range.End, edits[i-1].Range.Start), 0)
+			require.NotEqual(t, edit.Range.Start, edits[i-1].Range.Start)
+		}
+		start := PositionOffset(content, edit.Range.Start)
+		end := PositionOffset(content, edit.Range.End)
+		updated = updated[:start] + edit.NewText + updated[end:]
+	}
+	return updated
 }

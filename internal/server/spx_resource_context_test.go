@@ -46,7 +46,7 @@ func TestSpxSpriteResourceForObject(t *testing.T) {
 	assert.Nil(t, spxSpriteResourceForObject(otherResult, runner), "auto-bindings belong to each compile result")
 }
 
-func TestCompletionContextGetCurrentFileSpxSpriteResource(t *testing.T) {
+func TestSpxSpriteResourceForFile(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		filename string
@@ -71,13 +71,123 @@ func TestCompletionContextGetCurrentFileSpxSpriteResource(t *testing.T) {
 			result := newCompileResult(s.getProj(), s.lookupPkgDoc)
 			result.mainSpxFile = "project/Stage.spx"
 			result.spxResourceSet = *set
-			ctx := completionContext{filename: tt.filename, spxResult: result}
 			if tt.want == "" {
-				assert.Nil(t, ctx.getCurrentFileSpxSpriteResource())
+				assert.Nil(t, spxSpriteResourceForFile(result, tt.filename))
 			} else {
 				require.NotNil(t, set.Sprite(tt.want))
-				assert.Same(t, set.Sprite(tt.want), ctx.getCurrentFileSpxSpriteResource())
+				assert.Same(t, set.Sprite(tt.want), spxSpriteResourceForFile(result, tt.filename))
 			}
 		})
 	}
+}
+
+func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
+	t.Run("ExplicitReceiver", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+			want   string
+		}{
+			{"AutoBinding", "Runner.use \"value\"\n", "Runner"},
+			{"UnboundObject", "Other.use \"value\"\n", ""},
+			{"ShadowedAutoBinding", "func run() {\n\tRunner := Other\n\tRunner.use \"value\"\n}\n", ""},
+			{"ReceiverExpression", "(&Runner).Use(\"value\")\n", ""},
+			{"FunctionExpression", "(Runner.Use)(\"value\")\n", ""},
+			{"LineDirective", "//line virtual.xgo:100:20\nRunner.use \"value\"\n", "Runner"},
+			{"NoCall", "const Name = \"value\"\n", ""},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"main.xgo":                         []byte("type Actor struct {}\nfunc (a *Actor) Use(name string) {}\nvar Runner, Other Actor\n" + tt.source),
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+					"assets/sprites/Other/index.json":  []byte(`{}`),
+				})
+				proj := s.getProj()
+				info, err := proj.TypeInfo()
+				require.NoError(t, err)
+				set, err := NewSpxResourceSet(proj)
+				require.NoError(t, err)
+				result := newCompileResult(proj, s.lookupPkgDoc)
+				result.spxResourceSet = *set
+				runner := info.Pkg.Scope().Lookup("Runner")
+				require.NotNil(t, runner)
+				result.spxSpriteResourceAutoBindings[runner] = struct{}{}
+				file, err := proj.ASTFile("main.xgo")
+				require.NoError(t, err)
+				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
+				got := inferSpxSpriteResourceEnclosingNode(result, literal)
+				if tt.want == "" {
+					assert.Nil(t, got)
+				} else {
+					require.NotNil(t, set.Sprite(tt.want))
+					assert.Same(t, set.Sprite(tt.want), got)
+				}
+			})
+		}
+	})
+
+	t.Run("ImplicitReceiver", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			want     string
+		}{
+			{"Project", "main.spx", "func use(name string) {}\nuse \"value\"\n", ""},
+			{"Class", "Runner.spx", "func use(name string) {}\nuse \"value\"\n", "Runner"},
+			{"Callback", "Runner.spx", "func use(name string) {}\nonValue value => {\n\tuse \"value\"\n}\n", "Runner"},
+			{"LineDirective", "Runner.spx", "func use(name string) {}\n//line virtual.spx:100:20\nuse \"value\"\n", "Runner"},
+			{"FuncDecorator", "Runner.spx", "func withResource(name string, fn func()) {}\n@withResource(\"value\")\nfunc run() {}\n", "Runner"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx": nil, "Runner.spx": nil,
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+					"assets/sprites/main/index.json":   []byte(`{}`),
+				}
+				files[tt.filename] = []byte(tt.source)
+				s := newFrameworkTestServerWithSpxExtension(t, files)
+				proj := s.getProj()
+				_, err := proj.TypeInfo()
+				require.NoError(t, err)
+				set, err := NewSpxResourceSet(proj)
+				require.NoError(t, err)
+				result := newCompileResult(proj, s.lookupPkgDoc)
+				result.mainSpxFile = "main.spx"
+				result.spxResourceSet = *set
+				file, err := proj.ASTFile(tt.filename)
+				require.NoError(t, err)
+				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
+				got := inferSpxSpriteResourceEnclosingNode(result, literal)
+				if tt.want == "" {
+					assert.Nil(t, got)
+				} else {
+					require.NotNil(t, set.Sprite(tt.want))
+					assert.Same(t, set.Sprite(tt.want), got)
+				}
+			})
+		}
+	})
+
+	t.Run("SourceChanges", func(t *testing.T) {
+		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{
+			"main.spx":                         nil,
+			"Runner.spx":                       []byte("func use(name string) {}\nuse \"value\"\n"),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+		})
+		proj := s.getProj()
+		call := spxResourceTestCall(t, proj, "Runner.spx")
+		set, err := NewSpxResourceSet(proj)
+		require.NoError(t, err)
+		result := newCompileResult(proj, s.lookupPkgDoc)
+		result.mainSpxFile = "main.spx"
+		result.spxResourceSet = *set
+		require.NotNil(t, set.Sprite("Runner"))
+		assert.Same(t, set.Sprite("Runner"), inferSpxSpriteResourceEnclosingNode(result, call))
+		s.ModifyFiles([]FileChange{{Path: "Runner.spx", Content: []byte("func use(name string) {}\nuse \"other\"\n"), Version: 1}})
+		assert.Nil(t, inferSpxSpriteResourceEnclosingNode(result, call))
+	})
 }

@@ -53,12 +53,14 @@ func NodeTokenFile(fset *token.FileSet, node ast.Node) *token.File {
 	return PosTokenFile(fset, node.Pos())
 }
 
-// PosASTFile returns the AST file for the given position.
+// PosASTFile returns the physical AST file for the given position, ignoring
+// filename remapping by line directives.
 func PosASTFile(fset *token.FileSet, astPkg *ast.Package, pos token.Pos) *ast.File {
-	if fset == nil || astPkg == nil || !pos.IsValid() {
+	file := PosTokenFile(fset, pos)
+	if file == nil || astPkg == nil {
 		return nil
 	}
-	return astPkg.Files[PosFilename(fset, pos)]
+	return astPkg.Files[file.Name()]
 }
 
 // NodeASTFile returns the AST file for the given node.
