@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 )
 
@@ -36,6 +37,31 @@ const (
 	SpxResourceRefKindAutoBindingReference SpxResourceRefKind = "autoBindingReference"
 	SpxResourceRefKindConstantReference    SpxResourceRefKind = "constantReference"
 )
+
+// resourceNodeEnd returns the source end of a resource reference or constant
+// initializer, including carriage returns omitted from raw literals.
+func resourceNodeEnd(fset *token.FileSet, astFile *ast.File, node ast.Node) token.Pos {
+	for {
+		switch n := node.(type) {
+		case *ast.BinaryExpr:
+			node = n.Y
+		case *ast.BasicLit:
+			return basicLitEnd(fset, astFile, n)
+		default:
+			return node.End()
+		}
+	}
+}
+
+// resourceRange returns the physical UTF-16 range of a resource reference or
+// initializer in astFile, ignoring line directives.
+func resourceRange(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
+	file := proj.Fset.File(node.Pos())
+	return Range{
+		Start: FromPosition(proj, astFile, file.PositionFor(node.Pos(), false)),
+		End:   FromPosition(proj, astFile, file.PositionFor(resourceNodeEnd(proj.Fset, astFile, node), false)),
+	}
+}
 
 // ParseSpxResourceURI parses an spx resource URI and returns the corresponding
 // spx resource ID.

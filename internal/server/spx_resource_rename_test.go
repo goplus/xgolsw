@@ -72,6 +72,10 @@ func TestServerSpxRenameResourceAtRefs(t *testing.T) {
 				name: "RawString", source: "const Scene = `Studio`\necho Scene\n",
 				want: TextEdit{Range: Range{Start: Position{Character: 15}, End: Position{Character: 21}}, NewText: "Park"},
 			},
+			{
+				name: "LineDirective", source: "//line virtual.xgo:100:20\nconst Scene = `Stu\rdio`\necho Scene\n",
+				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 22}}, NewText: "Park"},
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})

@@ -229,6 +229,33 @@ func RangeForNode(proj *xgo.Project, node ast.Node) Range {
 	return RangeForASTFileNode(proj, xgoutil.NodeASTFile(proj.Fset, astPkg, node), node)
 }
 
+// sourceASTFile returns the physical source file containing pos, or nil if
+// that source version is no longer in the project.
+func sourceASTFile(proj *xgo.Project, pos token.Pos) *ast.File {
+	file := proj.Fset.File(pos)
+	if file == nil {
+		return nil
+	}
+	astFile, _ := proj.ASTFile(file.Name())
+	if astFile == nil || proj.Fset.File(astFile.Pos()) != file {
+		return nil
+	}
+	return astFile
+}
+
+// basicLitEnd returns the source end of a valid literal in astFile,
+// including carriage returns omitted from raw string values by the parser.
+func basicLitEnd(fset *token.FileSet, astFile *ast.File, lit *ast.BasicLit) token.Pos {
+	if lit.Kind != token.STRING || lit.Value[0] != '`' {
+		return lit.End()
+	}
+	file := fset.File(lit.Pos())
+	offset := file.Offset(lit.Pos())
+	// The validated literal has a closing delimiter in its original source.
+	length := bytes.IndexByte(astFile.Code[offset+1:], '`') + 2
+	return lit.Pos() + token.Pos(length)
+}
+
 // comparePositions compares positions in source order.
 func comparePositions(a, b Position) int {
 	if line := cmp.Compare(a.Line, b.Line); line != 0 {

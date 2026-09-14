@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/goplus/xgolsw/xgo"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // documentLinksForSpxResources returns links to existing resources in an spx classfile.
@@ -22,19 +21,28 @@ func (s *Server) documentLinksForSpxResources(proj *xgo.Project, filename string
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
 	}
-	links := make([]DocumentLink, 0, len(result.spxResourceRefs))
-	for _, ref := range result.spxResourceRefs {
-		if xgoutil.NodeFilename(proj.Fset, ref.Node) != filename || !result.spxResourceSet.Contains(ref.ID) {
+	return result.spxResourceDocumentLinks(filename), nil
+}
+
+// spxResourceDocumentLinks returns links to existing resources referenced in filename.
+func (r *compileResult) spxResourceDocumentLinks(filename string) []DocumentLink {
+	links := make([]DocumentLink, 0, len(r.spxResourceRefs))
+	for _, ref := range r.spxResourceRefs {
+		if r.proj.Fset.PositionFor(ref.Node.Pos(), false).Filename != filename || !r.spxResourceSet.Contains(ref.ID) {
+			continue
+		}
+		astFile := sourceASTFile(r.proj, ref.Node.Pos())
+		if astFile == nil {
 			continue
 		}
 		target := URI(ref.ID.URI())
 		links = append(links, DocumentLink{
-			Range:  RangeForNode(proj, ref.Node),
+			Range:  resourceRange(r.proj, astFile, ref.Node),
 			Target: &target,
 			Data: SpxResourceRefDocumentLinkData{
 				Kind: ref.Kind,
 			},
 		})
 	}
-	return links, nil
+	return links
 }

@@ -15,7 +15,105 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type inputSlotTestImporter func(string) (*gotypes.Package, error)
+
+func (f inputSlotTestImporter) Import(pkgPath string) (*gotypes.Package, error) {
+	return f(pkgPath)
+}
+
 func TestServerXGoGetInputSlots(t *testing.T) {
+	t.Run("FileChangesDuringTypeChecking", func(t *testing.T) {
+		const source = "import \"fmt\"\nfmt.println \"\U0001f600\", `Stu\rdio`, 42\n"
+		for _, tt := range []struct {
+			name    string
+			content []byte
+		}{
+			{"Deleted", nil},
+			{"Shortened", []byte("\n")},
+			{"Replaced", []byte("println `A different value`\n")},
+			{"Reparsed", []byte(source)},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				proj := s.getProj()
+				baseImporter := proj.Importer
+				changed := false
+				proj.Importer = inputSlotTestImporter(func(pkgPath string) (*gotypes.Package, error) {
+					if pkgPath == "fmt" && !changed {
+						// Interleave an edit after parsing but before collecting slots.
+						changed = true
+						if tt.content == nil {
+							require.NoError(t, proj.DeleteFile("main.xgo"))
+						} else {
+							s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: tt.content, Version: 1}})
+						}
+					}
+					return baseImporter.Import(pkgPath)
+				})
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				}})
+				require.NoError(t, err)
+				require.True(t, changed)
+				slot := findInputSlot(slots, "Studio", "", XGoInputTypeString, XGoInputKindInPlace)
+				require.NotNil(t, slot)
+				assert.Equal(t, Range{
+					Start: Position{Line: 1, Character: 18},
+					End:   Position{Line: 1, Character: 27},
+				}, slot.Range)
+				start := PositionOffset([]byte(source), slot.Range.Start)
+				end := PositionOffset([]byte(source), slot.Range.End)
+				assert.Equal(t, "import \"fmt\"\nfmt.println \"\U0001f600\", \"Park\", 42\n", source[:start]+`"Park"`+source[end:])
+			})
+		}
+	})
+
+	t.Run("StringSourceRanges", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			literal string
+			value   string
+			end     Position
+			prefix  string
+		}{
+			{"Quoted", `"Studio"`, "Studio", Position{Character: 22}, ""},
+			{"Escaped", `"Stu\x64io"`, "Studio", Position{Character: 25}, ""},
+			{"Raw", "`Studio`", "Studio", Position{Character: 22}, ""},
+			{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Character: 23}, ""},
+			{"MultipleCarriageReturns", "`S\rtu\r\rdio\r`", "Studio", Position{Character: 26}, ""},
+			{"Multiline", "`Long first line\nx`", "Long first line\nx", Position{Line: 1, Character: 2}, ""},
+			{"CRLFAndUnicode", "`Stu\r\n\r\n\U0001f600dio`", "Stu\n\n\U0001f600dio", Position{Line: 2, Character: 6}, ""},
+			{"TrailingNewline", "`Studio\n`", "Studio\n", Position{Line: 1, Character: 1}, ""},
+			{"LineDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 23}, "//line virtual.xgo:100\n"},
+			{"ColumnDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 23}, "//line virtual.xgo:100:20\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				prefix := tt.prefix + "println \"\U0001f600\", "
+				const suffix = ", 42\n"
+				source := prefix + tt.literal + suffix
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				}})
+				require.NoError(t, err)
+				slot := findInputSlot(slots, tt.value, "", XGoInputTypeString, XGoInputKindInPlace)
+				require.NotNil(t, slot)
+				assert.Equal(t, Range{Start: Position{Line: uint32(strings.Count(tt.prefix, "\n")), Character: 14}, End: tt.end}, slot.Range)
+				start := PositionOffset([]byte(source), slot.Range.Start)
+				end := PositionOffset([]byte(source), slot.Range.End)
+				assert.Equal(t, tt.literal, source[start:end])
+				assert.Equal(t, prefix+`"Park"`+suffix, source[:start]+`"Park"`+source[end:])
+
+				sibling := findInputSlot(slots, int64(42), "", XGoInputTypeInteger, XGoInputKindInPlace)
+				require.NotNil(t, sibling)
+				assert.Equal(t, Range{
+					Start: Position{Line: tt.end.Line, Character: tt.end.Character + 2},
+					End:   Position{Line: tt.end.Line, Character: tt.end.Character + 4},
+				}, sibling.Range)
+			})
+		}
+	})
+
 	t.Run("FuncDecorator", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.xgo": []byte(`func withCount(count int, fn func()) {}

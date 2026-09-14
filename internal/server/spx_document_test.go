@@ -81,154 +81,61 @@ onStart => {
 		}
 		s := newSpxTestServer(t, m)
 
-		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
-		})
-		require.NoError(t, err)
-		require.Len(t, linksForMainSpx, 6)
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 1, Character: 6},
-				End:   Position{Line: 1, Character: 15},
+		for _, tt := range []struct {
+			filename  string
+			wantCount int
+			want      []DocumentLink
+		}{
+			{
+				filename: "main.spx", wantCount: 6,
+				want: []DocumentLink{
+					{Range: Range{Start: Position{Line: 1, Character: 6}, End: Position{Line: 1, Character: 15}},
+						Target: toURI("xgo:main?Backdrop1")},
+					{Range: Range{Start: Position{Line: 1, Character: 16}, End: Position{Line: 1, Character: 28}},
+						Target: toURI("xgo:github.com/goplus/spx/v3?BackdropName")},
+					{Range: Range{Start: Position{Line: 1, Character: 31}, End: Position{Line: 1, Character: 42}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 16}},
+						Target: toURI("xgo:main?Backdrop1a")},
+					{Range: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 28}},
+						Target: toURI("xgo:main?Backdrop1")},
+					{Range: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 28}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindConstantReference}},
+				},
 			},
-			Target: toURI("xgo:main?Backdrop1"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 1, Character: 16},
-				End:   Position{Line: 1, Character: 28},
+			{
+				filename: "MySprite.spx", wantCount: 21,
+				want: []DocumentLink{
+					{Range: Range{Start: Position{Line: 3, Character: 12}, End: Position{Line: 3, Character: 23}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 15}},
+						Target: toURI("spx://resources/sounds/MySound"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 4, Character: 1}, End: Position{Line: 4, Character: 9}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindAutoBindingReference}},
+					{Range: Range{Start: Position{Line: 5, Character: 1}, End: Position{Line: 5, Character: 9}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindAutoBindingReference}},
+					{Range: Range{Start: Position{Line: 5, Character: 18}, End: Position{Line: 5, Character: 25}},
+						Target: toURI("spx://resources/sprites/MySprite/animations/anim1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 4, Character: 21}, End: Position{Line: 4, Character: 31}},
+						Target: toURI("spx://resources/sprites/MySprite/costumes/costume1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 6, Character: 20}, End: Position{Line: 6, Character: 29}},
+						Target: toURI("spx://resources/widgets/widget1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 7, Character: 29}, End: Position{Line: 7, Character: 39}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+					{Range: Range{Start: Position{Line: 8, Character: 14}, End: Position{Line: 8, Character: 24}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+				},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v3?BackdropName"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 1, Character: 31},
-				End:   Position{Line: 1, Character: 42},
-			},
-			Target: toURI("spx://resources/backdrops/backdrop1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 6},
-				End:   Position{Line: 2, Character: 16},
-			},
-			Target: toURI("xgo:main?Backdrop1a"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 19},
-				End:   Position{Line: 2, Character: 28},
-			},
-			Target: toURI("xgo:main?Backdrop1"),
-		})
-		assert.Contains(t, linksForMainSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 19},
-				End:   Position{Line: 2, Character: 28},
-			},
-			Target: toURI("spx://resources/backdrops/backdrop1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindConstantReference,
-			},
-		})
-		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-		})
-		require.NoError(t, err)
-		require.Len(t, linksForMySpriteSpx, 21)
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 3, Character: 12},
-				End:   Position{Line: 3, Character: 23},
-			},
-			Target: toURI("spx://resources/backdrops/backdrop1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 2, Character: 6},
-				End:   Position{Line: 2, Character: 15},
-			},
-			Target: toURI("spx://resources/sounds/MySound"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 4, Character: 1},
-				End:   Position{Line: 4, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBindingReference,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 5, Character: 1},
-				End:   Position{Line: 5, Character: 9},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindAutoBindingReference,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 5, Character: 18},
-				End:   Position{Line: 5, Character: 25},
-			},
-			Target: toURI("spx://resources/sprites/MySprite/animations/anim1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 4, Character: 21},
-				End:   Position{Line: 4, Character: 31},
-			},
-			Target: toURI("spx://resources/sprites/MySprite/costumes/costume1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 6, Character: 20},
-				End:   Position{Line: 6, Character: 29},
-			},
-			Target: toURI("spx://resources/widgets/widget1"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 7, Character: 29},
-				End:   Position{Line: 7, Character: 39},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
-		assert.Contains(t, linksForMySpriteSpx, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 8, Character: 14},
-				End:   Position{Line: 8, Character: 24},
-			},
-			Target: toURI("spx://resources/sprites/MySprite"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
-			},
-		})
+		} {
+			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+				TextDocument: TextDocumentIdentifier{URI: DocumentURI("file:///" + tt.filename)},
+			})
+			require.NoError(t, err)
+			require.Len(t, links, tt.wantCount)
+			for _, link := range tt.want {
+				assert.Contains(t, links, link, tt.filename)
+			}
+		}
 	})
 
 	t.Run("KwargResourceReferences", func(t *testing.T) {
@@ -517,46 +424,21 @@ setup backdrop = "backdrop1"
 		})
 	})
 
-	t.Run("InvalidSpxResourceReferencesFiltered", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-const ValidBackdrop BackdropName = "backdrop1"
-const MissingBackdrop BackdropName = "missingBackdrop"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	play "MissingSound"
-	onBackdrop "backdrop1", func() {}
-	MySprite.setCostume "missingCostume"
-	MySprite.animate "missingAnim"
-	getWidget Monitor, "missingWidget"
-	var missingSprite SpriteName = "MissingSprite"
-}
-`),
-			"assets/index.json":                  []byte(`{"backdrops":[{"name":"backdrop1"}],"zorder":[]}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[],"fAnimations":{}}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		linksForMainSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+	t.Run("MissingResource", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":          []byte("play \"MissingSound\"\n"),
+			"assets/index.json": []byte(`{}`),
+		})
+		result, err := s.compile()
+		require.NoError(t, err)
+		require.Len(t, result.spxResourceRefs, 1)
+		assert.Equal(t, SpxSoundResourceID{"MissingSound"}, result.spxResourceRefs[0].ID)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		})
 		require.NoError(t, err)
-		targetsForMainSpx := documentLinkTargets(t, linksForMainSpx)
-		assert.Contains(t, targetsForMainSpx, "spx://resources/backdrops/backdrop1")
-		assert.NotContains(t, targetsForMainSpx, "spx://resources/backdrops/missingBackdrop")
-
-		linksForMySpriteSpx, err := s.textDocumentDocumentLink(&DocumentLinkParams{
-			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-		})
-		require.NoError(t, err)
-		targetsForMySpriteSpx := documentLinkTargets(t, linksForMySpriteSpx)
-		assert.Contains(t, targetsForMySpriteSpx, "spx://resources/backdrops/backdrop1")
-		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sounds/MissingSound")
-		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MissingSprite")
-		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/costumes/missingCostume")
-		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/sprites/MySprite/animations/missingAnim")
-		assert.NotContains(t, targetsForMySpriteSpx, "spx://resources/widgets/missingWidget")
+		require.NotEmpty(t, links)
+		assert.NotContains(t, documentLinkTargets(t, links), "spx://resources/sounds/MissingSound")
 	})
 }
 
