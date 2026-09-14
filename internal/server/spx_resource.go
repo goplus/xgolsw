@@ -90,13 +90,12 @@ func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to read metadata: %w", fs.ErrNotExist)
 	}
-	metadata := metadataFile.Content
 
 	var assets struct {
 		Backdrops []SpxBackdropResource `json:"backdrops"`
 		Zorder    []json.RawMessage     `json:"zorder"`
 	}
-	if err := json.Unmarshal(metadata, &assets); err != nil {
+	if err := json.Unmarshal(metadataFile.Content, &assets); err != nil {
 		return nil, fmt.Errorf("failed to parse metadata: %w", err)
 	}
 
@@ -126,10 +125,9 @@ func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 		if !ok {
 			return nil, fmt.Errorf("failed to read sound metadata: %w", fs.ErrNotExist)
 		}
-		soundMetadata := soundMetadataFile.Content
 
 		var sound SpxSoundResource
-		if err := json.Unmarshal(soundMetadata, &sound); err != nil {
+		if err := json.Unmarshal(soundMetadataFile.Content, &sound); err != nil {
 			return nil, fmt.Errorf("failed to parse sound metadata: %w", err)
 		}
 		sound.Name = soundName
@@ -146,13 +144,12 @@ func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 		if !ok {
 			return nil, fmt.Errorf("failed to read sprite metadata: %w", fs.ErrNotExist)
 		}
-		spriteMetadata := spriteMetadataFile.Content
 
 		sprite := SpxSpriteResource{
 			ID:   SpxSpriteResourceID{SpriteName: spriteName},
 			Name: spriteName,
 		}
-		if err := json.Unmarshal(spriteMetadata, &sprite); err != nil {
+		if err := json.Unmarshal(spriteMetadataFile.Content, &sprite); err != nil {
 			return nil, fmt.Errorf("failed to parse sprite metadata: %w", err)
 		}
 
@@ -182,9 +179,7 @@ func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 			}
 			if animation.FromIndex != nil && animation.ToIndex != nil {
 				for i := *animation.FromIndex; i <= *animation.ToIndex; i++ {
-					if i >= 0 && i < len(sprite.Costumes) {
-						animationCostumes[i] = struct{}{}
-					}
+					animationCostumes[i] = struct{}{}
 				}
 			}
 			sprite.Animations = append(sprite.Animations, animation)
@@ -211,33 +206,21 @@ func NewSpxResourceSet(proj *xgo.Project) (*SpxResourceSet, error) {
 
 // Backdrop returns the backdrop with the given name. It returns nil if not found.
 func (set *SpxResourceSet) Backdrop(name string) *SpxBackdropResource {
-	if set.backdrops == nil {
-		return nil
-	}
 	return set.backdrops[name]
 }
 
 // Sound returns the sound with the given name. It returns nil if not found.
 func (set *SpxResourceSet) Sound(name string) *SpxSoundResource {
-	if set.sounds == nil {
-		return nil
-	}
 	return set.sounds[name]
 }
 
 // Sprite returns the sprite with the given name. It returns nil if not found.
 func (set *SpxResourceSet) Sprite(name string) *SpxSpriteResource {
-	if set.sprites == nil {
-		return nil
-	}
 	return set.sprites[name]
 }
 
 // Widget returns the widget with the given name. It returns nil if not found.
 func (set *SpxResourceSet) Widget(name string) *SpxWidgetResource {
-	if set.widgets == nil {
-		return nil
-	}
 	return set.widgets[name]
 }
 

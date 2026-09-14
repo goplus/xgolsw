@@ -1,11 +1,293 @@
 package server
 
 import (
+	"encoding/json"
+	"io/fs"
 	"testing"
 
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewSpxResourceSet(t *testing.T) {
+	t.Run("Resources", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"assets/index.json": []byte(`{
+				"backdrops":[{"name":"Studio","path":"studio.png"},{"name":"Park","path":"park.png"}],
+				"zorder":["Runner",null,42,{}, {"name":42},
+					{"name":"Score","type":"monitor","label":"Points","val":"score"},
+					{"name":"Timer","type":"monitor","val":"timer"}]
+			}`),
+			"assets/sounds/Beep/index.json": []byte(`{"name":"Ignored","path":"beep.wav"}`),
+			"assets/sounds/Pop/index.json":  []byte(`{"path":"pop.wav"}`),
+			"assets/sprites/Runner/index.json": []byte(`{
+				"costumes":[{"name":"idle","path":"idle.png"},{"name":"step","path":"step.png"}],
+				"costumeIndex":1,"fAnimations":{"walk":{"frameFrom":"step","frameTo":"step"}},
+				"defaultAnimation":"walk"
+			}`),
+			"assets/sprites/Other/index.json": []byte(`{}`),
+		})
+		set, err := NewSpxResourceSet(s.getProj())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]*SpxBackdropResource{
+			"Studio": {ID: SpxBackdropResourceID{BackdropName: "Studio"}, Name: "Studio", Path: "studio.png"},
+			"Park":   {ID: SpxBackdropResourceID{BackdropName: "Park"}, Name: "Park", Path: "park.png"},
+		}, set.backdrops)
+		assert.Equal(t, map[string]*SpxSoundResource{
+			"Beep": {ID: SpxSoundResourceID{SoundName: "Beep"}, Name: "Beep", Path: "beep.wav"},
+			"Pop":  {ID: SpxSoundResourceID{SoundName: "Pop"}, Name: "Pop", Path: "pop.wav"},
+		}, set.sounds)
+		assert.Equal(t, map[string]*SpxWidgetResource{
+			"Score": {ID: SpxWidgetResourceID{WidgetName: "Score"}, Name: "Score", Type: "monitor", Label: "Points", Val: "score"},
+			"Timer": {ID: SpxWidgetResourceID{WidgetName: "Timer"}, Name: "Timer", Type: "monitor", Val: "timer"},
+		}, set.widgets)
+		require.Len(t, set.sprites, 2)
+		sprite := set.Sprite("Runner")
+		require.NotNil(t, sprite)
+		assert.Equal(t, SpxSpriteResourceID{SpriteName: "Runner"}, sprite.ID)
+		assert.Equal(t, "Runner", sprite.Name)
+		assert.Equal(t, 1, sprite.CostumeIndex)
+		assert.Equal(t, "walk", sprite.DefaultAnimation)
+		assert.Equal(t, []SpxSpriteCostumeResource{
+			{ID: SpxSpriteCostumeResourceID{SpriteName: "Runner", CostumeName: "idle"}, Name: "idle", Path: "idle.png"},
+			{ID: SpxSpriteCostumeResourceID{SpriteName: "Runner", CostumeName: "step"}, Name: "step", Path: "step.png"},
+		}, sprite.Costumes)
+		require.Len(t, sprite.Costumes, 2)
+		assert.Equal(t, sprite.Costumes[:1], sprite.NormalCostumes)
+		assert.Same(t, &sprite.Costumes[1], sprite.Costume("step"))
+		assert.Equal(t, &SpxSpriteAnimationResource{
+			ID:   SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "walk"},
+			Name: "walk", FromIndex: ToPtr(1), ToIndex: ToPtr(1),
+		}, sprite.Animation("walk"))
+		other := set.Sprite("Other")
+		require.NotNil(t, other)
+		assert.Empty(t, other.Costumes)
+		assert.Empty(t, other.NormalCostumes)
+		assert.Empty(t, other.Animations)
+		assert.Nil(t, sprite.Costume("missing"))
+		assert.Nil(t, sprite.Animation("missing"))
+		assert.Nil(t, other.Costume("step"))
+		assert.Nil(t, other.Animation("walk"))
+
+		for _, id := range []SpxResourceID{
+			SpxBackdropResourceID{BackdropName: "Studio"},
+			SpxSoundResourceID{SoundName: "Beep"},
+			SpxSpriteResourceID{SpriteName: "Runner"},
+			SpxSpriteCostumeResourceID{SpriteName: "Runner", CostumeName: "step"},
+			SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "walk"},
+			SpxWidgetResourceID{WidgetName: "Score"},
+		} {
+			assert.True(t, set.Contains(id), "%s", id.URI())
+		}
+		for _, id := range []SpxResourceID{
+			SpxBackdropResourceID{BackdropName: "Beep"},
+			SpxSoundResourceID{SoundName: "Studio"},
+			SpxSpriteResourceID{SpriteName: "missing"},
+			SpxSpriteCostumeResourceID{SpriteName: "Runner", CostumeName: "missing"},
+			SpxSpriteCostumeResourceID{SpriteName: "Other", CostumeName: "step"},
+			SpxSpriteCostumeResourceID{SpriteName: "missing", CostumeName: "step"},
+			SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "missing"},
+			SpxSpriteAnimationResourceID{SpriteName: "Other", AnimationName: "walk"},
+			SpxSpriteAnimationResourceID{SpriteName: "missing", AnimationName: "walk"},
+			SpxWidgetResourceID{WidgetName: "Runner"},
+		} {
+			assert.False(t, set.Contains(id), "%s", id.URI())
+		}
+		assert.False(t, set.Contains(nil))
+	})
+
+	t.Run("Empty", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"assets/index.json": []byte(`{}`)})
+		set, err := NewSpxResourceSet(s.getProj())
+		require.NoError(t, err)
+		assert.Empty(t, set.backdrops)
+		assert.Empty(t, set.sounds)
+		assert.Empty(t, set.sprites)
+		assert.Empty(t, set.widgets)
+		assert.Nil(t, set.Backdrop("missing"))
+		assert.Nil(t, set.Sound("missing"))
+		assert.Nil(t, set.Sprite("missing"))
+		assert.Nil(t, set.Widget("missing"))
+	})
+
+	t.Run("Animations", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			animations string
+			wantFrom   *int
+			wantTo     *int
+			wantNormal []string
+		}{
+			{
+				name: "Range", animations: `{"walk":{"frameFrom":"b","frameTo":"c"}}`,
+				wantFrom: ToPtr(1), wantTo: ToPtr(2), wantNormal: []string{"a", "d"},
+			},
+			{
+				name: "SingleFrame", animations: `{"walk":{"frameFrom":"a","frameTo":"a"}}`,
+				wantFrom: ToPtr(0), wantTo: ToPtr(0), wantNormal: []string{"b", "c", "d"},
+			},
+			{
+				name:       "OverlappingRanges",
+				animations: `{"walk":{"frameFrom":"a","frameTo":"c"},"run":{"frameFrom":"b","frameTo":"d"}}`,
+				wantFrom:   ToPtr(0), wantTo: ToPtr(2),
+			},
+			{
+				name: "MissingFrom", animations: `{"walk":{"frameFrom":"missing","frameTo":"c"}}`,
+				wantTo: ToPtr(2), wantNormal: []string{"a", "b", "c", "d"},
+			},
+			{
+				name: "MissingTo", animations: `{"walk":{"frameFrom":"b","frameTo":"missing"}}`,
+				wantFrom: ToPtr(1), wantNormal: []string{"a", "b", "c", "d"},
+			},
+			{
+				name: "MissingBoth", animations: `{"walk":{}}`,
+				wantNormal: []string{"a", "b", "c", "d"},
+			},
+			{
+				name: "ReversedRange", animations: `{"walk":{"frameFrom":"c","frameTo":"b"}}`,
+				wantFrom: ToPtr(2), wantTo: ToPtr(1), wantNormal: []string{"a", "b", "c", "d"},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"}],"fAnimations":` + tt.animations + `}`),
+				})
+				set, err := NewSpxResourceSet(s.getProj())
+				require.NoError(t, err)
+				sprite := set.Sprite("Runner")
+				require.NotNil(t, sprite)
+				assert.Equal(t, &SpxSpriteAnimationResource{
+					ID:   SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "walk"},
+					Name: "walk", FromIndex: tt.wantFrom, ToIndex: tt.wantTo,
+				}, sprite.Animation("walk"))
+				var normal []string
+				for _, costume := range sprite.NormalCostumes {
+					normal = append(normal, costume.Name)
+				}
+				assert.Equal(t, tt.wantNormal, normal)
+			})
+		}
+	})
+
+	t.Run("MetadataErrors", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			files   map[string][]byte
+			message string
+			missing bool
+		}{
+			{
+				name: "MissingRoot", message: "failed to read metadata", missing: true,
+			},
+			{
+				name: "InvalidRoot", message: "failed to parse metadata",
+				files: map[string][]byte{"assets/index.json": []byte(`{`)},
+			},
+			{
+				name: "MissingSound", message: "failed to read sound metadata", missing: true,
+				files: map[string][]byte{"assets/index.json": []byte(`{}`), "assets/sounds/Beep/beep.wav": nil},
+			},
+			{
+				name: "InvalidSound", message: "failed to parse sound metadata",
+				files: map[string][]byte{"assets/index.json": []byte(`{}`), "assets/sounds/Beep/index.json": []byte(`{`)},
+			},
+			{
+				name: "MissingSprite", message: "failed to read sprite metadata", missing: true,
+				files: map[string][]byte{"assets/index.json": []byte(`{}`), "assets/sprites/Runner/costumes/idle.png": nil},
+			},
+			{
+				name: "InvalidSprite", message: "failed to parse sprite metadata",
+				files: map[string][]byte{"assets/index.json": []byte(`{}`), "assets/sprites/Runner/index.json": []byte(`{`)},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, tt.files)
+				set, err := NewSpxResourceSet(s.getProj())
+				require.ErrorContains(t, err, tt.message)
+				assert.Nil(t, set)
+				if tt.missing {
+					assert.ErrorIs(t, err, fs.ErrNotExist)
+				} else {
+					var syntaxError *json.SyntaxError
+					assert.ErrorAs(t, err, &syntaxError)
+				}
+			})
+		}
+	})
+
+	t.Run("IndependentLoads", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"assets/index.json":                []byte(`{"backdrops":[{"name":"Studio"}]}`),
+			"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"idle"}],"fAnimations":{"rest":{"frameFrom":"idle","frameTo":"idle"}}}`),
+		})
+		proj := s.getProj()
+		first, err := NewSpxResourceSet(proj)
+		require.NoError(t, err)
+		second, err := NewSpxResourceSet(proj)
+		require.NoError(t, err)
+		require.Equal(t, first, second)
+		for _, set := range []*SpxResourceSet{first, second} {
+			require.NotNil(t, set.Backdrop("Studio"))
+			sprite := set.Sprite("Runner")
+			require.NotNil(t, sprite)
+			require.Len(t, sprite.Costumes, 1)
+			animation := sprite.Animation("rest")
+			require.NotNil(t, animation)
+			require.NotNil(t, animation.FromIndex)
+		}
+		first.Backdrop("Studio").Name = "changed"
+		first.Sprite("Runner").Costumes[0].Name = "changed"
+		*first.Sprite("Runner").Animation("rest").FromIndex = 10
+		assert.Equal(t, "Studio", second.Backdrop("Studio").Name)
+		assert.Equal(t, "idle", second.Sprite("Runner").Costumes[0].Name)
+		assert.Equal(t, ToPtr(0), second.Sprite("Runner").Animation("rest").FromIndex)
+
+		proj.PutFile("assets/index.json", &xgo.File{Content: []byte(`{}`)})
+		require.NoError(t, proj.DeleteFile("assets/sprites/Runner/index.json"))
+		proj.PutFile("assets/sounds/Pop/index.json", &xgo.File{Content: []byte(`{"path":"pop.wav"}`)})
+		third, err := NewSpxResourceSet(proj)
+		require.NoError(t, err)
+		assert.Nil(t, third.Backdrop("Studio"))
+		assert.Nil(t, third.Sprite("Runner"))
+		assert.NotNil(t, third.Sound("Pop"))
+		assert.NotNil(t, second.Backdrop("Studio"))
+		assert.NotNil(t, second.Sprite("Runner"))
+		assert.Nil(t, second.Sound("Pop"))
+	})
+}
+
+func TestSpxResourceSetContains(t *testing.T) {
+	t.Run("ZeroValue", func(t *testing.T) {
+		var set SpxResourceSet
+		for _, id := range []SpxResourceID{
+			SpxBackdropResourceID{BackdropName: "Studio"},
+			SpxSoundResourceID{SoundName: "Beep"},
+			SpxSpriteResourceID{SpriteName: "Runner"},
+			SpxSpriteCostumeResourceID{SpriteName: "Runner", CostumeName: "idle"},
+			SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "walk"},
+			SpxWidgetResourceID{WidgetName: "Score"},
+		} {
+			assert.False(t, set.Contains(id), "%s", id.URI())
+		}
+	})
+}
+
+func TestListSubdirs(t *testing.T) {
+	for _, dir := range []string{"assets/sprites", "assets/sprites/", "assets/./sprites"} {
+		s := newTestServer(t, map[string][]byte{
+			"assets/sprites/Runner/index.json":        nil,
+			"assets/sprites/Runner/costumes/idle.png": nil,
+			"assets/sprites/Other/index.json":         nil,
+			"assets/sprites/index.json":               nil,
+			"assets/sprites-extra/Third/index.json":   nil,
+			"other/assets/sprites/Fourth/index.json":  nil,
+		})
+		assert.Equal(t, []string{"Other", "Runner"}, listSubdirs(s.getProj(), dir), "%s", dir)
+		assert.Empty(t, listSubdirs(s.getProj(), "missing"))
+	}
+}
 
 func TestSpxResourceIDURI(t *testing.T) {
 	t.Run("BackdropASCII", func(t *testing.T) {
