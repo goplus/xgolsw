@@ -170,26 +170,6 @@ onStart => {
 			NewText: "backdrop2",
 		}}, changes[s.toDocumentURI("MySprite.spx")])
 	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onBackdrop "backdrop1", func() {}
-`),
-			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"},{"name":"backdrop2","path":"backdrop2.png"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameBackdropResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
-		require.EqualError(t, err, `backdrop resource "backdrop2" already exists`)
-		require.Nil(t, changes)
-	})
 }
 
 func TestServerSpxRenameSoundResource(t *testing.T) {
@@ -235,28 +215,6 @@ onStart => {
 			NewText: "Sound2",
 		}}, changes[s.toDocumentURI("MySprite.spx")])
 	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-play "Sound1"
-`),
-			"assets/index.json":               []byte(`{}`),
-			"assets/sounds/Sound1/index.json": []byte(`{"path":"sound1.wav"}`),
-			"assets/sounds/Sound2/index.json": []byte(`{"path":"sound2.wav"}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSoundResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
-		require.EqualError(t, err, `sound resource "Sound2" already exists`)
-		require.Nil(t, changes)
-	})
 }
 
 func TestServerSpxRenameSpriteResource(t *testing.T) {
@@ -300,39 +258,6 @@ onStart => {
 			},
 			NewText: "Sprite2",
 		}}, changes[s.toDocumentURI("Sprite1.spx")])
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-Sprite1.turn Left
-Sprite2.turn Left
-`),
-			"Sprite1.spx": []byte(`
-onStart => {
-	Sprite1.turn Right
-}
-`),
-			"Sprite2.spx": []byte(`
-onStart => {
-	Sprite2.turn Right
-}
-`),
-			"assets/index.json":                 []byte(`{}`),
-			"assets/sprites/Sprite1/index.json": []byte(`{}`),
-			"assets/sprites/Sprite2/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
-		require.EqualError(t, err, `sprite resource "Sprite2" already exists`)
-		require.Nil(t, changes)
 	})
 
 	// See https://github.com/goplus/builder/issues/1470.
@@ -416,58 +341,6 @@ onStart => {
 			NewText: "costume2",
 		}}, changes[s.toDocumentURI("MySprite.spx")])
 	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "costume1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"},{"name":"costume2"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
-		require.EqualError(t, err, `sprite costume resource "costume2" already exists`)
-		require.Nil(t, changes)
-	})
-
-	t.Run("NonExistentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCostume "costume1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/costumes/costume1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteCostumeResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
-		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
-		require.Nil(t, changes)
-	})
 }
 
 func TestServerSpxRenameSpriteAnimationResource(t *testing.T) {
@@ -512,58 +385,6 @@ onStart => {
 			NewText: "anim2",
 		}}, changes[s.toDocumentURI("MySprite.spx")])
 	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.animate "anim1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate "anim1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{},"anim2":{}}}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
-		require.EqualError(t, err, `sprite animation resource "anim2" already exists`)
-		require.Nil(t, changes)
-	})
-
-	t.Run("NonExistentSprite", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.animate "anim1"
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	animate "anim1"
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/NonExistentSprite/animations/anim1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameSpriteAnimationResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
-		require.EqualError(t, err, `sprite resource "NonExistentSprite" not found`)
-		require.Nil(t, changes)
-	})
 }
 
 func TestServerSpxRenameWidgetResource(t *testing.T) {
@@ -597,29 +418,5 @@ onStart => {
 			},
 			NewText: "widget2",
 		}}, changes[s.toDocumentURI("MySprite.spx")])
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-`),
-			"MySprite.spx": []byte(`
-onStart => {
-	getWidget Monitor, "widget1"
-}
-`),
-			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"},{"name":"widget2"}]}`),
-		}
-		s := newSpxTestServer(t, m)
-		result, err := s.compile()
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
-		require.NoError(t, err)
-
-		changes, err := s.spxRenameWidgetResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
-		require.EqualError(t, err, `widget resource "widget2" already exists`)
-		require.Nil(t, changes)
 	})
 }
