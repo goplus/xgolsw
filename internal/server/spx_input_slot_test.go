@@ -14,6 +14,52 @@ import (
 )
 
 func TestServerSpxGetInputSlots(t *testing.T) {
+	t.Run("ResourceContextsWithLineDirectives", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			receiver string
+		}{
+			{"Implicit", "Runner.spx", ""},
+			{"Explicit", "main.spx", "Runner."},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx": nil, "Runner.spx": nil,
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"runner"}],"fAnimations":{"walk":{}}}`),
+				}
+				files[tt.filename] = []byte("onStart => {\n\tconst Costume = \"runner\"\n\tconst Animation = \"walk\"\n//line virtual.spx:100:20\n\t" +
+					tt.receiver + "setCostume \"runner\"\n\t" + tt.receiver + "setCostume Costume\n\t" +
+					tt.receiver + "animate \"walk\"\n\t" + tt.receiver + "animate Animation\n}\n")
+				s := newSpxTestServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}}})
+				require.NoError(t, err)
+				for _, want := range []struct {
+					line    uint32
+					context SpxResourceContextURI
+				}{
+					{4, FormatSpxSpriteCostumeResourceContextURI("Runner")},
+					{5, FormatSpxSpriteCostumeResourceContextURI("Runner")},
+					{6, FormatSpxSpriteAnimationResourceContextURI("Runner")},
+					{7, FormatSpxSpriteAnimationResourceContextURI("Runner")},
+				} {
+					var matching []XGoInputSlot
+					for _, slot := range slots {
+						if slot.Range.Start.Line == want.line {
+							matching = append(matching, slot)
+						}
+					}
+					require.Len(t, matching, 1, "line %d", want.line)
+					assert.Equal(t, SpxInputTypeResourceName, matching[0].Accept.Type)
+					assert.Equal(t, ToPtr(want.context), matching[0].Accept.ResourceContext)
+				}
+			})
+		}
+	})
+
 	t.Run("Normal", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`
@@ -1080,122 +1126,6 @@ func TestInferSpxInputTypeFromType(t *testing.T) {
 				assert.Equal(t, tt.want, got)
 			})
 		}
-	})
-}
-
-func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
-	m := map[string][]byte{
-		"main.spx": []byte(`
-onStart => {
-	MySprite.setXYpos 10, 20
-}
-`),
-		"MySprite.spx": []byte(`
-onStart => {
-	setCostume "costume1"
-}
-`),
-		"DecoratedSprite.spx": []byte(`func withCostume(costume SpriteCostumeName, fn func()) {}
-
-@withCostume("costume1")
-func run() {}
-`),
-		"assets/index.json":                         []byte(`{}`),
-		"assets/sprites/MySprite/index.json":        []byte(`{"costumes":[{"name":"costume1"}]}`),
-		"assets/sprites/DecoratedSprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
-	}
-	s := newSpxTestServer(t, m)
-
-	t.Run("MainFile", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-		require.NotNil(t, astFile)
-
-		// MySprite.setXYpos
-		pos := PosAt(result.proj, astFile, Position{Line: 2, Character: 11})
-		require.True(t, pos.IsValid())
-
-		var callExpr *ast.CallExpr
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-			if node, ok := node.(*ast.CallExpr); ok {
-				callExpr = node
-				break
-			}
-		}
-		require.NotNil(t, callExpr)
-
-		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
-		require.NotNil(t, spxSpriteResource)
-		assert.Equal(t, "MySprite", spxSpriteResource.Name)
-	})
-
-	t.Run("SpriteFile", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-		require.NotNil(t, astFile)
-
-		// setCostume
-		pos := PosAt(result.proj, astFile, Position{Line: 2, Character: 2})
-		require.True(t, pos.IsValid())
-
-		var callExpr *ast.CallExpr
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-			if node, ok := node.(*ast.CallExpr); ok {
-				callExpr = node
-				break
-			}
-		}
-		require.NotNil(t, callExpr)
-
-		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
-		require.NotNil(t, spxSpriteResource)
-		assert.Equal(t, "MySprite", spxSpriteResource.Name)
-	})
-
-	t.Run("FuncDecorator", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///DecoratedSprite.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-		require.NotNil(t, astFile)
-
-		var costumeLit *ast.BasicLit
-		ast.Inspect(astFile, func(node ast.Node) bool {
-			if lit, ok := node.(*ast.BasicLit); ok && lit.Value == `"costume1"` {
-				costumeLit = lit
-				return false
-			}
-			return true
-		})
-		require.NotNil(t, costumeLit)
-
-		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, costumeLit)
-		require.NotNil(t, spxSpriteResource)
-		assert.Equal(t, "DecoratedSprite", spxSpriteResource.Name)
-	})
-
-	t.Run("NonSpriteNode", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
-		require.NotNil(t, astFile)
-
-		// onStart
-		pos := PosAt(result.proj, astFile, Position{Line: 1, Character: 2})
-		require.True(t, pos.IsValid())
-
-		var callExpr *ast.CallExpr
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-			if node, ok := node.(*ast.CallExpr); ok {
-				callExpr = node
-				break
-			}
-		}
-		require.NotNil(t, callExpr)
-
-		spxSpriteResource := inferSpxSpriteResourceEnclosingNode(result, callExpr)
-		require.Nil(t, spxSpriteResource)
 	})
 }
 

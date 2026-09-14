@@ -158,3 +158,36 @@ func TestCompileResultIsInSpxEventHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestServerInspectForSpxResourceRefs(t *testing.T) {
+	t.Run("ReturnContextWithLineDirectives", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			want     []SpxResourceID
+		}{
+			{"Project", "main.spx", nil},
+			{"Sprite", "Runner.spx", []SpxResourceID{SpxSpriteCostumeResourceID{"Runner", "runner"}, SpxSpriteAnimationResourceID{"Runner", "walk"}}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx": nil, "Runner.spx": nil,
+					"assets/index.json":                 []byte(`{}`),
+					"assets/sprites/Runner/index.json":  []byte(`{"costumes":[{"name":"runner"}],"fAnimations":{"walk":{}}}`),
+					"assets/sprites/virtual/index.json": []byte(`{"costumes":[{"name":"runner"}],"fAnimations":{"walk":{}}}`),
+				}
+				files[tt.filename] = []byte("func currentCostume() SpriteCostumeName {\n//line virtual.spx:100:20\n\treturn \"runner\"\n}\nfunc currentAnimation() SpriteAnimationName {\n//line virtual.spx:200:20\n\treturn \"walk\"\n}\n")
+				s := newSpxTestServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				result, err := s.compile()
+				require.NoError(t, err)
+				var ids []SpxResourceID
+				for _, ref := range result.spxResourceRefs {
+					ids = append(ids, ref.ID)
+				}
+				assert.ElementsMatch(t, tt.want, ids)
+			})
+		}
+	})
+}

@@ -243,7 +243,7 @@ func sourceASTFile(proj *xgo.Project, pos token.Pos) *ast.File {
 	return astFile
 }
 
-// basicLitEnd returns the source end of a valid literal in astFile,
+// basicLitEnd returns the source end of a literal in astFile,
 // including carriage returns omitted from raw string values by the parser.
 func basicLitEnd(fset *token.FileSet, astFile *ast.File, lit *ast.BasicLit) token.Pos {
 	if lit.Kind != token.STRING || lit.Value[0] != '`' {
@@ -251,9 +251,12 @@ func basicLitEnd(fset *token.FileSet, astFile *ast.File, lit *ast.BasicLit) toke
 	}
 	file := fset.File(lit.Pos())
 	offset := file.Offset(lit.Pos())
-	// The validated literal has a closing delimiter in its original source.
-	length := bytes.IndexByte(astFile.Code[offset+1:], '`') + 2
-	return lit.Pos() + token.Pos(length)
+	// An unterminated raw string extends to EOF.
+	length := bytes.IndexByte(astFile.Code[offset+1:], '`')
+	if length < 0 {
+		return file.Pos(len(astFile.Code))
+	}
+	return lit.Pos() + token.Pos(length+2)
 }
 
 // comparePositions compares positions in source order.

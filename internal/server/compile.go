@@ -325,12 +325,7 @@ func (s *Server) inspectForSpxResourceRefs(result *compileResult) {
 			if expr.Kind == token.STRING {
 				if returnType := returnTypes[expr]; returnType != nil {
 					getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
-						spxFileBaseName := path.Base(xgoutil.NodeFilename(result.proj.Fset, expr))
-						if spxFileBaseName == "main.spx" {
-							return nil
-						}
-						spriteName := strings.TrimSuffix(spxFileBaseName, ".spx")
-						return result.spxResourceSet.Sprite(spriteName)
+						return spxSpriteResourceForFile(result, result.proj.Fset.File(expr.Pos()).Name())
 					})
 					s.inspectSpxResourceRefForTypeAtExpr(result, expr, returnType, getSpriteContext)
 				} else {
@@ -576,28 +571,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *compileResult, call
 		return nil
 	}
 
-	switch fun := callExpr.Fun.(type) {
-	case *ast.Ident:
-		spxSpriteName := strings.TrimSuffix(path.Base(xgoutil.NodeFilename(result.proj.Fset, callExpr)), ".spx")
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	case *ast.SelectorExpr:
-		ident, ok := fun.X.(*ast.Ident)
-		if !ok {
-			return nil
-		}
-		obj := typeInfo.ObjectOf(ident)
-		if obj == nil {
-			return nil
-		}
-		if !result.hasSpxSpriteResourceAutoBinding(obj) {
-			return nil
-		}
-
-		spxSpriteName := obj.Name()
-		return result.spxResourceSet.Sprite(spxSpriteName)
-	default:
-		return nil
-	}
+	return spxSpriteResourceForCall(result, callExpr)
 }
 
 // inspectSpxResourceRefForTypeAtExpr inspects an spx resource reference for a

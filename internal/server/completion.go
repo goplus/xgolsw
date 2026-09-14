@@ -46,6 +46,8 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		return nil, nil
 	}
 
+	sourcePos := pos
+	pos = completionASTPosition(proj, astFile, pos)
 	innermostScope := xgoutil.InnermostScopeAt(proj.Fset, typeInfo, astPkg, pos)
 	if innermostScope == nil {
 		return nil, nil
@@ -69,6 +71,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		astFileScope:   typeInfo.Scopes[astFile],
 		tokenFile:      xgoutil.NodeTokenFile(proj.Fset, astFile),
 		pos:            pos,
+		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
 	ctx.spxResult, err = s.compileForSpxCompletion(proj, filename)
@@ -125,7 +128,8 @@ type completionContext struct {
 	astFile        *ast.File
 	astFileScope   *gotypes.Scope
 	tokenFile      *token.File
-	pos            token.Pos
+	pos            token.Pos // Position used for AST lookup.
+	sourcePos      token.Pos // Physical cursor position used for edits.
 	innermostScope *gotypes.Scope
 
 	kind completionKind
@@ -143,6 +147,7 @@ type completionContext struct {
 	returnIndex        int
 
 	inStringLit             bool
+	stringLit               *ast.BasicLit
 	inCallKwargName         bool
 	inFuncDecorator         bool
 	inSpxEventHandler       bool
@@ -459,6 +464,7 @@ func (ctx *completionContext) analyze() {
 					ctx.kind = completionKindStringLit
 				}
 				ctx.inStringLit = true
+				ctx.stringLit = node
 			}
 		case *ast.BlockStmt:
 			ctx.kind = completionKindUnknown

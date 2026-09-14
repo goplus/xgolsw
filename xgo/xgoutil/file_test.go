@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,6 +117,21 @@ func TestNodeTokenFile(t *testing.T) {
 }
 
 func TestPosASTFile(t *testing.T) {
+	t.Run("LineDirective", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "//line virtual.xgo:100:20\nvar count int\n")
+		require.NoError(t, err)
+		other, err := parser.ParseEntry(fset, "virtual.xgo", "var other int\n", parser.Config{})
+		require.NoError(t, err)
+		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
+		ident := requireValueSpec(t, requireGenDecl(t, astFile.Decls[0]).Specs[0]).Names[0]
+		assert.Equal(t, "virtual.xgo", PosFilename(fset, ident.Pos()))
+		assert.Same(t, astFile, PosASTFile(fset, astPkg, ident.Pos()))
+		assert.Same(t, astFile, NodeASTFile(fset, astPkg, ident))
+		astPkg.Files["virtual.xgo"] = other
+		assert.Same(t, astFile, PosASTFile(fset, astPkg, ident.Pos()))
+		assert.Same(t, astFile, NodeASTFile(fset, astPkg, ident))
+	})
+
 	t.Run("Normal", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")
 		require.NoError(t, err)

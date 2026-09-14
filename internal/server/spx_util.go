@@ -124,7 +124,7 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *ast.File, ident *ast.
 		return ""
 	}
 
-	spxFile := xgoutil.NodeFilename(proj.Fset, ident)
+	spxFile := proj.Fset.File(ident.Pos()).Name()
 	if path.Base(spxFile) == "main.spx" {
 		return "Game"
 	}
