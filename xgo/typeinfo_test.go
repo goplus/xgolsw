@@ -114,6 +114,37 @@ func test() {
 }
 
 func TestProjectTypeInfo(t *testing.T) {
+	t.Run("OverloadDeclarations", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{
+			"main.xgo": file(`func pickInt(value int) {}
+func pickString(value string) {}
+func pick = (
+	pickInt
+	pickString
+)
+pick 1
+pick "text"
+`),
+		}, FeatASTCache|FeatTypeInfoCache)
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		require.Len(t, info.Overloads, 2)
+		var selected []string
+		for ident, declaration := range info.Overloads {
+			assert.Equal(t, "pick", ident.Name)
+			assert.Same(t, info.Pkg.Scope().Lookup("pick"), declaration)
+			obj := info.ObjectOf(ident)
+			require.NotNil(t, obj)
+			selected = append(selected, obj.Name())
+			decl, members := info.OverloadOf(ident)
+			assert.Same(t, declaration, decl)
+			assert.ElementsMatch(t, []gotypes.Object{
+				info.Pkg.Scope().Lookup("pickInt"), info.Pkg.Scope().Lookup("pickString"),
+			}, members)
+		}
+		assert.ElementsMatch(t, []string{"pickInt", "pickString"}, selected)
+	})
+
 	t.Run("NormalClass", func(t *testing.T) {
 		proj := newTestProject(t, map[string]*File{
 			"Record.gox": file(`var value int

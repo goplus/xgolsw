@@ -11,6 +11,40 @@ import (
 )
 
 func TestServerTextDocumentCompletionKwargs(t *testing.T) {
+	t.Run("FunctionOverloads", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			prefix string
+			want   []string
+			absent string
+		}{
+			{"Integer", "1", []string{"count"}, "name"},
+			{"String", `"text"`, []string{"name"}, "count"},
+			{"Unresolved", "missing", []string{"count", "name"}, ""},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				call := "handle " + tt.prefix + ", "
+				s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(functionOverloadKwargDeclarations), "main.xgo": []byte(call + "option = 1\n")})
+				items := completionItemsAt(t, s, "main.xgo", Position{Character: uint32(UTF16Len(call) + 1)})
+				for _, label := range tt.want {
+					item := completionItemByLabel(items, label)
+					require.NotNil(t, item, label)
+					assert.Equal(t, FieldCompletion, item.Kind)
+					data := requireValueAs[*CompletionItemData](t, item.Data)
+					require.NotNil(t, data.Definition)
+					wantID := "xgo:main?CountOptions.Count"
+					if label == "name" {
+						wantID = "xgo:main?NameOptions.Name"
+					}
+					assert.Equal(t, wantID, data.Definition.String())
+				}
+				if tt.absent != "" {
+					assert.NotContains(t, completionItemLabels(items), tt.absent)
+				}
+			})
+		}
+	})
+
 	t.Run("CrossFileSourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string

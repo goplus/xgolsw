@@ -267,6 +267,67 @@ func main() {
 }
 
 func TestCollectInlayHints(t *testing.T) {
+	t.Run("FunctionOverloadKwargs", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			call string
+		}{
+			{"Integer", "handle 1, count = 5\n"},
+			{"String", "handle \"prefix\", name = \"value\"\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(functionOverloadKwargDeclarations), "main.xgo": []byte(tt.call)})
+				proj := s.getProj()
+				_, err := proj.TypeInfo()
+				require.NoError(t, err)
+				file, err := proj.ASTFile("main.xgo")
+				require.NoError(t, err)
+				assert.Equal(t, []InlayHint{{Position: Position{Character: 7}, Label: "prefix", Kind: Parameter}}, collectInlayHints(proj, file, 0, 0))
+			})
+		}
+	})
+
+	t.Run("ClassfileCallbackOverloads", func(t *testing.T) {
+		for _, receiver := range []struct {
+			name     string
+			filename string
+			call     string
+		}{
+			{"Project", "main_fixture.gox", "onEvent"},
+			{"Work", "Worker_fixture.gox", "onEvent"},
+			{"WorkInstance", "main_fixture.gox", "Worker.onEvent"},
+		} {
+			t.Run(receiver.name, func(t *testing.T) {
+				for _, callback := range []struct {
+					name   string
+					source string
+				}{
+					{"NoParameter", "() => {}"},
+					{"Parameter", "(value) => {}"},
+					{"Unresolved", "missing"},
+				} {
+					t.Run(callback.name, func(t *testing.T) {
+						files := map[string][]byte{"main_fixture.gox": nil, "Worker_fixture.gox": nil}
+						files[receiver.filename] = []byte("func run() {\n\t" + receiver.call + " \"event\", " + callback.source + "\n}\n")
+						s := newFrameworkTestServer(t, files)
+						proj := s.getProj()
+						_, err := proj.TypeInfo()
+						if callback.name == "Unresolved" {
+							require.ErrorContains(t, err, "undefined: missing")
+						} else {
+							require.NoError(t, err)
+						}
+						file, err := proj.ASTFile(receiver.filename)
+						require.NoError(t, err)
+						assert.Equal(t, []InlayHint{{
+							Position: Position{Line: 1, Character: uint32(UTF16Len(receiver.call) + 2)}, Label: "name", Kind: Parameter,
+						}}, collectInlayHints(proj, file, 0, 0))
+					})
+				}
+			})
+		}
+	})
+
 	for _, tt := range []struct {
 		name   string
 		source string

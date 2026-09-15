@@ -8,7 +8,6 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -51,7 +50,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if callExpr != nil {
 		fun, sig, resolvedParams = xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
 		if fun == nil || sig == nil || resolvedParams == nil {
-			return overloadSignatureHelp(proj, typeInfo, callExpr, pos), nil
+			return overloadSignatureHelp(typeInfo, callExpr, pos), nil
 		}
 		activeParameter = signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
 		if funcDecorator {
@@ -82,7 +81,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 
 	displayedName := ""
 	if callExpr != nil {
-		displayedName = signatureHelpResolvedCallName(proj, typeInfo, callExpr, fun)
+		displayedName = signatureHelpResolvedCallName(typeInfo, callExpr, fun)
 	}
 	help := &SignatureHelp{
 		Signatures: []SignatureInformation{signatureHelpInformation(fun, sig, resolvedParams, displayedName)},
@@ -115,8 +114,8 @@ func signatureHelpIdentAtPosition(typeInfo *types.Info, astFile *ast.File, pos t
 
 // overloadSignatureHelp returns signature help for an overload pseudo-function
 // call.
-func overloadSignatureHelp(proj *xgo.Project, typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos) *SignatureHelp {
-	overloads := callExprFuncOverloads(proj, typeInfo, callExpr)
+func overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos) *SignatureHelp {
+	overloads := callExprFuncOverloads(typeInfo, callExpr)
 	if len(overloads) == 0 {
 		return nil
 	}
@@ -206,8 +205,8 @@ func signatureHelpCallName(callExpr *ast.CallExpr) string {
 
 // signatureHelpResolvedCallName returns the source call name for resolved
 // overload functions.
-func signatureHelpResolvedCallName(proj *xgo.Project, typeInfo *types.Info, callExpr *ast.CallExpr, fun *gotypes.Func) string {
-	for _, overload := range callExprFuncOverloads(proj, typeInfo, callExpr) {
+func signatureHelpResolvedCallName(typeInfo *types.Info, callExpr *ast.CallExpr, fun *gotypes.Func) string {
+	for _, overload := range callExprFuncOverloads(typeInfo, callExpr) {
 		if overload == fun {
 			return signatureHelpCallName(callExpr)
 		}

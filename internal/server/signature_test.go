@@ -8,6 +8,55 @@ import (
 )
 
 func TestServerTextDocumentSignatureHelp(t *testing.T) {
+	t.Run("FunctionOverloadUpdates", func(t *testing.T) {
+		const declarations = `func handleInt(value int) {}
+func handleString(value string) {}
+func handle = (
+    handleInt
+    handleString
+)
+`
+		s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(declarations), "main.xgo": nil})
+		for i, tt := range []struct {
+			name         string
+			argument     string
+			declarations string
+			parameters   []string
+			wantError    bool
+		}{
+			{name: "Integer", argument: "1", parameters: []string{"value int"}},
+			{name: "String", argument: `"text"`, parameters: []string{"value string"}},
+			{name: "Unresolved", argument: "missing", parameters: []string{"value int", "value string"}, wantError: true},
+			{
+				name: "UpdatedDeclaration", argument: "true", parameters: []string{"flag bool"},
+				declarations: "func handleFlag(flag bool) {}\nfunc handle = (\n    handleFlag\n)\n",
+			},
+		} {
+			changes := []FileChange{{Path: "main.xgo", Content: []byte("handle " + tt.argument + "\n"), Version: i + 1}}
+			if tt.declarations != "" {
+				changes = append(changes, FileChange{Path: "functions.xgo", Content: []byte(tt.declarations), Version: 1})
+			}
+			s.ModifyFiles(changes)
+			_, err := s.getProj().TypeInfo()
+			if tt.wantError {
+				require.ErrorContains(t, err, "undefined: missing")
+			} else {
+				require.NoError(t, err)
+			}
+			help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: 8},
+			}})
+			require.NoError(t, err)
+			var signatures []SignatureInformation
+			for _, parameter := range tt.parameters {
+				signatures = append(signatures, SignatureInformation{
+					Label: "handle(" + parameter + ")", Parameters: []ParameterInformation{{Label: parameter}},
+				})
+			}
+			assert.Equal(t, &SignatureHelp{Signatures: signatures}, help, tt.name)
+		}
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string

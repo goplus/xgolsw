@@ -13,6 +13,22 @@ import (
 )
 
 func TestServerXGoGetProperties(t *testing.T) {
+	t.Run("ClassNameConflict", func(t *testing.T) {
+		s := newFrameworkTestServer(t, map[string][]byte{
+			"main_fixture.gox":   []byte("var Worker Item\n"),
+			"Worker_fixture.gox": []byte("var count int\n"),
+		})
+		info, err := s.getProj().TypeInfo()
+		require.ErrorContains(t, err, "Worker conflicts with class name")
+		require.NotNil(t, info)
+		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Worker"})
+		require.NoError(t, err)
+		assert.Contains(t, properties, XGoProperty{
+			Name: "count", Type: "int", Kind: XGoPropertyKindField,
+			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Worker.count")},
+		})
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
@@ -143,6 +159,112 @@ type RecordPointer = *Record
 		}
 	})
 
+	t.Run("ShadowedMembers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			source    string
+			want      *XGoProperty
+			newServer testServerFactory
+		}{
+			{
+				name:   "UnsupportedField",
+				source: "type Base struct { Keep, Count int }\ntype Record struct { *Base; Count []int }\n",
+			},
+			{
+				name:   "MethodWithParameter",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size(n int) int { return n }\n",
+			},
+			{
+				name:   "MethodWithoutResult",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() {}\n",
+			},
+			{
+				name:   "MethodWithMultipleResults",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() (int, int) { return 1, 2 }\n",
+			},
+			{
+				name:   "MethodWithUnsupportedResult",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() []int { return nil }\n",
+			},
+			{
+				name:   "FieldShadowsMethod",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base; size []int }\n",
+			},
+			{
+				name:   "MethodShadowsField",
+				source: "type Base struct { Keep, size int }\ntype Record struct { *Base }\nfunc (r *Record) Size(n int) int { return n }\n",
+			},
+			{
+				name:   "LowercaseMethod",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) size() int { return 2 }\n",
+			},
+			{
+				name:   "ExactMethodBeforeAlias",
+				source: "type Base struct { Keep int }\ntype Record struct { *Base }\nfunc (r *Record) Size() int { return 1 }\nfunc (r *Record) size(n int) int { return n }\n",
+			},
+			{
+				name:   "EmbeddedField",
+				source: "type Count struct{}\ntype Base struct { Keep, Count int }\ntype Record struct { *Base; Count }\n",
+			},
+			{
+				name:   "IntermediateMember",
+				source: "type Base struct { Keep, Count int }\ntype Middle struct { *Base; Count []int }\ntype Record struct { *Middle }\n",
+			},
+			{
+				name:   "DifferentCase",
+				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base; Size []int }\n",
+				want: &XGoProperty{Name: "size", Type: "int", Kind: XGoPropertyKindMethod,
+					Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Size")}},
+			},
+			{
+				name: "ImportedPrivateField", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\ntype Base struct { Keep int }\ntype Record struct { *Base; f.PrivateField }\n",
+				want: &XGoProperty{Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
+					Doc:        "Label is exposed as a property in XGo source.\n",
+					Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")}},
+			},
+			{
+				name: "ImportedPrivateMethod", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\ntype Base struct { Keep int }\ntype Record struct { *Base; f.PrivateMethod }\n",
+				want: &XGoProperty{Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
+					Doc:        "Label is exposed as a property in XGo source.\n",
+					Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")}},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				newServer := tt.newServer
+				if newServer == nil {
+					newServer = newTestServer
+				}
+				s := newServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				proj := s.getProj()
+				info, err := proj.TypeInfo()
+				require.NoError(t, err)
+				want := []XGoProperty{{Name: "Keep", Type: "int", Kind: XGoPropertyKindField,
+					Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Keep")}}}
+				if tt.want != nil {
+					want = append(want, *tt.want)
+				}
+				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+				require.NoError(t, err)
+				assert.Equal(t, want, properties)
+
+				ctx := &completionContext{
+					definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc},
+					typeInfo:          info, itemSet: newCompletionItemSet(PlainText),
+				}
+				ctx.collectPropertyNames("Record")
+				assert.Len(t, ctx.itemSet.items, len(want))
+				for _, property := range want {
+					item := completionItemByLabel(ctx.itemSet.items, "\""+property.Name+"\"")
+					require.NotNil(t, item)
+					data := requireValueAs[*CompletionItemData](t, item.Data)
+					assert.Equal(t, property.Definition, *data.Definition)
+				}
+			})
+		}
+	})
+
 	t.Run("ImportedDocumentationUpdates", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import "example.com/framework"
 type Record struct { framework.Item }
@@ -263,7 +385,7 @@ func XGo_Internal() int { return 0 }
 	assert.False(t, isPropertyOfEnclosingType(nil))
 }
 
-func TestFindEnclosingType(t *testing.T) {
+func TestMemberTypeName(t *testing.T) {
 	t.Run("ClassMembers", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox": nil,
@@ -296,7 +418,7 @@ func Jump() {}
 			named := requirePropertyTestType(t, typeInfo.Pkg, tt.name)
 			for _, name := range tt.members {
 				obj := requirePropertyTestMember(t, named, name)
-				assert.Same(t, named, findEnclosingType(obj), "%s.%s", tt.name, name)
+				assert.Equal(t, named.Obj().Name(), memberTypeName(s.getProj(), obj), "%s.%s", tt.name, name)
 			}
 		}
 	})
@@ -316,30 +438,70 @@ func (r *Record) Reset() {}
 		require.NoError(t, err)
 		named := requirePropertyTestType(t, typeInfo.Pkg, "Record")
 		for _, name := range []string{"x", "Value", "Reset"} {
-			assert.Same(t, named, findEnclosingType(requirePropertyTestMember(t, named, name)), name)
+			assert.Equal(t, named.Obj().Name(), memberTypeName(s.getProj(), requirePropertyTestMember(t, named, name)), name)
 		}
 		for _, name := range []string{"Limit", "value", "helper", "Alias", "Count", "Interface"} {
 			obj := typeInfo.Pkg.Scope().Lookup(name)
 			require.NotNil(t, obj)
-			assert.Nil(t, findEnclosingType(obj), name)
+			assert.Empty(t, memberTypeName(s.getProj(), obj), name)
 		}
 	})
 
+	t.Run("AnonymousFields", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+		}{
+			{name: "Variable", source: "var item struct { Count int }\nitem.Count = 1\n"},
+			{name: "Nested", source: "type Record struct { Nested struct { Count int } }\nvar item Record\nitem.Nested.Count = 1\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				info, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				var field *gotypes.Var
+				for ident, obj := range info.Defs {
+					if ident.Name == "Count" {
+						field = requireValueAs[*gotypes.Var](t, obj)
+					}
+				}
+				require.NotNil(t, field)
+				assert.Empty(t, memberTypeName(s.getProj(), field))
+			})
+		}
+	})
+
+	t.Run("ImportedPositionCollision", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("type Record struct { Count int }\nvar item Record\nitem.Count = 1\n")})
+		info, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		record := requirePropertyTestType(t, info.Pkg, "Record")
+		localField := requirePropertyTestMember(t, record, "Count")
+		pkg := gotypes.NewPackage("example.com/external", "external")
+		field := gotypes.NewField(localField.Pos(), pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "External", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
+		pkg.Scope().Insert(named.Obj())
+		assert.Equal(t, "External", memberTypeName(s.getProj(), field))
+	})
+
 	t.Run("UnavailableObjects", func(t *testing.T) {
-		assert.Nil(t, findEnclosingType(nil))
-		assert.Nil(t, findEnclosingTypeForField(nil))
-		assert.Nil(t, findEnclosingTypeForMethod(nil))
+		s := newTestServer(t, nil)
+		assert.Empty(t, memberTypeName(s.getProj(), nil))
 		pkg := gotypes.NewPackage("example.com/record", "record")
 		field := gotypes.NewField(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int], false)
 		named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Record", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
 		pkg.Scope().Insert(named.Obj())
-		assert.Same(t, named, findEnclosingTypeForField(field))
-		assert.Nil(t, findEnclosingTypeForField(gotypes.NewField(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int], false)))
-		assert.Nil(t, findEnclosingTypeForField(gotypes.NewField(token.NoPos, nil, "x", gotypes.Typ[gotypes.Int], false)))
-		assert.Nil(t, findEnclosingTypeForField(gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])))
+		assert.Equal(t, "Record", memberTypeName(s.getProj(), field))
+		assert.Empty(t, memberTypeName(s.getProj(), gotypes.NewField(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int], false)))
+		assert.Empty(t, memberTypeName(s.getProj(), gotypes.NewField(token.NoPos, nil, "x", gotypes.Typ[gotypes.Int], false)))
+		assert.Empty(t, memberTypeName(s.getProj(), gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])))
+		copyType := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Copy", nil), named.Underlying(), nil)
+		pkg.Scope().Insert(copyType.Obj())
+		assert.Empty(t, memberTypeName(s.getProj(), field))
 	})
 
 	t.Run("UnnamedReceivers", func(t *testing.T) {
+		s := newTestServer(t, nil)
 		for _, tt := range []struct {
 			name string
 			typ  gotypes.Type
@@ -356,7 +518,7 @@ func (r *Record) Reset() {}
 				}
 				sig := gotypes.NewSignatureType(recv, nil, nil, nil, nil, false)
 				method := gotypes.NewFunc(token.NoPos, nil, "Method", sig)
-				assert.Nil(t, findEnclosingTypeForMethod(method))
+				assert.Empty(t, memberTypeName(s.getProj(), method))
 			})
 		}
 	})

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -101,8 +102,38 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *ast.Ident) string {
 		return typeName
 	}
 
-	// Infer type from object properties.
-	return getTypeFromObject(typeInfo, obj)
+	if field, ok := obj.(*gotypes.Var); ok && field.IsField() {
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
+			selector, ok := node.(*ast.SelectorExpr)
+			if !ok || selector.Sel != ident {
+				continue
+			}
+			if name := fieldSelectorTypeName(typeInfo.TypeOf(selector.X), field); name != "" {
+				return name
+			}
+			break
+		}
+		if astFile.IsClass {
+			className, _ := cl.GetFileClassType(astFile, xgoutil.NodeFilename(proj.Fset, astFile), proj.Mod.LookupClass)
+			if class := typeInfo.Pkg.Scope().Lookup(className); class != nil {
+				if name := fieldSelectorTypeName(class.Type(), field); name != "" {
+					return name
+				}
+			}
+		}
+	}
+	return memberTypeName(proj, obj)
+}
+
+// fieldSelectorTypeName returns the type used to select field through receiver.
+// It shares the member traversal used by completion, including promoted fields.
+func fieldSelectorTypeName(receiver gotypes.Type, field *gotypes.Var) string {
+	for member := range xgoutil.StructMembers(resolvedNamedType(receiver)) {
+		if selected, ok := member.Member.(*gotypes.Var); ok && selected.Origin() == field.Origin() {
+			return extractTypeName(member.Selector)
+		}
+	}
+	return ""
 }
 
 // tryGetSpxImplicitReceiver handles spx package's special implicit receiver semantics.
@@ -131,14 +162,14 @@ func tryGetSpxImplicitReceiver(proj *xgo.Project, astFile *ast.File, ident *ast.
 	return "Sprite"
 }
 
-// getTypeFromObject infers type from the identifier's object.
-func getTypeFromObject(typeInfo *types.Info, obj gotypes.Object) string {
+// memberTypeName returns the declaring type name of a field or method.
+func memberTypeName(proj *xgo.Project, obj gotypes.Object) string {
 	switch obj := obj.(type) {
 	case *gotypes.Var:
 		if !obj.IsField() {
 			return ""
 		}
-		return findFieldOwnerType(typeInfo, obj)
+		return findFieldOwnerType(proj, obj)
 	case *gotypes.Func:
 		recv := obj.Signature().Recv()
 		if recv == nil {
@@ -168,58 +199,72 @@ func extractTypeName(typ gotypes.Type) string {
 	return ""
 }
 
-// findFieldOwnerType finds the type that owns a given field.
-func findFieldOwnerType(typeInfo *types.Info, field *gotypes.Var) string {
-	if !field.IsField() {
+// findFieldOwnerType returns the declaring type name of field. Project fields
+// use their source declaration because defined types can share field objects.
+func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
+	field = field.Origin()
+	if typeInfo, _ := proj.TypeInfo(); typeInfo != nil && field.Pkg() == typeInfo.Pkg {
+		astFile := sourceASTFile(proj, field.Pos())
+		if astFile == nil {
+			return ""
+		}
+		var structType *ast.StructType
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, field.Pos(), field.Pos(), false) {
+			switch node := node.(type) {
+			case *ast.StructType:
+				if structType != nil {
+					return ""
+				}
+				structType = node
+			case *ast.TypeSpec:
+				if node.Type == structType {
+					return node.Name.Name
+				}
+				return ""
+			case *ast.GenDecl:
+				if structType == nil && node == astFile.ClassFields {
+					name, _ := cl.GetFileClassType(astFile, xgoutil.NodeFilename(proj.Fset, astFile), proj.Mod.LookupClass)
+					return name
+				}
+				return ""
+			}
+		}
 		return ""
 	}
 
-	fieldPkg := field.Pkg()
-	if fieldPkg == nil {
+	// Imported fields have no project AST. Only a unique containing type can
+	// identify their owner without a receiver expression.
+	pkg := field.Pkg()
+	if pkg == nil {
 		return ""
 	}
-
-	// Search through named types in the same package.
-	scope := fieldPkg.Scope()
-	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		typeName, ok := obj.(*gotypes.TypeName)
+	var owner *gotypes.Named
+	for _, name := range pkg.Scope().Names() {
+		obj, ok := pkg.Scope().Lookup(name).(*gotypes.TypeName)
 		if !ok {
 			continue
 		}
-
-		named, ok := xgoutil.DerefType(typeName.Type()).(*gotypes.Named)
-		if !ok || !xgoutil.IsNamedStructType(named) {
+		named, ok := obj.Type().(*gotypes.Named)
+		if !ok {
 			continue
 		}
-
-		// Check if this struct contains our field.
-		if ownerName := checkStructForField(named, field, fieldPkg); ownerName != "" {
-			return ownerName
+		structType, ok := named.Underlying().(*gotypes.Struct)
+		if !ok {
+			continue
+		}
+		for member := range structType.Fields() {
+			if member == field {
+				if owner != nil {
+					return ""
+				}
+				owner = named
+			}
 		}
 	}
-
-	// Fallback: search through all type definitions.
-	return searchAllDefsForField(typeInfo, field)
-}
-
-// checkStructForField checks if a struct type contains the given field.
-func checkStructForField(named *gotypes.Named, field *gotypes.Var, fieldPkg *gotypes.Package) string {
-	selection, ok := gotypes.LookupSelection(named, false, fieldPkg, field.Name())
-	if !ok {
+	if owner == nil {
 		return ""
 	}
-
-	foundField, ok := selection.Obj().(*gotypes.Var)
-	if !ok || foundField != field {
-		return ""
-	}
-
-	typeName := named.Obj().Name()
-	if IsInSpxPkg(named.Obj()) && typeName == "SpriteImpl" {
-		return "Sprite"
-	}
-	return typeName
+	return extractTypeName(owner)
 }
 
 // PropertyTargetNamedTypeForCall resolves the *types.Named that owns the
@@ -265,24 +310,4 @@ func PropertyTargetNamedTypeForCall(typeInfo *types.Info, call *ast.CallExpr, sp
 		return nil
 	}
 	return resolvedNamedType(tn.Type())
-}
-
-// searchAllDefsForField is a fallback method that searches all type definitions.
-func searchAllDefsForField(typeInfo *types.Info, field *gotypes.Var) string {
-	fieldPkg := field.Pkg()
-	for _, def := range typeInfo.Defs {
-		if def == nil || def.Pkg() != fieldPkg {
-			continue
-		}
-
-		named, ok := xgoutil.DerefType(def.Type()).(*gotypes.Named)
-		if !ok || !xgoutil.IsNamedStructType(named) {
-			continue
-		}
-
-		if ownerName := checkStructForField(named, field, fieldPkg); ownerName != "" {
-			return ownerName
-		}
-	}
-	return ""
 }

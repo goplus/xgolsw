@@ -433,13 +433,13 @@ func (s *Server) hoverClientCapabilities() (HoverClientCapabilities, bool) {
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
 // This allows clients to update any monitoring or tracking of the property.
 func (s *Server) notifyPropertyRenamed(obj gotypes.Object, params *RenameParams) error {
-	named := findEnclosingType(obj)
-	if named == nil {
+	typeName := memberTypeName(s.getProj(), obj)
+	if typeName == "" {
 		return fmt.Errorf("failed to find enclosing type for object: %s", obj.Name())
 	}
 
 	notifParams := PropertyRenamedParams{
-		Target:  named.Obj().Name(),
+		Target:  typeName,
 		OldName: obj.Name(),
 		NewName: params.NewName,
 		TextDocument: TextDocumentIdentifier{

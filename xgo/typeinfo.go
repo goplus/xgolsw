@@ -50,6 +50,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			Types:      make(map[ast.Expr]gotypes.TypeAndValue),
 			Defs:       make(map[*ast.Ident]gotypes.Object),
 			Uses:       make(map[*ast.Ident]gotypes.Object),
+			Overloads:  make(map[*ast.Ident]gotypes.Object),
 			Selections: make(map[*ast.SelectorExpr]*gotypes.Selection),
 			Implicits:  make(map[ast.Node]gotypes.Object),
 			Scopes:     make(map[ast.Node]*gotypes.Scope),

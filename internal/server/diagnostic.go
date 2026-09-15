@@ -219,7 +219,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(proj *xgo.Project, result *diagnost
 				inspect.Analyzer: inspector.New([]*ast.File{astFile}),
 			},
 			ResolvedCallExprArgs: func(call *ast.CallExpr) iter.Seq[xgoutil.ResolvedCallExprArg] {
-				return resolvedCallExprArgs(proj, typeInfo, call)
+				return resolvedCallExprArgs(typeInfo, call)
 			},
 		}
 

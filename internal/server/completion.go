@@ -1029,7 +1029,7 @@ func (ctx *completionContext) collect() error {
 
 // collectGeneral collects general completions.
 func (ctx *completionContext) collectGeneral() error {
-	if ctx.collectXGoUnitCompletions(xgoUnitExpectedTypesAtPosition(ctx.proj, ctx.typeInfo, ctx.astFile, ctx.pos)) {
+	if ctx.collectXGoUnitCompletions(xgoUnitExpectedTypesAtPosition(ctx.typeInfo, ctx.astFile, ctx.pos)) {
 		return nil
 	}
 
@@ -1507,7 +1507,7 @@ func (ctx *completionContext) getCurrentResolvedCallArg(callExpr *ast.CallExpr) 
 	if arg, ok := ctx.currentResolvedCallArg(xgoutil.ResolvedCallExprArgs(ctx.typeInfo, callExpr)); ok {
 		return arg, true
 	}
-	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)))
+	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprFuncOverloads(ctx.typeInfo, callExpr)))
 }
 
 // currentResolvedCallArg returns the call argument in args that contains the
@@ -1530,7 +1530,7 @@ func (ctx *completionContext) currentResolvedCallArg(args iter.Seq[xgoutil.Resol
 // overloadExpectedTypes returns expected argument types from overloads that
 // still match callExpr.
 func (ctx *completionContext) overloadExpectedTypes(callExpr *ast.CallExpr, resolvedArg xgoutil.ResolvedCallExprArg) []gotypes.Type {
-	overloads := callExprFuncOverloads(ctx.proj, ctx.typeInfo, callExpr)
+	overloads := callExprFuncOverloads(ctx.typeInfo, callExpr)
 	if len(overloads) == 0 {
 		return nil
 	}
@@ -1564,7 +1564,7 @@ func (ctx *completionContext) currentCallKwargNameCandidateArgIndex(callExpr *as
 // collectCallKwargNames collects completion items for available keyword
 // argument names at the current call site.
 func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argCount, skipArgIndex int) bool {
-	kwargs := resolveCallExprKwargsAtArgCount(ctx.proj, ctx.typeInfo, callExpr, argCount, skipArgIndex)
+	kwargs := resolveCallExprKwargsAtArgCount(ctx.typeInfo, callExpr, argCount, skipArgIndex)
 	if len(kwargs) == 0 {
 		return false
 	}
@@ -1619,18 +1619,14 @@ func (ctx *completionContext) currentCallKwargArgIndex(callExpr *ast.CallExpr) i
 	return -1
 }
 
-// kwargSelectorTypeName returns the selector type name used for kwarg
-// completion metadata.
+// kwargSelectorTypeName returns the selector type name of the parameter
+// container receiving kwargs.
 func kwargSelectorTypeName(kwarg *xgoutil.ResolvedCallExprKwarg) string {
-	named := resolvedNamedType(xgoutil.DerefType(kwarg.Param.Type()))
+	named := resolvedNamedType(kwarg.Param.Type())
 	if named == nil {
 		return ""
 	}
-	selectorTypeName := named.Obj().Name()
-	if IsInSpxPkg(named.Obj()) && selectorTypeName == "SpriteImpl" {
-		return "Sprite"
-	}
-	return selectorTypeName
+	return extractTypeName(named)
 }
 
 // collectAssignOrDefine collects completions for assignments and definitions.

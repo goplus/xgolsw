@@ -55,23 +55,6 @@ func GetDamage() int { return 10 }
 		}
 	})
 
-	t.Run("ClassNameConflict", func(t *testing.T) {
-		files := map[string][]byte{
-			"main.spx":     []byte("var MySprite Sprite\n"),
-			"MySprite.spx": []byte("var hp int\n"),
-		}
-		s := newSpxTestServer(t, files)
-		typeInfo, err := s.workspaceRootFS.TypeInfo()
-		require.ErrorContains(t, err, "MySprite conflicts with class name")
-		require.NotNil(t, typeInfo)
-		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "MySprite"})
-		require.NoError(t, err)
-		assert.Contains(t, properties, XGoProperty{
-			Name: "hp", Type: "int", Kind: XGoPropertyKindField,
-			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("MySprite.hp")},
-		})
-	})
-
 	t.Run("ValueAndList", func(t *testing.T) {
 		files := map[string][]byte{"main.spx": []byte(`var (
     value Value

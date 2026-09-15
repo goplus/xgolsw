@@ -59,7 +59,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
 		return hoverForSpxDefs(
-			proj, ctx.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj)), kwargTarget.ident, markupKind,
+			proj, ctx.spxDefinitionsFor(obj, kwargTarget.selectorTypeName), kwargTarget.ident, markupKind,
 		), nil
 	}
 	if ident == nil {

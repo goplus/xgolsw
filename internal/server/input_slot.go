@@ -424,7 +424,7 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 	}
 
 	var inputSlots []XGoInputSlot
-	for resolvedArg := range resolvedCallExprArgs(ctx.proj, ctx.typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(ctx.typeInfo, callExpr) {
 		if resolvedArg.ExpectedType == nil || resolvedArg.IsTypeArg() {
 			continue
 		}

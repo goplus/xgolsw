@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgolsw/internal/testframework"
@@ -12,6 +13,271 @@ import (
 )
 
 func TestServerTextDocumentHover(t *testing.T) {
+	t.Run("FieldOwners", func(t *testing.T) {
+		const record = "type Record struct {\n// Count stores the value.\nCount int\n}\n"
+		for _, tt := range []struct {
+			name      string
+			filename  string
+			source    string
+			extra     map[string][]byte
+			field     string
+			id        string
+			doc       string
+			target    string
+			newServer testServerFactory
+		}{
+			{
+				name: "DirectField", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter struct { Record }\nvar item Record\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
+			},
+			{
+				name: "DefinedSibling", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter Record\nvar item Record\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
+			},
+			{
+				name: "DefinedType", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter Record\nvar item Adapter\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+			},
+			{
+				name: "CallReceiver", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter Record\nfunc item() *Adapter { return new(Adapter) }\nitem().|Count = 1\n",
+				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+			},
+			{
+				name: "IndexReceiver", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter Record\nitems := [Adapter{}]\nitems[0].|Count = 1\n",
+				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+			},
+			{
+				name: "LocalDefinedSibling", filename: "main.xgo", newServer: newTestServer,
+				source: "func run() {\n" + record + "type Adapter Record\nvar item Record\nitem.|Count = 1\n}\n",
+				field:  "Count", id: "xgo:main?Record.Count",
+			},
+			{
+				name: "PromotedField", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter struct { *Record }\nvar item Adapter\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
+			},
+			{
+				name: "PointerAlias", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter struct { Record }\ntype Alias = *Record\nvar item Alias\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
+			},
+			{
+				name: "ShadowedField", filename: "main.xgo", newServer: newTestServer,
+				source: record + "type Adapter struct {\nRecord\n// Count stores the replacement.\nCount int\n}\nvar item Adapter\nitem.|Count = 1\n",
+				field:  "Count", id: "xgo:main?Adapter.Count", doc: "Count stores the replacement.", target: "Adapter",
+			},
+			{
+				name: "LocalPointerAlias", filename: "main.xgo", newServer: newTestServer,
+				source: "func run() {\n" + record + "type Alias = *Record\nvar item Alias\nitem.|Count = 1\n}\n",
+				field:  "Count", id: "xgo:main?Record.Count",
+			},
+			{
+				name: "LocalType", filename: "main.xgo", newServer: newTestServer,
+				source: "func run() {\n" + record + "type Adapter struct { Record }\nvar item Adapter\nitem.|Count = 1\n}\n",
+				field:  "Count", id: "xgo:main?Record.Count",
+			},
+			{
+				name: "ProjectField", filename: "main_fixture.gox", newServer: newFrameworkTestServer,
+				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
+				extra:  map[string][]byte{"helpers.xgo": []byte("type Adapter struct { *App }\n")},
+				field:  "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
+			},
+			{
+				name: "WorkField", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
+				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
+				extra:  map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter struct { *Worker }\n")},
+				field:  "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
+			},
+			{
+				name: "ProjectDefinedSibling", filename: "main_fixture.gox", newServer: newFrameworkTestServer,
+				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
+				extra:  map[string][]byte{"helpers.xgo": []byte("type Adapter App\n")},
+				field:  "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
+			},
+			{
+				name: "WorkDefinedSibling", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
+				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
+				extra:  map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")},
+				field:  "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
+			},
+			{
+				name: "ImportedImplicitField", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
+				source: "|Value = 1\n",
+				extra:  map[string][]byte{"main_fixture.gox": nil},
+				field:  "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+			},
+			{
+				name: "ImportedDefinedType", filename: "main.xgo", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\nvar item f.Copy\nitem.|Value = 1\n",
+				field:  "Value", id: "xgo:example.com/framework?Copy.Value",
+			},
+			{
+				name: "ImportedGenericField", filename: "main.xgo", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\nvar item f.Box[int]\nitem.|Value = 1\n",
+				field:  "Value", id: "xgo:example.com/framework?Box.Value", doc: "Value holds the boxed value.",
+			},
+			{
+				name: "ImportedField", filename: "main.xgo", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\nvar item f.Item\nitem.|Value = 1\n",
+				field:  "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+			},
+			{
+				name: "ImportedPromotedField", filename: "main.xgo", newServer: newFrameworkTestServer,
+				source: "import f \"example.com/framework\"\nvar item f.Group\nitem.|Value = 1\n",
+				field:  "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				before, after, ok := strings.Cut(tt.source, "|")
+				require.True(t, ok)
+				files := map[string][]byte{tt.filename: []byte(before + after)}
+				for filename, content := range tt.extra {
+					files[filename] = content
+				}
+				s := tt.newServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				position := Position{Line: uint32(strings.Count(before, "\n")), Character: uint32(UTF16Len(before[strings.LastIndex(before, "\n")+1:])) + 1}
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, `def-id="`+tt.id+`"`)
+				if tt.doc != "" {
+					assert.Contains(t, hover.Contents.Value, tt.doc)
+				}
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}})
+				require.NoError(t, err)
+				assert.Contains(t, links, DocumentLink{
+					Range: hover.Range, Target: ToPtr(URI(tt.id)),
+				})
+				item := completionItemByLabel(completionItemsAt(t, s, tt.filename, position), tt.field)
+				require.NotNil(t, item)
+				data := requireValueAs[*CompletionItemData](t, item.Data)
+				require.NotNil(t, data.Definition)
+				assert.Equal(t, tt.id, data.Definition.String())
+				if tt.doc != "" {
+					require.NotNil(t, item.Documentation)
+					assert.Contains(t, requireValueAs[MarkupContent](t, item.Documentation.Value).Value, tt.doc)
+				}
+				if tt.target != "" {
+					properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: tt.target})
+					require.NoError(t, err)
+					var found bool
+					for _, property := range properties {
+						if property.Name == tt.field {
+							found = true
+							assert.Equal(t, tt.id, property.Definition.String())
+							assert.Contains(t, property.Doc, tt.doc)
+						}
+					}
+					assert.True(t, found)
+				}
+			})
+		}
+	})
+
+	t.Run("KwargFieldOwners", func(t *testing.T) {
+		const declarations = "type Record struct {\n// Count stores the value.\nCount int\n}\ntype Adapter Record\n"
+		const overloads = declarations + "func configureRecord(prefix string, opts Record?) {}\nfunc configureAdapter(prefix int, opts Adapter?) {}\nfunc configure = (\nconfigureRecord\nconfigureAdapter\n)\n"
+		for _, tt := range []struct {
+			name         string
+			declarations string
+			call         string
+			label        string
+			id           string
+			doc          string
+			newServer    testServerFactory
+		}{
+			{
+				name:         "DefinedSibling",
+				declarations: declarations + "func configure(opts Record?) {}\n", call: "configure ",
+				label: "count", id: "xgo:main?Record.Count", doc: "Count stores the value.",
+				newServer: newTestServer,
+			},
+			{
+				name:         "DefinedType",
+				declarations: declarations + "func configure(opts Adapter?) {}\n", call: "configure ",
+				label: "count", id: "xgo:main?Adapter.Count",
+				newServer: newTestServer,
+			},
+			{
+				name:         "Alias",
+				declarations: declarations + "type Options = Record\nfunc configure(opts Options?) {}\n", call: "configure ",
+				label: "count", id: "xgo:main?Record.Count", doc: "Count stores the value.",
+				newServer: newTestServer,
+			},
+			{
+				name:         "OverloadRecord",
+				declarations: overloads, call: "configure \"text\", ",
+				label: "count", id: "xgo:main?Record.Count", doc: "Count stores the value.",
+				newServer: newTestServer,
+			},
+			{
+				name:         "OverloadAdapter",
+				declarations: overloads, call: "configure 1, ",
+				label: "count", id: "xgo:main?Adapter.Count",
+				newServer: newTestServer,
+			},
+			{
+				name:         "ImportedField",
+				declarations: "import f \"example.com/framework\"\nfunc configure(opts f.Item?) {}\n", call: "configure ",
+				label: "value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+				newServer: newFrameworkTestServer,
+			},
+			{
+				name:         "ImportedDefinedType",
+				declarations: "import f \"example.com/framework\"\nfunc configure(opts f.Copy?) {}\n", call: "configure ",
+				label: "value", id: "xgo:example.com/framework?Copy.Value",
+				newServer: newFrameworkTestServer,
+			},
+			{
+				name:         "ImportedGenericField",
+				declarations: "import f \"example.com/framework\"\nfunc configure(opts f.Box[int]?) {}\n", call: "configure ",
+				label: "value", id: "xgo:example.com/framework?Box.Value", doc: "Value holds the boxed value.",
+				newServer: newFrameworkTestServer,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := tt.newServer(t, map[string][]byte{"main.xgo": []byte(tt.declarations + tt.call + tt.label + " = 1\n")})
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				position := Position{Line: uint32(strings.Count(tt.declarations, "\n")), Character: uint32(UTF16Len(tt.call) + 1)}
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, `def-id="`+tt.id+`"`)
+				if tt.doc != "" {
+					assert.Contains(t, hover.Contents.Value, tt.doc)
+				}
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+				require.NoError(t, err)
+				var kwargLinks []DocumentLink
+				for _, link := range links {
+					if link.Range.Start == hover.Range.Start {
+						kwargLinks = append(kwargLinks, link)
+					}
+				}
+				assert.Equal(t, []DocumentLink{{Range: hover.Range, Target: ToPtr(URI(tt.id))}}, kwargLinks)
+
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(tt.declarations + tt.call + "option = 1\n"), Version: 1}})
+				item := completionItemByLabel(completionItemsAt(t, s, "main.xgo", position), tt.label)
+				require.NotNil(t, item)
+				data := requireValueAs[*CompletionItemData](t, item.Data)
+				require.NotNil(t, data.Definition)
+				assert.Equal(t, tt.id, data.Definition.String())
+			})
+		}
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
@@ -757,44 +1023,43 @@ this = 1
 		assert.Contains(t, hover.Contents.Value, `overview="var this int"`)
 	})
 
-	t.Run("WorkLineStartShouldNotResolveToSyntheticThis", func(t *testing.T) {
-		m := map[string][]byte{
-			"main_fixture.gox": []byte(`onValue value => {}
-`),
-			"Worker_fixture.gox": []byte(`onValue value => {
-    apply value
-    apply 2
-}
-`),
-		}
-		s := newFrameworkTestServer(t, m)
-
-		// The characters on `onValue` should map to `onValue`, not synthetic `this`.
-		for _, ch := range []uint32{0, 1, 2, 3, 4, 5, 6} {
-			hover, err := s.textDocumentHover(&HoverParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
-					Position:     Position{Line: 0, Character: ch},
-				},
-			})
-			require.NoError(t, err)
-			require.NotNil(t, hover)
-			assert.Contains(t, hover.Contents.Value, `def-id="xgo:example.com/framework?Item.onValue"`)
-			assert.NotContains(t, hover.Contents.Value, `var this`)
-		}
-
-		// The first four characters on indented lines are whitespaces and should not produce hover.
-		for _, line := range []uint32{1, 2} {
-			for _, ch := range []uint32{0, 1, 2, 3} {
-				hover, err := s.textDocumentHover(&HoverParams{
-					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
-						Position:     Position{Line: line, Character: ch},
-					},
-				})
+	t.Run("ClassfileLineStart", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+			method   string
+			owner    string
+		}{
+			{"Project", "main_fixture.gox", "onStart => {\n    println 1\n    println 2\n}\n", "onStart", "App"},
+			{"Work", "Worker_fixture.gox", "onValue value => {\n    apply value\n    apply 2\n}\n", "onValue", "Item"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{"main_fixture.gox": nil}
+				files[tt.filename] = []byte(tt.source)
+				s := newFrameworkTestServer(t, files)
+				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				assert.Nil(t, hover)
-			}
+				for ch := range uint32(len(tt.method)) {
+					hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: Position{Character: ch},
+					}})
+					require.NoError(t, err)
+					require.NotNil(t, hover)
+					assert.Contains(t, hover.Contents.Value, `def-id="xgo:example.com/framework?`+tt.owner+`.`+tt.method+`"`)
+					assert.NotContains(t, hover.Contents.Value, "var this")
+					assert.Equal(t, Range{End: Position{Character: uint32(len(tt.method))}}, hover.Range)
+				}
+				for _, line := range []uint32{1, 2} {
+					for ch := range uint32(4) {
+						hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: Position{Line: line, Character: ch},
+						}})
+						require.NoError(t, err)
+						assert.Nil(t, hover)
+					}
+				}
+			})
 		}
 	})
 
@@ -892,7 +1157,7 @@ func run() {
 			Start: Position{Line: 15, Character: 23},
 			End:   Position{Line: 15, Character: 32},
 		}, hover.Range)
-		assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?interface%7BMaxTokens%28n+int64%29+main.Params%7D.MaxTokens"`)
+		assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?Params.MaxTokens"`)
 		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) main.Params"`)
 	})
 

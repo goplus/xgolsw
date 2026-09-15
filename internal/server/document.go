@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -39,9 +39,42 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 		lookupPkgDoc: s.lookupPkgDoc,
 	}
 
+	// Resolve kwarg names from their call context. The compiler can record
+	// generated field, method, and factory identifiers at these positions.
+	kwargNames := make(map[token.Pos]struct{})
+	ast.Inspect(astFile, func(node ast.Node) bool {
+		callExpr, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		for _, kwarg := range callExpr.Kwargs {
+			kwargNames[kwarg.Name.Pos()] = struct{}{}
+			linkRange := RangeForNode(proj, kwarg.Name)
+			seen := make(map[URI]struct{})
+			for _, target := range lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name) {
+				obj := kwargTargetObject(target.target)
+				if obj == nil {
+					continue
+				}
+				for _, def := range ctx.spxDefinitionsFor(obj, target.selectorTypeName) {
+					uri := URI(def.ID.String())
+					if _, ok := seen[uri]; ok {
+						continue
+					}
+					seen[uri] = struct{}{}
+					links = append(links, DocumentLink{Range: linkRange, Target: &uri})
+				}
+			}
+		}
+		return true
+	})
+
 	// Add links for symbol definitions and uses in this file.
 	addLinksForIdent := func(ident *ast.Ident) {
 		if ident.Implicit() || xgoutil.NodeFilename(proj.Fset, ident) != filename {
+			return
+		}
+		if _, ok := kwargNames[ident.Pos()]; ok {
 			return
 		}
 		if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
@@ -57,32 +90,8 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	for ident := range typeInfo.Uses {
 		addLinksForIdent(ident)
 	}
-	links = appendKwargDocumentLinks(links, ctx, typeInfo, astFile)
 	sortDocumentLinks(links)
 	return links, nil
-}
-
-// appendKwargDocumentLinks appends definition links for kwarg names in astFile.
-func appendKwargDocumentLinks(links []DocumentLink, ctx *definitionContext, typeInfo *types.Info, astFile *ast.File) []DocumentLink {
-	ast.Inspect(astFile, func(node ast.Node) bool {
-		callExpr, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		for _, kwarg := range callExpr.Kwargs {
-			for _, target := range lookupCallExprKwargTargets(ctx.proj, typeInfo, callExpr, kwarg.Name.Name) {
-				obj := kwargTargetObject(target)
-				if obj == nil {
-					continue
-				}
-				spxDefs := ctx.spxDefinitionsFor(obj, getTypeFromObject(typeInfo, obj))
-				links = appendSpxDefinitionDocumentLinks(links, RangeForNode(ctx.proj, kwarg.Name), spxDefs)
-			}
-		}
-		return true
-	})
-	return links
 }
 
 // appendSpxDefinitionDocumentLinks appends document links for spxDefs at

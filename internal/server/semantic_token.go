@@ -162,7 +162,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			return
 		}
 		for _, kwarg := range callExpr.Kwargs {
-			if len(lookupCallExprKwargTargets(proj, typeInfo, callExpr, kwarg.Name.Name)) == 0 {
+			if len(lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name)) == 0 {
 				continue
 			}
 			addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)

@@ -1122,36 +1122,55 @@ func run() {
 	})
 
 	t.Run("OverloadedDuplicateEnumValue", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte(`type First const (
-	// First member documentation.
-	Unknown = iota
+		for _, tt := range []struct {
+			name      string
+			call      string
+			wantDocs  []string
+			absentDoc string
+			wantError bool
+		}{
+			{"Ambiguous", "use missing, Un", []string{"First", "Second"}, "", true},
+			{"Integer", "use 1, Unknown", []string{"First"}, "Second", false},
+			{"String", "use \"value\", Unknown", []string{"Second"}, "First", false},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"choices.xgo": []byte(`type First const (
+    // First member documentation.
+    Unknown = iota
 )
-
 type Second const (
-	// Second member documentation.
-	Unknown = iota
+    // Second member documentation.
+    Unknown = iota
 )
-
-func useFirst(First) {}
-func useSecond(Second) {}
+func useFirst(prefix int, choice First) {}
+func useSecond(prefix string, choice Second) {}
 func use = (
-	useFirst
-	useSecond
+    useFirst
+    useSecond
 )
-
-func run() {
-	use(Un)
-}
 `),
-		})
-
-		items := completionItemsAt(t, s, "main.xgo", Position{Line: 18, Character: 7})
-		item := completionItemByLabel(items, "Unknown")
-		require.NotNilf(t, item, "%v", completionItemLabels(items))
-		require.NotNil(t, item.Documentation)
-		documentation := requireValueAs[MarkupContent](t, item.Documentation.Value)
-		assert.Contains(t, documentation.Value, "First member documentation.")
-		assert.Contains(t, documentation.Value, "Second member documentation.")
+					"main.xgo": []byte(tt.call + "\n"),
+				})
+				_, err := s.getProj().TypeInfo()
+				if tt.wantError {
+					require.ErrorContains(t, err, "undefined: missing")
+				} else {
+					require.NoError(t, err)
+				}
+				items := completionItemsAt(t, s, "main.xgo", Position{Character: uint32(UTF16Len(tt.call[:strings.LastIndex(tt.call, "Un")]) + 2)})
+				item := completionItemByLabel(items, "Unknown")
+				require.NotNil(t, item)
+				assert.Equal(t, 1, countCompletionItemLabel(items, "Unknown"))
+				require.NotNil(t, item.Documentation)
+				doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				for _, want := range tt.wantDocs {
+					assert.Contains(t, doc.Value, want+" member documentation.")
+				}
+				if tt.absentDoc != "" {
+					assert.NotContains(t, doc.Value, tt.absentDoc+" member documentation.")
+				}
+			})
+		}
 	})
 }

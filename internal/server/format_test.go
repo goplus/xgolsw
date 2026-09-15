@@ -16,6 +16,90 @@ import (
 )
 
 func TestServerTextDocumentFormatting(t *testing.T) {
+	t.Run("CallbackOverloads", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			filename     string
+			declarations string
+			call         string
+			newServer    testServerFactory
+			wantUnused   int
+		}{
+			{
+				name: "Function", filename: "main.xgo", call: "handle", newServer: newTestServer,
+				declarations: `func handleEmpty(name string, callback func()) {}
+func handleValue(name string, callback func(int)) {}
+func handle = (
+	handleEmpty
+	handleValue
+)
+`,
+			},
+			{
+				name: "OtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
+				declarations: `func handleEmpty(name int, callback func()) {}
+func handleValue(name string, callback func(int)) {}
+func handle = (
+	handleEmpty
+	handleValue
+)
+`,
+			},
+			{
+				name: "NoOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
+				declarations: "func handle(name string, callback func(int)) {}\n",
+			},
+			{name: "ProjectMethod", filename: "main_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
+			{name: "WorkMethod", filename: "Worker_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
+			{
+				name: "ImportedMethod", filename: "main.xgo", call: "item.onEvent", newServer: newFrameworkTestServer,
+				declarations: "import f \"example.com/framework\"\nvar item f.Item\n",
+			},
+			{
+				name: "EmbeddedMethod", filename: "main.xgo", call: "item.onEvent", newServer: newFrameworkTestServer,
+				declarations: "import \"example.com/framework\"\ntype Record struct { framework.Item }\nvar item Record\n",
+			},
+			{
+				name: "WorkInstance", filename: "main_fixture.gox", call: "Worker.onEvent", newServer: newFrameworkTestServer,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := tt.declarations + "func run() {\n\t" + tt.call + " \"event\", (value) => { println \"unused\" }\n\t" +
+					tt.call + " \"event\", (value) => { println value }\n}\n"
+				files := map[string][]byte{tt.filename: []byte(source)}
+				if tt.name == "WorkMethod" {
+					files["main_fixture.gox"] = nil
+				}
+				if tt.name == "WorkInstance" {
+					files["Worker_fixture.gox"] = nil
+				}
+				s := tt.newServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}}
+				edits, err := s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				require.Len(t, edits, 1)
+				s.ModifyFiles([]FileChange{{Path: tt.filename, Content: []byte(edits[0].NewText), Version: 1}})
+				_, err = s.getProj().TypeInfo()
+				require.NoError(t, err)
+				file, err := s.getProj().ASTFile(tt.filename)
+				require.NoError(t, err)
+				var paramsCount []int
+				ast.Inspect(file, func(node ast.Node) bool {
+					if lambda, ok := node.(*ast.LambdaExpr); ok {
+						paramsCount = append(paramsCount, len(lambda.Lhs))
+					}
+					return true
+				})
+				assert.Equal(t, []int{tt.wantUnused, 1}, paramsCount)
+				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
