@@ -3,6 +3,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/x/typesutil"
@@ -170,315 +171,60 @@ func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 		}, got)
 	})
 
-	for _, tt := range []struct {
-		name  string
-		files map[string][]byte
-		want  map[DocumentURI][]Diagnostic
+	// Keep SDK call binding here. Resource existence and diagnostic formatting
+	// are covered with isolated resource sets in TestServerInspectSpxResourceRef.
+	for _, resource := range []struct {
+		name           string
+		call           string
+		emptyMessage   string
+		missingMessage string
 	}{
-		{
-			name: "SoundResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-play "Sound1"
-`),
-				"MySprite.spx": []byte(`
-const ConstSoundName = "ConstSoundName"
-var (
-	VarSoundName string
-)
-VarSoundName = "VarSoundName"
-onStart => {
-	play ""
-	play ConstSoundName
-	play "LiteralSoundName"
-	play VarSoundName
-	play "Sound1"
-}
-`),
-				"assets/index.json":                  []byte(`{}`),
-				"assets/sprites/MySprite/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {
-					{Severity: SeverityError, Message: `sound resource "Sound1" not found`,
-						Range: Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 13}}},
-				},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: "sound resource name cannot be empty",
-						Range: Range{Start: Position{Line: 7, Character: 6}, End: Position{Line: 7, Character: 8}}},
-					{Severity: SeverityError, Message: `sound resource "ConstSoundName" not found`,
-						Range: Range{Start: Position{Line: 8, Character: 6}, End: Position{Line: 8, Character: 20}}},
-					{Severity: SeverityError, Message: `sound resource "LiteralSoundName" not found`,
-						Range: Range{Start: Position{Line: 9, Character: 6}, End: Position{Line: 9, Character: 24}}},
-					{Severity: SeverityError, Message: `sound resource "Sound1" not found`,
-						Range: Range{Start: Position{Line: 11, Character: 6}, End: Position{Line: 11, Character: 14}}},
-				},
-			},
-		},
-		{
-			name: "BackdropResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-onBackdrop "", func() {}
-onBackdrop "NonExistentBackdrop", func() {}
-`),
-				"MySprite.spx": []byte(`
-const ConstBackdropName = "ConstBackdropName"
-var VarBackdropName string
-VarBackdropName = "VarBackdropName"
-onStart => {
-	onBackdrop ConstBackdropName, func() {}
-	onBackdrop "LiteralBackdropName", func() {}
-	onBackdrop VarBackdropName, func() {}
-}
-`),
-				"assets/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {
-					{Severity: SeverityError, Message: "backdrop resource name cannot be empty",
-						Range: Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 13}}},
-					{Severity: SeverityError, Message: `backdrop resource "NonExistentBackdrop" not found`,
-						Range: Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 32}}},
-				},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: `backdrop resource "ConstBackdropName" not found`,
-						Range: Range{Start: Position{Line: 5, Character: 12}, End: Position{Line: 5, Character: 29}}},
-					{Severity: SeverityError, Message: `backdrop resource "LiteralBackdropName" not found`,
-						Range: Range{Start: Position{Line: 6, Character: 12}, End: Position{Line: 6, Character: 33}}},
-				},
-			},
-		},
-		{
-			name: "SpriteResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-MySprite.say "hi"
-MySprite.touching "OtherSprite"
-`),
-				"MySprite.spx": []byte(`
-onStart => {
-	say "hi"
-	touching "OtherSprite"
-}
-`),
-				"assets/index.json":                  []byte(`{}`),
-				"assets/sprites/MySprite/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {
-					{Severity: SeverityError, Message: `sprite resource "OtherSprite" not found`,
-						Range: Range{Start: Position{Line: 2, Character: 18}, End: Position{Line: 2, Character: 31}}},
-				},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: `sprite resource "OtherSprite" not found`,
-						Range: Range{Start: Position{Line: 3, Character: 10}, End: Position{Line: 3, Character: 23}}},
-				},
-			},
-		},
-		{
-			name: "SpriteCostumeResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-`),
-				"MySprite.spx": []byte(`
-onStart => {
-	setCostume ""
-	setCostume "NonExistentCostume"
-}
-`),
-				"assets/index.json":                  []byte(`{}`),
-				"assets/sprites/MySprite/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: "sprite costume resource name cannot be empty",
-						Range: Range{Start: Position{Line: 2, Character: 12}, End: Position{Line: 2, Character: 14}}},
-					{Severity: SeverityError, Message: `costume resource "NonExistentCostume" not found in sprite "MySprite"`,
-						Range: Range{Start: Position{Line: 3, Character: 12}, End: Position{Line: 3, Character: 32}}},
-				},
-			},
-		},
-		{
-			name: "SpriteAnimationResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-`),
-				"MySprite.spx": []byte(`
-onStart => {
-	animate ""
-	animate "roll-in"
-}
-`),
-				"assets/index.json":                  []byte(`{}`),
-				"assets/sprites/MySprite/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: "sprite animation resource name cannot be empty",
-						Range: Range{Start: Position{Line: 2, Character: 9}, End: Position{Line: 2, Character: 11}}},
-					{Severity: SeverityError, Message: `animation resource "roll-in" not found in sprite "MySprite"`,
-						Range: Range{Start: Position{Line: 3, Character: 9}, End: Position{Line: 3, Character: 18}}},
-				},
-			},
-		},
-		{
-			name: "WidgetResourceNotFound",
-			files: map[string][]byte{
-				"main.spx": []byte(`
-`),
-				"MySprite.spx": []byte(`
-const ConstWidgetName = "ConstWidgetName"
-var VarWidgetName string
-VarWidgetName = "VarWidgetName"
-onStart => {
-	getWidget Monitor, ""
-	getWidget Monitor, ConstWidgetName
-	getWidget Monitor, "LiteralWidgetName"
-	getWidget Monitor, VarWidgetName
-}
-`),
-				"assets/index.json": []byte(`{}`),
-			},
-			want: map[DocumentURI][]Diagnostic{
-				"file:///main.spx": {},
-				"file:///MySprite.spx": {
-					{Severity: SeverityError, Message: "widget resource name cannot be empty",
-						Range: Range{Start: Position{Line: 5, Character: 20}, End: Position{Line: 5, Character: 22}}},
-					{Severity: SeverityError, Message: `widget resource "ConstWidgetName" not found`,
-						Range: Range{Start: Position{Line: 6, Character: 20}, End: Position{Line: 6, Character: 35}}},
-					{Severity: SeverityError, Message: `widget resource "LiteralWidgetName" not found`,
-						Range: Range{Start: Position{Line: 7, Character: 20}, End: Position{Line: 7, Character: 39}}},
-				},
-			},
-		},
+		{"Sound", "play VALUE", "sound resource name cannot be empty", `sound resource "Ghost" not found`},
+		{"Backdrop", "onBackdrop VALUE, func() {}", "backdrop resource name cannot be empty", `backdrop resource "Ghost" not found`},
+		{"Sprite", "touching VALUE", "sprite resource name cannot be empty", `sprite resource "Ghost" not found`},
+		{"Costume", "setCostume VALUE", "sprite costume resource name cannot be empty", `costume resource "Ghost" not found in sprite "Runner"`},
+		{"Animation", "animate VALUE", "sprite animation resource name cannot be empty", `animation resource "Ghost" not found in sprite "Runner"`},
+		{"Widget", "getWidget Monitor, VALUE", "widget resource name cannot be empty", `widget resource "Ghost" not found`},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			s := newSpxTestServer(t, tt.files)
+		t.Run(resource.name, func(t *testing.T) {
+			source := "const Missing = \"Ghost\"\nvar dynamic string = \"dynamic\"\n"
+			var want []Diagnostic
+			for i, arg := range []string{`""`, "Missing", `"Ghost"`, "dynamic"} {
+				source += strings.Replace(resource.call, "VALUE", arg, 1) + "\n"
+				if arg == "dynamic" {
+					continue
+				}
+				column := uint32(strings.Index(resource.call, "VALUE"))
+				message := resource.missingMessage
+				if arg == `""` {
+					message = resource.emptyMessage
+				}
+				want = append(want, Diagnostic{
+					Range:    Range{Start: Position{Line: uint32(i + 2), Character: column}, End: Position{Line: uint32(i + 2), Character: column + uint32(len(arg))}},
+					Severity: SeverityError, Message: message,
+				})
+			}
+			s := newSpxTestServer(t, map[string][]byte{
+				"main.spx":                         nil,
+				"Runner.spx":                       []byte(source),
+				"assets/index.json":                []byte(`{}`),
+				"assets/sprites/Runner/index.json": []byte(`{}`),
+			})
+			_, err := s.getProj().TypeInfo()
+			require.NoError(t, err)
 			report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 			require.NoError(t, err)
-			require.Len(t, report.Items, len(tt.want))
+			require.Len(t, report.Items, 2)
 			got := make(map[DocumentURI][]Diagnostic)
 			for _, item := range report.Items {
 				full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
 				assert.Equal(t, string(DiagnosticFull), full.Kind)
 				got[full.URI] = full.Items
 			}
-			require.Len(t, got, len(tt.want))
-			for uri, diagnostics := range tt.want {
-				assert.Contains(t, got, uri)
-				assert.ElementsMatch(t, diagnostics, got[uri], uri)
-			}
+			assert.Empty(t, got["file:///main.spx"])
+			assert.ElementsMatch(t, want, got["file:///Runner.spx"])
 		})
 	}
-
-	t.Run("SoundResourceNotFoundInKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Options struct {
-	Sound SoundName
-}
-
-var client Client
-
-func configure(opts Options?) {}
-
-func configureMap(opts map[string]SoundName?) {}
-
-type Player interface {
-	Sound(sound SoundName) Player
-}
-
-type Client struct{}
-
-func (c Client) Player() Player { return nil }
-
-func (c Client) play(params Player?) {}
-
-onStart => {
-	configure sound = "MissingStructSound"
-	configureMap sound = "MissingMapSound"
-	client.play sound = "MissingInterfaceSound"
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		require.Len(t, report.Items, 1)
-		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-		require.Len(t, fullReport.Items, 3)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingStructSound" not found`,
-			Range: Range{
-				Start: Position{Line: 22, Character: 19},
-				End:   Position{Line: 22, Character: 39},
-			},
-		})
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingMapSound" not found`,
-			Range: Range{
-				Start: Position{Line: 23, Character: 22},
-				End:   Position{Line: 23, Character: 39},
-			},
-		})
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingInterfaceSound" not found`,
-			Range: Range{
-				Start: Position{Line: 24, Character: 21},
-				End:   Position{Line: 24, Character: 44},
-			},
-		})
-	})
-
-	t.Run("SoundResourceNotFoundInOverloadKwargs", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type Worker struct{}
-
-type Options struct {
-	Sound SoundName
-}
-
-var worker Worker
-
-func (w *Worker) playSound(opts Options?) {}
-
-func (Worker).play = (
-	(Worker).playSound
-)
-
-onStart => {
-	worker.play sound = "MissingOverloadSound"
-}
-`),
-			"assets/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-		require.NoError(t, err)
-		require.NotNil(t, report)
-		require.Len(t, report.Items, 1)
-		fullReport := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-		require.Len(t, fullReport.Items, 1)
-		assert.Contains(t, fullReport.Items, Diagnostic{
-			Severity: SeverityError,
-			Message:  `sound resource "MissingOverloadSound" not found`,
-			Range: Range{
-				Start: Position{Line: 16, Character: 21},
-				End:   Position{Line: 16, Character: 43},
-			},
-		})
-	})
 
 	t.Run("PropertyNameNotFoundInOverloadKwargs", func(t *testing.T) {
 		m := map[string][]byte{

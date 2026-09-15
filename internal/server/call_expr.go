@@ -18,8 +18,14 @@ package server
 
 import (
 	gotypes "go/types"
+	"iter"
+	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // callExprFromNode returns the call expression represented by node.
@@ -62,4 +68,42 @@ func funcDecoratorParams(sig *gotypes.Signature) (*gotypes.Tuple, bool) {
 		visible[i] = params.At(i)
 	}
 	return gotypes.NewTuple(visible...), true
+}
+
+// callArgValueTypes yields call argument values and their resolved target
+// types. For XGo slice and matrix literals, it yields elements with the target
+// slice's element type. Parentheses do not change the value or its target type.
+func callArgValueTypes(proj *xgo.Project, typeInfo *types.Info, call *ast.CallExpr) iter.Seq2[ast.Expr, gotypes.Type] {
+	return func(yield func(ast.Expr, gotypes.Type) bool) {
+		for arg := range resolvedCallExprArgs(proj, typeInfo, call) {
+			if arg.ExpectedType == nil {
+				continue
+			}
+			expr := astutil.Unparen(arg.Arg)
+			typ := xgoutil.DerefType(arg.ExpectedType)
+			var elts []ast.Expr
+			switch expr := expr.(type) {
+			case *ast.SliceLit:
+				elts = expr.Elts
+			case *ast.MatrixLit:
+				elts = slices.Concat(expr.Elts...)
+			default:
+				if !yield(expr, typ) {
+					return
+				}
+				continue
+			}
+
+			slice, ok := typ.Underlying().(*gotypes.Slice)
+			if !ok {
+				continue
+			}
+			elemType := xgoutil.DerefType(slice.Elem())
+			for _, elt := range elts {
+				if !yield(astutil.Unparen(elt), elemType) {
+					return
+				}
+			}
+		}
+	}
 }

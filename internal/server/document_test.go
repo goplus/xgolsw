@@ -282,6 +282,29 @@ func run() {
 		})
 	})
 
+	t.Run("MapKwarg", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("func configure(opts map[string]int?) {}\nconfigure count = 1\n"),
+		})
+		_, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		var callLinks []DocumentLink
+		for _, link := range links {
+			if link.Range.Start.Line == 1 {
+				callLinks = append(callLinks, link)
+			}
+		}
+		// A map key has no definition to link to. The function still does.
+		assert.Equal(t, []DocumentLink{{
+			Range:  Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 9}},
+			Target: toURI("xgo:main?configure"),
+		}}, callLinks)
+	})
+
 	t.Run("DocumentUpdates", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var Before int\nBefore = 1\n")})
 		params := &DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}

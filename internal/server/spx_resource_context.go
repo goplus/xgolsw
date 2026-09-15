@@ -33,7 +33,7 @@ func spxSpriteResourceForFile(result *compileResult, filename string) *SpxSprite
 func spxSpriteResourceForCall(result *compileResult, call *ast.CallExpr) *SpxSpriteResource {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
-		return spxSpriteResourceForFile(result, result.proj.Fset.File(call.Pos()).Name())
+		return spxSpriteResourceForFile(result, result.proj.Fset.PositionFor(call.Pos(), false).Filename)
 	case *ast.SelectorExpr:
 		ident, ok := fun.X.(*ast.Ident)
 		if !ok {
