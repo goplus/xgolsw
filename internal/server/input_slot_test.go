@@ -22,6 +22,36 @@ func (f inputSlotTestImporter) Import(pkgPath string) (*gotypes.Package, error) 
 }
 
 func TestServerXGoGetInputSlots(t *testing.T) {
+	t.Run("FunctionOverloadKwargs", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			call      string
+			value     any
+			inputType XGoInputType
+			wantError bool
+		}{
+			{"Integer", "handle 1, count = 5\n", int64(5), XGoInputTypeInteger, false},
+			{"String", "handle \"prefix\", name = \"value\"\n", "value", XGoInputTypeString, false},
+			{"Unresolved", "handle missing, count = 5\n", int64(5), XGoInputTypeInteger, true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(functionOverloadKwargDeclarations), "main.xgo": []byte(tt.call)})
+				_, err := s.getProj().TypeInfo()
+				if tt.wantError {
+					require.ErrorContains(t, err, "undefined: missing")
+				} else {
+					require.NoError(t, err)
+				}
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
+				require.NoError(t, err)
+				slot := findInputSlot(slots, tt.value, "", tt.inputType, XGoInputKindInPlace)
+				require.NotNil(t, slot)
+				assert.Equal(t, tt.inputType, slot.Accept.Type)
+				assert.Equal(t, uint32(UTF16Len(tt.call[:strings.Index(tt.call, " = ")+3])), slot.Range.Start.Character)
+			})
+		}
+	})
+
 	t.Run("ColorFunctionNames", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string

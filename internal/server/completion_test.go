@@ -21,20 +21,32 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 			name     string
 			filename string
 			position Position
+			autoBind bool
 		}{
 			{name: "ProjectEOF", filename: "main_fixture.gox", position: Position{Line: 1, Character: 9}},
 			{name: "WorkCallback", filename: "Worker_fixture.gox", position: Position{Line: 1, Character: 10}},
+			{name: "AutoBindingEOF", filename: "main_fixture.gox", position: Position{Line: 1, Character: 9}, autoBind: true},
+			{name: "AutoBindingWorkCallback", filename: "Worker_fixture.gox", position: Position{Line: 1, Character: 10}, autoBind: true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newFrameworkTestServer(t, map[string][]byte{
+				files := map[string][]byte{
 					"main_fixture.gox": []byte("var worker *Worker\nworker.ap"), // Cursor at EOF.
 					"Worker_fixture.gox": []byte(`onValue value => {
 	worker.ap
 }
 `),
-				})
+				}
+				if tt.autoBind {
+					files["main_fixture.gox"] = []byte("\nWorker.ap")
+					files["Worker_fixture.gox"] = []byte("onValue value => {\n\tWorker.ap\n}\n")
+				}
+				s := newFrameworkTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, tt.position)
-				assert.Contains(t, completionItemLabels(items), "apply")
+				item := completionItemByLabel(items, "apply")
+				require.NotNil(t, item)
+				data := requireValueAs[*CompletionItemData](t, item.Data)
+				require.NotNil(t, data.Definition)
+				assert.Equal(t, "xgo:example.com/framework?Item.apply", data.Definition.String())
 			})
 		}
 	})

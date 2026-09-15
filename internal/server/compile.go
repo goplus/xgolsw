@@ -347,7 +347,7 @@ func (s *Server) inspectSpxResourceRefsForCallExpr(
 	getSpriteContext := sync.OnceValue(func() *SpxSpriteResource {
 		return s.resolveSpxSpriteContextFromCallExpr(result, call)
 	})
-	for expr, typ := range callArgValueTypes(result.proj, typeInfo, call) {
+	for expr, typ := range callArgValueTypes(typeInfo, call) {
 		s.inspectSpxResourceRefForTypeAtExpr(result, expr, typ, getSpriteContext, resourceExprs)
 	}
 }

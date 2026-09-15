@@ -163,13 +163,13 @@ func isXGoUnitNumberKind(kind token.Token) bool {
 }
 
 // xgoUnitExpectedTypesAtPosition returns expected types for the unit literal at pos.
-func xgoUnitExpectedTypesAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, pos token.Pos) []gotypes.Type {
+func xgoUnitExpectedTypesAtPosition(typeInfo *types.Info, astFile *ast.File, pos token.Pos) []gotypes.Type {
 	path, _ := xgoutil.PathEnclosingInterval(astFile, pos-1, pos)
 	lit := xgoUnitLiteralAtPath(path, pos)
 	if lit == nil {
 		return nil
 	}
-	return xgoUnitLiteralExpectedTypes(proj, typeInfo, path, lit)
+	return xgoUnitLiteralExpectedTypes(typeInfo, path, lit)
 }
 
 // xgoUnitLiteralAtPath returns the unit-capable literal at path and pos.
@@ -188,7 +188,7 @@ func xgoUnitLiteralAtPath(path []ast.Node, pos token.Pos) ast.Expr {
 }
 
 // xgoUnitLiteralExpectedTypes returns expected types for lit from its syntax context.
-func xgoUnitLiteralExpectedTypes(proj *xgo.Project, typeInfo *types.Info, path []ast.Node, lit ast.Expr) []gotypes.Type {
+func xgoUnitLiteralExpectedTypes(typeInfo *types.Info, path []ast.Node, lit ast.Expr) []gotypes.Type {
 	if typeInfo == nil || lit == nil {
 		return nil
 	}
@@ -211,12 +211,12 @@ func xgoUnitLiteralExpectedTypes(proj *xgo.Project, typeInfo *types.Info, path [
 		if call == nil {
 			continue
 		}
-		for resolvedArg := range resolvedCallExprArgs(proj, typeInfo, call) {
+		for resolvedArg := range resolvedCallExprArgs(typeInfo, call) {
 			if resolvedArg.Arg == lit {
 				appendType(xgoUnitExpectedTypeForResolvedArg(resolvedArg))
 			}
 		}
-		for _, overload := range callExprFuncOverloads(proj, typeInfo, call) {
+		for _, overload := range callExprFuncOverloads(typeInfo, call) {
 			if !overloadMatchesCallExpr(typeInfo, call, overload, -1) {
 				continue
 			}
@@ -287,7 +287,7 @@ func hoverForXGoUnit(
 		return nil
 	}
 
-	for _, expectedType := range xgoUnitLiteralExpectedTypes(proj, typeInfo, path, lit) {
+	for _, expectedType := range xgoUnitLiteralExpectedTypes(typeInfo, path, lit) {
 		spec, ok := xgoUnitSpecForType(expectedType, lit.Unit)
 		if !ok {
 			continue

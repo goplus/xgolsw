@@ -88,7 +88,7 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 	labelsByPosition := make(map[Position]string)
 	ambiguousPositions := make(map[Position]struct{})
 	variadicParamSeen := false
-	for resolvedArg := range resolvedCallExprArgs(proj, typeInfo, callExpr) {
+	for resolvedArg := range resolvedCallExprArgs(typeInfo, callExpr) {
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}

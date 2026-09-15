@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgolsw/jsonrpc2"
@@ -452,6 +453,62 @@ func TestServerTextDocumentRename(t *testing.T) {
 				}
 				_, err = s.workspaceRootFS.TypeInfo()
 				assert.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("FieldOwners", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			filename  string
+			source    string
+			extra     map[string][]byte
+			owner     string
+			newServer testServerFactory
+		}{
+			{name: "DefinedSibling", filename: "main.xgo", owner: "Record", newServer: newTestServer,
+				source: "type Record struct { |Count int }\ntype Adapter Record\nvar item Record\nitem.|Count = 1\n"},
+			{name: "DefinedReceiver", filename: "main.xgo", owner: "Record", newServer: newTestServer,
+				source: "type Record struct { |Count int }\ntype Adapter Record\nvar item Adapter\nitem.|Count = 1\n"},
+			{name: "PromotedField", filename: "main.xgo", owner: "Record", newServer: newTestServer,
+				source: "type Record struct { |Count int }\ntype Adapter struct { Record }\nvar item Adapter\nitem.|Count = 1\n"},
+			{name: "LocalType", filename: "main.xgo", owner: "Record", newServer: newTestServer,
+				source: "func run() {\ntype Record struct { |Count int }\ntype Adapter Record\nvar item Adapter\nitem.|Count = 1\n}\n"},
+			{name: "ProjectField", filename: "main_fixture.gox", owner: "App", newServer: newFrameworkTestServer,
+				source: "var |Count int\n|Count = 1\n", extra: map[string][]byte{"helpers.xgo": []byte("type Adapter App\n")}},
+			{name: "WorkField", filename: "Worker_fixture.gox", owner: "Worker", newServer: newFrameworkTestServer,
+				source: "var |Count int\n|Count = 1\n", extra: map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				parts := strings.Split(tt.source, "|")
+				require.Len(t, parts, 3)
+				files := map[string][]byte{tt.filename: []byte(strings.Join(parts, ""))}
+				for filename, content := range tt.extra {
+					files[filename] = content
+				}
+				s := tt.newServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				replier := newMockReplier()
+				s.replier = replier
+				var changes []TextEdit
+				prefix := ""
+				for _, part := range parts[:2] {
+					prefix += part
+					position := Position{Line: uint32(strings.Count(prefix, "\n")), Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:]))}
+					changes = append(changes, TextEdit{Range: Range{Start: position, End: Position{Line: position.Line, Character: position.Character + 5}}, NewText: "Total"})
+				}
+				uri := s.toDocumentURI(tt.filename)
+				edit, err := s.textDocumentRename(&RenameParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: changes[1].Range.Start, NewName: "Total"})
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{uri: changes})
+				messages := replier.getMessages()
+				require.Len(t, messages, 1)
+				notification := requireValueAs[*jsonrpc2.Notification](t, messages[0])
+				assert.Equal(t, "textDocument/xgo.propertyRenamed", notification.Method())
+				var params PropertyRenamedParams
+				require.NoError(t, json.Unmarshal(notification.Params(), &params))
+				assert.Equal(t, PropertyRenamedParams{Target: tt.owner, OldName: "Count", NewName: "Total", TextDocument: TextDocumentIdentifier{URI: uri}}, params)
 			})
 		}
 	})

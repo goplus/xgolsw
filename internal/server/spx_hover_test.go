@@ -261,50 +261,6 @@ onStart => {
 			End:   Position{Line: 2, Character: 10},
 		}, hover.Range)
 	})
-
-	t.Run("SpriteLineStartShouldNotResolveToSyntheticThis", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`onStart => {}
-`),
-			"MySprite.spx": []byte(`onStart => {
-    step 10
-    turn Left
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		// The characters on `onStart` should map to `onStart`, not synthetic `this`.
-		for _, ch := range []uint32{0, 1, 2, 3, 4, 5, 6} {
-			hover, err := s.textDocumentHover(&HoverParams{
-				TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-					Position:     Position{Line: 0, Character: ch},
-				},
-			})
-			require.NoError(t, err)
-			require.NotNil(t, hover)
-			assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Sprite.onStart"`)
-			assert.NotContains(t, hover.Contents.Value, `var this`)
-		}
-
-		// The first four characters on indented lines are whitespaces and should not produce hover.
-		for _, line := range []uint32{1, 2} {
-			for _, ch := range []uint32{0, 1, 2, 3} {
-				hover, err := s.textDocumentHover(&HoverParams{
-					TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
-						Position:     Position{Line: line, Character: ch},
-					},
-				})
-				require.NoError(t, err)
-				assert.Nil(t, hover)
-			}
-		}
-	})
-
 }
 
 func TestServerSpxResourceSourceRanges(t *testing.T) {

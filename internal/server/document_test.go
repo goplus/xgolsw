@@ -242,6 +242,7 @@ type Options struct {
 
 type Params interface {
     MaxTokens(n int64) Params
+    Set(name string, value any) Params
 }
 
 type Client struct{}
@@ -257,6 +258,7 @@ func configure(opts Options?) {}
 func run() {
     configure count = 1
     client.complete "hi", maxTokens = 1
+    client.complete "hi", temperature = 1
 }
 `),
 		}
@@ -266,20 +268,118 @@ func run() {
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 		})
 		require.NoError(t, err)
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 20, Character: 14},
-				End:   Position{Line: 20, Character: 19},
+		_, err = s.getProj().TypeInfo()
+		require.NoError(t, err)
+		for _, want := range []DocumentLink{
+			{
+				Range:  Range{Start: Position{Line: 21, Character: 14}, End: Position{Line: 21, Character: 19}},
+				Target: toURI("xgo:main?Options.Count"),
 			},
-			Target: toURI("xgo:main?Options.Count"),
-		})
-		assert.Contains(t, links, DocumentLink{
-			Range: Range{
-				Start: Position{Line: 21, Character: 26},
-				End:   Position{Line: 21, Character: 35},
+			{
+				Range:  Range{Start: Position{Line: 22, Character: 26}, End: Position{Line: 22, Character: 35}},
+				Target: toURI("xgo:main?Params.MaxTokens"),
 			},
-			Target: toURI("xgo:main?interface%7BMaxTokens%28n+int64%29+main.Params%7D.MaxTokens"),
+		} {
+			var kwargLinks []DocumentLink
+			for _, link := range links {
+				if link.Range.Start == want.Range.Start {
+					kwargLinks = append(kwargLinks, link)
+				}
+			}
+			assert.Equal(t, []DocumentLink{want}, kwargLinks)
+		}
+		// Dynamic keys handled by Set have no symbol definition.
+		for _, link := range links {
+			assert.NotEqual(t, Position{Line: 23, Character: 26}, link.Range.Start)
+		}
+	})
+
+	t.Run("OverloadKwargs", func(t *testing.T) {
+		const fields = "type Record struct { Count int }\ntype Adapter Record\n"
+		const overloads = "func configureInt(prefix int, opts Record?) {}\nfunc configureString(prefix string, opts Adapter?) {}\nfunc configure = (\nconfigureInt\nconfigureString\n)\n"
+		const methods = `type Params interface { Count(n int) Params }
+type Client struct{}
+func (c Client) Params() Params { return nil }
+func (c Client) configureInt(prefix int, opts Params?) {}
+func (c Client) configureString(prefix string, opts Params?) {}
+func (Client).configure = (
+    (Client).configureInt
+    (Client).configureString
+)
+var client Client
+`
+		for _, tt := range []struct {
+			name         string
+			declarations string
+			call         string
+			want         []string
+		}{
+			{
+				name: "SharedField", declarations: fields + strings.ReplaceAll(overloads, "opts Adapter?", "opts Record?"),
+				call: "configure missing, ", want: []string{"xgo:main?Record.Count"},
+			},
+			{
+				name: "DistinctOwners", declarations: fields + overloads,
+				call: "configure missing, ", want: []string{"xgo:main?Adapter.Count", "xgo:main?Record.Count"},
+			},
+			{
+				name: "SharedMethod", declarations: methods,
+				call: "client.configure missing, ", want: []string{"xgo:main?Params.Count"},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.declarations + tt.call + "count = 1\n")})
+				_, err := s.getProj().TypeInfo()
+				require.ErrorContains(t, err, "undefined: missing")
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+				require.NoError(t, err)
+				linkRange := Range{
+					Start: Position{Line: uint32(strings.Count(tt.declarations, "\n")), Character: uint32(UTF16Len(tt.call))},
+					End:   Position{Line: uint32(strings.Count(tt.declarations, "\n")), Character: uint32(UTF16Len(tt.call + "count"))},
+				}
+				var kwargLinks []DocumentLink
+				for _, link := range links {
+					if link.Range.Start == linkRange.Start {
+						kwargLinks = append(kwargLinks, link)
+					}
+				}
+				var want []DocumentLink
+				for _, target := range tt.want {
+					want = append(want, DocumentLink{Range: linkRange, Target: toURI(target)})
+				}
+				assert.Equal(t, want, kwargLinks)
+			})
+		}
+	})
+
+	t.Run("NestedKwargs", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Options struct { Count int }
+func configure(opts Options?) int { return opts.Count }
+var value = 1
+configure count = configure(count = value)
+configure count = value
+`),
 		})
+		_, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+		require.NoError(t, err)
+		var callLinks []DocumentLink
+		for _, link := range links {
+			if link.Range.Start.Line >= 3 {
+				callLinks = append(callLinks, link)
+			}
+		}
+		assert.Equal(t, []DocumentLink{
+			{Range: Range{Start: Position{Line: 3, Character: 10}, End: Position{Line: 3, Character: 15}}, Target: toURI("xgo:main?Options.Count")},
+			{Range: Range{Start: Position{Line: 3, Character: 28}, End: Position{Line: 3, Character: 33}}, Target: toURI("xgo:main?Options.Count")},
+			{Range: Range{Start: Position{Line: 4, Character: 10}, End: Position{Line: 4, Character: 15}}, Target: toURI("xgo:main?Options.Count")},
+			{Range: Range{Start: Position{Line: 3}, End: Position{Line: 3, Character: 9}}, Target: toURI("xgo:main?configure")},
+			{Range: Range{Start: Position{Line: 3, Character: 18}, End: Position{Line: 3, Character: 27}}, Target: toURI("xgo:main?configure")},
+			{Range: Range{Start: Position{Line: 4}, End: Position{Line: 4, Character: 9}}, Target: toURI("xgo:main?configure")},
+			{Range: Range{Start: Position{Line: 3, Character: 36}, End: Position{Line: 3, Character: 41}}, Target: toURI("xgo:main?value")},
+			{Range: Range{Start: Position{Line: 4, Character: 18}, End: Position{Line: 4, Character: 23}}, Target: toURI("xgo:main?value")},
+		}, callLinks)
 	})
 
 	t.Run("MapKwarg", func(t *testing.T) {

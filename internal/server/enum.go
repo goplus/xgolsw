@@ -501,7 +501,7 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 				}
 				return contextForTypes(builtinContext.expectedTypes)
 			}
-			expected, allowConversion := enumExpectedTypesForCallArg(proj, typeInfo, call, target)
+			expected, allowConversion := enumExpectedTypesForCallArg(typeInfo, call, target)
 			if len(expected) > 0 {
 				context := contextForTypes(expected)
 				context.allowConversion = allowConversion && len(typePath) == 0
@@ -965,15 +965,14 @@ func enumTypePathTargetType(typ gotypes.Type, typePath []enumTypePathPart) gotyp
 // enumExpectedTypesForCallArg returns expected types when target is a direct
 // call argument.
 func enumExpectedTypesForCallArg(
-	proj *xgo.Project,
 	typeInfo *types.Info,
 	call *ast.CallExpr,
 	target ast.Expr,
 ) ([]gotypes.Type, bool) {
 	var expected []gotypes.Type
-	expected = append(expected, enumExpectedTypesForTupleElement(proj, typeInfo, call, target)...)
+	expected = append(expected, enumExpectedTypesForTupleElement(typeInfo, call, target)...)
 
-	for resolvedArg := range resolvedCallExprArgs(proj, typeInfo, call) {
+	for resolvedArg := range resolvedCallExprArgs(typeInfo, call) {
 		if resolvedArg.Arg == target && xgoutil.IsValidType(resolvedArg.ExpectedType) {
 			expected = append(expected, resolvedArg.ExpectedType)
 		}
@@ -991,7 +990,6 @@ func enumExpectedTypesForCallArg(
 // enumExpectedTypesForTupleElement returns expected types when target is an
 // element of an expanded tuple argument.
 func enumExpectedTypesForTupleElement(
-	proj *xgo.Project,
 	typeInfo *types.Info,
 	call *ast.CallExpr,
 	target ast.Expr,
@@ -1008,7 +1006,7 @@ func enumExpectedTypesForTupleElement(
 		return nil
 	}
 
-	funcs := callExprFuncOverloads(proj, typeInfo, call)
+	funcs := callExprFuncOverloads(typeInfo, call)
 	if len(funcs) == 0 {
 		if fun := xgoutil.FuncFromCallExpr(typeInfo, call); fun != nil {
 			funcs = []*gotypes.Func{fun}

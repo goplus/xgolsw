@@ -11,6 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const functionOverloadKwargDeclarations = `type CountOptions struct { Count int }
+type NameOptions struct { Name string }
+func handleCount(prefix int, opts CountOptions?) {}
+func handleName(prefix string, opts NameOptions?) {}
+func handle = (
+    handleCount
+    handleName
+)
+`
+
 func TestResolvedCallExprArgs(t *testing.T) {
 	t.Run("UnresolvedOverloadKwargs", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
@@ -46,7 +56,7 @@ worker.handle missing, unknown, count = unknown, name = "task"
 		require.NotNil(t, call)
 		assert.Empty(t, slices.Collect(xgoutil.ResolvedCallExprArgs(typeInfo, call)))
 
-		args := slices.Collect(resolvedCallExprArgs(proj, typeInfo, call))
+		args := slices.Collect(resolvedCallExprArgs(typeInfo, call))
 		require.Len(t, args, 8)
 		for overloadIndex, prefixType := range []gotypes.Type{gotypes.Typ[gotypes.Int], gotypes.Typ[gotypes.String]} {
 			for i, tt := range []struct {

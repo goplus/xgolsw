@@ -193,8 +193,9 @@ type propertyObject struct {
 }
 
 // propertyObjects returns an iterator over property source objects in
-// depth-first, outer-scope-first order. Outer members shadow embedded ones
-// with the same name.
+// depth-first, outer-scope-first order. Accessible outer members shadow
+// embedded properties with the same source name, even if the outer member
+// is not a property.
 func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 	return func(yield func(propertyObject) bool) {
 		visited := make(map[*gotypes.Named]bool)
@@ -213,10 +214,13 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 
 			selectorTypeName := namedType.Obj().Name()
 			yieldProperty := func(property propertyObject) bool {
-				if seenNames[property.Name] {
+				if !xgoutil.IsExportedOrInMainPkg(property.Object) || seenNames[property.Name] {
 					return true
 				}
 				seenNames[property.Name] = true
+				if !isPropertyOfEnclosingType(property.Object) {
+					return true
+				}
 				return yield(property)
 			}
 
@@ -227,10 +231,6 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 					if embeddedNamed, ok := embeddedType.(*gotypes.Named); ok {
 						embeddedTypes = append(embeddedTypes, embeddedNamed)
 					}
-					continue
-				}
-				if !isPropertyField(field) {
-					continue
 				}
 				if !yieldProperty(propertyObject{
 					Name:             field.Name(),
@@ -241,10 +241,13 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 				}
 			}
 
+			// Exact local method names take precedence over property aliases.
 			for method := range namedType.Methods() {
-				if !isPropertyMethod(method) {
-					continue
+				if !method.Exported() && xgoutil.IsInMainPkg(method) {
+					seenNames[method.Name()] = true
 				}
+			}
+			for method := range namedType.Methods() {
 				if !yieldProperty(propertyObject{
 					Name:             xgoutil.ToLowerCamelCase(method.Name()),
 					SelectorTypeName: selectorTypeName,
@@ -426,100 +429,4 @@ func isPropertyOfEnclosingType(obj gotypes.Object) bool {
 	}
 
 	return false
-}
-
-// findEnclosingTypeForField finds the exact enclosing type for a given field.
-// This accurately identifies which struct type contains the field, avoiding ambiguity
-// when multiple types have fields with the same name.
-// Returns the enclosing *types.Named if found, nil otherwise.
-//
-// Performance note: This function has O(N_types × N_fields_per_type) complexity.
-// For better performance in hot paths, consider caching results or using alternative approaches.
-func findEnclosingTypeForField(field *gotypes.Var) *gotypes.Named {
-	if field == nil || !field.IsField() {
-		return nil
-	}
-
-	// Find the enclosing type by looking through all types in the package
-	pkg := field.Pkg()
-	if pkg == nil {
-		return nil
-	}
-
-	// Search for the type that contains this field by checking all named types in the package
-	// Note: types.Var for fields don't have a direct back-reference to their containing struct,
-	// so we need to search through package scope.
-	scope := pkg.Scope()
-	for _, name := range scope.Names() {
-		typeObj := scope.Lookup(name)
-		if typeObj == nil {
-			continue
-		}
-
-		typeName, ok := typeObj.(*gotypes.TypeName)
-		if !ok {
-			continue
-		}
-
-		namedType, ok := typeName.Type().(*gotypes.Named)
-		if !ok {
-			continue
-		}
-
-		structType, ok := namedType.Underlying().(*gotypes.Struct)
-		if !ok {
-			continue
-		}
-
-		for structField := range structType.Fields() {
-			if structField == field {
-				return namedType
-			}
-		}
-	}
-
-	return nil
-}
-
-// findEnclosingTypeForMethod finds the exact enclosing type for a given method.
-// This returns the receiver type of the method.
-// Returns the enclosing *types.Named if found, nil otherwise.
-func findEnclosingTypeForMethod(method *gotypes.Func) *gotypes.Named {
-	if method == nil {
-		return nil
-	}
-
-	recv := method.Signature().Recv()
-	if recv == nil {
-		return nil
-	}
-
-	// Dereference pointer receiver if needed
-	recvType := xgoutil.DerefType(recv.Type())
-	namedType, ok := recvType.(*gotypes.Named)
-	if !ok {
-		return nil
-	}
-
-	return namedType
-}
-
-// findEnclosingType finds the exact enclosing type for a given object.
-// Supports both fields and methods.
-// Returns the enclosing *types.Named if found, nil otherwise.
-func findEnclosingType(obj gotypes.Object) *gotypes.Named {
-	if obj == nil {
-		return nil
-	}
-
-	switch obj := obj.(type) {
-	case *gotypes.Var:
-		if obj.IsField() {
-			return findEnclosingTypeForField(obj)
-		}
-	case *gotypes.Func:
-		return findEnclosingTypeForMethod(obj)
-	}
-
-	return nil
 }

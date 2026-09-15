@@ -468,11 +468,7 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 		if callExpr == nil {
 			return true
 		}
-		funIdent := callExprFunIdent(callExpr)
-		if funIdent == nil {
-			return true
-		}
-		funcOverloads := getFuncOverloads(proj, funIdent)
+		funcOverloads := callExprFuncOverloads(typeInfo, callExpr)
 		if len(funcOverloads) == 0 {
 			return true
 		}
@@ -781,54 +777,6 @@ func signatureType(typ gotypes.Type) *gotypes.Signature {
 	typ = gotypes.Unalias(typ)
 	sig, _ := typ.(*gotypes.Signature)
 	return sig
-}
-
-// getFuncOverloads returns all overloads for the function named by funIdent.
-func getFuncOverloads(proj *xgo.Project, funIdent *ast.Ident) []*gotypes.Func {
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
-		return nil
-	}
-	funType, ok := typeInfo.ObjectOf(funIdent).(*gotypes.Func)
-	if !ok {
-		return nil
-	}
-	pkg := funType.Pkg()
-	if pkg == nil {
-		return nil
-	}
-	recvTypeName := SelectorTypeNameForIdent(proj, funIdent)
-	if recvTypeName == "" {
-		return nil
-	}
-	if IsInSpxPkg(funType) && recvTypeName == "Sprite" {
-		recvTypeName = "SpriteImpl"
-	}
-
-	recvObj := pkg.Scope().Lookup(recvTypeName)
-	if recvObj == nil {
-		return nil
-	}
-	recvType := recvObj.Type()
-	recvNamed, ok := recvType.(*gotypes.Named)
-	if !ok || !xgoutil.IsNamedStructType(recvNamed) {
-		return nil
-	}
-	var baseFunc *gotypes.Func
-	for structMember := range xgoutil.StructMembers(recvNamed) {
-		method, ok := structMember.Member.(*gotypes.Func)
-		if !ok {
-			continue
-		}
-		if pn, overloadID := xgoutil.ParseXGoFuncName(method.Name()); pn == funIdent.Name && overloadID == nil {
-			baseFunc = method
-			break
-		}
-	}
-	if baseFunc == nil {
-		return nil
-	}
-	return xgoutil.ExpandXGoOverloadableFunc(baseFunc)
 }
 
 // isIdentUsed reports whether ident is referenced by any use in typeInfo.

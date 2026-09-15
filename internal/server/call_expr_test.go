@@ -240,13 +240,13 @@ use []
 			})
 			require.NotNil(t, call)
 			var got []valueType
-			for expr, typ := range callArgValueTypes(proj, info, call) {
+			for expr, typ := range callArgValueTypes(info, call) {
 				file := proj.Fset.File(expr.Pos())
 				got = append(got, valueType{source[file.Offset(expr.Pos()):file.Offset(expr.End())], typ.String()})
 			}
 			assert.Equal(t, tt.want, got)
 			count := 0
-			for range callArgValueTypes(proj, info, call) {
+			for range callArgValueTypes(info, call) {
 				count++
 				break
 			}

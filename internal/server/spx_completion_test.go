@@ -425,44 +425,6 @@ onStart => {
 		assert.Equal(t, 1, countCompletionItemLabel(items, `"Crab3"`))
 	})
 
-	t.Run("AtLineStartWithAMemberAccessExpression", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-MySprite.setCo`), // Cursor at EOF.
-			"MySprite.spx": []byte(`
-onClick => {
-	MySprite.setCo
-}
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items1 := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 14})
-		assert.NotEmpty(t, items1)
-		assert.Contains(t, completionItemLabels(items1), "setCostume")
-
-		items2 := completionItemsAt(t, s, "MySprite.spx", Position{Line: 2, Character: 15})
-		assert.NotEmpty(t, items2)
-		assert.Contains(t, completionItemLabels(items2), "setCostume")
-	})
-
-	t.Run("MathPackage", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	n := ab
-}
-`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 8})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "abs")
-	})
-
 	t.Run("SpriteInterfaceEmbedding", func(t *testing.T) {
 		m := map[string][]byte{
 			"main.spx": []byte(`

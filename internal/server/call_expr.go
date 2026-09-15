@@ -23,7 +23,6 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -73,9 +72,9 @@ func funcDecoratorParams(sig *gotypes.Signature) (*gotypes.Tuple, bool) {
 // callArgValueTypes yields call argument values and their resolved target
 // types. For XGo slice and matrix literals, it yields elements with the target
 // slice's element type. Parentheses do not change the value or its target type.
-func callArgValueTypes(proj *xgo.Project, typeInfo *types.Info, call *ast.CallExpr) iter.Seq2[ast.Expr, gotypes.Type] {
+func callArgValueTypes(typeInfo *types.Info, call *ast.CallExpr) iter.Seq2[ast.Expr, gotypes.Type] {
 	return func(yield func(ast.Expr, gotypes.Type) bool) {
-		for arg := range resolvedCallExprArgs(proj, typeInfo, call) {
+		for arg := range resolvedCallExprArgs(typeInfo, call) {
 			if arg.ExpectedType == nil {
 				continue
 			}
