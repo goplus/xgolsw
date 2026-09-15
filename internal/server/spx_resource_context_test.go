@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,6 +79,28 @@ func TestSpxSpriteResourceForFile(t *testing.T) {
 				require.NotNil(t, set.Sprite(tt.want))
 				assert.Same(t, set.Sprite(tt.want), spxSpriteResourceForFile(result, tt.filename))
 			}
+		})
+	}
+}
+
+func TestSpxSpriteResourceForCall(t *testing.T) {
+	for _, name := range []string{"NoPos", "UnregisteredPosition"} {
+		t.Run(name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n")})
+			proj := s.getProj()
+			call := spxResourceTestCall(t, proj, "main.xgo")
+			pos := token.NoPos
+			if name == "UnregisteredPosition" {
+				pos = token.Pos(proj.Fset.Base())
+			}
+			require.Nil(t, proj.Fset.File(pos))
+			requireValueAs[*ast.Ident](t, call.Fun).NamePos = pos
+			result := newCompileResult(proj, s.lookupPkgDoc)
+			var got *SpxSpriteResource
+			require.NotPanics(t, func() {
+				got = spxSpriteResourceForCall(result, call)
+			})
+			assert.Nil(t, got)
 		})
 	}
 }

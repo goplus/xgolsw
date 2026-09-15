@@ -988,51 +988,6 @@ func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) (de
 	return
 }
 
-// nonMainPkgSpxResourceNameTypeFuncCache is a cache of non-main package
-// function spx resource name type parameter check results.
-var nonMainPkgSpxResourceNameTypeFuncCache sync.Map // map[*types.Func]bool
-
-// HasSpxResourceNameTypeParams reports if a function has parameters of spx
-// resource name types.
-func HasSpxResourceNameTypeParams(fun *gotypes.Func) (has bool) {
-	if fun == nil {
-		return false
-	}
-	if !xgoutil.IsInMainPkg(fun) {
-		if !IsInSpxPkg(fun) {
-			// Early return for non-spx packages since they cannot
-			// have spx resource type parameters.
-			return false
-		}
-
-		if hasIface, ok := nonMainPkgSpxResourceNameTypeFuncCache.Load(fun); ok {
-			return hasIface.(bool)
-		}
-		defer func() {
-			nonMainPkgSpxResourceNameTypeFuncCache.Store(fun, has)
-		}()
-	}
-
-	funcSig := fun.Signature()
-	for param := range funcSig.Params().Variables() {
-		paramType := spxResourceNameValueType(param.Type())
-		if IsSpxResourceNameType(paramType) {
-			return true
-		}
-	}
-	return false
-}
-
-// spxResourceNameValueType returns typ or its element type when typ is a slice
-// or an alias to a slice.
-func spxResourceNameValueType(typ gotypes.Type) gotypes.Type {
-	typ = xgoutil.DerefType(typ)
-	if slice, ok := gotypes.Unalias(typ).(*gotypes.Slice); ok {
-		return xgoutil.DerefType(slice.Elem())
-	}
-	return typ
-}
-
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
 // resource name type. It returns nil if typ does not represent one.
 func canonicalSpxResourceNameType(typ gotypes.Type) gotypes.Type {
