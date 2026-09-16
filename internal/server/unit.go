@@ -292,7 +292,7 @@ func hoverForXGoUnit(
 		if !ok {
 			continue
 		}
-		unitType := GetSimplifiedTypeString(spec.SourceType)
+		unitType := newTypeDisplay(proj, astFile, pos).typeString(spec.SourceType)
 		markdownValue := fmt.Sprintf(
 			"unit `%s` for `%s`\n\nMultiplier: `%s`",
 			spec.Name,

@@ -121,3 +121,62 @@ func TestTypeDocJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Doc":"","Fields":null,"Methods":null,"EnumMembers":{"Red":"Red documentation."}}`, string(data))
 }
+
+func TestNewXGoTypeDocumentation(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		typ  string
+	}{
+		{name: "Alias", typ: "= int"},
+		{name: "Basic", typ: "int"},
+		{name: "Slice", typ: "[]int"},
+		{name: "Map", typ: "map[string]int"},
+		{name: "Function", typ: "func(int) string"},
+		{name: "Interface", typ: "interface { Read() int }"},
+		{name: "Struct", typ: "struct { Value int }"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			file, err := parser.ParseFile(token.NewFileSet(), "main.xgo", "// Value is documented.\ntype Value "+tt.typ+"\n", parser.ParseComments)
+			require.NoError(t, err)
+			doc := NewXGo("main", &ast.Package{Name: "main", Files: map[string]*ast.File{"main.xgo": file}}, nil)
+			require.Contains(t, doc.Types, "Value")
+			assert.Equal(t, "Value is documented.\n", doc.Types["Value"].Doc)
+		})
+	}
+
+	t.Run("Members", func(t *testing.T) {
+		file, err := parser.ParseFile(token.NewFileSet(), "main.xgo", `import f "example.com/framework"
+
+type Item struct{}
+type Group struct {
+	// Item is the active item.
+	*Item
+	// Copy is an embedded framework value.
+	f.Copy
+	// Box contains a value.
+	f.Box[int]
+	// Pair contains two values.
+	*f.Pair[int, string]
+	// Label names the group.
+	label string
+	count int // Count tracks items.
+}
+
+type Reader interface {
+	// Read retrieves one value.
+	Read() int
+	f.Reader
+}
+`, parser.ParseComments)
+		require.NoError(t, err)
+		doc := NewXGo("main", &ast.Package{Name: "main", Files: map[string]*ast.File{"main.xgo": file}}, nil)
+		require.Contains(t, doc.Types, "Group")
+		assert.Equal(t, map[string]string{
+			"Item": "Item is the active item.\n", "Copy": "Copy is an embedded framework value.\n",
+			"Box": "Box contains a value.\n", "Pair": "Pair contains two values.\n",
+			"label": "Label names the group.\n", "count": "Count tracks items.\n",
+		}, doc.Types["Group"].Fields)
+		require.Contains(t, doc.Types, "Reader")
+		assert.Equal(t, map[string]string{"Read": "Read retrieves one value.\n"}, doc.Types["Reader"].Methods)
+	})
+}

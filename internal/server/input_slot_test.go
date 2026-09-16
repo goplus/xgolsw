@@ -15,12 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type inputSlotTestImporter func(string) (*gotypes.Package, error)
-
-func (f inputSlotTestImporter) Import(pkgPath string) (*gotypes.Package, error) {
-	return f(pkgPath)
-}
-
 func TestServerXGoGetInputSlots(t *testing.T) {
 	t.Run("FunctionOverloadKwargs", func(t *testing.T) {
 		for _, tt := range []struct {
@@ -101,7 +95,7 @@ func TestServerXGoGetInputSlots(t *testing.T) {
 				proj := s.getProj()
 				baseImporter := proj.Importer
 				changed := false
-				proj.Importer = inputSlotTestImporter(func(pkgPath string) (*gotypes.Package, error) {
+				proj.Importer = testImporterFunc(func(pkgPath string) (*gotypes.Package, error) {
 					if pkgPath == "fmt" && !changed {
 						// Interleave an edit after parsing but before collecting slots.
 						changed = true

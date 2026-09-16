@@ -14,6 +14,7 @@ import (
 
 // definitionContext holds project data and documentation used to describe symbols.
 type definitionContext struct {
+	typeDisplay
 	proj     *xgo.Project
 	enumInfo *enumInfo
 
@@ -31,27 +32,20 @@ func (r *definitionContext) spxDefinitionsFor(obj gotypes.Object, selectorTypeNa
 		return nil
 	}
 	if xgoutil.IsInBuiltinPkg(obj) {
-		return []SpxDefinition{getDefinitionForBuiltinObj(obj, r.proj.Importer, r.lookupPkgDoc)}
+		return []SpxDefinition{r.getDefinitionForBuiltinObj(obj, r.proj.Importer, r.lookupPkgDoc)}
 	}
 
-	var pkgDoc *pkgdoc.PkgDoc
-	if pkgName, ok := obj.(*gotypes.PkgName); ok {
-		pkgDoc, _ = r.lookupPkgDoc(pkgName.Imported().Path())
-	} else if xgoutil.IsInMainPkg(obj) {
-		pkgDoc, _ = r.proj.PkgDoc()
-	} else {
-		pkgDoc, _ = r.lookupPkgDoc(xgoutil.PkgPath(obj.Pkg()))
-	}
+	pkgDoc := r.pkgDocForObject(obj)
 
 	switch obj := obj.(type) {
 	case *gotypes.Var:
 		typeInfo, _ := r.proj.TypeInfo()
 		astPkg, _ := r.proj.ASTPackage()
 		forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, obj)
-		return []SpxDefinition{GetSpxDefinitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
+		return []SpxDefinition{r.definitionForVar(obj, selectorTypeName, forceVar, pkgDoc)}
 	case *gotypes.Const:
 		if r.enumInfo.isRegularConstObject(obj) {
-			return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
+			return []SpxDefinition{r.definitionForConst(obj, pkgDoc)}
 		}
 		if r.enumInfo.isSyntheticObject(obj) {
 			return nil
@@ -59,9 +53,9 @@ func (r *definitionContext) spxDefinitionsFor(obj gotypes.Object, selectorTypeNa
 		if members := r.enumInfo.membersForObject(obj); len(members) > 0 {
 			return []SpxDefinition{r.spxDefinitionForEnumMembers(members...)}
 		}
-		return []SpxDefinition{GetSpxDefinitionForConst(obj, pkgDoc)}
+		return []SpxDefinition{r.definitionForConst(obj, pkgDoc)}
 	case *gotypes.TypeName:
-		def := GetSpxDefinitionForType(obj, pkgDoc)
+		def := r.definitionForType(obj, pkgDoc)
 		if r.enumInfo.typeFor(obj.Type()) != nil {
 			def.CompletionItemKind = EnumCompletion
 		}
@@ -78,11 +72,11 @@ func (r *definitionContext) spxDefinitionsFor(obj gotypes.Object, selectorTypeNa
 		if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 			defs := make([]SpxDefinition, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				defs = append(defs, GetSpxDefinitionForFunc(funcOverload, selectorTypeName, pkgDoc))
+				defs = append(defs, r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc))
 			}
 			return defs
 		}
-		return []SpxDefinition{GetSpxDefinitionForFunc(obj, selectorTypeName, pkgDoc)}
+		return []SpxDefinition{r.definitionForFunc(obj, selectorTypeName, pkgDoc)}
 	case *gotypes.PkgName:
 		return []SpxDefinition{GetSpxDefinitionForPkg(obj, pkgDoc)}
 	}
@@ -107,12 +101,17 @@ func (r *definitionContext) spxDefinitionsForIdent(ident *ast.Ident) []SpxDefini
 	return r.spxDefinitionsFor(obj, SelectorTypeNameForIdent(r.proj, ident))
 }
 
-// spxDefinitionsForNamedStruct returns all spx definitions for the given named
-// struct type.
-func (r *definitionContext) spxDefinitionsForNamedStruct(named *gotypes.Named) []SpxDefinition {
+// spxDefinitionsForStruct returns all spx definitions for the given struct type.
+func (r *definitionContext) spxDefinitionsForStruct(typ gotypes.Type) []SpxDefinition {
 	var defs []SpxDefinition
-	for structMember := range xgoutil.StructMembers(named) {
-		defs = append(defs, r.spxDefinitionsFor(structMember.Member, structMember.Selector.Obj().Name())...)
+	for member := range xgoutil.StructMembers(typ) {
+		var selector string
+		if member.Selector != nil {
+			selector = member.Selector.Obj().Name()
+		} else {
+			selector = memberTypeName(r.proj, member.Member)
+		}
+		defs = append(defs, r.spxDefinitionsFor(member.Member, selector)...)
 	}
 	return defs
 }
@@ -121,13 +120,13 @@ func (r *definitionContext) spxDefinitionsForNamedStruct(named *gotypes.Named) [
 // optional selector type name.
 func (r *definitionContext) spxDefinitionForField(field *gotypes.Var, selectorTypeName string) SpxDefinition {
 	typeInfo, _ := r.proj.TypeInfo()
-	if typeInfo == nil || !xgoutil.IsInMainPkg(field) {
+	if typeInfo == nil || field.Pkg() != typeInfo.Pkg {
 		pkgDoc, _ := r.lookupPkgDoc(xgoutil.PkgPath(field.Pkg()))
-		return GetSpxDefinitionForVar(field, selectorTypeName, false, pkgDoc)
+		return r.definitionForVar(field, selectorTypeName, false, pkgDoc)
 	}
-	defIdent := typeInfo.ObjToDef[field]
+	defIdent := typeInfo.ObjToDef[field.Origin()]
 	if defIdent == nil {
-		return GetSpxDefinitionForVar(field, selectorTypeName, false, nil)
+		return r.definitionForVar(field, selectorTypeName, false, nil)
 	}
 	if selectorTypeName == "" {
 		selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
@@ -135,29 +134,29 @@ func (r *definitionContext) spxDefinitionForField(field *gotypes.Var, selectorTy
 	astPkg, _ := r.proj.ASTPackage()
 	forceVar := xgoutil.IsDefinedInClassFieldsDecl(r.proj.Fset, typeInfo, astPkg, field)
 	pkgDoc, _ := r.proj.PkgDoc()
-	return GetSpxDefinitionForVar(field, selectorTypeName, forceVar, pkgDoc)
+	return r.definitionForVar(field, selectorTypeName, forceVar, pkgDoc)
 }
 
 // spxDefinitionForMethod returns the spx definition for the given method and
 // optional selector type name.
 func (r *definitionContext) spxDefinitionForMethod(method *gotypes.Func, selectorTypeName string) SpxDefinition {
 	typeInfo, _ := r.proj.TypeInfo()
-	if typeInfo == nil || !xgoutil.IsInMainPkg(method) {
+	if typeInfo == nil || method.Pkg() != typeInfo.Pkg {
 		if idx := strings.LastIndex(selectorTypeName, "."); idx >= 0 {
 			selectorTypeName = selectorTypeName[idx+1:]
 		}
 		pkgDoc, _ := r.lookupPkgDoc(xgoutil.PkgPath(method.Pkg()))
-		return GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
+		return r.definitionForFunc(method, selectorTypeName, pkgDoc)
 	}
-	defIdent := typeInfo.ObjToDef[method]
+	defIdent := typeInfo.ObjToDef[method.Origin()]
 	if defIdent == nil {
-		return GetSpxDefinitionForFunc(method, selectorTypeName, nil)
+		return r.definitionForFunc(method, selectorTypeName, nil)
 	}
 	if selectorTypeName == "" {
 		selectorTypeName = SelectorTypeNameForIdent(r.proj, defIdent)
 	}
 	pkgDoc, _ := r.proj.PkgDoc()
-	return GetSpxDefinitionForFunc(method, selectorTypeName, pkgDoc)
+	return r.definitionForFunc(method, selectorTypeName, pkgDoc)
 }
 
 // spxImportsAtASTFilePosition returns the import at the given position in the given AST file.
@@ -188,4 +187,60 @@ func (r *definitionContext) spxImportsAtASTFilePosition(astFile *ast.File, posit
 		}
 	}
 	return nil
+}
+
+// pkgDocForObject resolves documentation from the project or configured lookup.
+func (r *definitionContext) pkgDocForObject(obj gotypes.Object) *pkgdoc.PkgDoc {
+	var doc *pkgdoc.PkgDoc
+	info, _ := r.proj.TypeInfo()
+	if pkgName, ok := obj.(*gotypes.PkgName); ok {
+		doc, _ = r.lookupPkgDoc(pkgName.Imported().Path())
+	} else if info != nil && obj.Pkg() == info.Pkg {
+		doc, _ = r.proj.PkgDoc()
+	} else {
+		doc, _ = r.lookupPkgDoc(xgoutil.PkgPath(obj.Pkg()))
+	}
+	return doc
+}
+
+// definitionForVar describes a variable with documentation from its declaration.
+func (r *definitionContext) definitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, doc *pkgdoc.PkgDoc) SpxDefinition {
+	return r.withSourceDocumentation(v, r.typeDisplay.definitionForVar(v, selectorTypeName, forceVar, doc))
+}
+
+// definitionForConst describes a constant with documentation from its declaration.
+func (r *definitionContext) definitionForConst(c *gotypes.Const, doc *pkgdoc.PkgDoc) SpxDefinition {
+	return r.withSourceDocumentation(c, r.typeDisplay.definitionForConst(c, doc))
+}
+
+// definitionForType describes a type with documentation from its declaration.
+func (r *definitionContext) definitionForType(typ *gotypes.TypeName, doc *pkgdoc.PkgDoc) SpxDefinition {
+	return r.withSourceDocumentation(typ, r.typeDisplay.definitionForType(typ, doc))
+}
+
+// definitionForFunc describes a function using its source declaration, including
+// interface methods whose receiver is recorded as an unnamed interface.
+func (r *definitionContext) definitionForFunc(fun *gotypes.Func, selectorTypeName string, doc *pkgdoc.PkgDoc) SpxDefinition {
+	if owner, field := interfaceMethodDeclaration(r.proj, fun); field != nil {
+		selectorTypeName = owner
+	}
+	return r.withSourceDocumentation(fun, r.typeDisplay.definitionForFunc(fun, selectorTypeName, doc))
+}
+
+// withSourceDocumentation replaces package documentation when the object has a
+// project declaration, even if that declaration has no documentation.
+func (r *definitionContext) withSourceDocumentation(obj gotypes.Object, def SpxDefinition) SpxDefinition {
+	if doc, ok := r.sourceDocumentation(obj); ok {
+		def.Detail = doc
+	}
+	return def
+}
+
+// functionDocumentation resolves documentation for the actual function
+// declaration, including local and anonymous interface methods.
+func (r *definitionContext) functionDocumentation(fun *gotypes.Func) string {
+	if doc, ok := r.sourceDocumentation(fun); ok {
+		return doc
+	}
+	return functionDocumentation(fun, "", r.pkgDocForObject(fun))
 }

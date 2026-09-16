@@ -71,44 +71,15 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		Funcs:  make(map[string]string),
 	}
 
-	for _, v := range docPkg.Vars {
-		for _, name := range v.Names {
-			if token.IsExported(name) {
-				pkgDoc.Vars[name] = v.Doc
-			}
-		}
-	}
-
-	isXGoPackage := false
-	for _, c := range docPkg.Consts {
-		for _, name := range c.Names {
-			if token.IsExported(name) {
-				pkgDoc.Consts[name] = c.Doc
-				if xgoutil.IsXGoPackageMarkerName(name) {
-					isXGoPackage = true
-				}
-			}
-		}
-	}
-
+	vars, consts, funcs := docPkg.Vars, docPkg.Consts, docPkg.Funcs
 	for _, t := range docPkg.Types {
+		// go/doc associates declarations with their type, including exported
+		// declarations whose type is unexported.
+		vars = append(vars, t.Vars...)
+		consts = append(consts, t.Consts...)
+		funcs = append(funcs, t.Funcs...)
 		if !token.IsExported(t.Name) {
 			continue
-		}
-
-		for _, v := range t.Vars {
-			for _, name := range v.Names {
-				if token.IsExported(name) {
-					pkgDoc.Vars[name] = v.Doc
-				}
-			}
-		}
-		for _, c := range t.Consts {
-			for _, name := range c.Names {
-				if token.IsExported(name) {
-					pkgDoc.Consts[name] = c.Doc
-				}
-			}
 		}
 
 		typeDoc := pkgDoc.typeDoc(t.Name)
@@ -118,19 +89,30 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 			if !ok {
 				continue
 			}
-			structType, ok := typeSpec.Type.(*goast.StructType)
-			if !ok {
-				continue
-			}
-			for _, field := range structType.Fields.List {
-				if len(field.Names) == 0 {
-					if ident, ok := field.Type.(*goast.Ident); ok && token.IsExported(ident.Name) {
-						typeDoc.Fields[ident.Name] = field.Doc.Text()
+			switch typ := typeSpec.Type.(type) {
+			case *goast.StructType:
+				for _, field := range typ.Fields.List {
+					doc := field.Doc.Text()
+					if doc == "" {
+						doc = field.Comment.Text()
 					}
-				} else {
+					if len(field.Names) == 0 {
+						if name := goEmbeddedFieldName(field.Type); token.IsExported(name) {
+							typeDoc.Fields[name] = doc
+						}
+						continue
+					}
 					for _, name := range field.Names {
 						if token.IsExported(name.Name) {
-							typeDoc.Fields[name.Name] = field.Doc.Text()
+							typeDoc.Fields[name.Name] = doc
+						}
+					}
+				}
+			case *goast.InterfaceType:
+				for _, method := range typ.Methods.List {
+					for _, name := range method.Names {
+						if token.IsExported(name.Name) {
+							typeDoc.Methods[name.Name] = method.Doc.Text()
 						}
 					}
 				}
@@ -143,7 +125,25 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		}
 	}
 
-	for _, f := range docPkg.Funcs {
+	for _, v := range vars {
+		for _, name := range v.Names {
+			if token.IsExported(name) {
+				pkgDoc.Vars[name] = v.Doc
+			}
+		}
+	}
+	isXGoPackage := false
+	for _, c := range consts {
+		for _, name := range c.Names {
+			if token.IsExported(name) {
+				pkgDoc.Consts[name] = c.Doc
+				if xgoutil.IsXGoPackageMarkerName(name) {
+					isXGoPackage = true
+				}
+			}
+		}
+	}
+	for _, f := range funcs {
 		if !token.IsExported(f.Name) {
 			continue
 		}
@@ -151,8 +151,7 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		if !isXGoPackage {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(f.Name, xgoutil.XGotPrefix):
+		if strings.HasPrefix(f.Name, xgoutil.XGotPrefix) {
 			recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(f.Name, true)
 			if !ok {
 				continue
@@ -162,4 +161,24 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 	}
 
 	return pkgDoc
+}
+
+// goEmbeddedFieldName returns the field name of an embedded Go type.
+func goEmbeddedFieldName(expr goast.Expr) string {
+	for {
+		switch typ := expr.(type) {
+		case *goast.Ident:
+			return typ.Name
+		case *goast.SelectorExpr:
+			return typ.Sel.Name
+		case *goast.StarExpr:
+			expr = typ.X
+		case *goast.IndexExpr:
+			expr = typ.X
+		case *goast.IndexListExpr:
+			expr = typ.X
+		default:
+			return ""
+		}
+	}
 }

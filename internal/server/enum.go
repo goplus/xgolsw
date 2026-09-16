@@ -1197,7 +1197,7 @@ func (r *definitionContext) spxDefinitionForEnumMembers(members ...*enumMemberIn
 	var def SpxDefinition
 	for _, member := range members {
 		if member.object != nil {
-			def = GetSpxDefinitionForConst(member.object, nil)
+			def = r.definitionForConst(member.object, nil)
 			break
 		}
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	gotypes "go/types"
 	"io/fs"
 	"testing"
 
@@ -12,6 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type testImporterFunc func(string) (*gotypes.Package, error)
+
+func (f testImporterFunc) Import(pkgPath string) (*gotypes.Package, error) {
+	return f(pkgPath)
+}
 
 type testServerFactory func(testing.TB, map[string][]byte) *Server
 

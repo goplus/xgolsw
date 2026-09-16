@@ -60,6 +60,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	ctx := &completionContext{
 		definitionContext: definitionContext{
 			proj:         proj,
+			typeDisplay:  newTypeDisplay(proj, astFile, pos),
 			enumInfo:     newEnumInfo(astPkg, typeInfo),
 			lookupPkgDoc: s.lookupPkgDoc,
 		},
@@ -201,7 +202,7 @@ func (ctx *completionContext) analyze() {
 					continue
 				}
 			}
-			typ = xgoutil.DerefType(typ)
+			typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
 
 			// Skip map literals, as they should use general completion to allow
 			// variable suggestions inside the literal.
@@ -228,11 +229,10 @@ func (ctx *completionContext) analyze() {
 			}
 
 			named := resolvedNamedType(typ)
-			if named == nil {
-				continue
+			if named != nil {
+				typ = named
 			}
-			typ = named
-			st, ok := named.Underlying().(*gotypes.Struct)
+			st, ok := typ.Underlying().(*gotypes.Struct)
 			if !ok {
 				continue
 			}
@@ -241,18 +241,28 @@ func (ctx *completionContext) analyze() {
 			// If so, we want general completion for the value, not struct field completion.
 			inFieldValue := false
 			for _, elt := range node.Elts {
-				if kv, ok := elt.(*ast.KeyValueExpr); ok {
-					// Check if cursor is in the value part of the key-value pair.
-					if kv.Colon < ctx.pos && ctx.pos <= kv.Value.End() {
-						inFieldValue = true
-						break
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok || ctx.pos <= kv.Colon || ctx.pos > kv.Value.End() {
+					continue
+				}
+				inFieldValue = true
+				ctx.expectedTypes = nil
+				if key, ok := kv.Key.(*ast.Ident); ok {
+					for field := range st.Fields() {
+						if field.Name() == key.Name {
+							ctx.expectedTypes = []gotypes.Type{field.Type()}
+							break
+						}
 					}
 				}
+				break
 			}
 
 			if inFieldValue {
 				// Don't set struct literal context for field values.
+				ctx.kind = completionKindGeneral
 				ctx.valueExpression = true
+				ctx.expectedFuncResultCount = 0
 				continue
 			}
 
@@ -1105,7 +1115,7 @@ func (ctx *completionContext) collectGeneral() error {
 			if !ok || !xgoutil.IsNamedStructType(named) {
 				continue
 			}
-			for _, def := range ctx.spxDefinitionsForNamedStruct(named) {
+			for _, def := range ctx.spxDefinitionsForStruct(named) {
 				if ctx.inSpxEventHandler && def.ID.Name != nil {
 					name := *def.ID.Name
 					if idx := strings.LastIndex(name, "."); idx >= 0 {
@@ -1166,7 +1176,7 @@ func (ctx *completionContext) collectGeneral() error {
 			}
 		}
 	}
-	ctx.itemSet.addSpxDefs(builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
+	ctx.itemSet.addSpxDefs(ctx.builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
 	ctx.itemSet.addSpxDefs(GeneralSpxDefinitions...)
 	if ctx.innermostScope == ctx.astFileScope {
 		ctx.itemSet.addSpxDefs(FileScopeSpxDefinitions...)
@@ -1226,7 +1236,7 @@ func (ctx *completionContext) collectDot() error {
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
-	typ = xgoutil.DerefType(typ)
+	typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
 	named := resolvedNamedType(typ)
 	if named != nil {
 		if IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
@@ -1237,8 +1247,8 @@ func (ctx *completionContext) collectDot() error {
 
 	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
 		ctx.collectInterfaceMethodCompletions(iface, named, nil)
-	} else if named != nil && xgoutil.IsNamedStructType(named) {
-		ctx.itemSet.addSpxDefs(ctx.spxDefinitionsForNamedStruct(named)...)
+	} else if _, ok := typ.Underlying().(*gotypes.Struct); ok {
+		ctx.itemSet.addSpxDefs(ctx.spxDefinitionsForStruct(typ)...)
 	}
 	return nil
 }
@@ -1380,7 +1390,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
 		pkgDoc, _ = ctx.lookupPkgDoc(xgoutil.PkgPath(pkg))
 	}
 
-	ctx.itemSet.addSpxDefs(GetSpxDefinitionsForPkg(pkg, pkgDoc)...)
+	ctx.itemSet.addSpxDefs(ctx.definitionsForPkg(pkg, pkgDoc)...)
 }
 
 // collectCall collects function call completions.
@@ -1663,7 +1673,7 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 			ctx.itemSet.add(CompletionItem{
 				Label:      spec.Name,
 				Kind:       UnitCompletion,
-				Detail:     GetSimplifiedTypeString(spec.SourceType),
+				Detail:     ctx.typeString(spec.SourceType),
 				FilterText: filterPrefix + spec.Name,
 				Documentation: completionDocumentation(markupContent(
 					ctx.itemSet.documentationKind,
@@ -1711,13 +1721,13 @@ func (ctx *completionContext) currentXGoUnitCompletionRange() (Range, string, bo
 
 // collectStructLit collects struct literal completions.
 func (ctx *completionContext) collectStructLit() error {
-	if ctx.expectedStructType == nil || ctx.compositeLitType == nil {
+	if ctx.expectedStructType == nil {
 		return nil
 	}
 
-	selectorTypeName := ctx.compositeLitType.Obj().Name()
-	if IsInSpxPkg(ctx.compositeLitType.Obj()) && selectorTypeName == "SpriteImpl" {
-		selectorTypeName = "Sprite"
+	var selectorTypeName string
+	if ctx.compositeLitType != nil {
+		selectorTypeName = extractTypeName(ctx.compositeLitType)
 	}
 
 	seenFields := make(map[string]struct{})
@@ -1796,7 +1806,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 		}
 
 		if gotypes.Identical(c.Type(), typ) {
-			ctx.itemSet.addSpxDefs(GetSpxDefinitionForConst(c, pkgDoc))
+			ctx.itemSet.addSpxDefs(ctx.definitionForConst(c, pkgDoc))
 		}
 	}
 	return nil

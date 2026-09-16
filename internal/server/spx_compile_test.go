@@ -78,7 +78,7 @@ worker.use names = (["Known", "Missing"])
 				)
 				pkg.Scope().Insert(gotypes.NewFunc(token.NoPos, pkg, "Play", gotypes.NewSignatureType(nil, nil, nil, params, nil, false)))
 				pkg.MarkComplete()
-				proj.Importer = inputSlotTestImporter(func(path string) (*gotypes.Package, error) {
+				proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
 					if path == pkg.Path() {
 						return pkg, nil
 					}

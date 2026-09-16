@@ -26,7 +26,8 @@ import (
 type StructMember struct {
 	// Member is the field or method object yielded from the traversal.
 	Member gotypes.Object
-	// Selector is the named type used to select Member.
+	// Selector is the named type used to select Member, or nil for a direct
+	// field of an unnamed struct.
 	Selector *gotypes.Named
 }
 
@@ -65,25 +66,31 @@ func IsXGoClassStructType(named *gotypes.Named) bool {
 }
 
 // StructMembers returns an iterator over exported or main-package struct fields
-// and methods. It includes embedded struct members in depth-first order and
-// skips shadowed member names.
-func StructMembers(named *gotypes.Named) iter.Seq[StructMember] {
+// and methods of a named or unnamed struct. It includes embedded members in
+// XGo's depth-first lookup order and skips shadowed member names.
+func StructMembers(typ gotypes.Type) iter.Seq[StructMember] {
 	return func(yield func(StructMember) bool) {
-		if named == nil {
+		switch typ := typ.(type) {
+		case *gotypes.Named:
+			if !IsNamedStructType(typ) {
+				return
+			}
+		case *gotypes.Struct:
+		default:
 			return
 		}
-		walked := make(map[*gotypes.Named]struct{})
+		walked := make(map[gotypes.Type]struct{})
 		seenMembers := make(map[string]struct{})
-		var walk func(named *gotypes.Named, namedPath []*gotypes.Named) bool
-		walk = func(named *gotypes.Named, namedPath []*gotypes.Named) bool {
-			if _, ok := walked[named]; ok {
+		var walk func(gotypes.Type, []*gotypes.Named) bool
+		walk = func(typ gotypes.Type, namedPath []*gotypes.Named) bool {
+			typ = gotypes.Unalias(DerefType(gotypes.Unalias(typ)))
+			if _, ok := walked[typ]; ok {
 				return true
 			}
-			walked[named] = struct{}{}
-
-			st, ok := named.Underlying().(*gotypes.Struct)
-			if !ok {
-				return true
+			walked[typ] = struct{}{}
+			named, _ := typ.(*gotypes.Named)
+			if named != nil {
+				namedPath = append(namedPath, named)
 			}
 
 			selector := named
@@ -105,32 +112,41 @@ func StructMembers(named *gotypes.Named) iter.Seq[StructMember] {
 				return yield(StructMember{Member: member, Selector: selector})
 			}
 
-			for field := range st.Fields() {
-				if !yieldMember(field) {
-					return false
+			if st, ok := typ.Underlying().(*gotypes.Struct); ok {
+				for field := range st.Fields() {
+					if !yieldMember(field) {
+						return false
+					}
 				}
 			}
-			for method := range named.Methods() {
-				if !yieldMember(method) {
-					return false
+			if named != nil {
+				for method := range named.Methods() {
+					if !yieldMember(method) {
+						return false
+					}
 				}
 			}
-			for field := range st.Fields() {
-				if !field.Embedded() {
-					continue
+			switch underlying := typ.Underlying().(type) {
+			case *gotypes.Struct:
+				for field := range underlying.Fields() {
+					if field.Embedded() && !walk(field.Type(), namedPath) {
+						return false
+					}
 				}
-				fieldType := DerefType(field.Type())
-				namedField, ok := fieldType.(*gotypes.Named)
-				if !ok || !IsNamedStructType(namedField) {
-					continue
+			case *gotypes.Interface:
+				for method := range underlying.ExplicitMethods() {
+					if !yieldMember(method) {
+						return false
+					}
 				}
-
-				if !walk(namedField, append(namedPath, namedField)) {
-					return false
+				for embedded := range underlying.EmbeddedTypes() {
+					if !walk(embedded, namedPath) {
+						return false
+					}
 				}
 			}
 			return true
 		}
-		walk(named, []*gotypes.Named{named})
+		walk(typ, nil)
 	}
 }

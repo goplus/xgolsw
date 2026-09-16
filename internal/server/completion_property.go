@@ -13,8 +13,7 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 		return
 	}
 
-	mainPkgDoc, _ := ctx.proj.PkgDoc()
-	for m := range propertyMembers(namedType, makePkgDocFor(mainPkgDoc, ctx.lookupPkgDoc)) {
+	for m := range ctx.propertyMembers(namedType) {
 		key := m.SpxDef.ID.String()
 		if _, seen := ctx.itemSet.seenSpxDefs[key]; seen {
 			continue

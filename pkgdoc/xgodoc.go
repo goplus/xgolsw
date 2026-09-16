@@ -65,17 +65,11 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					var doc string
 					switch spec := spec.(type) {
 					case *ast.ValueSpec:
-						if spec.Doc != nil {
-							doc = spec.Doc.Text()
-						}
+						doc = spec.Doc.Text()
 					case *ast.TypeSpec:
-						if spec.Doc != nil {
-							doc = spec.Doc.Text()
-						}
+						doc = spec.Doc.Text()
 					case *ast.ImportSpec:
-						if spec.Doc != nil {
-							doc = spec.Doc.Text()
-						}
+						doc = spec.Doc.Text()
 					}
 					if doc == "" && decl.Doc != nil && len(decl.Specs) == 1 {
 						doc = decl.Doc.Text()
@@ -96,31 +90,33 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 							}
 						}
 					case *ast.TypeSpec:
+						typeDoc := pkgDoc.typeDoc(spec.Name.Name)
+						typeDoc.Doc = doc
 						switch typ := spec.Type.(type) {
 						case *ast.StructType:
-							typeDoc := pkgDoc.typeDoc(spec.Name.Name)
-							typeDoc.Doc = doc
 							for _, field := range typ.Fields.List {
-								fieldDoc := ""
-								if field.Doc != nil {
-									fieldDoc = field.Doc.Text()
+								fieldDoc := field.Doc.Text()
+								if fieldDoc == "" {
+									fieldDoc = field.Comment.Text()
 								}
 
 								if len(field.Names) == 0 {
-									ident, ok := field.Type.(*ast.Ident)
-									if !ok {
-										continue
+									if name := embeddedFieldName(field.Type); name != "" {
+										typeDoc.Fields[name] = fieldDoc
 									}
-									typeDoc.Fields[ident.Name] = fieldDoc
-								} else {
-									for _, name := range field.Names {
-										typeDoc.Fields[name.Name] = fieldDoc
-									}
+									continue
+								}
+								for _, name := range field.Names {
+									typeDoc.Fields[name.Name] = fieldDoc
+								}
+							}
+						case *ast.InterfaceType:
+							for _, method := range typ.Methods.List {
+								for _, name := range method.Names {
+									typeDoc.Methods[name.Name] = method.Doc.Text()
 								}
 							}
 						case *ast.EnumType:
-							typeDoc := pkgDoc.typeDoc(spec.Name.Name)
-							typeDoc.Doc = doc
 							for _, enumSpec := range typ.Specs {
 								valueSpec := enumSpec.(*ast.ValueSpec)
 								var valueDoc string
@@ -176,4 +172,24 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 	}
 
 	return pkgDoc
+}
+
+// embeddedFieldName returns the field name of an embedded XGo type.
+func embeddedFieldName(expr ast.Expr) string {
+	for {
+		switch typ := expr.(type) {
+		case *ast.Ident:
+			return typ.Name
+		case *ast.SelectorExpr:
+			return typ.Sel.Name
+		case *ast.StarExpr:
+			expr = typ.X
+		case *ast.IndexExpr:
+			expr = typ.X
+		case *ast.IndexListExpr:
+			expr = typ.X
+		default:
+			return ""
+		}
+	}
 }

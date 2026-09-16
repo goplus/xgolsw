@@ -215,7 +215,7 @@ onValue value => {
 				assert.Equal(t, "xgo:main?Params.Count", data.Definition.String())
 				require.NotNil(t, item.Documentation)
 				doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
-				assert.Contains(t, doc.Value, "func Count(n int) main.Params")
+				assert.Contains(t, doc.Value, "func Count(n int) Params")
 			})
 		}
 	})
