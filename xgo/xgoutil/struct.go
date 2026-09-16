@@ -40,35 +40,12 @@ func IsNamedStructType(named *gotypes.Named) bool {
 	return ok
 }
 
-// IsXGoClassStructType reports whether the given named type is an XGo class struct type.
-func IsXGoClassStructType(named *gotypes.Named) bool {
-	if named == nil {
-		return false
-	}
-	obj := named.Obj()
-	if obj == nil {
-		return false
-	}
-	pkg := obj.Pkg()
-	if !IsMarkedAsXGoPackage(pkg) {
-		return false
-	}
-
-	// FIXME: This is a workaround for the fact that XGo does not have the ability to
-	// recognize XGo class struct types.
-	switch PkgPath(pkg) + "." + obj.Name() {
-	case "github.com/goplus/spx/v3.Game",
-		"github.com/goplus/spx/v3.SpriteImpl":
-		return true
-	}
-
-	return false
-}
-
 // StructMembers returns an iterator over exported or main-package struct fields
 // and methods of a named or unnamed struct. It includes embedded members in
-// XGo's depth-first lookup order and skips shadowed member names.
-func StructMembers(typ gotypes.Type) iter.Seq[StructMember] {
+// XGo's depth-first lookup order and skips shadowed member names. If non-nil,
+// selectorBoundary identifies types whose members should retain that selector
+// while traversing their embedded types.
+func StructMembers(typ gotypes.Type, selectorBoundary func(*gotypes.Named) bool) iter.Seq[StructMember] {
 	return func(yield func(StructMember) bool) {
 		switch typ := typ.(type) {
 		case *gotypes.Named:
@@ -99,7 +76,7 @@ func StructMembers(typ gotypes.Type) iter.Seq[StructMember] {
 					break
 				}
 				selector = selectorNamed
-				if IsXGoClassStructType(selector) {
+				if selectorBoundary != nil && selectorBoundary(selector) {
 					break
 				}
 			}

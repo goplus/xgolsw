@@ -32,15 +32,24 @@ var spxProject = &modfile.Project{
 	Works:    []*modfile.Class{{Ext: ".spx", Class: "SpriteImpl", Embedded: true}},
 }
 
+// defaultModule supplies the initial module for new projects.
+var defaultModule *Module
+
 func init() {
 	modload.Default.Opt.Projects = append(modload.Default.Opt.Projects, spxProject)
 	if err := xgomod.Default.ImportClasses(); err != nil {
 		panic(err)
 	}
+	var err error
+	defaultModule, err = NewModule(modload.Default)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // SetClassfileAutoImportedPackages sets the auto-imported packages for the
-// classfile specified by id.
+// classfile specified by id in subsequently created projects. Existing projects
+// and their snapshots retain their loaded module configuration.
 func SetClassfileAutoImportedPackages(id string, pkgs map[string]string) {
 	if id != "spx" {
 		panic(fmt.Sprintf("unknown classfile id: %s", id))
@@ -52,4 +61,9 @@ func SetClassfileAutoImportedPackages(id string, pkgs map[string]string) {
 	}
 
 	spxProject.Import = imports
+	var err error
+	defaultModule, err = NewModule(modload.Default)
+	if err != nil {
+		panic(err)
+	}
 }

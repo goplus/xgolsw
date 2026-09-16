@@ -20,8 +20,8 @@ func TestNewServer(t *testing.T) {
 		files := map[string][]byte{"main_fixture.gox": []byte("var Count = measure(1)\n")}
 		proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 		proj.PkgPath = "example.com/project"
-		mod := testframework.NewModule(t)
-		proj.Mod = mod
+		mod := newTestModule(t, testframework.NewModule(t).Module)
+		proj.SetModule(mod)
 		importer := testframework.NewImporter(t, proj.Fset)
 		proj.Importer = importer
 		typeInfo, err := proj.TypeInfo()
@@ -33,7 +33,7 @@ func TestNewServer(t *testing.T) {
 		)
 		assert.Same(t, proj, s.getProj())
 		assert.Equal(t, "example.com/project", proj.PkgPath)
-		assert.Same(t, mod, proj.Mod)
+		assert.Same(t, mod, proj.Module())
 		assert.Same(t, importer, proj.Importer)
 		gotTypeInfo, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
@@ -61,12 +61,12 @@ func TestNewServer(t *testing.T) {
 			}
 			proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 			proj.PkgPath = "main"
-			proj.Mod = testframework.NewModule(t)
-			class := proj.Mod.Opt.Projects[0]
+			mod := testframework.NewModule(t)
+			class := mod.Opt.Projects[0]
 			class.Ext = "_" + name + ".gox"
 			class.FullExt = filename
 			class.Works[0].Ext = class.Ext
-			require.NoError(t, proj.Mod.ImportClasses())
+			proj.SetModule(newTestModule(t, mod.Module))
 			proj.Importer = testframework.NewImporter(t, proj.Fset)
 			framework, err := proj.Importer.Import(testframework.PkgPath)
 			require.NoError(t, err)
@@ -143,8 +143,8 @@ func TestNewTestServer(t *testing.T) {
 			t.Helper()
 
 			proj := s.getProj()
-			assert.False(t, proj.Mod.IsClass("_fixture.gox"))
-			assert.False(t, proj.Mod.IsClass(".spx"))
+			assert.False(t, proj.Module().IsClass("_fixture.gox"))
+			assert.False(t, proj.Module().IsClass(".spx"))
 			_, err := proj.TypeInfo()
 			require.NoError(t, err)
 			_, err = proj.Importer.Import(testframework.PkgPath)

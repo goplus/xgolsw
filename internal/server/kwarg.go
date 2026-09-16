@@ -15,16 +15,16 @@ import (
 
 // kwargNameTarget describes the symbol targeted by a kwarg name in source.
 type kwargNameTarget struct {
-	ident            *ast.Ident
-	obj              gotypes.Object
-	selectorTypeName string
+	ident    *ast.Ident
+	obj      gotypes.Object
+	receiver gotypes.Type
 }
 
-// callExprKwargTarget retains the selector type name for a resolved kwarg.
+// callExprKwargTarget retains the receiver type for a resolved kwarg.
 // A field object alone cannot distinguish types sharing an underlying struct.
 type callExprKwargTarget struct {
-	target           *xgoutil.ResolvedCallExprKwargTarget
-	selectorTypeName string
+	target   *xgoutil.ResolvedCallExprKwargTarget
+	receiver gotypes.Type
 }
 
 // objectAtPosition resolves the identifier, object, and kwarg target at
@@ -91,9 +91,9 @@ func kwargNameTargetForPath(typeInfo *types.Info, path []ast.Node, kwargExpr *as
 	}
 
 	return &kwargNameTarget{
-		ident:            ident,
-		obj:              obj,
-		selectorTypeName: target.selectorTypeName,
+		ident:    ident,
+		obj:      obj,
+		receiver: target.receiver,
 	}
 }
 
@@ -269,7 +269,7 @@ func lookupCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.CallExpr, na
 		if target == nil {
 			return nil
 		}
-		return []callExprKwargTarget{{target: target, selectorTypeName: kwargSelectorTypeName(kwarg)}}
+		return []callExprKwargTarget{{target: target, receiver: kwarg.Param.Type()}}
 	}
 	return lookupOverloadCallExprKwargTargets(typeInfo, callExpr, name)
 }
@@ -291,7 +291,7 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 		if target == nil || !overloadMatchesCallExpr(typeInfo, callExpr, overload, -1) {
 			continue
 		}
-		targets = append(targets, callExprKwargTarget{target: target, selectorTypeName: kwargSelectorTypeName(kwarg)})
+		targets = append(targets, callExprKwargTarget{target: target, receiver: kwarg.Param.Type()})
 	}
 	return targets
 }

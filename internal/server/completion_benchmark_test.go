@@ -1,10 +1,51 @@
 package server
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func BenchmarkServerTextDocumentCompletionMembers(b *testing.B) {
+	for _, size := range []int{16, 128, 512} {
+		for _, kind := range []string{"StructLiteral", "Kwargs"} {
+			b.Run(fmt.Sprintf("%s/Fields%d", kind, size), func(b *testing.B) {
+				var source strings.Builder
+				source.WriteString("type Options struct {\n")
+				for i := range size {
+					fmt.Fprintf(&source, "Field%d int\n", i)
+				}
+				source.WriteString("}\n")
+				var position Position
+				if kind == "StructLiteral" {
+					source.WriteString("value := Options{}\necho value\n")
+					position = Position{Line: uint32(size + 2), Character: uint32(len("value := Options{"))}
+				} else {
+					source.WriteString("func configure(opts Options?) {}\nconfigure field = 0\n")
+					position = Position{Line: uint32(size + 3), Character: uint32(len("configure field"))}
+				}
+				s := newTestServer(b, map[string][]byte{"main.xgo": []byte(source.String())})
+				params := &CompletionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: position,
+				}}
+				result, err := s.textDocumentCompletion(params)
+				require.NoError(b, err)
+				items, ok := result.([]CompletionItem)
+				require.True(b, ok)
+				require.Len(b, items, size)
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					_, err := s.textDocumentCompletion(params)
+					require.NoError(b, err)
+				}
+			})
+		}
+	}
+}
 
 func BenchmarkServerTextDocumentCompletionPackages(b *testing.B) {
 	for _, tt := range []struct {

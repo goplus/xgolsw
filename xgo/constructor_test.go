@@ -20,8 +20,8 @@ func TestNewTestProject(t *testing.T) {
 	check := func(proj *Project) {
 		t.Helper()
 
-		assert.False(t, proj.Mod.IsClass("_fixture.gox"))
-		assert.False(t, proj.Mod.IsClass(".spx"))
+		assert.False(t, proj.Module().IsClass("_fixture.gox"))
+		assert.False(t, proj.Module().IsClass(".spx"))
 		_, err := proj.Importer.Import(testframework.PkgPath)
 		assert.ErrorIs(t, err, fs.ErrNotExist)
 		astPkg, err := proj.ASTPackage()
@@ -66,7 +66,7 @@ func TestNewFrameworkTestProject(t *testing.T) {
 	}
 	first := newFrameworkTestProject(t, files, FeatAll)
 	second := newFrameworkTestProject(t, files, FeatAll)
-	assert.NotSame(t, first.Mod, second.Mod)
+	assert.NotSame(t, first.Module(), second.Module())
 	assert.NotSame(t, first.Importer, second.Importer)
 	assert.NotSame(t, first.Fset, second.Fset)
 	firstTypes, err := first.TypeInfo()

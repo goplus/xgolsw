@@ -25,8 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const spxPkgPath = "github.com/goplus/spx/v3"
-
 func TestIsNamedStructType(t *testing.T) {
 	t.Run("NilNamedType", func(t *testing.T) {
 		var named *gotypes.Named
@@ -95,89 +93,43 @@ func TestIsNamedStructType(t *testing.T) {
 	})
 }
 
-func TestIsXGoClassStructType(t *testing.T) {
-	t.Run("NilNamedType", func(t *testing.T) {
-		var named *gotypes.Named
-		assert.False(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("NamedTypeWithNilObject", func(t *testing.T) {
-		named := &gotypes.Named{}
-		assert.False(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("NonXGoPackage", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "Game", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.False(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("XGoPackageWithNonClassType", func(t *testing.T) {
-		pkg := gotypes.NewPackage("test", "test")
-
-		// Mark package as XGo package.
-		markAsXGoPackage(pkg)
-
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "SomeOtherType", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.False(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("SpxGameType", func(t *testing.T) {
-		pkg := gotypes.NewPackage(spxPkgPath, "spx")
-
-		// Mark package as XGo package.
-		markAsXGoPackage(pkg)
-
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "Game", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.True(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("SpxSpriteImplType", func(t *testing.T) {
-		pkg := gotypes.NewPackage(spxPkgPath, "spx")
-
-		// Mark package as XGo package.
-		markAsXGoPackage(pkg)
-
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "SpriteImpl", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.True(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("SpxGameTypeInNonXGoPackage", func(t *testing.T) {
-		pkg := gotypes.NewPackage(spxPkgPath, "spx")
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "Game", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.False(t, IsXGoClassStructType(named))
-	})
-
-	t.Run("XGoPackageWithDifferentSpxType", func(t *testing.T) {
-		pkg := gotypes.NewPackage(spxPkgPath, "spx")
-
-		// Mark package as XGo package.
-		markAsXGoPackage(pkg)
-
-		structType := gotypes.NewStruct([]*gotypes.Var{}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "Sprite", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-		assert.False(t, IsXGoClassStructType(named))
-	})
-}
-
 func TestStructMembers(t *testing.T) {
+	t.Run("SelectorBoundary", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/framework", "framework")
+		field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		inner := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Base", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
+		app := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "App", nil), gotypes.NewStruct([]*gotypes.Var{
+			gotypes.NewField(token.NoPos, pkg, "Base", gotypes.NewPointer(inner), true),
+		}, nil), nil)
+		outer := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Outer", nil), gotypes.NewStruct([]*gotypes.Var{
+			gotypes.NewField(token.NoPos, pkg, "App", app, true),
+		}, nil), nil)
+		for _, tt := range []struct {
+			name     string
+			boundary func(*gotypes.Named) bool
+			want     *gotypes.Named
+		}{
+			{name: "OrdinaryEmbedding", want: inner},
+			{name: "Boundary", boundary: func(named *gotypes.Named) bool { return named == app }, want: app},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				var members []StructMember
+				for member := range StructMembers(outer, tt.boundary) {
+					members = append(members, member)
+				}
+				require.Len(t, members, 3)
+				assert.Same(t, field, members[2].Member)
+				assert.Same(t, tt.want, members[2].Selector)
+			})
+		}
+	})
+
 	t.Run("UnnamedStruct", func(t *testing.T) {
 		pkg := gotypes.NewPackage("main", "main")
 		field := gotypes.NewField(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int], false)
 		typ := gotypes.NewStruct([]*gotypes.Var{field}, nil)
 		var members []StructMember
-		for member := range StructMembers(typ) {
+		for member := range StructMembers(typ, nil) {
 			members = append(members, member)
 		}
 		require.Len(t, members, 1)
@@ -202,7 +154,7 @@ func TestStructMembers(t *testing.T) {
 				embedded := gotypes.NewField(token.NoPos, pkg, "Alias", alias, true)
 				outer := gotypes.NewStruct([]*gotypes.Var{embedded}, nil)
 				var members []StructMember
-				for member := range StructMembers(outer) {
+				for member := range StructMembers(outer, nil) {
 					members = append(members, member)
 					if stopEarly && member.Member == first {
 						break
@@ -222,7 +174,7 @@ func TestStructMembers(t *testing.T) {
 			named  *gotypes.Named
 			called bool
 		)
-		for range StructMembers(named) {
+		for range StructMembers(named, nil) {
 			called = true
 		}
 		assert.False(t, called)
@@ -234,7 +186,7 @@ func TestStructMembers(t *testing.T) {
 		named := gotypes.NewNamed(typeName, gotypes.Typ[gotypes.Int], nil)
 
 		var called bool
-		for range StructMembers(named) {
+		for range StructMembers(named, nil) {
 			called = true
 		}
 		assert.False(t, called)
@@ -247,7 +199,7 @@ func TestStructMembers(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var called bool
-		for range StructMembers(named) {
+		for range StructMembers(named, nil) {
 			called = true
 		}
 		assert.False(t, called)
@@ -265,7 +217,7 @@ func TestStructMembers(t *testing.T) {
 			members   []gotypes.Object
 			selectors []*gotypes.Named
 		)
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 			selectors = append(selectors, structMember.Selector)
 		}
@@ -291,7 +243,7 @@ func TestStructMembers(t *testing.T) {
 		named.AddMethod(method)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 		}
 		require.Len(t, members, 1)
@@ -309,7 +261,7 @@ func TestStructMembers(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "Method2", signature))
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 			break
 		}
@@ -329,7 +281,7 @@ func TestStructMembers(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "unexportedMethod", signature))
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 		}
 
@@ -353,7 +305,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember.Member)
 		}
 		require.Len(t, members, 3)
@@ -375,7 +327,7 @@ func TestStructMembers(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 			break
 		}
@@ -407,7 +359,7 @@ func TestStructMembers(t *testing.T) {
 		namedB.SetUnderlying(structBTypeWithA)
 
 		var callCount int
-		for range StructMembers(namedA) {
+		for range StructMembers(namedA, nil) {
 			callCount++
 		}
 		assert.GreaterOrEqual(t, callCount, 0) // Should not cause infinite recursion.
@@ -422,7 +374,7 @@ func TestStructMembers(t *testing.T) {
 		named := gotypes.NewNamed(typeName, structType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 		}
 
@@ -447,7 +399,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember.Member)
 		}
 
@@ -484,7 +436,7 @@ func TestStructMembers(t *testing.T) {
 		named.AddMethod(gotypes.NewFunc(token.NoPos, pkg, "SameName", signature))
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(named) {
+		for structMember := range StructMembers(named, nil) {
 			members = append(members, structMember.Member)
 		}
 
@@ -493,25 +445,6 @@ func TestStructMembers(t *testing.T) {
 		assert.Equal(t, gotypes.Typ[gotypes.Int], members[0].Type())
 	})
 
-	t.Run("XGoClassStructSelector", func(t *testing.T) {
-		pkg := gotypes.NewPackage(spxPkgPath, "spx")
-
-		// Mark package as XGo package.
-		markAsXGoPackage(pkg)
-
-		// Create XGo class struct.
-		field := gotypes.NewField(token.NoPos, pkg, "TestField", gotypes.Typ[gotypes.String], false)
-		structType := gotypes.NewStruct([]*gotypes.Var{field}, []string{})
-		typeName := gotypes.NewTypeName(token.NoPos, pkg, "Game", structType)
-		named := gotypes.NewNamed(typeName, structType, nil)
-
-		var selectors []*gotypes.Named
-		for structMember := range StructMembers(named) {
-			selectors = append(selectors, structMember.Selector)
-		}
-		require.Len(t, selectors, 1)
-		assert.Equal(t, named, selectors[0])
-	})
 	t.Run("EmbeddedPointerStruct", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 
@@ -530,7 +463,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember.Member)
 		}
 		require.Len(t, members, 3)
@@ -557,7 +490,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []StructMember
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember)
 		}
 
@@ -580,7 +513,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []gotypes.Object
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember.Member)
 		}
 
@@ -603,7 +536,7 @@ func TestStructMembers(t *testing.T) {
 		mainNamed := gotypes.NewNamed(mainTypeName, mainStructType, nil)
 
 		var members []string
-		for structMember := range StructMembers(mainNamed) {
+		for structMember := range StructMembers(mainNamed, nil) {
 			members = append(members, structMember.Member.Name())
 			if structMember.Member.Name() == "EmbeddedField" {
 				break

@@ -26,6 +26,75 @@ func (i completionTestImporter) Import(pkgPath string) (*gotypes.Package, error)
 }
 
 func TestServerTextDocumentCompletionSymbols(t *testing.T) {
+	t.Run("BuiltinKinds", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("\n")})
+		items := completionItemsAt(t, s, "main.xgo", Position{})
+		for _, tt := range []struct {
+			label string
+			kind  CompletionItemKind
+		}{
+			{label: "nil", kind: VariableCompletion},
+			{label: "true", kind: ConstantCompletion},
+			{label: "iota", kind: ConstantCompletion},
+			{label: "int", kind: ClassCompletion},
+			{label: "byte", kind: ClassCompletion},
+			{label: "any", kind: InterfaceCompletion},
+			{label: "error", kind: InterfaceCompletion},
+			{label: "comparable", kind: InterfaceCompletion},
+			{label: "len", kind: FunctionCompletion},
+			{label: "clear", kind: FunctionCompletion},
+			{label: "min", kind: FunctionCompletion},
+			{label: "echo", kind: FunctionCompletion},
+		} {
+			item := completionItemByLabel(items, tt.label)
+			require.NotNil(t, item, tt.label)
+			assert.Equal(t, tt.kind, item.Kind, tt.label)
+			assert.Equal(t, tt.label, item.InsertText)
+			data := requireValueAs[*CompletionItemData](t, item.Data)
+			assert.Equal(t, "xgo:builtin?"+tt.label, data.Definition.String())
+		}
+	})
+
+	t.Run("TypeKinds", func(t *testing.T) {
+		source := `type Record struct{}
+type RecordAlias = Record
+type AnonymousRecord = struct{}
+type Reader interface { Read() }
+type ReaderAlias = Reader
+type AnonymousReader = interface { Read() }
+type Value = any
+type Count int
+type CountAlias = Count
+type RecordPointer = *Record
+type RecordList = []Record
+
+`
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+		_, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		items := completionItemsAt(t, s, "main.xgo", Position{Line: 11})
+		for _, tt := range []struct {
+			label string
+			kind  CompletionItemKind
+		}{
+			{label: "Record", kind: StructCompletion},
+			{label: "RecordAlias", kind: StructCompletion},
+			{label: "AnonymousRecord", kind: StructCompletion},
+			{label: "Reader", kind: InterfaceCompletion},
+			{label: "ReaderAlias", kind: InterfaceCompletion},
+			{label: "AnonymousReader", kind: InterfaceCompletion},
+			{label: "Value", kind: InterfaceCompletion},
+			{label: "Count", kind: ClassCompletion},
+			{label: "CountAlias", kind: ClassCompletion},
+			{label: "RecordPointer", kind: ClassCompletion},
+			{label: "RecordList", kind: ClassCompletion},
+		} {
+			item := completionItemByLabel(items, tt.label)
+			require.NotNil(t, item, tt.label)
+			assert.Equal(t, tt.kind, item.Kind, tt.label)
+		}
+	})
+
 	t.Run("LineDirectives", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
@@ -412,8 +481,11 @@ func main() {
 				for _, text := range []string{"First documentation.", "Second documentation.", "", "Restored documentation."} {
 					if text == "" {
 						doc = nil
-					} else {
+					} else if doc == nil {
 						doc = tt.newDoc(text)
+					} else {
+						// Updating documentation does not require replacing its container.
+						*doc = *tt.newDoc(text)
 					}
 					items := completionItemsAt(t, s, "main.xgo", tt.position)
 					item := completionItemByLabel(items, tt.label)
@@ -581,11 +653,11 @@ func main() {
 
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 10, Character: 3})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("Runner.Run"),
 		}))
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("MyRunner.Run"),
 		}))
@@ -613,11 +685,11 @@ func main() {
 
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 12, Character: 3})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("Runner.Run"),
 		}))
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("MyRunner.Run"),
 		}))
@@ -641,11 +713,11 @@ func main() {
 
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 8, Character: 3})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("fmt"),
 			Name:    ToPtr("Stringer.string"),
 		}))
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("MyStringer.String"),
 		}))
@@ -738,11 +810,11 @@ func main() {
 
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 10, Character: 3})
 		assert.NotEmpty(t, items)
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("Point.X"),
 		}))
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("Point.Y"),
 		}))

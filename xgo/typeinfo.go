@@ -67,7 +67,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		&typesutil.Config{
 			Types: typeInfo.Pkg,
 			Fset:  proj.Fset,
-			Mod:   proj.Mod,
+			Mod:   proj.Module().mod,
 		},
 		nil,
 		&typeInfo.Info,

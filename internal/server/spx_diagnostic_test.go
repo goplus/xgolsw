@@ -53,7 +53,7 @@ func TestServerDiagnosticsForSpx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newSpxTestServer(t, tt.files)
 			proj := s.getProj()
-			class, ok := proj.Mod.LookupClass(".spx")
+			class, ok := proj.Module().LookupClass(".spx")
 			require.True(t, ok)
 			require.Contains(t, class.PkgPaths, SpxPkgPath)
 			if tt.unavailablePackage != "" {

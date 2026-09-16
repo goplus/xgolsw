@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/i18n"
@@ -74,12 +73,12 @@ func (s *Server) getProjWithFile() *xgo.Project {
 
 // New creates a new Server instance with the default module and package data.
 func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
-	mod := xgomod.New(modload.Default)
-	if err := mod.ImportClasses(); err != nil {
+	mod, err := xgo.NewModule(modload.Default)
+	if err != nil {
 		panic(fmt.Errorf("failed to import classes: %w", err))
 	}
 	proj.PkgPath = "main"
-	proj.Mod = mod
+	proj.SetModule(mod)
 	proj.Importer = internal.Importer
 	return newServer(proj, replier, fileMapGetter, scheduler, pkgdata.ListPkgs, pkgdata.GetPkgDoc)
 }

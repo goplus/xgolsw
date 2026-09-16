@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -293,4 +294,67 @@ func WorkFunc() {
 		// Should be the same instance due to caching.
 		assert.Same(t, astPkg1, astPkg2)
 	})
+}
+
+func TestProjectIsSourceFile(t *testing.T) {
+	proj := newFrameworkTestProject(t, nil, FeatAll)
+	mod := testframework.NewModule(t)
+	class := mod.Opt.Projects[0]
+	class.Ext = ".fixture"
+	class.Works[0].Ext = ".worker"
+	proj.SetModule(newTestModule(t, mod.Module))
+	for _, tt := range []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"XGo", "src/main.xgo", true},
+		{"LegacyXGo", "main.gop", true},
+		{"StandaloneClass", "Record.gox", true},
+		{"ProjectClass", "src/main.fixture", true},
+		{"WorkClass", "src/Worker.worker", true},
+		{"BuiltinClass", "check_test.gox", true},
+		{"UnregisteredSpx", "main.spx", false},
+		{"UnregisteredClass", "main.other", false},
+		{"Go", "main.go", false},
+		{"Resource", "assets/index.json", false},
+		{"NoExtension", "README", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, proj.IsSourceFile(tt.filename))
+		})
+	}
+}
+
+func TestProjectRegisteredClassfiles(t *testing.T) {
+	mod := testframework.NewModule(t)
+	class := mod.Opt.Projects[0]
+	class.Ext = ".fixture"
+	class.Works[0].Ext = ".worker"
+	require.NoError(t, mod.ImportClasses())
+	proj := newFrameworkTestProjectWithModule(t, map[string]*File{
+		"src/main.fixture":  file("// Count documentation.\nvar Count int\necho Count\n"),
+		"src/Worker.worker": file("// Health documentation.\nvar Health int\necho Health, Value\n"),
+		"Record.gox":        file("var Value int\n"),
+		"ignored.spx":       file("invalid source {{{"),
+		"ignored.other":     file("invalid source {{{"),
+		"assets/index.json": file("{}"),
+	}, FeatAll, mod)
+	pkg, err := proj.ASTPackage()
+	require.NoError(t, err)
+	require.Len(t, pkg.Files, 3)
+	require.Contains(t, pkg.Files, "src/main.fixture")
+	require.Contains(t, pkg.Files, "src/Worker.worker")
+	assert.True(t, pkg.Files["src/main.fixture"].IsProj)
+	assert.True(t, pkg.Files["src/Worker.worker"].IsClass)
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	require.NotNil(t, info.Pkg.Scope().Lookup("App"))
+	require.NotNil(t, info.Pkg.Scope().Lookup("Worker"))
+	doc, err := proj.PkgDoc()
+	require.NoError(t, err)
+	require.Contains(t, doc.Types, "App")
+	require.Contains(t, doc.Types, "Worker")
+	assert.Equal(t, "Count documentation.\n", doc.Types["App"].Fields["Count"])
+	assert.Equal(t, "Health documentation.\n", doc.Types["Worker"].Fields["Health"])
 }

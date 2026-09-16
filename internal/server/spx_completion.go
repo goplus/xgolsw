@@ -6,9 +6,7 @@ import (
 	"maps"
 	"path"
 	"slices"
-	"strings"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -18,7 +16,7 @@ func (s *Server) compileForSpxCompletion(proj *xgo.Project, filename string) (*c
 	if path.Ext(filename) != ".spx" {
 		return nil, nil
 	}
-	class, ok := proj.Mod.LookupClass(".spx")
+	class, ok := proj.Module().LookupClass(".spx")
 	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
 		return nil, nil
 	}
@@ -40,7 +38,7 @@ func (ctx *completionContext) collectSpxTypeSpecific(typ gotypes.Type) {
 		case GetSpxSpriteType(), GetSpxSpriteImplType():
 			for spxSprite := range ctx.spxResult.spxSpriteResourceAutoBindings {
 				if spxSprite.Type() == named {
-					ctx.itemSet.addSpxDefs(ctx.spxDefinitionsFor(spxSprite, "Game")...)
+					ctx.itemSet.addDefinitions(ctx.definitionsFor(spxSprite, "Game")...)
 				}
 			}
 		}
@@ -155,38 +153,4 @@ func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
 		return inferSpxSpriteResourceEnclosingNode(ctx.spxResult, callExpr)
 	}
 	return spxSpriteResourceForFile(ctx.spxResult, ctx.filename)
-}
-
-// getEnclosingCallExpr returns the closest call expression in the current
-// completion context.
-func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
-	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
-		return callExpr
-	}
-	return ctx.enclosingCallExpr
-}
-
-// getPropertyTarget returns the target type name for property name completions.
-// It looks at the enclosing call expression's receiver type (if any) and falls
-// back to the current file's type.
-func (ctx *completionContext) getPropertyTarget() string {
-	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ctx.kind == completionKindCall && ok {
-		named := PropertyTargetNamedTypeForCall(ctx.typeInfo, callExpr, ctx.filename, ctx.spxResult.mainSpxFile)
-		if named == nil {
-			return ""
-		}
-		// For explicit-receiver calls, only consider main-package types.
-		if _, hasSel := callExpr.Fun.(*ast.SelectorExpr); hasSel && !xgoutil.IsInMainPkg(named.Obj()) {
-			return ""
-		}
-		return named.Obj().Name()
-	}
-	// For implicit receiver calls, derive target from the current file's type.
-	if ctx.filename == "" {
-		return ""
-	}
-	if ctx.filename == ctx.spxResult.mainSpxFile {
-		return "Game"
-	}
-	return strings.TrimSuffix(path.Base(ctx.filename), ".spx")
 }

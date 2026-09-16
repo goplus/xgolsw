@@ -19,7 +19,6 @@ package xgo
 import (
 	"fmt"
 	"path"
-	"strings"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/parser"
@@ -44,13 +43,9 @@ func buildASTFileCache(proj *Project, path string, file *File) (cache any, err e
 			err = fmt.Errorf("parser panic: %v", r)
 		}
 	}()
-	mode := parser.ParseComments | parser.AllErrors
-	if !strings.HasSuffix(path, ".xgo") && !strings.HasSuffix(path, ".gop") { // TODO(xsw): use xgomod
-		mode |= parser.ParseXGoClass
-	}
 	astFile, parserErr := parser.ParseEntry(proj.Fset, path, file.Content, parser.Config{
-		ClassInfo: proj.Mod.ClassInfo,
-		Mode:      mode,
+		ClassInfo: proj.Module().ClassInfo,
+		Mode:      parser.ParseComments | parser.AllErrors,
 	})
 	cache = &astFileCache{astFile, parserErr}
 	return
@@ -87,25 +82,37 @@ func buildASTPackageCache(proj *Project) (any, error) {
 	}
 	var parserErrs scanner.ErrorList
 	for file := range proj.Files() {
-		switch path.Ext(file) { // TODO(xsw): use xgomod
-		case ".spx", ".xgo", ".gop", ".gox":
-			astFile, err := proj.ASTFile(file)
-			if err != nil {
-				if el, ok := err.(scanner.ErrorList); ok {
-					parserErrs = append(parserErrs, el...)
-				} else {
-					parserErrs.Add(token.Position{Filename: file}, err.Error())
-				}
-			}
-			if astFile != nil {
-				if pkg.Name == "" {
-					pkg.Name = astFile.Name.Name
-				}
-				pkg.Files[file] = astFile
+		if !proj.IsSourceFile(file) {
+			continue
+		}
+		astFile, err := proj.ASTFile(file)
+		if err != nil {
+			if el, ok := err.(scanner.ErrorList); ok {
+				parserErrs = append(parserErrs, el...)
+			} else {
+				parserErrs.Add(token.Position{Filename: file}, err.Error())
 			}
 		}
+		if astFile == nil {
+			continue
+		}
+		if pkg.Name == "" {
+			pkg.Name = astFile.Name.Name
+		}
+		pkg.Files[file] = astFile
 	}
 	return &astPackageCache{pkg, parserErrs.Err()}, nil
+}
+
+// IsSourceFile reports whether filename is XGo source or a registered classfile.
+func (p *Project) IsSourceFile(filename string) bool {
+	switch path.Ext(filename) {
+	case ".xgo", ".gop", ".gox":
+		return true
+	default:
+		_, _, ok := p.Module().ClassInfo(path.Base(filename))
+		return ok
+	}
 }
 
 // ASTPackage retrieves the [ast.Package] from the project. The returned

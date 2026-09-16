@@ -13,6 +13,42 @@ import (
 )
 
 func TestServerTextDocumentCompletionSpx(t *testing.T) {
+	t.Run("SpriteInterface", func(t *testing.T) {
+		for _, tt := range []struct{ name, filename, typ string }{
+			{"Imported", "main.xgo", "spx.Sprite"},
+			{"Alias", "main.xgo", "Target"},
+			{"Classfile", "main.spx", "spx.Sprite"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, "import spx \"github.com/goplus/spx/v3\"\ntype Target = spx.Sprite\nvar sprite "+tt.typ+"\nsprite.|stepWith(1)\n")
+				s := newSpxTestServer(t, map[string][]byte{tt.filename: []byte(source)})
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				items := completionItemsAt(t, s, tt.filename, position)
+				for _, label := range []string{"initFrom", "move"} {
+					assert.NotContains(t, completionItemLabels(items), label)
+				}
+				for _, label := range []string{"step", "stepWith", "stepToTarget", "stepToXYpos", "onClick"} {
+					require.NotNil(t, completionItemByLabel(items, label), label)
+				}
+				assert.Equal(t, 3, countCompletionItemLabel(items, "step"))
+				item := completionItemByLabel(items, "stepWith")
+				data := requireValueAs[*CompletionItemData](t, item.Data)
+				assert.Equal(t, "xgo:github.com/goplus/spx/v3?Sprite.stepWith", data.Definition.String())
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+				assert.Equal(t, hover.Contents, doc)
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}})
+				require.NoError(t, err)
+				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(data.Definition.String()))})
+			})
+		}
+	})
+
 	t.Run("ImportFrameworkPackage", func(t *testing.T) {
 		files := map[string][]byte{"main.spx": []byte("import \"github.com/goplus/spx\n")}
 		s := newSpxTestServer(t, files)
@@ -171,11 +207,11 @@ onStart => {
 				s := newSpxTestServer(t, m)
 
 				items := completionItemsAt(t, s, "MySprite.spx", Position{Line: 2, Character: tt.character})
-				assert.True(t, containsKwargCompletionItem(items, "speed", SpxDefinitionIdentifier{
+				assert.True(t, containsKwargCompletionItem(items, "speed", XGoDefinitionIdentifier{
 					Package: ToPtr(SpxPkgPath),
 					Name:    ToPtr("MotionOptions.Speed"),
 				}))
-				assert.True(t, containsKwargCompletionItem(items, "animation", SpxDefinitionIdentifier{
+				assert.True(t, containsKwargCompletionItem(items, "animation", XGoDefinitionIdentifier{
 					Package: ToPtr(SpxPkgPath),
 					Name:    ToPtr("MotionOptions.Animation"),
 				}))
@@ -202,13 +238,13 @@ onStart => {
 		emptyLineItems := completionItemsAt(t, s, "main.spx", Position{Line: 1, Character: 0})
 		assert.NotEmpty(t, emptyLineItems)
 		assert.Contains(t, completionItemLabels(emptyLineItems), "println")
-		assert.True(t, containsCompletionSpxDefinitionID(emptyLineItems, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(emptyLineItems, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("MySprite"),
 		}))
 
-		assert.Contains(t, emptyLineItems, SpxDefinition{
-			ID: SpxDefinitionIdentifier{
+		assert.Contains(t, emptyLineItems, symbolDefinition{
+			ID: XGoDefinitionIdentifier{
 				Package: ToPtr(SpxPkgPath),
 				Name:    ToPtr("Game.getWidget"),
 			},
@@ -219,27 +255,27 @@ onStart => {
 			CompletionItemKind:             FunctionCompletion,
 			CompletionItemInsertText:       "getWidget",
 			CompletionItemInsertTextFormat: PlainTextTextFormat,
-		}.CompletionItem())
+		}.completionItem(Markdown))
 
 		mySpriteDotItems := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 9})
 		assert.NotEmpty(t, mySpriteDotItems)
 		assert.NotContains(t, completionItemLabels(mySpriteDotItems), "println")
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(mySpriteDotItems, XGoDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("0"),
 		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(mySpriteDotItems, XGoDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.turn"),
 			OverloadID: ToPtr("1"),
 		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(mySpriteDotItems, XGoDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.clone"),
 			OverloadID: ToPtr("0"),
 		}))
-		assert.True(t, containsCompletionSpxDefinitionID(mySpriteDotItems, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(mySpriteDotItems, XGoDefinitionIdentifier{
 			Package:    ToPtr(SpxPkgPath),
 			Name:       ToPtr("Sprite.clone"),
 			OverloadID: ToPtr("1"),
@@ -258,11 +294,11 @@ onStart => {
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 1})
 		assert.NotEmpty(t, items)
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr(SpxPkgPath),
 			Name:    ToPtr("Sprite.onStart"),
 		}))
-		assert.False(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr(SpxPkgPath),
 			Name:    ToPtr("Sprite.onClick"),
 		}))
@@ -449,12 +485,12 @@ onStart => {}
 
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 8, Character: 9}) // After "n"
 		assert.Contains(t, completionItemLabels(items), "onClick")
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("github.com/goplus/spx/v3"),
 			Name:    ToPtr("Sprite.onClick"),
 		}))
 		assert.Contains(t, completionItemLabels(items), "methodOne")
-		assert.True(t, containsCompletionSpxDefinitionID(items, SpxDefinitionIdentifier{
+		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
 			Package: ToPtr("main"),
 			Name:    ToPtr("MyInterface.methodOne"),
 		}))

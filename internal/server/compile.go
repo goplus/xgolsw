@@ -368,7 +368,7 @@ func (s *Server) inspectForAutoBindingSpxResources(result *compileResult) {
 	if !ok || !xgoutil.IsNamedStructType(gameType) {
 		return
 	}
-	for structMember := range xgoutil.StructMembers(gameType) {
+	for structMember := range xgoutil.StructMembers(gameType, nil) {
 		field, ok := structMember.Member.(*gotypes.Var)
 		if !ok {
 			continue

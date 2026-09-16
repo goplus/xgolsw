@@ -164,6 +164,9 @@ func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDoc
 // Analyzers and framework-specific checks run through pull diagnostics.
 func (s *Server) getDiagnostics(path string) []Diagnostic {
 	proj := s.getProj()
+	if !proj.IsSourceFile(path) {
+		return nil
+	}
 	result := newDiagnosticResult()
 	if astFile := s.collectSyntaxDiagnostics(proj, path, &result); astFile != nil {
 		s.collectTypeDiagnostics(proj, &result)
