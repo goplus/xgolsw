@@ -20,13 +20,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetClassfileAutoImportedPackages(t *testing.T) {
 	t.Run("Spx", func(t *testing.T) {
 		originalImports := spxProject.Import
+		originalModule := defaultModule
 		t.Cleanup(func() {
 			spxProject.Import = originalImports
+			defaultModule = originalModule
 		})
 
 		pkgs := map[string]string{
@@ -34,6 +37,8 @@ func TestSetClassfileAutoImportedPackages(t *testing.T) {
 			"foobar": "example.com/foobar",
 			"math":   "math",
 		}
+		before := NewProject(nil, nil, 0)
+		snapshot := before.Snapshot()
 		SetClassfileAutoImportedPackages("spx", pkgs)
 
 		assert.Len(t, spxProject.Import, 3)
@@ -43,6 +48,15 @@ func TestSetClassfileAutoImportedPackages(t *testing.T) {
 			got[imp.Name] = imp.Path
 		}
 		assert.Equal(t, pkgs, got)
+		after := NewProject(nil, nil, 0)
+		assert.NotSame(t, before.Module(), after.Module())
+		assert.Same(t, before.Module(), snapshot.Module())
+		loaded, ok := after.Module().LookupClass(".spx")
+		require.True(t, ok)
+		assert.Equal(t, spxProject.Import, loaded.Import)
+		old, ok := before.Module().LookupClass(".spx")
+		require.True(t, ok)
+		assert.Equal(t, originalImports, old.Import)
 	})
 
 	t.Run("UnknownClassfileID", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -176,4 +177,66 @@ type RecordPointer = *Record
 			assert.Equal(t, want, edit.NewText)
 		}
 	})
+}
+
+func TestCompletionContextGetPropertyTarget(t *testing.T) {
+	for _, tt := range []struct {
+		name, source, want, wantCompletion string
+		invalid                            bool
+	}{
+		{name: "ImplicitReceiver", source: "read 1", want: "ActorWorker", wantCompletion: "ActorWorker"},
+		{name: "Value", source: "var item Record\nitem.show()", want: "Record", wantCompletion: "Record"},
+		{name: "ParenthesizedMethod", source: "var item Record\n((item.show))()", want: "Record", wantCompletion: "Record"},
+		{name: "Pointer", source: "var item *Record\nitem.show()", want: "Record", wantCompletion: "Record"},
+		{name: "Alias", source: "type Alias = *Record\nvar item Alias\nitem.show()", want: "Record", wantCompletion: "Record"},
+		{name: "CallResult", source: "getRecord().show()", want: "Record", wantCompletion: "Record"},
+		{name: "ImportedReceiver", source: "var item Item\nitem.read(1)", want: "Item"},
+		{name: "MissingReceiver", source: "missing.show()", invalid: true},
+		{name: "UnnamedReceiver", source: "var item struct { Show func() }\nitem.Show()"},
+		{name: "InvalidReceiver", source: "var item string\nitem.show()", invalid: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newClassfileTestServer(t, map[string][]byte{
+				"First.first":      nil,
+				"Worker.firstwork": []byte(tt.source + "\n"),
+				"types.xgo":        []byte("type Record struct { Count int }\nfunc (r *Record) show() {}\nfunc getRecord() *Record { return nil }\n"),
+			})
+			proj := s.getProj()
+			config := classfileTestModule()
+			config.Opt.Projects[0].Works[0].Prefix = "Actor"
+			proj.SetModule(newTestModule(t, config))
+			info, err := proj.TypeInfo()
+			if tt.invalid {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.NotNil(t, info)
+			file, err := proj.ASTFile("Worker.firstwork")
+			require.NoError(t, err)
+			require.NotNil(t, file.ShadowEntry)
+			require.NotEmpty(t, file.ShadowEntry.Body.List)
+			stmt := requireValueAs[*ast.ExprStmt](t, file.ShadowEntry.Body.List[len(file.ShadowEntry.Body.List)-1])
+			call := requireValueAs[*ast.CallExpr](t, stmt.X)
+			named := propertyTargetForCall(proj, file, call)
+			if tt.want == "" {
+				assert.Nil(t, named)
+			} else {
+				require.NotNil(t, named)
+				assert.Equal(t, tt.want, named.Obj().Name())
+			}
+			for _, enclosing := range []bool{false, true} {
+				ctx := &completionContext{
+					definitionContext: definitionContext{proj: proj}, astFile: file,
+				}
+				if enclosing {
+					ctx.enclosingCallExpr = call
+				} else {
+					ctx.kind = completionKindCall
+					ctx.enclosingNode = call
+				}
+				assert.Equal(t, tt.wantCompletion, ctx.getPropertyTarget())
+			}
+		})
+	}
 }

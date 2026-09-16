@@ -647,7 +647,7 @@ func countCompletionItemLabel(items []CompletionItem, label string) int {
 	return count
 }
 
-func containsKwargCompletionItem(items []CompletionItem, label string, id SpxDefinitionIdentifier) bool {
+func containsKwargCompletionItem(items []CompletionItem, label string, id XGoDefinitionIdentifier) bool {
 	return slices.ContainsFunc(items, func(item CompletionItem) bool {
 		if item.Label != label ||
 			item.InsertText != label+" = ${1:}" ||
@@ -663,7 +663,7 @@ func containsKwargCompletionItem(items []CompletionItem, label string, id SpxDef
 	})
 }
 
-func containsCompletionSpxDefinitionID(items []CompletionItem, id SpxDefinitionIdentifier) bool {
+func containsCompletionDefinitionID(items []CompletionItem, id XGoDefinitionIdentifier) bool {
 	return slices.ContainsFunc(items, func(item CompletionItem) bool {
 		itemData, ok := item.Data.(*CompletionItemData)
 		if !ok {

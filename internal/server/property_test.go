@@ -9,11 +9,40 @@ import (
 
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerXGoGetProperties(t *testing.T) {
+	t.Run("OverloadWrapper", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
+func (r *Record) intValue() int { return 1 }
+func (r *Record) stringValue() string { return "one" }
+func (Record).Value = (
+    (Record).intValue
+    (Record).stringValue
+)
+func (r *Record) Label() string { return "record" }
+`)})
+		info, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		named := requirePropertyTestType(t, info.Pkg, "Record")
+		method := requireValueAs[*gotypes.Func](t, requirePropertyTestMember(t, named, "Value"))
+		require.Len(t, xgoutil.ExpandXGoOverloadableFunc(method), 2)
+		assert.False(t, isPropertyMethod(method))
+		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+		require.NoError(t, err)
+		require.Len(t, properties, 1)
+		assert.Equal(t, "label", properties[0].Name)
+		ctx := &completionContext{
+			definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
+			typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
+		}
+		ctx.collectPropertyNames("Record")
+		assert.Equal(t, []string{`"label"`}, completionItemLabels(ctx.itemSet.items))
+	})
+
 	t.Run("DeclarationDocumentation", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"types.xgo":  nil,

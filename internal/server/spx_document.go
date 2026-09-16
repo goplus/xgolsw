@@ -13,7 +13,7 @@ func (s *Server) documentLinksForSpxResources(proj *xgo.Project, filename string
 	if path.Ext(filename) != ".spx" {
 		return nil, nil
 	}
-	class, ok := proj.Mod.LookupClass(".spx")
+	class, ok := proj.Module().LookupClass(".spx")
 	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
 		return nil, nil
 	}

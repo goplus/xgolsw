@@ -420,28 +420,22 @@ func TestServerDiagnosticsAt(t *testing.T) {
 		assert.Equal(t, wantTypeError, requireRelatedFullDocumentDiagnosticReport(t, documentReport).Items)
 	})
 
-	t.Run("NoAST", func(t *testing.T) {
+	t.Run("UnregisteredClassfiles", func(t *testing.T) {
 		for _, tt := range []struct {
 			name            string
 			withParsedFiles bool
 		}{
-			{name: "OnlyFailedFiles"},
+			{name: "OnlyUnregisteredFiles"},
 			{name: "MixedFiles", withParsedFiles: true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
 					"main.spx":           []byte("println 1\n"),
 					"nested/Unknown.spx": []byte("println 2\n"),
+					"Unknown.other":      []byte("println 3\n"),
 					"notes.txt":          []byte("not source code"),
 				}
-				parseFailure := []Diagnostic{{
-					Severity: SeverityError,
-					Message:  "failed to parse source file: unknown file kind",
-				}}
-				want := map[DocumentURI][]Diagnostic{
-					"file:///main.spx":           parseFailure,
-					"file:///nested/Unknown.spx": parseFailure,
-				}
+				want := make(map[DocumentURI][]Diagnostic)
 				if tt.withParsedFiles {
 					files["helper.xgo"] = []byte("var value = 1\n")
 					files["broken.xgo"] = []byte("var (\n    x int\n")
@@ -454,7 +448,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 				s := newTestServer(t, files)
 				replier := newMockReplier()
 				s.replier = replier
-				for _, filename := range []string{"main.spx", "nested/Unknown.spx"} {
+				for _, filename := range []string{"main.spx", "nested/Unknown.spx", "Unknown.other", "notes.txt"} {
 					astFile, err := s.getProj().ASTFile(filename)
 					require.ErrorIs(t, err, parser.ErrUnknownFileKind)
 					require.Nil(t, astFile)
@@ -462,7 +456,10 @@ func TestServerDiagnosticsAt(t *testing.T) {
 					require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
 						TextDocument: protocol.TextDocumentItem{URI: uri, Version: 1, Text: string(files[filename])},
 					}))
-					assert.Equal(t, parseFailure, requirePublishedDiagnostics(t, replier, uri))
+					assert.Empty(t, requirePublishedDiagnostics(t, replier, uri))
+					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+					require.NoError(t, err)
+					assert.Empty(t, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
 				}
 				for uri, diagnostics := range want {
 					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
@@ -509,6 +506,8 @@ func TestServerDiagnosticsAt(t *testing.T) {
 			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
 			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
 			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
+			{name: "RegisteredProjectExtension", filename: "First.first", newServer: newClassfileTestServer},
+			{name: "RegisteredWorkExtension", filename: "Worker.firstwork", projectFile: "First.first", newServer: newClassfileTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("println missing\n")}

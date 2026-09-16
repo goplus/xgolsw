@@ -408,9 +408,6 @@ type SpxRenameResourceParams = XGoRenameResourceParams
 // Deprecated: use XGoGetDefinitionsParams.
 type SpxGetDefinitionsParams = XGoGetDefinitionsParams
 
-// Deprecated: use XGoDefinitionIdentifier.
-type SpxDefinitionIdentifier = XGoDefinitionIdentifier
-
 // Deprecated: use XGoGetInputSlotsParams.
 type SpxGetInputSlotsParams = XGoGetInputSlotsParams
 

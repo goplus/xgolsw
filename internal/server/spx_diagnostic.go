@@ -12,7 +12,7 @@ import (
 
 // diagnosticsForSpx collects diagnostics only when the project contains spx classfiles.
 func (s *Server) diagnosticsForSpx(proj *xgo.Project) (*diagnosticResult, error) {
-	class, ok := proj.Mod.LookupClass(".spx")
+	class, ok := proj.Module().LookupClass(".spx")
 	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
 		return nil, nil
 	}
@@ -31,12 +31,12 @@ func (s *Server) diagnosticsForSpx(proj *xgo.Project) (*diagnosticResult, error)
 
 // spxDiagnosticPass supplies property information to analyzers for an spx project.
 func spxDiagnosticPass(result *compileResult) func(string, *protocol.Pass) {
-	typeInfo, _ := result.proj.TypeInfo()
 	propertyNamesCache := make(map[*gotypes.Named]map[string]struct{})
 	return func(filename string, pass *protocol.Pass) {
+		file, _ := result.proj.ASTFile(filename)
 		pass.IsPropertyNameType = IsSpxPropertyNameType
 		pass.GetPropertyNamesForCall = func(call *ast.CallExpr) map[string]struct{} {
-			named := PropertyTargetNamedTypeForCall(typeInfo, call, filename, result.mainSpxFile)
+			named := propertyTargetForCall(result.proj, file, call)
 			if named == nil {
 				return nil
 			}

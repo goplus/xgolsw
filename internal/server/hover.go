@@ -50,43 +50,43 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile); tokenFile != nil {
 		pos := tokenFile.Pos(position.Offset)
 		if member := ctx.enumInfo.declarationMemberAt(pos); member != nil {
-			def := ctx.spxDefinitionForEnumMembers(member)
-			return hoverForSpxDefs(proj, []SpxDefinition{def}, member.ident, markupKind), nil
+			def := ctx.definitionForEnumMembers(member)
+			return hoverForDefinitions(proj, []symbolDefinition{def}, member.ident, markupKind), nil
 		}
 		if ident, obj := ctx.enumInfo.regularConstDeclarationAt(pos); ident != nil {
-			return hoverForSpxDefs(proj, ctx.spxDefinitionsFor(obj, ""), ident, markupKind), nil
+			return hoverForDefinitions(proj, ctx.definitionsFor(obj, ""), ident, markupKind), nil
 		}
 	}
 	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
 	if kwargTarget != nil {
-		return hoverForSpxDefs(
-			proj, ctx.spxDefinitionsFor(obj, kwargTarget.selectorTypeName), kwargTarget.ident, markupKind,
+		return hoverForDefinitions(
+			proj, ctx.definitionsForSelection(obj, kwargTarget.receiver), kwargTarget.ident, markupKind,
 		), nil
 	}
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
-		rpkg := ctx.spxImportsAtASTFilePosition(astFile, position)
-		if rpkg == nil {
+		pkgDoc, imp := ctx.importDocumentationAtPosition(astFile, position)
+		if pkgDoc == nil {
 			return nil, nil
 		}
 		return &Hover{
 			Contents: MarkupContent{
 				Kind:  markupKind,
-				Value: godoc.Synopsis(rpkg.Pkg.Doc),
+				Value: godoc.Synopsis(pkgDoc.Doc),
 			},
-			Range: RangeForNode(proj, rpkg.Node),
+			Range: RangeForNode(proj, imp),
 		}, nil
 	}
 	if ident.Name == "this" && xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-	return hoverForSpxDefs(proj, ctx.spxDefinitionsForIdent(ident), ident, markupKind), nil
+	return hoverForDefinitions(proj, ctx.definitionsForIdent(ident), ident, markupKind), nil
 }
 
-// hoverForSpxDefs renders spx definitions into a hover at node.
-func hoverForSpxDefs(proj *xgo.Project, spxDefs []SpxDefinition, node ast.Node, markupKind MarkupKind) *Hover {
-	if len(spxDefs) == 0 {
+// hoverForDefinitions renders symbol definitions into a hover at node.
+func hoverForDefinitions(proj *xgo.Project, defs []symbolDefinition, node ast.Node, markupKind MarkupKind) *Hover {
+	if len(defs) == 0 {
 		return nil
 	}
 
@@ -95,11 +95,11 @@ func hoverForSpxDefs(proj *xgo.Project, spxDefs []SpxDefinition, node ast.Node, 
 		separator = "\n\n"
 	}
 	var hoverContent strings.Builder
-	for i, spxDef := range spxDefs {
+	for i, def := range defs {
 		if i > 0 {
 			hoverContent.WriteString(separator)
 		}
-		hoverContent.WriteString(spxDef.markupContent(markupKind).Value)
+		hoverContent.WriteString(def.markupContent(markupKind).Value)
 	}
 	return &Hover{
 		Contents: MarkupContent{

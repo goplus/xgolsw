@@ -11,6 +11,41 @@ import (
 )
 
 func TestServerTextDocumentHoverSpx(t *testing.T) {
+	t.Run("ExplicitReceivers", func(t *testing.T) {
+		for _, tt := range []struct{ name, filename, source, label, wantName string }{
+			{"CameraInProject", "main.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
+			{"CameraInWork", "MySprite.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
+			{"PackageFunction", "main.xgo", "import spx \"github.com/goplus/spx/v3\"\nvar color = spx.|HSB(1, 2, 3)\n", "hSB", "hSB"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.source)
+				files := map[string][]byte{"main.spx": nil, "MySprite.spx": nil}
+				files[tt.filename] = []byte(source)
+				s := newSpxTestServer(t, files)
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				wantID := "xgo:github.com/goplus/spx/v3?" + tt.wantName
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, `def-id="`+wantID+`"`)
+				var ids []string
+				for _, item := range completionItemsAt(t, s, tt.filename, position) {
+					if item.Label == tt.label {
+						data := requireValueAs[*CompletionItemData](t, item.Data)
+						ids = append(ids, data.Definition.String())
+					}
+				}
+				assert.Contains(t, ids, wantID)
+				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}})
+				require.NoError(t, err)
+				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+			})
+		}
+	})
+
 	t.Run("PackageDocumentationLookup", func(t *testing.T) {
 		files := map[string][]byte{
 			"main.spx":                       []byte("import \"fmt\"\nfmt.Println(1)\nplay \"Sound\"\n"),
@@ -34,7 +69,7 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 		require.NoError(t, err)
 		pkg, err := result.proj.Importer.Import("fmt")
 		require.NoError(t, err)
-		defs := result.spxDefinitionsFor(pkg.Scope().Lookup("Println"), "")
+		defs := result.definitionsFor(pkg.Scope().Lookup("Println"), "")
 		require.Len(t, defs, 1)
 		assert.Equal(t, wantDoc, defs[0].Detail)
 		assert.Equal(t, []string{"fmt"}, lookups)
@@ -169,7 +204,7 @@ onTouchStart "MySprite", => {}
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxCameraFollowHover)
-		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Game.follow#1"`)
+		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Camera.follow#1"`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 6, Character: 7},
 			End:   Position{Line: 6, Character: 13},

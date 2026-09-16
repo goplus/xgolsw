@@ -196,7 +196,7 @@ echo label
 
 		_, registeredByDefault := xgomod.Default.LookupClass("_fixture.gox")
 		assert.False(t, registeredByDefault)
-		_, hasSpx := proj.Mod.LookupClass(".spx")
+		_, hasSpx := proj.Module().LookupClass(".spx")
 		assert.False(t, hasSpx)
 
 		typeInfo, err := proj.TypeInfo()

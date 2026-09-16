@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"testing"
 
+	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -27,7 +28,7 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 
 	proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 	proj.PkgPath = "main"
-	proj.Mod = testframework.NewBaseModule(t)
+	proj.SetModule(newTestModule(t, testframework.NewBaseModule(t).Module))
 	proj.Importer = testframework.NewBaseImporter(t, proj.Fset)
 	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{},
 		func() ([]string, error) { return nil, nil },
@@ -65,7 +66,7 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 
 	proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 	proj.PkgPath = "main"
-	proj.Mod = mod
+	proj.SetModule(newTestModule(t, mod.Module))
 	proj.Importer = testframework.NewImporter(t, proj.Fset)
 	listPkgs := func() ([]string, error) { return []string{testframework.PkgPath}, nil }
 	frameworkDoc := testframework.NewPkgDoc(t)
@@ -81,6 +82,14 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 		return nil, fs.ErrNotExist
 	}
 	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+}
+
+func newTestModule(t testing.TB, config modload.Module) *xgo.Module {
+	t.Helper()
+
+	mod, err := xgo.NewModule(config)
+	require.NoError(t, err)
+	return mod
 }
 
 func checkNonSpxDocumentation(t testing.TB, pkgPath string) error {

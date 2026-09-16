@@ -11,6 +11,37 @@ import (
 )
 
 func TestSpxDiagnosticPass(t *testing.T) {
+	t.Run("RegisteredClassfileReceiver", func(t *testing.T) {
+		s := newClassfileTestServer(t, map[string][]byte{
+			"First.first": nil,
+			"types.xgo":   []byte("type PropertyName string\n"),
+			"Worker.firstwork": []byte(`var Count int
+func show(name PropertyName) {}
+show "Count"
+show "Missing"
+`),
+		})
+		proj := s.getProj()
+		config := classfileTestModule()
+		config.Opt.Projects[0].Works[0].Prefix = "Actor"
+		proj.SetModule(newTestModule(t, config))
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		result := newCompileResult(proj, s.lookupPkgDoc)
+		configurePass := spxDiagnosticPass(result)
+		propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
+		s.inspectDiagnosticsAnalyzers(proj, &result.diagnosticResult, func(filename string, pass *protocol.Pass) {
+			configurePass(filename, pass)
+			pass.IsPropertyNameType = func(typ gotypes.Type) bool { return typ == propertyNameType }
+		})
+		assert.Equal(t, map[DocumentURI][]Diagnostic{
+			"file:///Worker.firstwork": {{
+				Severity: SeverityError, Message: `unknown property "Missing"`,
+				Range: Range{Start: Position{Line: 3, Character: 5}, End: Position{Line: 3, Character: 14}},
+			}},
+		}, result.diagnostics)
+	})
+
 	t.Run("PropertyShadowingUpdates", func(t *testing.T) {
 		s := newTestServer(t, nil)
 		for version, tt := range []struct {

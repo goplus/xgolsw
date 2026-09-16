@@ -56,7 +56,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 				if obj == nil {
 					continue
 				}
-				for _, def := range ctx.spxDefinitionsFor(obj, target.selectorTypeName) {
+				for _, def := range ctx.definitionsForSelection(obj, target.receiver) {
 					uri := URI(def.ID.String())
 					if _, ok := seen[uri]; ok {
 						continue
@@ -80,8 +80,8 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 		if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 			return
 		}
-		if spxDefs := ctx.spxDefinitionsForIdent(ident); spxDefs != nil {
-			links = appendSpxDefinitionDocumentLinks(links, RangeForNode(proj, ident), spxDefs)
+		if defs := ctx.definitionsForIdent(ident); defs != nil {
+			links = appendDefinitionDocumentLinks(links, RangeForNode(proj, ident), defs)
 		}
 	}
 	for ident := range typeInfo.Defs {
@@ -94,11 +94,11 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	return links, nil
 }
 
-// appendSpxDefinitionDocumentLinks appends document links for spxDefs at
+// appendDefinitionDocumentLinks appends document links for defs at
 // linkRange.
-func appendSpxDefinitionDocumentLinks(links []DocumentLink, linkRange Range, spxDefs []SpxDefinition) []DocumentLink {
-	for _, spxDef := range spxDefs {
-		target := URI(spxDef.ID.String())
+func appendDefinitionDocumentLinks(links []DocumentLink, linkRange Range, defs []symbolDefinition) []DocumentLink {
+	for _, def := range defs {
+		target := URI(def.ID.String())
 		links = append(links, DocumentLink{
 			Range:  linkRange,
 			Target: &target,

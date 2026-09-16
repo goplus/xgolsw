@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/token"
 	"golang.org/x/sync/singleflight"
 )
@@ -71,11 +70,11 @@ type File struct {
 // Project represents an XGo project.
 type Project struct {
 	PkgPath  string
-	Mod      *xgomod.Module
 	Importer gotypes.Importer
 	Fset     *token.FileSet
 
 	mu            sync.RWMutex
+	module        *Module
 	files         map[string]*File
 	filesSnapshot atomic.Pointer[map[string]*File] // Immutable snapshot for lock-free file reads.
 
@@ -94,7 +93,7 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 		fset = token.NewFileSet()
 	}
 	proj := &Project{
-		Mod:               xgomod.Default,
+		module:            defaultModule,
 		Fset:              fset,
 		files:             make(map[string]*File),
 		cacheBuilders:     make(map[CacheKind]CacheBuilder),
@@ -126,7 +125,7 @@ func (p *Project) Snapshot() *Project {
 
 	proj := &Project{
 		PkgPath:           p.PkgPath,
-		Mod:               p.Mod,
+		module:            p.module,
 		Importer:          p.Importer,
 		Fset:              p.Fset,
 		files:             maps.Clone(p.files),

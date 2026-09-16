@@ -52,9 +52,9 @@ func TestResourceMarkupContent(t *testing.T) {
 	}, resourceMarkupContent(uri, PlainText))
 }
 
-func TestSpxDefinitionMarkupContent(t *testing.T) {
-	def := SpxDefinition{
-		ID:       SpxDefinitionIdentifier{Name: ToPtr("count")},
+func TestSymbolDefinitionMarkupContent(t *testing.T) {
+	def := symbolDefinition{
+		ID:       XGoDefinitionIdentifier{Name: ToPtr("count")},
 		Overview: "var count int",
 		Detail:   "count is a variable.\n",
 	}

@@ -79,7 +79,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 	var predefinedScopes []*gotypes.Scope
 	if astFile.IsClass {
 		filename := xgoutil.NodeFilename(proj.Fset, astFile)
-		if class, ok := proj.Mod.LookupClass(modfile.ClassExt(filename)); ok {
+		if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
 			for _, pkgPath := range class.PkgPaths {
 				pkg, err := proj.Importer.Import(pkgPath)
 				if err == nil {
@@ -535,7 +535,7 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 				continue
 			}
 
-			for structMember := range xgoutil.StructMembers(named) {
+			for structMember := range xgoutil.StructMembers(named, nil) {
 				switch member := structMember.Member.(type) {
 				case *gotypes.Var:
 					if !member.Origin().Embedded() {

@@ -138,6 +138,18 @@ func handle = (
 				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
 				newServer: newFrameworkTestServer,
 			},
+			{
+				name: "RegisteredProjectExtension", filename: "First.first",
+				source:    "var count Count\ntype Count int\n",
+				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				newServer: newClassfileTestServer,
+			},
+			{
+				name: "RegisteredWorkExtension", filename: "Worker.firstwork",
+				source:    "var count Count\ntype Count int\n",
+				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				newServer: newClassfileTestServer,
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := tt.newServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
@@ -166,13 +178,13 @@ func handle = (
 		require.NoError(t, err)
 		assert.Nil(t, edits)
 
-		mod := s.workspaceRootFS.Mod
+		mod := testframework.NewModule(t)
 		class, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
 		class.Ext = ".unit"
 		class.FullExt = "main.unit"
 		class.Works[0].Ext = ".unit"
-		require.NoError(t, mod.ImportClasses())
+		s.getProj().SetModule(newTestModule(t, mod.Module))
 		edits, err = s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)

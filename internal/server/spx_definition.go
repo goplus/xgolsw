@@ -3,392 +3,12 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
-	"html/template"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/pkgdoc"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
-
-// SpxDefinition represents an spx definition.
-type SpxDefinition struct {
-	// TypeHint represents a type hint for this definition. It may be nil if
-	// the definition has no associated type.
-	TypeHint gotypes.Type
-
-	ID       SpxDefinitionIdentifier
-	Overview string
-	Detail   string
-
-	CompletionItemLabel            string
-	CompletionItemKind             CompletionItemKind
-	CompletionItemInsertText       string
-	CompletionItemInsertTextFormat InsertTextFormat
-}
-
-// HTML returns the HTML representation of the definition.
-func (def SpxDefinition) HTML() string {
-	return fmt.Sprintf("<pre is=\"definition-item\" def-id=%q overview=%q>\n%s</pre>\n", template.HTMLEscapeString(def.ID.String()), template.HTMLEscapeString(def.Overview), def.Detail)
-}
-
-// CompletionItem constructs a [CompletionItem] from the definition.
-func (def SpxDefinition) CompletionItem() CompletionItem {
-	return def.completionItem(Markdown)
-}
-
-// markupContent constructs markup content from the definition.
-func (def SpxDefinition) markupContent(kind MarkupKind) MarkupContent {
-	plainText := def.Overview
-	if detail := strings.TrimSpace(def.Detail); detail != "" {
-		if plainText != "" {
-			plainText += "\n\n"
-		}
-		plainText += detail
-	}
-	return markupContent(kind, def.HTML(), plainText)
-}
-
-// completionItem constructs a [CompletionItem] from the definition.
-func (def SpxDefinition) completionItem(documentationKind MarkupKind) CompletionItem {
-	return CompletionItem{
-		Label:            def.CompletionItemLabel,
-		Kind:             def.CompletionItemKind,
-		Documentation:    completionDocumentation(def.markupContent(documentationKind)),
-		InsertText:       def.CompletionItemInsertText,
-		InsertTextFormat: &def.CompletionItemInsertTextFormat,
-		Data: &CompletionItemData{
-			Definition: &def.ID,
-		},
-	}
-}
-
-var (
-	// GeneralSpxDefinitions are general spx definitions.
-	GeneralSpxDefinitions = []SpxDefinition{
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_iterate")},
-			Overview: "for v in arr {}",
-			Detail:   "Iterate within given set",
-
-			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:v} in ${2:[]} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_iterate_with_index")},
-			Overview: "for i, v in arr {}",
-			Detail:   "Iterate with index within given set",
-
-			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:i}, ${2:v} in ${3:[]} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_condition")},
-			Overview: "for condition {}",
-			Detail:   "Loop with condition",
-
-			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:true} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("for_loop_with_range")},
-			Overview: "for i in start:end {}",
-			Detail:   "Loop with range",
-
-			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "for ${1:i} in ${2:1}:${3:5} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_statement")},
-			Overview: "if condition {}",
-			Detail:   "If statement",
-
-			CompletionItemLabel:            "if",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "if ${1:true} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("if_else_statement")},
-			Overview: "if condition {} else {}",
-			Detail:   "If else statement",
-
-			CompletionItemLabel:            "if",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "if ${1:true} {\n\t$2\n} else {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("var_declaration")},
-			Overview: "var name type",
-			Detail:   "Variable declaration, e.g., `var count int`",
-
-			CompletionItemLabel:            "var",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "var ${1:name} $0",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-	}
-
-	// FileScopeSpxDefinitions are spx definitions that are only available
-	// in file scope.
-	FileScopeSpxDefinitions = []SpxDefinition{
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("import_declaration")},
-			Overview: "import \"package\"",
-			Detail:   "Import package declaration, e.g., `import \"fmt\"`",
-
-			CompletionItemLabel:            "import",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "import \"${1:package}\"$0",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-		{
-			ID:       SpxDefinitionIdentifier{Name: ToPtr("func_declaration")},
-			Overview: "func name(params) { ... }",
-			Detail:   "Function declaration, e.g., `func add(a int, b int) int {}`",
-
-			CompletionItemLabel:            "func",
-			CompletionItemKind:             KeywordCompletion,
-			CompletionItemInsertText:       "func ${1:name}(${2:params}) ${3:returnType} {\n\t$0\n}",
-			CompletionItemInsertTextFormat: SnippetTextFormat,
-		},
-	}
-
-	// builtinSpxDefinitionOverviews contains overview descriptions for
-	// builtin spx definitions.
-	builtinSpxDefinitionOverviews = map[string]string{
-		// Variables.
-		"nil": "var nil Type",
-
-		// Constants.
-		"false": "const false = 0 != 0",
-		"iota":  "const iota = 0",
-		"true":  "const true = 0 == 0",
-
-		// Types.
-		"any":        "type any",
-		"bool":       "type bool",
-		"byte":       "type byte",
-		"complex64":  "type complex64",
-		"complex128": "type complex128",
-		"error":      "type error",
-		"float32":    "type float32",
-		"float64":    "type float64",
-		"int":        "type int",
-		"int8":       "type int8",
-		"int16":      "type int16",
-		"int32":      "type int32",
-		"int64":      "type int64",
-		"rune":       "type rune",
-		"string":     "type string",
-		"uint":       "type uint",
-		"uint8":      "type uint8",
-		"uint16":     "type uint16",
-		"uint32":     "type uint32",
-		"uint64":     "type uint64",
-		"uintptr":    "type uintptr",
-
-		// Functions.
-		"append":  "func append(slice []T, elems ...T) []T",
-		"cap":     "func cap(v Type) int",
-		"clear":   "func clear(m Type)",
-		"close":   "func close(c chan<- Type)",
-		"complex": "func complex(r, i FloatType) ComplexType",
-		"copy":    "func copy(dst, src []Type) int",
-		"delete":  "func delete(m map[Type]Type1, key Type)",
-		"imag":    "func imag(c ComplexType) FloatType",
-		"len":     "func len(v Type) int",
-		"make":    "func make(t Type, size ...IntegerType) Type",
-		"max":     "func max(x Type, y ...Type) Type",
-		"min":     "func min(x Type, y ...Type) Type",
-		"new":     "func new(Type) *Type",
-		"panic":   "func panic(v interface{})",
-		"print":   "func print(args ...Type)",
-		"println": "func println(args ...Type)",
-		"real":    "func real(c ComplexType) FloatType",
-		"recover": "func recover() interface{}",
-	}
-
-	// xgoBuiltinAliases contains aliases for XGo builtins.
-	//
-	// See github.com/goplus/xgo/cl.initBuiltin for the list of XGo builtin aliases.
-	xgoBuiltinAliases = map[string]string{
-		// Types.
-		"bigfloat": "github.com/qiniu/x/xgo/ng#Bigfloat",
-		"bigint":   "github.com/qiniu/x/xgo/ng#Bigint",
-		"bigrat":   "github.com/qiniu/x/xgo/ng#Bigrat",
-		"int128":   "github.com/qiniu/x/xgo/ng#Int128",
-		"uint128":  "github.com/qiniu/x/xgo/ng#Uint128",
-
-		// Functions.
-		"blines":   "github.com/qiniu/x/osx#BLines",
-		"create":   "os#Create",
-		"echo":     "fmt#Println",
-		"errorf":   "fmt#Errorf",
-		"fprint":   "fmt#Fprint",
-		"fprintf":  "fmt#Fprintf",
-		"fprintln": "fmt#Fprintln",
-		"lines":    "github.com/qiniu/x/osx#Lines",
-		"newRange": "github.com/qiniu/x/xgo#NewRange__0",
-		"open":     "os#Open",
-		"print":    "fmt#Print",
-		"printf":   "fmt#Printf",
-		"println":  "fmt#Println",
-		"sprint":   "fmt#Sprint",
-		"sprintf":  "fmt#Sprintf",
-		"sprintln": "fmt#Sprintln",
-		// "type":     "reflect#TypeOf",
-	}
-)
-
-// getDefinitionForBuiltinObj describes a builtin using the provided package data.
-func (d typeDisplay) getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) SpxDefinition {
-	const pkgPath = "builtin"
-
-	idName := obj.Name()
-	if def, err := d.getDefinitionForXGoBuiltinAlias(idName, importer, lookupPkgDoc); err == nil {
-		return def
-	}
-
-	overview, ok := builtinSpxDefinitionOverviews[idName]
-	if !ok {
-		overview = "builtin " + idName
-	}
-
-	var detail string
-	if pkgDoc, err := lookupPkgDoc(pkgPath); err == nil {
-		if doc, ok := pkgDoc.Vars[idName]; ok {
-			detail = doc
-		} else if doc, ok := pkgDoc.Consts[idName]; ok {
-			detail = doc
-		} else if typeDoc, ok := pkgDoc.Types[idName]; ok {
-			if doc, ok := typeDoc.Fields[idName]; ok {
-				detail = doc
-			} else if doc, ok := typeDoc.Methods[idName]; ok {
-				detail = doc
-			} else {
-				detail = typeDoc.Doc
-			}
-		} else if doc, ok := pkgDoc.Funcs[idName]; ok {
-			detail = doc
-		}
-	}
-
-	completionItemKind := TextCompletion
-	if keyword, _, ok := strings.Cut(overview, " "); ok {
-		switch keyword {
-		case "var":
-			completionItemKind = VariableCompletion
-		case "const":
-			completionItemKind = ConstantCompletion
-		case "type":
-			switch idName {
-			case "any", "error":
-				completionItemKind = InterfaceCompletion
-			default:
-				completionItemKind = ClassCompletion
-			}
-		case "func":
-			completionItemKind = FunctionCompletion
-		}
-	}
-
-	return SpxDefinition{
-		TypeHint: obj.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(pkgPath),
-			Name:    &idName,
-		},
-		Overview: overview,
-		Detail:   detail,
-
-		CompletionItemLabel:            obj.Name(),
-		CompletionItemKind:             completionItemKind,
-		CompletionItemInsertText:       obj.Name(),
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
-}
-
-// builtinDefinitions describes builtins using the provided importer and documentation lookup.
-func (d typeDisplay) builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) []SpxDefinition {
-	names := gotypes.Universe.Names()
-	defs := make([]SpxDefinition, 0, len(names)+len(xgoBuiltinAliases))
-	for _, name := range names {
-		if _, ok := xgoBuiltinAliases[name]; ok {
-			continue
-		}
-		if obj := gotypes.Universe.Lookup(name); obj != nil && obj.Pkg() == nil {
-			defs = append(defs, d.getDefinitionForBuiltinObj(obj, importer, lookupPkgDoc))
-		}
-	}
-	for alias := range xgoBuiltinAliases {
-		def, err := d.getDefinitionForXGoBuiltinAlias(alias, importer, lookupPkgDoc)
-		if err != nil {
-			continue
-		}
-		defs = append(defs, def)
-	}
-	return slices.Clip(defs)
-}
-
-// getDefinitionForXGoBuiltinAlias resolves a builtin alias using the provided package data.
-func (d typeDisplay) getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) (SpxDefinition, error) {
-	ref, ok := xgoBuiltinAliases[alias]
-	if !ok {
-		return SpxDefinition{}, fmt.Errorf("unknown xgo builtin alias: %s", alias)
-	}
-
-	pkgPath, name, ok := strings.Cut(ref, "#")
-	if !ok {
-		return SpxDefinition{}, fmt.Errorf("invalid xgo builtin alias: %s", alias)
-	}
-	pkg, err := importer.Import(pkgPath)
-	if err != nil {
-		return SpxDefinition{}, fmt.Errorf("failed to import package for xgo builtin alias %q: %w", alias, err)
-	}
-	pkgDoc, _ := lookupPkgDoc(pkgPath)
-
-	obj := pkg.Scope().Lookup(name)
-	if obj == nil {
-		return SpxDefinition{}, fmt.Errorf("symbol %s not found in package %s", name, pkgPath)
-	}
-	var def SpxDefinition
-	switch obj := obj.(type) {
-	case *gotypes.TypeName:
-		def = d.definitionForType(obj, pkgDoc)
-	case *gotypes.Func:
-		def = d.definitionForFunc(obj, "", pkgDoc)
-	default:
-		return SpxDefinition{}, fmt.Errorf("unexpected object type for xgo builtin alias %q: %T", alias, obj)
-	}
-
-	return SpxDefinition{
-		TypeHint: obj.Type(),
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr("builtin"),
-			Name:    &alias,
-		},
-		Overview: def.Overview,
-		Detail:   def.Detail,
-
-		CompletionItemLabel:            alias,
-		CompletionItemKind:             def.CompletionItemKind,
-		CompletionItemInsertText:       alias,
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}, nil
-}
 
 // SpxPkgPath is the path to the spx package.
 const SpxPkgPath = "github.com/goplus/spx/v3"
@@ -401,12 +21,6 @@ var (
 			panic(fmt.Errorf("failed to import spx package: %w", err))
 		}
 		return spxPkg
-	})
-
-	// GetSpxGameType returns the [spx.Game] type.
-	GetSpxGameType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Game").Type().(*gotypes.Named)
 	})
 
 	// GetSpxBackdropNameType returns the [spx.BackdropName] type.
@@ -518,236 +132,46 @@ var (
 	})
 )
 
-// definitionsForPkg returns the spx definitions for the given package.
-func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgDoc) []SpxDefinition {
-	names := pkg.Scope().Names()
-	defs := make([]SpxDefinition, 0, len(names))
-	for _, name := range names {
-		obj := pkg.Scope().Lookup(name)
-		if obj == nil || !obj.Exported() {
-			continue
-		}
-		switch obj := obj.(type) {
-		case *gotypes.Var:
-			defs = append(defs, d.definitionForVar(obj, "", false, pkgDoc))
-		case *gotypes.Const:
-			defs = append(defs, d.definitionForConst(obj, pkgDoc))
-		case *gotypes.TypeName:
-			defs = append(defs, d.definitionForType(obj, pkgDoc))
-		case *gotypes.Func:
-			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
-				for _, funcOverload := range funcOverloads {
-					defs = append(defs, d.definitionForFunc(funcOverload, "", pkgDoc))
-				}
-			} else {
-				defs = append(defs, d.definitionForFunc(obj, "", pkgDoc))
-			}
-		case *gotypes.PkgName:
-			defs = append(defs, GetSpxDefinitionForPkg(obj, pkgDoc))
-		}
+// isSpxSymbol reports whether obj belongs to the project's registered spx
+// package. It compares package identity through the configured importer.
+func (r *definitionContext) isSpxSymbol(obj gotypes.Object) bool {
+	pkg := obj.Pkg()
+	if pkg == nil || pkg.Path() != SpxPkgPath {
+		return false
 	}
-	return slices.Clip(defs)
+	class, ok := r.proj.Module().LookupClass(".spx")
+	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
+		return false
+	}
+	imported, err := r.proj.Importer.Import(SpxPkgPath)
+	return err == nil && imported == pkg
 }
 
-// spxMemberDefinitionPkgPath returns the package path used in definition IDs for
-// spx members. It prefers the public spx package when the member comes from an
-// internal implementation package but is surfaced through a public spx type.
-func spxMemberDefinitionPkgPath(pkg *gotypes.Package, selectorTypeName string) string {
-	pkgPath := xgoutil.PkgPath(pkg)
-	if selectorTypeName == "" || !strings.HasPrefix(pkgPath, "github.com/goplus/spx/v3/internal/") {
-		return pkgPath
+// spxFunctionDocumentation resolves the implementation documentation for a
+// public Sprite method. Absent implementation entries leave the declaration's
+// documentation in effect.
+func (r *definitionContext) spxFunctionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc) (string, bool) {
+	if doc == nil {
+		return "", false
 	}
-	if GetSpxPkg().Scope().Lookup(selectorTypeName) != nil {
-		return xgoutil.PkgPath(GetSpxPkg())
+	recvTypeName, _, _, _ := displayedFuncName(fun)
+	if recvTypeName != "Sprite" || !r.isSpxSymbol(fun) {
+		return "", false
 	}
-	return pkgPath
+	if typeDoc := doc.Types["SpriteImpl"]; typeDoc != nil {
+		detail, ok := typeDoc.Methods[fun.Name()]
+		return detail, ok
+	}
+	return "", false
 }
 
-// definitionForVar returns the spx definition for the provided variable.
-func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
-	if IsInSpxPkg(v) && selectorTypeName == "Sprite" {
-		selectorTypeName = "SpriteImpl"
+// spxDisplayTypeName maps the project's spx implementation type to its public
+// name. Other symbols retain their declared type names.
+func (r *definitionContext) spxDisplayTypeName(obj gotypes.Object, typeName string) string {
+	if typeName == "SpriteImpl" && r.isSpxSymbol(obj) {
+		return "Sprite"
 	}
-
-	var overview strings.Builder
-	completionItemKind := VariableCompletion
-	if !v.IsField() || forceVar {
-		overview.WriteString("var ")
-	} else {
-		overview.WriteString("field ")
-		completionItemKind = FieldCompletion
-	}
-	overview.WriteString(v.Name())
-	overview.WriteString(" ")
-	overview.WriteString(d.typeString(v.Type()))
-
-	var detail string
-	if pkgDoc != nil {
-		if selectorTypeName == "" {
-			detail = pkgDoc.Vars[v.Name()]
-		} else if typeDoc, ok := pkgDoc.Types[selectorTypeName]; ok {
-			detail = typeDoc.Fields[v.Name()]
-		}
-	}
-
-	idName := v.Name()
-	if selectorTypeName != "" {
-		selectorTypeDisplayName := selectorTypeName
-		if IsInSpxPkg(v) && selectorTypeDisplayName == "SpriteImpl" {
-			selectorTypeDisplayName = "Sprite"
-		}
-		idName = selectorTypeDisplayName + "." + idName
-	}
-	return SpxDefinition{
-		TypeHint: v.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(spxMemberDefinitionPkgPath(v.Pkg(), selectorTypeName)),
-			Name:    &idName,
-		},
-		Overview: overview.String(),
-		Detail:   detail,
-
-		CompletionItemLabel:            v.Name(),
-		CompletionItemKind:             completionItemKind,
-		CompletionItemInsertText:       v.Name(),
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
-}
-
-// definitionForConst describes the provided constant in the source context.
-func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
-	var overview strings.Builder
-	overview.WriteString("const ")
-	overview.WriteString(c.Name())
-	if !isUntypedType(c.Type()) {
-		overview.WriteString(" ")
-		overview.WriteString(d.typeString(c.Type()))
-	}
-	overview.WriteString(" = ")
-	overview.WriteString(c.Val().String())
-
-	var detail string
-	if pkgDoc != nil {
-		detail = pkgDoc.Consts[c.Name()]
-	}
-
-	return SpxDefinition{
-		TypeHint: c.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(c.Pkg())),
-			Name:    ToPtr(c.Name()),
-		},
-		Overview: overview.String(),
-		Detail:   detail,
-
-		CompletionItemLabel:            c.Name(),
-		CompletionItemKind:             ConstantCompletion,
-		CompletionItemInsertText:       c.Name(),
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
-}
-
-// definitionForType describes the provided type in the source context.
-func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
-	overview := d.typeOverview(typeName)
-
-	var detail string
-	if pkgDoc != nil {
-		typeDoc, ok := pkgDoc.Types[typeName.Name()]
-		if ok {
-			detail = typeDoc.Doc
-		}
-	}
-
-	completionKind := ClassCompletion
-	if named := resolvedNamedType(typeName.Type()); named != nil {
-		switch named.Underlying().(type) {
-		case *gotypes.Interface:
-			completionKind = InterfaceCompletion
-		case *gotypes.Struct:
-			completionKind = StructCompletion
-		}
-	}
-
-	return SpxDefinition{
-		TypeHint: typeName.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(typeName.Pkg())),
-			Name:    ToPtr(typeName.Name()),
-		},
-		Overview: overview,
-		Detail:   detail,
-
-		CompletionItemLabel:            typeName.Name(),
-		CompletionItemKind:             completionKind,
-		CompletionItemInsertText:       typeName.Name(),
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
-}
-
-// definitionForFunc returns the spx definition for the provided function.
-func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
-	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
-		recvTypeName = "SpriteImpl"
-	}
-
-	overview, parsedRecvTypeName, parsedName, overloadID := d.funcOverview(fun)
-	if recvTypeName == "" {
-		recvTypeName = parsedRecvTypeName
-	}
-
-	detail := functionDocumentation(fun, recvTypeName, pkgDoc)
-
-	idName := parsedName
-	if recvTypeName != "" {
-		recvTypeDisplayName := recvTypeName
-		if IsInSpxPkg(fun) && recvTypeDisplayName == "SpriteImpl" {
-			recvTypeDisplayName = "Sprite"
-		}
-		idName = recvTypeDisplayName + "." + idName
-	}
-	return SpxDefinition{
-		TypeHint: fun.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package:    ToPtr(spxMemberDefinitionPkgPath(fun.Pkg(), recvTypeName)),
-			Name:       &idName,
-			OverloadID: overloadID,
-		},
-		Overview: overview,
-		Detail:   detail,
-
-		CompletionItemLabel:            parsedName,
-		CompletionItemKind:             FunctionCompletion,
-		CompletionItemInsertText:       parsedName,
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
-}
-
-// GetSpxDefinitionForPkg returns the spx definition for the provided package.
-func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
-	var detail string
-	if pkgDoc != nil {
-		detail = pkgDoc.Doc
-	}
-
-	return SpxDefinition{
-		TypeHint: pkgName.Type(),
-
-		ID: SpxDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(pkgName.Imported())),
-		},
-		Overview: "package " + pkgName.Name(),
-		Detail:   detail,
-
-		CompletionItemLabel:            pkgName.Name(),
-		CompletionItemKind:             ModuleCompletion,
-		CompletionItemInsertText:       pkgName.Name(),
-		CompletionItemInsertTextFormat: PlainTextTextFormat,
-	}
+	return typeName
 }
 
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
@@ -819,28 +243,4 @@ func IsSpxPropertyNameType(typ gotypes.Type) bool {
 		typ = rhs
 	}
 	return false
-}
-
-// functionDocumentation returns a function or method's source documentation.
-func functionDocumentation(fun *gotypes.Func, recvTypeName string, doc *pkgdoc.PkgDoc) string {
-	if doc == nil {
-		return ""
-	}
-	if recvTypeName == "" {
-		recvTypeName, _, _, _ = displayedFuncName(fun)
-	}
-	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
-		recvTypeName = "SpriteImpl"
-	}
-	if recvTypeName == "" && fun.Signature().Recv() != nil {
-		return ""
-	}
-	name := fun.Name()
-	if recvTypeName == "" || xgoutil.IsXGotMethodName(name) {
-		return doc.Funcs[name]
-	}
-	if typeDoc := doc.Types[recvTypeName]; typeDoc != nil {
-		return typeDoc.Methods[name]
-	}
-	return ""
 }

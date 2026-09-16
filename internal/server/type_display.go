@@ -34,7 +34,7 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 		}
 		if file.IsClass {
 			filename := xgoutil.NodeFilename(proj.Fset, file)
-			if class, ok := proj.Mod.LookupClass(modfile.ClassExt(filename)); ok {
+			if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
 				for _, pkgPath := range class.PkgPaths {
 					if pkg, err := proj.Importer.Import(pkgPath); err == nil {
 						lookups = append(lookups, pkg)

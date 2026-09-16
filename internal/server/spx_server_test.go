@@ -22,7 +22,7 @@ func TestNewSpx(t *testing.T) {
 	assert.Same(t, proj, s.getProj())
 	assert.Equal(t, "main", proj.PkgPath)
 	assert.Same(t, internal.Importer, proj.Importer)
-	_, isProject, ok := proj.Mod.ClassInfo("main.spx")
+	_, isProject, ok := proj.Module().ClassInfo("main.spx")
 	assert.True(t, isProject)
 	assert.True(t, ok)
 	_, err := proj.TypeInfo()

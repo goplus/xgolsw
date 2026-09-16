@@ -141,7 +141,7 @@ type completionContext struct {
 	expectedTypes      []gotypes.Type
 	enumContext        enumIdentContext
 	expectedStructType *gotypes.Struct
-	compositeLitType   *gotypes.Named
+	compositeLitType   gotypes.Type
 	assignTargets      []gotypes.Object
 	declValueSpec      *ast.ValueSpec
 	switchStmt         *ast.SwitchStmt
@@ -157,6 +157,15 @@ type completionContext struct {
 
 	// isIncomplete is set by collectors whose results depend on continued typing.
 	isIncomplete bool
+}
+
+// getEnclosingCallExpr returns the closest call expression in the current
+// completion context.
+func (ctx *completionContext) getEnclosingCallExpr() *ast.CallExpr {
+	if callExpr, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
+		return callExpr
+	}
+	return ctx.enclosingCallExpr
 }
 
 // analyze analyzes the completion context to determine the kind of completion needed.
@@ -269,7 +278,7 @@ func (ctx *completionContext) analyze() {
 			// CompositeLit is more specific than other contexts, so override.
 			ctx.kind = completionKindStructLit
 			ctx.expectedStructType = st
-			ctx.compositeLitType = named
+			ctx.compositeLitType = typ
 			ctx.enclosingNode = node
 		case *ast.AssignStmt:
 			if node.Tok != token.ASSIGN && node.Tok != token.DEFINE {
@@ -1093,7 +1102,7 @@ func (ctx *completionContext) collectGeneral() error {
 
 	// Add local definitions from innermost scope and its parents.
 	pkg := ctx.typeInfo.Pkg
-	className, _ := cl.GetFileClassType(ctx.astFile, ctx.filename, ctx.proj.Mod.LookupClass)
+	className, _ := cl.GetFileClassType(ctx.astFile, ctx.filename, ctx.proj.Module().LookupClass)
 	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
 		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
 		for _, name := range scope.Names() {
@@ -1105,7 +1114,7 @@ func (ctx *completionContext) collectGeneral() error {
 				continue
 			}
 
-			ctx.itemSet.addSpxDefs(ctx.spxDefinitionsFor(obj, "")...)
+			ctx.itemSet.addDefinitions(ctx.definitionsFor(obj, "")...)
 
 			isMainScopeObj := isInMainScope && name == className
 			if name != "this" && !isMainScopeObj {
@@ -1115,7 +1124,7 @@ func (ctx *completionContext) collectGeneral() error {
 			if !ok || !xgoutil.IsNamedStructType(named) {
 				continue
 			}
-			for _, def := range ctx.spxDefinitionsForStruct(named) {
+			for _, def := range ctx.definitionsForStruct(named) {
 				if ctx.inSpxEventHandler && def.ID.Name != nil {
 					name := *def.ID.Name
 					if idx := strings.LastIndex(name, "."); idx >= 0 {
@@ -1125,7 +1134,7 @@ func (ctx *completionContext) collectGeneral() error {
 						continue
 					}
 				}
-				ctx.itemSet.addSpxDefs(def)
+				ctx.itemSet.addDefinitions(def)
 			}
 		}
 	}
@@ -1150,8 +1159,8 @@ func (ctx *completionContext) collectGeneral() error {
 			pkgName = importSpec.Name.Name
 		}
 
-		ctx.itemSet.addSpxDefs(SpxDefinition{
-			ID: SpxDefinitionIdentifier{
+		ctx.itemSet.addDefinitions(symbolDefinition{
+			ID: XGoDefinitionIdentifier{
 				Package: &pkgPath,
 			},
 			Overview: "package " + pkgPathBase,
@@ -1166,7 +1175,7 @@ func (ctx *completionContext) collectGeneral() error {
 
 	// Add other definitions.
 	if ctx.astFile.IsClass {
-		if class, ok := ctx.proj.Mod.LookupClass(modfile.ClassExt(ctx.filename)); ok {
+		if class, ok := ctx.proj.Module().LookupClass(modfile.ClassExt(ctx.filename)); ok {
 			for _, pkgPath := range class.PkgPaths {
 				pkg, err := ctx.proj.Importer.Import(pkgPath)
 				if err != nil {
@@ -1176,10 +1185,10 @@ func (ctx *completionContext) collectGeneral() error {
 			}
 		}
 	}
-	ctx.itemSet.addSpxDefs(ctx.builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
-	ctx.itemSet.addSpxDefs(GeneralSpxDefinitions...)
+	ctx.itemSet.addDefinitions(ctx.builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
+	ctx.itemSet.addDefinitions(generalCompletionSnippets...)
 	if ctx.innermostScope == ctx.astFileScope {
-		ctx.itemSet.addSpxDefs(FileScopeSpxDefinitions...)
+		ctx.itemSet.addDefinitions(fileScopeCompletionSnippets...)
 	}
 
 	return nil
@@ -1196,8 +1205,8 @@ func (ctx *completionContext) collectImport() error {
 		if err != nil {
 			continue
 		}
-		ctx.itemSet.addSpxDefs(SpxDefinition{
-			ID: SpxDefinitionIdentifier{
+		ctx.itemSet.addDefinitions(symbolDefinition{
+			ID: XGoDefinitionIdentifier{
 				Package: &pkgPath,
 			},
 			Overview: "package " + path.Base(pkgPath),
@@ -1237,18 +1246,11 @@ func (ctx *completionContext) collectDot() error {
 		return nil
 	}
 	typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
-	named := resolvedNamedType(typ)
-	if named != nil {
-		if IsInSpxPkg(named.Obj()) && named.Obj().Name() == "Sprite" {
-			named = GetSpxSpriteImplType()
-		}
-		typ = named
-	}
 
 	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
-		ctx.collectInterfaceMethodCompletions(iface, named, nil)
+		ctx.collectInterfaceMethodCompletions(iface, typ)
 	} else if _, ok := typ.Underlying().(*gotypes.Struct); ok {
-		ctx.itemSet.addSpxDefs(ctx.spxDefinitionsForStruct(typ)...)
+		ctx.itemSet.addDefinitions(ctx.definitionsForStruct(typ)...)
 	}
 	return nil
 }
@@ -1308,71 +1310,12 @@ func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *ast.Ident
 	return nil
 }
 
-// collectInterfaceMethodCompletions collects completion items for the provided
-// interface type and all of its embedded interfaces. The selectorNamed tracks
-// the named interface whose methods should determine the completion definition
-// name. The visited prevents infinite recursion for cyclic embeddings.
-func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.Interface, selectorNamed *gotypes.Named, visited map[*gotypes.Interface]struct{}) {
-	if iface == nil {
-		return
-	}
-	if visited == nil {
-		visited = make(map[*gotypes.Interface]struct{})
-	}
-	if _, ok := visited[iface]; ok {
-		return
-	}
-	visited[iface] = struct{}{}
-
-	for method := range iface.ExplicitMethods() {
-		if !xgoutil.IsExportedOrInMainPkg(method) {
-			continue
-		}
-
-		recvTypeName := ""
-		if selectorNamed != nil {
-			selectorObj := selectorNamed.Obj()
-			if !xgoutil.IsInMainPkg(selectorObj) || xgoutil.IsInMainPkg(method) {
-				recvTypeName = selectorObj.Name()
-			}
-		}
-
-		spxDef := ctx.spxDefinitionForMethod(method, recvTypeName)
-		ctx.itemSet.addSpxDefs(spxDef)
-	}
-
-	for embedded := range iface.EmbeddedTypes() {
-		embedded = gotypes.Unalias(embedded)
-
-		var (
-			named          *gotypes.Named
-			ifaceToRecurse *gotypes.Interface
-		)
-
-		switch t := embedded.(type) {
-		case *gotypes.Named:
-			named = t
-			ifaceToRecurse, _ = t.Underlying().(*gotypes.Interface)
-		case *gotypes.Interface:
-			ctx.collectInterfaceMethodCompletions(t, selectorNamed, visited)
-			continue
-		case *gotypes.Pointer:
-			elem := gotypes.Unalias(t.Elem())
-			if n, ok := elem.(*gotypes.Named); ok {
-				named = n
-				ifaceToRecurse, _ = n.Underlying().(*gotypes.Interface)
-			} else if iface, ok := elem.(*gotypes.Interface); ok {
-				ctx.collectInterfaceMethodCompletions(iface, selectorNamed, visited)
-				continue
-			}
-		}
-
-		if ifaceToRecurse != nil {
-			nextSelector := selectorNamed
-			if named != nil && (nextSelector == nil || (xgoutil.IsInMainPkg(nextSelector.Obj()) && !xgoutil.IsInMainPkg(named.Obj()))) {
-				nextSelector = named
-			}
-			ctx.collectInterfaceMethodCompletions(ifaceToRecurse, nextSelector, visited)
+// collectInterfaceMethodCompletions collects accessible methods, including
+// embedded methods, using each method's declaration for its description.
+func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.Interface, receiver gotypes.Type) {
+	for method := range iface.Methods() {
+		if xgoutil.IsExportedOrInMainPkg(method) {
+			ctx.itemSet.addDefinitions(ctx.definitionsForSelection(method, receiver)...)
 		}
 	}
 }
@@ -1390,7 +1333,7 @@ func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
 		pkgDoc, _ = ctx.lookupPkgDoc(xgoutil.PkgPath(pkg))
 	}
 
-	ctx.itemSet.addSpxDefs(ctx.definitionsForPkg(pkg, pkgDoc)...)
+	ctx.itemSet.addDefinitions(ctx.definitionsForPkg(pkg, pkgDoc)...)
 }
 
 // collectCall collects function call completions.
@@ -1591,28 +1534,18 @@ func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argC
 
 	collected := false
 	for _, kwarg := range kwargs {
-		selectorTypeName := kwargSelectorTypeName(kwarg)
 		for _, target := range xgoutil.ListResolvedCallExprKwargTargets(kwarg) {
-			var spxDef SpxDefinition
-			switch {
-			case target.Field != nil:
-				if _, ok := usedTargets[target.Field]; ok {
-					continue
-				}
-				spxDef = ctx.spxDefinitionForField(target.Field, selectorTypeName)
-			case target.Method != nil:
-				if _, ok := usedTargets[target.Method]; ok {
-					continue
-				}
-				spxDef = ctx.spxDefinitionForMethod(target.Method, selectorTypeName)
-			default:
+			obj := kwargTargetObject(&target)
+			if _, ok := usedTargets[obj]; ok {
 				continue
 			}
-			spxDef.CompletionItemLabel = target.Name
-			spxDef.CompletionItemInsertText = target.Name + " = ${1:}"
-			spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
-			ctx.itemSet.addSpxDefs(spxDef)
-			collected = true
+			for _, def := range ctx.definitionsForSelection(obj, kwarg.Param.Type()) {
+				def.CompletionItemLabel = target.Name
+				def.CompletionItemInsertText = target.Name + " = ${1:}"
+				def.CompletionItemInsertTextFormat = SnippetTextFormat
+				ctx.itemSet.addDefinitions(def)
+				collected = true
+			}
 		}
 	}
 	return collected
@@ -1627,16 +1560,6 @@ func (ctx *completionContext) currentCallKwargArgIndex(callExpr *ast.CallExpr) i
 		}
 	}
 	return -1
-}
-
-// kwargSelectorTypeName returns the selector type name of the parameter
-// container receiving kwargs.
-func kwargSelectorTypeName(kwarg *xgoutil.ResolvedCallExprKwarg) string {
-	named := resolvedNamedType(kwarg.Param.Type())
-	if named == nil {
-		return ""
-	}
-	return extractTypeName(named)
 }
 
 // collectAssignOrDefine collects completions for assignments and definitions.
@@ -1725,11 +1648,6 @@ func (ctx *completionContext) collectStructLit() error {
 		return nil
 	}
 
-	var selectorTypeName string
-	if ctx.compositeLitType != nil {
-		selectorTypeName = extractTypeName(ctx.compositeLitType)
-	}
-
 	seenFields := make(map[string]struct{})
 
 	// Collect already used fields.
@@ -1752,10 +1670,11 @@ func (ctx *completionContext) collectStructLit() error {
 			continue
 		}
 
-		spxDef := ctx.spxDefinitionForField(field, selectorTypeName)
-		spxDef.CompletionItemInsertText = field.Name() + ": ${1:}"
-		spxDef.CompletionItemInsertTextFormat = SnippetTextFormat
-		ctx.itemSet.addSpxDefs(spxDef)
+		for _, def := range ctx.definitionsForSelection(field, ctx.compositeLitType) {
+			def.CompletionItemInsertText = field.Name() + ": ${1:}"
+			def.CompletionItemInsertTextFormat = SnippetTextFormat
+			ctx.itemSet.addDefinitions(def)
+		}
 	}
 
 	return nil
@@ -1766,7 +1685,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 	if ctx.switchStmt.Tag == nil {
 		for _, name := range []string{"int", "string", "bool", "error"} {
 			if obj := gotypes.Universe.Lookup(name); obj != nil {
-				ctx.itemSet.addSpxDefs(ctx.spxDefinitionsFor(obj, "")...)
+				ctx.itemSet.addDefinitions(ctx.definitionsFor(obj, "")...)
 			}
 		}
 		return nil
@@ -1806,7 +1725,7 @@ func (ctx *completionContext) collectSwitchCase() error {
 		}
 
 		if gotypes.Identical(c.Type(), typ) {
-			ctx.itemSet.addSpxDefs(ctx.definitionForConst(c, pkgDoc))
+			ctx.itemSet.addDefinitions(ctx.definitionForConst(c, pkgDoc))
 		}
 	}
 	return nil
@@ -1815,10 +1734,10 @@ func (ctx *completionContext) collectSwitchCase() error {
 // addVisibleEnumMembers adds members of the given types that are not shadowed
 // at the completion position.
 func (ctx *completionContext) addVisibleEnumMembers(expectedTypes ...gotypes.Type) {
-	for _, def := range ctx.spxDefinitionsForEnumTypes(expectedTypes...) {
+	for _, def := range ctx.definitionsForEnumTypes(expectedTypes...) {
 		_, obj := ctx.innermostScope.LookupParent(def.CompletionItemLabel, ctx.pos)
 		if len(ctx.enumInfo.membersForObject(obj)) > 0 {
-			ctx.itemSet.addSpxDefs(def)
+			ctx.itemSet.addDefinitions(def)
 		}
 	}
 }
@@ -1921,7 +1840,7 @@ func completionItemKindSupportedByClient(capabilities CompletionClientCapabiliti
 // completionItemSet is a set of completion items.
 type completionItemSet struct {
 	items                         []CompletionItem
-	seenSpxDefs                   map[string]struct{}
+	seenDefinitions               map[string]struct{}
 	documentationKind             MarkupKind
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
@@ -1934,7 +1853,7 @@ type completionItemSet struct {
 func newCompletionItemSet(documentationKind MarkupKind) *completionItemSet {
 	return &completionItemSet{
 		items:             []CompletionItem{},
-		seenSpxDefs:       make(map[string]struct{}),
+		seenDefinitions:   make(map[string]struct{}),
 		documentationKind: documentationKind,
 	}
 }
@@ -2044,11 +1963,11 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 	}
 }
 
-// addSpxDefs adds spx definitions to the set.
-func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
-	for _, spxDef := range spxDefs {
+// addDefinitions adds symbol definitions to the set.
+func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
+	for _, def := range defs {
 		if s.expectedFuncResultCount > 0 {
-			if sig, ok := spxDef.TypeHint.(*gotypes.Signature); ok {
+			if sig, ok := def.TypeHint.(*gotypes.Signature); ok {
 				resultCount := sig.Results().Len()
 				// Exclude multi-return functions with mismatched count.
 				// Single-return functions are allowed to fall through for further type checks.
@@ -2057,20 +1976,20 @@ func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 				}
 			}
 		}
-		if s.disallowVoidFuncs && spxDef.CompletionItemKind == FunctionCompletion {
-			if sig, ok := spxDef.TypeHint.(*gotypes.Signature); ok && sig.Results().Len() == 0 {
+		if s.disallowVoidFuncs && def.CompletionItemKind == FunctionCompletion {
+			if sig, ok := def.TypeHint.(*gotypes.Signature); ok && sig.Results().Len() == 0 {
 				continue
 			}
 		}
-		if spxDef.CompletionItemKind == EnumMemberCompletion && s.enumContext.status != enumContextUnknown {
+		if def.CompletionItemKind == EnumMemberCompletion && s.enumContext.status != enumContextUnknown {
 			if s.enumContext.status == enumContextDisallowed {
 				continue
 			}
-			if !isEnumMemberCompatibleWithContext(spxDef.TypeHint, s.enumContext) {
+			if !isEnumMemberCompatibleWithContext(def.TypeHint, s.enumContext) {
 				continue
 			}
 		} else if s.isCompatibleWithExpectedTypes != nil {
-			typeToCompare := spxDef.TypeHint
+			typeToCompare := def.TypeHint
 			if sig, ok := typeToCompare.(*gotypes.Signature); ok {
 				switch sig.Results().Len() {
 				case 0:
@@ -2087,12 +2006,12 @@ func (s *completionItemSet) addSpxDefs(spxDefs ...SpxDefinition) {
 			}
 		}
 
-		spxDefIDKey := spxDef.ID.String()
-		if _, ok := s.seenSpxDefs[spxDefIDKey]; ok {
+		definitionKey := def.ID.String()
+		if _, ok := s.seenDefinitions[definitionKey]; ok {
 			continue
 		}
-		s.seenSpxDefs[spxDefIDKey] = struct{}{}
+		s.seenDefinitions[definitionKey] = struct{}{}
 
-		s.add(spxDef.completionItem(s.documentationKind))
+		s.add(def.completionItem(s.documentationKind))
 	}
 }

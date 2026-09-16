@@ -131,7 +131,7 @@ func TestProjectSnapshot(t *testing.T) {
 		snapshot := proj.Snapshot()
 		require.NotNil(t, snapshot)
 		assert.Equal(t, proj.PkgPath, snapshot.PkgPath)
-		assert.Equal(t, proj.Mod, snapshot.Mod)
+		assert.Equal(t, proj.Module(), snapshot.Module())
 		assert.Equal(t, proj.Importer, snapshot.Importer)
 		assert.Equal(t, proj.Fset, snapshot.Fset)
 	})

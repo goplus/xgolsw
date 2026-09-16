@@ -1190,11 +1190,11 @@ func enumNumericConstantConstraint(value constant.Value) gotypes.BasicInfo {
 	return gotypes.IsComplex
 }
 
-// spxDefinitionForEnumMembers returns one definition for a non-empty set of
+// definitionForEnumMembers returns one definition for a non-empty set of
 // source-level members.
-func (r *definitionContext) spxDefinitionForEnumMembers(members ...*enumMemberInfo) SpxDefinition {
+func (r *definitionContext) definitionForEnumMembers(members ...*enumMemberInfo) symbolDefinition {
 	first := members[0]
-	var def SpxDefinition
+	var def symbolDefinition
 	for _, member := range members {
 		if member.object != nil {
 			def = r.definitionForConst(member.object, nil)
@@ -1206,8 +1206,8 @@ func (r *definitionContext) spxDefinitionForEnumMembers(members ...*enumMemberIn
 		if first.owner.object != nil {
 			pkgPath = xgoutil.PkgPath(first.owner.object.Pkg())
 		}
-		def = SpxDefinition{
-			ID: SpxDefinitionIdentifier{
+		def = symbolDefinition{
+			ID: XGoDefinitionIdentifier{
 				Package: ToPtr(pkgPath),
 				Name:    ToPtr(first.ident.Name),
 			},
@@ -1245,9 +1245,9 @@ func (r *definitionContext) spxDefinitionForEnumMembers(members ...*enumMemberIn
 	return def
 }
 
-// spxDefinitionsForEnumTypes returns definitions for members of the given
+// definitionsForEnumTypes returns definitions for members of the given
 // types. Members with the same source name are represented by one definition.
-func (r *definitionContext) spxDefinitionsForEnumTypes(expectedTypes ...gotypes.Type) []SpxDefinition {
+func (r *definitionContext) definitionsForEnumTypes(expectedTypes ...gotypes.Type) []symbolDefinition {
 	if len(expectedTypes) == 0 {
 		return nil
 	}
@@ -1272,9 +1272,9 @@ func (r *definitionContext) spxDefinitionsForEnumTypes(expectedTypes ...gotypes.
 		}
 	}
 
-	defs := make([]SpxDefinition, 0, len(names))
+	defs := make([]symbolDefinition, 0, len(names))
 	for _, name := range names {
-		defs = append(defs, r.spxDefinitionForEnumMembers(membersByName[name]...))
+		defs = append(defs, r.definitionForEnumMembers(membersByName[name]...))
 	}
 	return defs
 }

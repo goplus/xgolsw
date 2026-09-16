@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"iter"
 	"maps"
-	"path"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -25,12 +24,8 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 		return nil, fmt.Errorf("failed to get file path from document uri %q: %w", params.TextDocument.URI, err)
 	}
 	proj := s.getProj()
-	switch path.Ext(filename) {
-	case ".xgo", ".gop", ".gox":
-	default:
-		if _, _, ok := proj.Mod.ClassInfo(path.Base(filename)); !ok {
-			return nil, nil
-		}
+	if !proj.IsSourceFile(filename) {
+		return nil, nil
 	}
 	file, ok := proj.File(filename)
 	if !ok {
@@ -80,7 +75,7 @@ func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, 
 	files[filename] = &xgo.File{Content: original}
 	snapshot := xgo.NewProject(nil, files, xgo.FeatASTCache|xgo.FeatTypeInfoCache)
 	snapshot.PkgPath = proj.PkgPath
-	snapshot.Mod = proj.Mod
+	snapshot.SetModule(proj.Module())
 	snapshot.Importer = proj.Importer
 	formatted := original
 	for _, formatter := range []sourceFormatter{
@@ -106,7 +101,7 @@ func formatXGo(snapshot *xgo.Project, filename string) ([]byte, error) {
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
-	formatted, err := format.Source(file.Content, snapshot.Mod.ClassInfo, filename)
+	formatted, err := format.Source(file.Content, snapshot.Module().ClassInfo, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +424,7 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
-	return format.Source(formatted, snapshot.Mod.ClassInfo, filename)
+	return format.Source(formatted, snapshot.Module().ClassInfo, filename)
 }
 
 // getDeclDoc returns the doc comment of a declaration if any.

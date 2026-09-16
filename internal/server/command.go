@@ -165,7 +165,7 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		astPkg, _ := proj.ASTPackage()
 		if astPkg != nil {
 			for filename, candidate := range astPkg.Files {
-				if name, _ := cl.GetFileClassType(candidate, filename, proj.Mod.LookupClass); name == typeName.Name() {
+				if name, _ := cl.GetFileClassType(candidate, filename, proj.Module().LookupClass); name == typeName.Name() {
 					file, pos = candidate, candidate.Pos()
 					break
 				}
@@ -198,16 +198,15 @@ type propertyMember struct {
 	Type gotypes.Type
 	// Kind indicates whether the property comes from a field or a method.
 	Kind XGoPropertyKind
-	// SpxDef is the full spx definition for the member.
-	SpxDef SpxDefinition
+	// Definition describes the member for documentation and completion.
+	Definition symbolDefinition
 }
 
 // propertyObject holds the source object for a property discovered during a
 // type traversal.
 type propertyObject struct {
-	Name             string
-	SelectorTypeName string
-	Object           gotypes.Object
+	Name   string
+	Object gotypes.Object
 }
 
 // propertyObjects returns an iterator over property source objects in
@@ -230,7 +229,6 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 				return true
 			}
 
-			selectorTypeName := namedType.Obj().Name()
 			yieldProperty := func(property propertyObject) bool {
 				if !xgoutil.IsExportedOrInMainPkg(property.Object) || seenNames[property.Name] {
 					return true
@@ -251,9 +249,8 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 					}
 				}
 				if !yieldProperty(propertyObject{
-					Name:             field.Name(),
-					SelectorTypeName: selectorTypeName,
-					Object:           field,
+					Name:   field.Name(),
+					Object: field,
 				}) {
 					return false
 				}
@@ -267,9 +264,8 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 			}
 			for method := range namedType.Methods() {
 				if !yieldProperty(propertyObject{
-					Name:             xgoutil.ToLowerCamelCase(method.Name()),
-					SelectorTypeName: selectorTypeName,
-					Object:           method,
+					Name:   xgoutil.ToLowerCamelCase(method.Name()),
+					Object: method,
 				}) {
 					return false
 				}
@@ -299,29 +295,21 @@ func (r *definitionContext) propertyMembers(namedType *gotypes.Named) iter.Seq[p
 					Name: property.Name,
 					Type: object.Type(),
 					Kind: XGoPropertyKindField,
-					SpxDef: r.definitionForVar(
-						object,
-						property.SelectorTypeName,
-						false,
-						r.pkgDocForObject(object),
-					),
 				}
 			case *gotypes.Func:
 				member = propertyMember{
 					Name: property.Name,
 					Type: object.Signature().Results().At(0).Type(),
 					Kind: XGoPropertyKindMethod,
-					SpxDef: r.definitionForFunc(
-						object,
-						property.SelectorTypeName,
-						r.pkgDocForObject(object),
-					),
 				}
 			default:
 				continue
 			}
-			if !yield(member) {
-				return
+			for _, def := range r.definitionsForSelection(property.Object, namedType) {
+				member.Definition = def
+				if !yield(member) {
+					return
+				}
 			}
 		}
 	}
@@ -335,8 +323,8 @@ func (r *definitionContext) collectPropertiesFromNamedType(namedType *gotypes.Na
 			Name:       m.Name,
 			Type:       r.typeString(m.Type),
 			Kind:       m.Kind,
-			Doc:        m.SpxDef.Detail,
-			Definition: m.SpxDef.ID,
+			Doc:        m.Definition.Detail,
+			Definition: m.Definition.ID,
 		})
 	}
 	return properties
