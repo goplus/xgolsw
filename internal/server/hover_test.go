@@ -1158,7 +1158,7 @@ func run() {
 			End:   Position{Line: 15, Character: 32},
 		}, hover.Range)
 		assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?Params.MaxTokens"`)
-		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) main.Params"`)
+		assert.Contains(t, hover.Contents.Value, `overview="func MaxTokens(n int64) Params"`)
 	})
 
 	t.Run("DuplicateEnumMembers", func(t *testing.T) {

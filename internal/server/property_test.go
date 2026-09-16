@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	gotypes "go/types"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/token"
@@ -13,6 +14,28 @@ import (
 )
 
 func TestServerXGoGetProperties(t *testing.T) {
+	t.Run("DeclarationDocumentation", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"types.xgo":  nil,
+			"broken.xgo": []byte("func broken("),
+		})
+		for version, doc := range []string{"First documentation.", "Second documentation.", ""} {
+			s.ModifyFiles([]FileChange{{Path: "types.xgo", Content: []byte(strings.ReplaceAll(`type Item struct {
+    // MESSAGE
+    Value int
+}
+type Copy Item
+`, "MESSAGE", doc)), Version: version + 1}})
+			for _, target := range []string{"Item", "Copy"} {
+				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: target})
+				require.NoError(t, err)
+				require.Len(t, properties, 1)
+				assert.Equal(t, doc, strings.TrimSpace(properties[0].Doc))
+				assert.Equal(t, "xgo:main?"+target+".Value", properties[0].Definition.String())
+			}
+		}
+	})
+
 	t.Run("ClassNameConflict", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
 			"main_fixture.gox":   []byte("var Worker Item\n"),

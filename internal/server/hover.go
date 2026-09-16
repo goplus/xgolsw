@@ -40,6 +40,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	}
 	ctx := &definitionContext{
 		proj:         proj,
+		typeDisplay:  newTypeDisplay(proj, astFile, PosAt(proj, astFile, params.Position)),
 		enumInfo:     newEnumInfo(astPkg, typeInfo),
 		lookupPkgDoc: s.lookupPkgDoc,
 	}

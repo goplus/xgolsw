@@ -172,6 +172,51 @@ func TestIsXGoClassStructType(t *testing.T) {
 }
 
 func TestStructMembers(t *testing.T) {
+	t.Run("UnnamedStruct", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		field := gotypes.NewField(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int], false)
+		typ := gotypes.NewStruct([]*gotypes.Var{field}, nil)
+		var members []StructMember
+		for member := range StructMembers(typ) {
+			members = append(members, member)
+		}
+		require.Len(t, members, 1)
+		assert.Same(t, field, members[0].Member)
+		assert.Nil(t, members[0].Selector)
+	})
+
+	t.Run("EmbeddedInterfaceAlias", func(t *testing.T) {
+		for _, stopEarly := range []bool{false, true} {
+			name := "AllMembers"
+			if stopEarly {
+				name = "StopAtInterfaceMethod"
+			}
+			t.Run(name, func(t *testing.T) {
+				pkg := gotypes.NewPackage("example.com/framework", "framework")
+				first := newTestFunc(pkg, "First", false)
+				last := newTestFunc(pkg, "Last", false)
+				hidden := newTestFunc(pkg, "hidden", false)
+				iface := gotypes.NewInterfaceType([]*gotypes.Func{first, last, hidden}, nil).Complete()
+				reader := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Reader", nil), iface, nil)
+				alias := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "Alias", nil), reader)
+				embedded := gotypes.NewField(token.NoPos, pkg, "Alias", alias, true)
+				outer := gotypes.NewStruct([]*gotypes.Var{embedded}, nil)
+				var members []StructMember
+				for member := range StructMembers(outer) {
+					members = append(members, member)
+					if stopEarly && member.Member == first {
+						break
+					}
+				}
+				want := []StructMember{{Member: embedded}, {Member: first, Selector: reader}}
+				if !stopEarly {
+					want = append(want, StructMember{Member: last, Selector: reader})
+				}
+				assert.Equal(t, want, members)
+			})
+		}
+	})
+
 	t.Run("NilNamedType", func(t *testing.T) {
 		var (
 			named  *gotypes.Named
@@ -521,7 +566,7 @@ func TestStructMembers(t *testing.T) {
 		assert.Equal(t, mainNamed, members[0].Selector)
 	})
 
-	t.Run("EmbeddedNamedNonStructIsIgnored", func(t *testing.T) {
+	t.Run("EmbeddedNamedNonStructWithoutMethods", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 
 		namedInt := gotypes.NewNamed(

@@ -8,6 +8,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -35,6 +36,18 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		return nil, nil
 	}
 
+	ctx := &definitionContext{
+		typeDisplay:  newTypeDisplay(proj, astFile, pos),
+		proj:         proj,
+		lookupPkgDoc: s.lookupPkgDoc,
+	}
+	documentationKind := PlainText
+	if capabilities, ok := s.clientCapabilitiesAfterInitialize(); ok {
+		if help := capabilities.TextDocument.SignatureHelp; help != nil && help.SignatureInformation != nil {
+			documentationKind = preferredMarkupKind(help.SignatureInformation.DocumentationFormat)
+		}
+	}
+
 	callExpr, funcDecorator := enclosingCallExprAtPosition(astFile, pos)
 	if callExpr != nil && !callExprCoversSignaturePosition(callExpr, pos) {
 		callExpr = nil
@@ -50,7 +63,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if callExpr != nil {
 		fun, sig, resolvedParams = xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
 		if fun == nil || sig == nil || resolvedParams == nil {
-			return overloadSignatureHelp(typeInfo, callExpr, pos), nil
+			return ctx.overloadSignatureHelp(typeInfo, callExpr, pos, documentationKind), nil
 		}
 		activeParameter = signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
 		if funcDecorator {
@@ -84,7 +97,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		displayedName = signatureHelpResolvedCallName(typeInfo, callExpr, fun)
 	}
 	help := &SignatureHelp{
-		Signatures: []SignatureInformation{signatureHelpInformation(fun, sig, resolvedParams, displayedName)},
+		Signatures: []SignatureInformation{ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, documentationKind)},
 	}
 	if activeParameter >= 0 {
 		help.ActiveParameter = uint32(activeParameter)
@@ -114,7 +127,7 @@ func signatureHelpIdentAtPosition(typeInfo *types.Info, astFile *ast.File, pos t
 
 // overloadSignatureHelp returns signature help for an overload pseudo-function
 // call.
-func overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos) *SignatureHelp {
+func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos, documentationKind MarkupKind) *SignatureHelp {
 	overloads := callExprFuncOverloads(typeInfo, callExpr)
 	if len(overloads) == 0 {
 		return nil
@@ -137,7 +150,7 @@ func overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos tok
 		if sig == nil || params == nil {
 			continue
 		}
-		signature := signatureHelpInformation(overload, sig, params, displayedName)
+		signature := r.signatureHelpInformation(overload, sig, params, displayedName, documentationKind)
 		if activeParameter < 0 {
 			activeParameter = overloadSignatureHelpActiveParameter(callExpr, pos, sig, params, resolvedArg, hasResolvedArg)
 		}
@@ -155,11 +168,11 @@ func overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos tok
 }
 
 // signatureHelpInformation returns signature information for one function.
-func signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, displayedName string) SignatureInformation {
+func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, displayedName string, documentationKind MarkupKind) SignatureInformation {
 	paramLabels := make([]string, 0, params.Len())
 	paramInfos := make([]ParameterInformation, 0, params.Len())
 	for i := range params.Len() {
-		paramLabel := signatureHelpParameterLabel(fun, sig, params, i)
+		paramLabel := r.signatureHelpParameterLabel(fun, sig, params, i)
 		paramLabels = append(paramLabels, paramLabel)
 		paramInfo := ParameterInformation{Label: paramLabel}
 		if _, ok := xgoutil.AutoclosureParamResultType(params.At(i)); ok {
@@ -172,10 +185,17 @@ func signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params 
 	if labelName == "" {
 		_, labelName, _, _ = displayedFuncName(fun)
 	}
-	return SignatureInformation{
-		Label:      labelName + "(" + strings.Join(paramLabels, ", ") + ")" + displayedFuncResults(sig.Results()),
+	info := SignatureInformation{
+		Label:      labelName + "(" + strings.Join(paramLabels, ", ") + ")" + r.displayedFuncResults(sig.Results()),
 		Parameters: paramInfos,
 	}
+	if doc := strings.TrimSpace(r.functionDocumentation(fun)); doc != "" {
+		info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
+		if documentationKind == Markdown {
+			info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
+		}
+	}
+	return info
 }
 
 // signatureHelpResolvedArgAtPosition returns the resolved argument at pos.
@@ -277,12 +297,12 @@ func callExprCoversSignaturePosition(callExpr *ast.CallExpr, pos token.Pos) bool
 }
 
 // signatureHelpParameterLabel formats a single parameter for signature help.
-func signatureHelpParameterLabel(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) string {
+func (d typeDisplay) signatureHelpParameterLabel(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) string {
 	param := params.At(paramIndex)
 	if paramIndex < xgoutil.NormalizedCallExprTypeArgCount(fun, params) {
 		return xgoutil.SourceParamName(param) + " Type"
 	}
-	return sourceParamLabel(sig, params, paramIndex)
+	return d.sourceParamLabel(sig, params, paramIndex)
 }
 
 // overloadSignatureHelpActiveParameter resolves the active parameter for one

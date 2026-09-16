@@ -188,20 +188,3 @@ func TestIsInSpxPkg(t *testing.T) {
 		})
 	}
 }
-
-func TestGetSimplifiedTypeString(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		pkg  *gotypes.Package
-		want string
-	}{
-		{name: "NoPackage", want: "Value"},
-		{name: "OtherPackage", pkg: gotypes.NewPackage("example.com/sample", "sample"), want: "sample.Value"},
-		{name: "OtherPackageNamedSpx", pkg: gotypes.NewPackage("example.com/spx", "spx"), want: "spx.Value"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, tt.pkg, "Value", nil), gotypes.NewStruct(nil, nil), nil)
-			assert.Equal(t, tt.want, GetSimplifiedTypeString(named))
-		})
-	}
-}

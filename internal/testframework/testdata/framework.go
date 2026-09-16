@@ -85,3 +85,30 @@ func (p *PrivateMethod) label(n int) int { return n }
 
 // XGot_App_Main receives the generated project and work classes.
 func XGot_App_Main(app interface{ initApp() }, items ...interface{ Main() }) {}
+
+// Current is the current work item.
+var Current *Item
+
+// Use accepts and returns a work item.
+func Use(item *Item) (*Item, bool) { return item, item != nil }
+
+// Count names a basic property type.
+type Count = int
+
+// ItemRef aliases a work item pointer.
+type ItemRef = *Item
+
+// Table names a generic map.
+type Table[K comparable, V any] = map[K]V
+
+// Reader reads a work item's value.
+type Reader interface {
+	// Read retrieves a value.
+	Read(n int) int
+}
+
+// Level identifies a work level.
+type Level int
+
+// Limit is the default work level.
+const Limit Level = 3

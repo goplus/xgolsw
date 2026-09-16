@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 
+	"github.com/goplus/xgolsw/protocol"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -96,21 +98,22 @@ func handle = (
 			source   string
 			position Position
 			label    string
+			doc      string
 		}{
 			{
 				name: "ProjectOverload", filename: "main_fixture.gox",
 				source: "onStart => {\n    measure 1\n}\n", position: Position{Line: 1, Character: 12},
-				label: "measure(value int) int",
+				label: "measure(value int) int", doc: "Measure__0 is the integer overload of Measure.",
 			},
 			{
 				name: "WorkMethod", filename: "Worker_fixture.gox",
 				source: "onValue amount => {\n    apply amount\n}\n", position: Position{Line: 1, Character: 12},
-				label: "apply(value int)",
+				label: "apply(value int)", doc: "Apply accepts a value on a work instance.",
 			},
 			{
 				name: "BoundWorkMethod", filename: "main_fixture.gox",
 				source: "onStart => {\n    Worker.apply 1\n}\n", position: Position{Line: 1, Character: 17},
-				label: "apply(value int)",
+				label: "apply(value int)", doc: "Apply accepts a value on a work instance.",
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -129,7 +132,9 @@ func handle = (
 				require.NoError(t, err)
 				assert.Equal(t, &SignatureHelp{
 					Signatures: []SignatureInformation{{
-						Label: tt.label, Parameters: []ParameterInformation{{Label: "value int"}},
+						Label:         tt.label,
+						Documentation: &protocol.Or_SignatureInformation_documentation{Value: tt.doc},
+						Parameters:    []ParameterInformation{{Label: "value int"}},
 					}},
 				}, help)
 				_, err = s.workspaceRootFS.TypeInfo()
@@ -299,7 +304,8 @@ onStart => {
 		require.Len(t, help.Signatures, 1)
 		assert.Equal(t, uint32(0), help.ActiveParameter)
 		assert.Equal(t, SignatureInformation{
-			Label: "runWhen(condition bool, callback func())",
+			Label:         "runWhen(condition bool, callback func())",
+			Documentation: &protocol.Or_SignatureInformation_documentation{Value: "RunWhen accepts a deferred condition and a callback."},
 			Parameters: []ParameterInformation{
 				{
 					Label:         "condition bool",
@@ -417,7 +423,8 @@ onStart => {
 		require.Len(t, help.Signatures, 1)
 		assert.Equal(t, uint32(0), help.ActiveParameter)
 		assert.Equal(t, SignatureInformation{
-			Label: "create(T Type, name string) *T",
+			Label:         "create(T Type, name string) *T",
+			Documentation: &protocol.Or_SignatureInformation_documentation{Value: "XGot_App_XGox_Create provides a method with an explicit type argument."},
 			Parameters: []ParameterInformation{
 				{
 					Label: "T Type",
@@ -493,10 +500,10 @@ func main() {
 		require.Len(t, help.Signatures, 1)
 		assert.Equal(t, uint32(0), help.ActiveParameter)
 		assert.Equal(t, SignatureInformation{
-			Label: "configure(opts main.Options)",
+			Label: "configure(opts Options)",
 			Parameters: []ParameterInformation{
 				{
-					Label: "opts main.Options",
+					Label: "opts Options",
 				},
 			},
 		}, help.Signatures[0])
@@ -544,10 +551,10 @@ func main() {
 		require.Len(t, help.Signatures, 1)
 		assert.Equal(t, uint32(0), help.ActiveParameter)
 		assert.Equal(t, SignatureInformation{
-			Label: "handle(opts main.CountOptions)",
+			Label: "handle(opts CountOptions)",
 			Parameters: []ParameterInformation{
 				{
-					Label: "opts main.CountOptions",
+					Label: "opts CountOptions",
 				},
 			},
 		}, help.Signatures[0])
@@ -594,8 +601,8 @@ func main() {
 		require.NotNil(t, help)
 		require.Len(t, help.Signatures, 2)
 		assert.Equal(t, uint32(0), help.ActiveParameter)
-		assert.Equal(t, "handle(opts main.CountOptions)", help.Signatures[0].Label)
-		assert.Equal(t, "handle(opts main.NameOptions)", help.Signatures[1].Label)
+		assert.Equal(t, "handle(opts CountOptions)", help.Signatures[0].Label)
+		assert.Equal(t, "handle(opts NameOptions)", help.Signatures[1].Label)
 		_, err = s.workspaceRootFS.TypeInfo()
 		assert.Error(t, err)
 	})

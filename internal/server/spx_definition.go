@@ -253,11 +253,11 @@ var (
 )
 
 // getDefinitionForBuiltinObj describes a builtin using the provided package data.
-func getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) SpxDefinition {
+func (d typeDisplay) getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) SpxDefinition {
 	const pkgPath = "builtin"
 
 	idName := obj.Name()
-	if def, err := getDefinitionForXGoBuiltinAlias(idName, importer, lookupPkgDoc); err == nil {
+	if def, err := d.getDefinitionForXGoBuiltinAlias(idName, importer, lookupPkgDoc); err == nil {
 		return def
 	}
 
@@ -322,7 +322,7 @@ func getDefinitionForBuiltinObj(obj gotypes.Object, importer gotypes.Importer, l
 }
 
 // builtinDefinitions describes builtins using the provided importer and documentation lookup.
-func builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) []SpxDefinition {
+func (d typeDisplay) builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) []SpxDefinition {
 	names := gotypes.Universe.Names()
 	defs := make([]SpxDefinition, 0, len(names)+len(xgoBuiltinAliases))
 	for _, name := range names {
@@ -330,11 +330,11 @@ func builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*p
 			continue
 		}
 		if obj := gotypes.Universe.Lookup(name); obj != nil && obj.Pkg() == nil {
-			defs = append(defs, getDefinitionForBuiltinObj(obj, importer, lookupPkgDoc))
+			defs = append(defs, d.getDefinitionForBuiltinObj(obj, importer, lookupPkgDoc))
 		}
 	}
 	for alias := range xgoBuiltinAliases {
-		def, err := getDefinitionForXGoBuiltinAlias(alias, importer, lookupPkgDoc)
+		def, err := d.getDefinitionForXGoBuiltinAlias(alias, importer, lookupPkgDoc)
 		if err != nil {
 			continue
 		}
@@ -344,7 +344,7 @@ func builtinDefinitions(importer gotypes.Importer, lookupPkgDoc func(string) (*p
 }
 
 // getDefinitionForXGoBuiltinAlias resolves a builtin alias using the provided package data.
-func getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) (SpxDefinition, error) {
+func (d typeDisplay) getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) (SpxDefinition, error) {
 	ref, ok := xgoBuiltinAliases[alias]
 	if !ok {
 		return SpxDefinition{}, fmt.Errorf("unknown xgo builtin alias: %s", alias)
@@ -367,9 +367,9 @@ func getDefinitionForXGoBuiltinAlias(alias string, importer gotypes.Importer, lo
 	var def SpxDefinition
 	switch obj := obj.(type) {
 	case *gotypes.TypeName:
-		def = GetSpxDefinitionForType(obj, pkgDoc)
+		def = d.definitionForType(obj, pkgDoc)
 	case *gotypes.Func:
-		def = GetSpxDefinitionForFunc(obj, "", pkgDoc)
+		def = d.definitionForFunc(obj, "", pkgDoc)
 	default:
 		return SpxDefinition{}, fmt.Errorf("unexpected object type for xgo builtin alias %q: %T", alias, obj)
 	}
@@ -518,64 +518,35 @@ var (
 	})
 )
 
-// nonMainPkgSpxDefsCache is a cache of non-main package spx definitions.
-var nonMainPkgSpxDefsCache sync.Map // map[nonMainPkgSpxDefsCacheKey][]SpxDefinition
-
-// nonMainPkgSpxDefsCacheKey identifies a package and its documentation.
-type nonMainPkgSpxDefsCacheKey struct {
-	pkg    *gotypes.Package
-	pkgDoc *pkgdoc.PkgDoc
-}
-
-// GetSpxDefinitionsForPkg returns the spx definitions for the given package.
-func GetSpxDefinitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgDoc) (defs []SpxDefinition) {
-	if !xgoutil.IsMainPkg(pkg) {
-		cacheKey := nonMainPkgSpxDefsCacheKey{pkg, pkgDoc}
-		if defsIface, ok := nonMainPkgSpxDefsCache.Load(cacheKey); ok {
-			return defsIface.([]SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefsCache.Store(cacheKey, defs)
-		}()
-	}
-
+// definitionsForPkg returns the spx definitions for the given package.
+func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgDoc) []SpxDefinition {
 	names := pkg.Scope().Names()
-	defs = make([]SpxDefinition, 0, len(names))
+	defs := make([]SpxDefinition, 0, len(names))
 	for _, name := range names {
-		if obj := pkg.Scope().Lookup(name); obj != nil && obj.Exported() {
-			switch obj := obj.(type) {
-			case *gotypes.Var:
-				defs = append(defs, GetSpxDefinitionForVar(obj, "", false, pkgDoc))
-			case *gotypes.Const:
-				defs = append(defs, GetSpxDefinitionForConst(obj, pkgDoc))
-			case *gotypes.TypeName:
-				defs = append(defs, GetSpxDefinitionForType(obj, pkgDoc))
-			case *gotypes.Func:
-				if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
-					for _, funcOverload := range funcOverloads {
-						defs = append(defs, GetSpxDefinitionForFunc(funcOverload, "", pkgDoc))
-					}
-				} else {
-					defs = append(defs, GetSpxDefinitionForFunc(obj, "", pkgDoc))
+		obj := pkg.Scope().Lookup(name)
+		if obj == nil || !obj.Exported() {
+			continue
+		}
+		switch obj := obj.(type) {
+		case *gotypes.Var:
+			defs = append(defs, d.definitionForVar(obj, "", false, pkgDoc))
+		case *gotypes.Const:
+			defs = append(defs, d.definitionForConst(obj, pkgDoc))
+		case *gotypes.TypeName:
+			defs = append(defs, d.definitionForType(obj, pkgDoc))
+		case *gotypes.Func:
+			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
+				for _, funcOverload := range funcOverloads {
+					defs = append(defs, d.definitionForFunc(funcOverload, "", pkgDoc))
 				}
-			case *gotypes.PkgName:
-				defs = append(defs, GetSpxDefinitionForPkg(obj, pkgDoc))
+			} else {
+				defs = append(defs, d.definitionForFunc(obj, "", pkgDoc))
 			}
+		case *gotypes.PkgName:
+			defs = append(defs, GetSpxDefinitionForPkg(obj, pkgDoc))
 		}
 	}
 	return slices.Clip(defs)
-}
-
-// nonMainPkgSpxDefCacheForVars is a cache of non-main package spx definitions
-// for variables.
-var nonMainPkgSpxDefCacheForVars sync.Map // map[nonMainPkgSpxDefCacheForVarsKey]SpxDefinition
-
-// nonMainPkgSpxDefCacheForVarsKey is the key for the non-main package spx
-// definition cache for variables.
-type nonMainPkgSpxDefCacheForVarsKey struct {
-	v                *gotypes.Var
-	selectorTypeName string
-	pkgDoc           *pkgdoc.PkgDoc
 }
 
 // spxMemberDefinitionPkgPath returns the package path used in definition IDs for
@@ -592,35 +563,23 @@ func spxMemberDefinitionPkgPath(pkg *gotypes.Package, selectorTypeName string) s
 	return pkgPath
 }
 
-// GetSpxDefinitionForVar returns the spx definition for the provided variable.
-func GetSpxDefinitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !xgoutil.IsInMainPkg(v) {
-		cacheKey := nonMainPkgSpxDefCacheForVarsKey{
-			v:                v,
-			selectorTypeName: selectorTypeName,
-			pkgDoc:           pkgDoc,
-		}
-		if defIface, ok := nonMainPkgSpxDefCacheForVars.Load(cacheKey); ok {
-			return defIface.(SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefCacheForVars.Store(cacheKey, def)
-		}()
-	}
-
+// definitionForVar returns the spx definition for the provided variable.
+func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
 	if IsInSpxPkg(v) && selectorTypeName == "Sprite" {
 		selectorTypeName = "SpriteImpl"
 	}
 
 	var overview strings.Builder
+	completionItemKind := VariableCompletion
 	if !v.IsField() || forceVar {
 		overview.WriteString("var ")
 	} else {
 		overview.WriteString("field ")
+		completionItemKind = FieldCompletion
 	}
 	overview.WriteString(v.Name())
 	overview.WriteString(" ")
-	overview.WriteString(GetSimplifiedTypeString(v.Type()))
+	overview.WriteString(d.typeString(v.Type()))
 
 	var detail string
 	if pkgDoc != nil {
@@ -639,11 +598,7 @@ func GetSpxDefinitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bo
 		}
 		idName = selectorTypeDisplayName + "." + idName
 	}
-	completionItemKind := VariableCompletion
-	if strings.HasPrefix(overview.String(), "field ") {
-		completionItemKind = FieldCompletion
-	}
-	def = SpxDefinition{
+	return SpxDefinition{
 		TypeHint: v.Type(),
 
 		ID: SpxDefinitionIdentifier{
@@ -658,34 +613,17 @@ func GetSpxDefinitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bo
 		CompletionItemInsertText:       v.Name(),
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
-	return
 }
 
-// nonMainPkgSpxDefCacheForConsts is a cache of non-main package spx definitions
-// for constants.
-var nonMainPkgSpxDefCacheForConsts sync.Map // map[nonMainPkgSpxDefCacheForConstsKey]SpxDefinition
-
-// nonMainPkgSpxDefCacheForConstsKey identifies a symbol and its package documentation.
-type nonMainPkgSpxDefCacheForConstsKey struct {
-	obj    *gotypes.Const
-	pkgDoc *pkgdoc.PkgDoc
-}
-
-// GetSpxDefinitionForConst returns the spx definition for the provided constant.
-func GetSpxDefinitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !xgoutil.IsInMainPkg(c) {
-		cacheKey := nonMainPkgSpxDefCacheForConstsKey{c, pkgDoc}
-		if defIface, ok := nonMainPkgSpxDefCacheForConsts.Load(cacheKey); ok {
-			return defIface.(SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefCacheForConsts.Store(cacheKey, def)
-		}()
-	}
-
+// definitionForConst describes the provided constant in the source context.
+func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
 	var overview strings.Builder
 	overview.WriteString("const ")
 	overview.WriteString(c.Name())
+	if !isUntypedType(c.Type()) {
+		overview.WriteString(" ")
+		overview.WriteString(d.typeString(c.Type()))
+	}
 	overview.WriteString(" = ")
 	overview.WriteString(c.Val().String())
 
@@ -694,7 +632,7 @@ func GetSpxDefinitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxD
 		detail = pkgDoc.Consts[c.Name()]
 	}
 
-	def = SpxDefinition{
+	return SpxDefinition{
 		TypeHint: c.Type(),
 
 		ID: SpxDefinitionIdentifier{
@@ -709,34 +647,11 @@ func GetSpxDefinitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc) (def SpxD
 		CompletionItemInsertText:       c.Name(),
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
-	return
 }
 
-// nonMainPkgSpxDefCacheForTypes is a cache of non-main package spx definitions
-// for types.
-var nonMainPkgSpxDefCacheForTypes sync.Map // map[nonMainPkgSpxDefCacheForTypesKey]SpxDefinition
-
-// nonMainPkgSpxDefCacheForTypesKey identifies a symbol and its package documentation.
-type nonMainPkgSpxDefCacheForTypesKey struct {
-	obj    *gotypes.TypeName
-	pkgDoc *pkgdoc.PkgDoc
-}
-
-// GetSpxDefinitionForType returns the spx definition for the provided type.
-func GetSpxDefinitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !xgoutil.IsInMainPkg(typeName) {
-		cacheKey := nonMainPkgSpxDefCacheForTypesKey{typeName, pkgDoc}
-		if defIface, ok := nonMainPkgSpxDefCacheForTypes.Load(cacheKey); ok {
-			return defIface.(SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefCacheForTypes.Store(cacheKey, def)
-		}()
-	}
-
-	var overview strings.Builder
-	overview.WriteString("type ")
-	overview.WriteString(typeName.Name())
+// definitionForType describes the provided type in the source context.
+func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
+	overview := d.typeOverview(typeName)
 
 	var detail string
 	if pkgDoc != nil {
@@ -756,14 +671,14 @@ func GetSpxDefinitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) 
 		}
 	}
 
-	def = SpxDefinition{
+	return SpxDefinition{
 		TypeHint: typeName.Type(),
 
 		ID: SpxDefinitionIdentifier{
 			Package: ToPtr(xgoutil.PkgPath(typeName.Pkg())),
 			Name:    ToPtr(typeName.Name()),
 		},
-		Overview: overview.String(),
+		Overview: overview,
 		Detail:   detail,
 
 		CompletionItemLabel:            typeName.Name(),
@@ -771,55 +686,20 @@ func GetSpxDefinitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) 
 		CompletionItemInsertText:       typeName.Name(),
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
-	return
 }
 
-// nonMainPkgSpxDefCacheForFuncs is a cache of non-main package spx definitions
-// for functions.
-var nonMainPkgSpxDefCacheForFuncs sync.Map // map[nonMainPkgSpxDefCacheForFuncsKey]SpxDefinition
-
-// nonMainPkgSpxDefCacheForFuncsKey is the key for the non-main package spx
-// definition cache for functions.
-type nonMainPkgSpxDefCacheForFuncsKey struct {
-	fun          *gotypes.Func
-	recvTypeName string
-	pkgDoc       *pkgdoc.PkgDoc
-}
-
-// GetSpxDefinitionForFunc returns the spx definition for the provided function.
-func GetSpxDefinitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !xgoutil.IsInMainPkg(fun) {
-		cacheKey := nonMainPkgSpxDefCacheForFuncsKey{
-			fun:          fun,
-			recvTypeName: recvTypeName,
-			pkgDoc:       pkgDoc,
-		}
-		if defIface, ok := nonMainPkgSpxDefCacheForFuncs.Load(cacheKey); ok {
-			return defIface.(SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefCacheForFuncs.Store(cacheKey, def)
-		}()
-	}
-
+// definitionForFunc returns the spx definition for the provided function.
+func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
 	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
 		recvTypeName = "SpriteImpl"
 	}
 
-	overview, parsedRecvTypeName, parsedName, overloadID := makeSpxDefinitionOverviewForFunc(fun)
+	overview, parsedRecvTypeName, parsedName, overloadID := d.funcOverview(fun)
 	if recvTypeName == "" {
 		recvTypeName = parsedRecvTypeName
 	}
 
-	var detail string
-	if pkgDoc != nil {
-		funcName := fun.Name()
-		if recvTypeName == "" || xgoutil.IsXGotMethodName(funcName) {
-			detail = pkgDoc.Funcs[funcName]
-		} else if typeDoc, ok := pkgDoc.Types[recvTypeName]; ok {
-			detail = typeDoc.Methods[funcName]
-		}
-	}
+	detail := functionDocumentation(fun, recvTypeName, pkgDoc)
 
 	idName := parsedName
 	if recvTypeName != "" {
@@ -829,7 +709,7 @@ func GetSpxDefinitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkg
 		}
 		idName = recvTypeDisplayName + "." + idName
 	}
-	def = SpxDefinition{
+	return SpxDefinition{
 		TypeHint: fun.Type(),
 
 		ID: SpxDefinitionIdentifier{
@@ -845,133 +725,16 @@ func GetSpxDefinitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkg
 		CompletionItemInsertText:       parsedName,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
-	return
-}
-
-// displayedFuncName resolves the source-facing function display name used by
-// spx UI surfaces.
-func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string, overloadID *string, isXGotMethod bool) {
-	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
-	name := fun.Name()
-	sig := fun.Signature()
-
-	if recv := sig.Recv(); recv != nil {
-		recvType := xgoutil.DerefType(recv.Type())
-		if named, ok := recvType.(*gotypes.Named); ok {
-			parsedRecvTypeName = named.Obj().Name()
-		}
-	} else if isXGoPkg && strings.HasPrefix(name, xgoutil.XGotPrefix) {
-		recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(name, true)
-		if ok {
-			parsedRecvTypeName = recvTypeName
-			name = methodName
-			isXGotMethod = true
-		}
-	} else if isXGoPkg {
-		if funcName, ok := xgoutil.SplitXGoxFuncName(name); ok {
-			name = funcName
-		}
-	}
-
-	parsedName = name
-	if isXGoPkg {
-		parsedName, overloadID = xgoutil.ParseXGoFuncName(parsedName)
-	} else if !xgoutil.IsInMainPkg(fun) {
-		parsedName = xgoutil.ToLowerCamelCase(parsedName)
-	}
-	return
-}
-
-// displayedFuncResults formats the source-facing result list for function
-// signatures shown in spx UI surfaces.
-func displayedFuncResults(results *gotypes.Tuple) string {
-	if results.Len() == 0 {
-		return ""
-	}
-	if results.Len() == 1 && results.At(0).Name() == "" {
-		return " " + GetSimplifiedTypeString(results.At(0).Type())
-	}
-
-	var sb strings.Builder
-	sb.WriteString(" (")
-	for i := range results.Len() {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		result := results.At(i)
-		if name := result.Name(); name != "" {
-			sb.WriteString(name)
-			sb.WriteString(" ")
-		}
-		sb.WriteString(GetSimplifiedTypeString(result.Type()))
-	}
-	sb.WriteString(")")
-	return sb.String()
-}
-
-// displayedFuncParamLabels formats the source-facing parameter list for
-// function signatures shown in spx UI surfaces.
-func displayedFuncParamLabels(sig *gotypes.Signature, isXGotMethod bool) []string {
-	labels := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
-	for typeParam := range sig.TypeParams().TypeParams() {
-		labels = append(labels, typeParam.Obj().Name()+" Type")
-	}
-	params := sig.Params()
-	for i := range params.Len() {
-		if isXGotMethod && i == 0 {
-			continue
-		}
-		labels = append(labels, sourceParamLabel(sig, params, i))
-	}
-	return labels
-}
-
-// makeSpxDefinitionOverviewForFunc makes an overview string for a function that
-// is used in [SpxDefinition].
-func makeSpxDefinitionOverviewForFunc(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
-	sig := fun.Signature()
-	parsedRecvTypeName, parsedName, overloadID, isXGotMethod := displayedFuncName(fun)
-
-	var sb strings.Builder
-	sb.WriteString("func ")
-	sb.WriteString(parsedName)
-	sb.WriteString("(")
-	sb.WriteString(strings.Join(displayedFuncParamLabels(sig, isXGotMethod), ", "))
-	sb.WriteString(")")
-	sb.WriteString(displayedFuncResults(sig.Results()))
-
-	overview = sb.String()
-	return
-}
-
-// nonMainPkgSpxDefCacheForPkgs is a cache of non-main package spx definitions
-// for packages.
-var nonMainPkgSpxDefCacheForPkgs sync.Map // map[nonMainPkgSpxDefCacheForPkgsKey]SpxDefinition
-
-// nonMainPkgSpxDefCacheForPkgsKey identifies a symbol and its package documentation.
-type nonMainPkgSpxDefCacheForPkgsKey struct {
-	obj    *gotypes.PkgName
-	pkgDoc *pkgdoc.PkgDoc
 }
 
 // GetSpxDefinitionForPkg returns the spx definition for the provided package.
-func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) (def SpxDefinition) {
-	if !xgoutil.IsInMainPkg(pkgName) {
-		cacheKey := nonMainPkgSpxDefCacheForPkgsKey{pkgName, pkgDoc}
-		if defIface, ok := nonMainPkgSpxDefCacheForPkgs.Load(cacheKey); ok {
-			return defIface.(SpxDefinition)
-		}
-		defer func() {
-			nonMainPkgSpxDefCacheForPkgs.Store(cacheKey, def)
-		}()
-	}
-
+func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) SpxDefinition {
 	var detail string
 	if pkgDoc != nil {
 		detail = pkgDoc.Doc
 	}
 
-	def = SpxDefinition{
+	return SpxDefinition{
 		TypeHint: pkgName.Type(),
 
 		ID: SpxDefinitionIdentifier{
@@ -985,7 +748,6 @@ func GetSpxDefinitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) (de
 		CompletionItemInsertText:       pkgName.Name(),
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
-	return
 }
 
 // canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
@@ -1057,4 +819,28 @@ func IsSpxPropertyNameType(typ gotypes.Type) bool {
 		typ = rhs
 	}
 	return false
+}
+
+// functionDocumentation returns a function or method's source documentation.
+func functionDocumentation(fun *gotypes.Func, recvTypeName string, doc *pkgdoc.PkgDoc) string {
+	if doc == nil {
+		return ""
+	}
+	if recvTypeName == "" {
+		recvTypeName, _, _, _ = displayedFuncName(fun)
+	}
+	if IsInSpxPkg(fun) && recvTypeName == "Sprite" {
+		recvTypeName = "SpriteImpl"
+	}
+	if recvTypeName == "" && fun.Signature().Recv() != nil {
+		return ""
+	}
+	name := fun.Name()
+	if recvTypeName == "" || xgoutil.IsXGotMethodName(name) {
+		return doc.Funcs[name]
+	}
+	if typeDoc := doc.Types[recvTypeName]; typeDoc != nil {
+		return typeDoc.Methods[name]
+	}
+	return ""
 }

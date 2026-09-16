@@ -32,30 +32,6 @@ func IsInSpxPkg(obj gotypes.Object) bool {
 	return pkg != nil && pkg.Path() == SpxPkgPath && pkg == GetSpxPkg()
 }
 
-// GetSimplifiedTypeString returns the string representation of the given type,
-// with the spx package name omitted while other packages use their short names.
-func GetSimplifiedTypeString(typ gotypes.Type) string {
-	return gotypes.TypeString(typ, func(p *gotypes.Package) string {
-		if p.Path() == SpxPkgPath && p == GetSpxPkg() {
-			return ""
-		}
-		return p.Name()
-	})
-}
-
-// sourceParamLabel formats a source-facing function parameter label.
-func sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) string {
-	param := params.At(paramIndex)
-	paramType := xgoutil.SourceParamType(param)
-	typeName := GetSimplifiedTypeString(paramType)
-	if sig.Variadic() && paramIndex == params.Len()-1 {
-		if slice, ok := paramType.(*gotypes.Slice); ok {
-			typeName = "..." + GetSimplifiedTypeString(slice.Elem())
-		}
-	}
-	return xgoutil.SourceParamName(param) + " " + typeName
-}
-
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.
 func resolvedNamedType(typ gotypes.Type) *gotypes.Named {
@@ -128,8 +104,9 @@ func SelectorTypeNameForIdent(proj *xgo.Project, ident *ast.Ident) string {
 // fieldSelectorTypeName returns the type used to select field through receiver.
 // It shares the member traversal used by completion, including promoted fields.
 func fieldSelectorTypeName(receiver gotypes.Type, field *gotypes.Var) string {
-	for member := range xgoutil.StructMembers(resolvedNamedType(receiver)) {
-		if selected, ok := member.Member.(*gotypes.Var); ok && selected.Origin() == field.Origin() {
+	receiver = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(receiver)))
+	for member := range xgoutil.StructMembers(receiver) {
+		if selected, ok := member.Member.(*gotypes.Var); ok && selected.Origin() == field.Origin() && member.Selector != nil {
 			return extractTypeName(member.Selector)
 		}
 	}
@@ -175,6 +152,10 @@ func memberTypeName(proj *xgo.Project, obj gotypes.Object) string {
 		if recv == nil {
 			return ""
 		}
+		if _, ok := recv.Type().(*gotypes.Interface); ok {
+			name, _ := interfaceMethodDeclaration(proj, obj)
+			return name
+		}
 		return extractTypeName(xgoutil.DerefType(recv.Type()))
 	}
 	return ""
@@ -190,11 +171,6 @@ func extractTypeName(typ gotypes.Type) string {
 			return "Sprite"
 		}
 		return typeName
-	case *gotypes.Interface:
-		if typ.String() == "interface{}" {
-			return ""
-		}
-		return typ.String()
 	}
 	return ""
 }
@@ -310,4 +286,42 @@ func PropertyTargetNamedTypeForCall(typeInfo *types.Info, call *ast.CallExpr, sp
 		return nil
 	}
 	return resolvedNamedType(tn.Type())
+}
+
+// interfaceMethodDeclaration resolves the owner name and source field of an
+// XGo method whose receiver is recorded as an unnamed interface. Anonymous
+// interfaces have no owner name but still have a source field.
+func interfaceMethodDeclaration(proj *xgo.Project, method *gotypes.Func) (string, *ast.Field) {
+	recv := method.Signature().Recv()
+	if recv == nil {
+		return "", nil
+	}
+	if _, ok := recv.Type().(*gotypes.Interface); !ok {
+		return "", nil
+	}
+	file, pos := objectSource(proj, method)
+	if file == nil {
+		return "", nil
+	}
+	var field *ast.Field
+	var iface *ast.InterfaceType
+	for node := range xgoutil.PathEnclosingIntervalNodes(file, pos, pos, false) {
+		switch node := node.(type) {
+		case *ast.Field:
+			if field == nil {
+				field = node
+			}
+		case *ast.InterfaceType:
+			if iface != nil {
+				return "", field
+			}
+			iface = node
+		case *ast.TypeSpec:
+			if node.Type == iface {
+				return node.Name.Name, field
+			}
+			return "", field
+		}
+	}
+	return "", field
 }

@@ -9,7 +9,7 @@ import (
 	"slices"
 	"unicode"
 
-	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -157,9 +157,27 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		return nil, fmt.Errorf("target %q is not a struct type", params.Target)
 	}
 
-	mainPkgDoc, _ := proj.PkgDoc()
-
-	properties := collectPropertiesFromNamedType(namedType, makePkgDocFor(mainPkgDoc, s.lookupPkgDoc))
+	pos := typeName.Pos()
+	file := sourceASTFile(proj, pos)
+	if file == nil {
+		// Generated class types can have no declaration position. Resolve
+		// their source file through the same registration as the compiler.
+		astPkg, _ := proj.ASTPackage()
+		if astPkg != nil {
+			for filename, candidate := range astPkg.Files {
+				if name, _ := cl.GetFileClassType(candidate, filename, proj.Mod.LookupClass); name == typeName.Name() {
+					file, pos = candidate, candidate.Pos()
+					break
+				}
+			}
+		}
+	}
+	ctx := &definitionContext{
+		typeDisplay:  newTypeDisplay(proj, file, pos),
+		proj:         proj,
+		lookupPkgDoc: s.lookupPkgDoc,
+	}
+	properties := ctx.collectPropertiesFromNamedType(namedType)
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -271,7 +289,7 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 // propertyMembers returns an iterator over property fields and property methods
 // in depth-first, outer-scope-first order. Outer members shadow embedded ones
 // with the same name.
-func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) iter.Seq[propertyMember] {
+func (r *definitionContext) propertyMembers(namedType *gotypes.Named) iter.Seq[propertyMember] {
 	return func(yield func(propertyMember) bool) {
 		for property := range propertyObjects(namedType) {
 			var member propertyMember
@@ -281,11 +299,11 @@ func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) 
 					Name: property.Name,
 					Type: object.Type(),
 					Kind: XGoPropertyKindField,
-					SpxDef: GetSpxDefinitionForVar(
+					SpxDef: r.definitionForVar(
 						object,
 						property.SelectorTypeName,
 						false,
-						pkgDocFor(object.Pkg()),
+						r.pkgDocForObject(object),
 					),
 				}
 			case *gotypes.Func:
@@ -293,10 +311,10 @@ func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) 
 					Name: property.Name,
 					Type: object.Signature().Results().At(0).Type(),
 					Kind: XGoPropertyKindMethod,
-					SpxDef: GetSpxDefinitionForFunc(
+					SpxDef: r.definitionForFunc(
 						object,
 						property.SelectorTypeName,
-						pkgDocFor(object.Pkg()),
+						r.pkgDocForObject(object),
 					),
 				}
 			default:
@@ -309,26 +327,13 @@ func propertyMembers(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) 
 	}
 }
 
-// makePkgDocFor returns a function that resolves the [pkgdoc.PkgDoc] for a
-// given package, using mainPkgDoc for the main package and lookupPkgDoc for
-// imported packages.
-func makePkgDocFor(mainPkgDoc *pkgdoc.PkgDoc, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) func(*gotypes.Package) *pkgdoc.PkgDoc {
-	return func(pkg *gotypes.Package) *pkgdoc.PkgDoc {
-		if xgoutil.IsMainPkg(pkg) {
-			return mainPkgDoc
-		}
-		doc, _ := lookupPkgDoc(xgoutil.PkgPath(pkg))
-		return doc
-	}
-}
-
 // collectPropertiesFromNamedType recursively collects properties from a named type.
-func collectPropertiesFromNamedType(namedType *gotypes.Named, pkgDocFor func(*gotypes.Package) *pkgdoc.PkgDoc) []XGoProperty {
+func (r *definitionContext) collectPropertiesFromNamedType(namedType *gotypes.Named) []XGoProperty {
 	var properties []XGoProperty
-	for m := range propertyMembers(namedType, pkgDocFor) {
+	for m := range r.propertyMembers(namedType) {
 		properties = append(properties, XGoProperty{
 			Name:       m.Name,
-			Type:       GetSimplifiedTypeString(m.Type),
+			Type:       r.typeString(m.Type),
 			Kind:       m.Kind,
 			Doc:        m.SpxDef.Detail,
 			Definition: m.SpxDef.ID,

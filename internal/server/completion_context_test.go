@@ -491,7 +491,7 @@ func getPerson() Person {
 		assert.NotEmpty(t, items)
 		labels := completionItemLabels(items)
 		assert.Contains(t, labels, "myName")
-		assert.Contains(t, labels, "myAge")
+		assert.NotContains(t, labels, "myAge")
 	})
 
 	t.Run("PointerStructLitInReturn", func(t *testing.T) {
@@ -516,7 +516,7 @@ func getConfig() *Config {
 		assert.NotEmpty(t, items)
 		labels := completionItemLabels(items)
 		assert.Contains(t, labels, "defaultHost")
-		assert.Contains(t, labels, "defaultPort")
+		assert.NotContains(t, labels, "defaultPort")
 	})
 
 	t.Run("FuncLiteral", func(t *testing.T) {
