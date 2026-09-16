@@ -17,6 +17,7 @@ type definitionContext struct {
 	proj       *xgo.Project
 	enumInfo   *enumInfo
 	classTypes map[*gotypes.Named]struct{}
+	spx        *spxSymbols
 
 	// memberSelectors indexes receiver members for this request only.
 	memberSelectors map[gotypes.Type]map[gotypes.Object]*gotypes.Named

@@ -8,7 +8,6 @@ import (
 	"path"
 	"slices"
 	"strconv"
-	"strings"
 	"unicode"
 
 	"github.com/goplus/mod/modfile"
@@ -75,7 +74,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
-	ctx.spxResult, err = s.compileForSpxCompletion(proj, filename)
+	ctx.spxResult, err = s.compileAt(proj)
 	if err != nil {
 		return nil, err
 	}
@@ -1124,17 +1123,11 @@ func (ctx *completionContext) collectGeneral() error {
 			if !ok || !xgoutil.IsNamedStructType(named) {
 				continue
 			}
-			for _, def := range ctx.definitionsForStruct(named) {
-				if ctx.inSpxEventHandler && def.ID.Name != nil {
-					name := *def.ID.Name
-					if idx := strings.LastIndex(name, "."); idx >= 0 {
-						name = name[idx+1:]
-					}
-					if IsSpxEventHandlerFuncName(name) {
-						continue
-					}
+			for member := range xgoutil.StructMembers(named, ctx.isClassBaseType) {
+				if ctx.inSpxEventHandler && ctx.isSpxEventHandler(member.Member) {
+					continue
 				}
-				ctx.itemSet.addDefinitions(def)
+				ctx.itemSet.addDefinitions(ctx.definitionsForMember(member)...)
 			}
 		}
 	}

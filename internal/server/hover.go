@@ -31,7 +31,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-	if hover, err := s.hoverForSpxResource(proj, filename, position, markupKind); hover != nil || err != nil {
+	if hover, err := s.hoverForSpxResource(proj, position, markupKind); hover != nil || err != nil {
 		return hover, err
 	}
 	typeInfo, _ := proj.TypeInfo()

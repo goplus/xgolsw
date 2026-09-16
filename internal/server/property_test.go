@@ -30,7 +30,7 @@ func (r *Record) Label() string { return "record" }
 		named := requirePropertyTestType(t, info.Pkg, "Record")
 		method := requireValueAs[*gotypes.Func](t, requirePropertyTestMember(t, named, "Value"))
 		require.Len(t, xgoutil.ExpandXGoOverloadableFunc(method), 2)
-		assert.False(t, isPropertyMethod(method))
+		assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyMethod(method))
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 		require.NoError(t, err)
 		require.Len(t, properties, 1)
@@ -427,14 +427,14 @@ func XGo_Internal() int { return 0 }
 		{name: "Label", want: true},
 	} {
 		obj := requirePropertyTestMember(t, named, tt.name)
-		assert.Equal(t, tt.want, isPropertyOfEnclosingType(obj), tt.name)
+		assert.Equal(t, tt.want, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(obj), tt.name)
 	}
 	for _, name := range []string{"value", "Limit", "Worker"} {
 		obj := typeInfo.Pkg.Scope().Lookup(name)
 		require.NotNil(t, obj)
-		assert.False(t, isPropertyOfEnclosingType(obj), name)
+		assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(obj), name)
 	}
-	assert.False(t, isPropertyOfEnclosingType(nil))
+	assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(nil))
 }
 
 func TestMemberTypeName(t *testing.T) {

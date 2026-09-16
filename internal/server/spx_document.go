@@ -2,24 +2,18 @@ package server
 
 import (
 	"fmt"
-	"path"
-	"slices"
 
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// documentLinksForSpxResources returns links to existing resources in an spx classfile.
+// documentLinksForSpxResources returns links to existing resources in an spx project.
 func (s *Server) documentLinksForSpxResources(proj *xgo.Project, filename string) ([]DocumentLink, error) {
-	if path.Ext(filename) != ".spx" {
-		return nil, nil
-	}
-	class, ok := proj.Module().LookupClass(".spx")
-	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
-		return nil, nil
-	}
 	result, err := s.compileAt(proj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
+	}
+	if result == nil {
+		return nil, nil
 	}
 	return result.spxResourceDocumentLinks(filename), nil
 }

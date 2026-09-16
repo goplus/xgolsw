@@ -32,10 +32,9 @@ func TestCollectInlayHintsSpx(t *testing.T) {
 				"assets/index.json":                  []byte(`{}`),
 				"assets/sprites/MySprite/index.json": []byte(`{}`),
 			}
-			s := newSpxTestServer(t, files)
+			s := newSpxIntegrationTestServer(t, files)
 
-			result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-			require.NoError(t, err)
+			result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
 			require.NotNil(t, astFile)
 
 			inlayHints := collectInlayHints(result.proj, astFile, 0, 0)

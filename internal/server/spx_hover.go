@@ -2,25 +2,19 @@ package server
 
 import (
 	"fmt"
-	"path"
-	"slices"
 
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// hoverForSpxResource returns a preview for a resource in an spx classfile.
-func (s *Server) hoverForSpxResource(proj *xgo.Project, filename string, position token.Position, markupKind MarkupKind) (*Hover, error) {
-	if path.Ext(filename) != ".spx" {
-		return nil, nil
-	}
-	class, ok := proj.Module().LookupClass(".spx")
-	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
-		return nil, nil
-	}
+// hoverForSpxResource returns a preview for a resource in an spx project.
+func (s *Server) hoverForSpxResource(proj *xgo.Project, position token.Position, markupKind MarkupKind) (*Hover, error) {
 	result, err := s.compileAt(proj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
+	}
+	if result == nil {
+		return nil, nil
 	}
 	return result.spxResourceHover(position, markupKind), nil
 }

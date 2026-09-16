@@ -69,6 +69,12 @@ func (s *Server) spxRenameResources(params []XGoRenameResourceParams) (*Workspac
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, fmt.Errorf("spx resource analysis is unavailable")
+	}
+	if result.spxResourceSetErr != nil {
+		return nil, fmt.Errorf("failed to load spx resources: %w", result.spxResourceSetErr)
+	}
 	return s.spxRenameResourcesWithCompileResult(result, params)
 }
 
@@ -213,7 +219,7 @@ type propertyObject struct {
 // depth-first, outer-scope-first order. Accessible outer members shadow
 // embedded properties with the same source name, even if the outer member
 // is not a property.
-func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
+func (r *definitionContext) propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 	return func(yield func(propertyObject) bool) {
 		visited := make(map[*gotypes.Named]bool)
 		seenNames := make(map[string]bool)
@@ -234,7 +240,7 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 					return true
 				}
 				seenNames[property.Name] = true
-				if !isPropertyOfEnclosingType(property.Object) {
+				if !r.isPropertyOfEnclosingType(property.Object) {
 					return true
 				}
 				return yield(property)
@@ -287,7 +293,7 @@ func propertyObjects(namedType *gotypes.Named) iter.Seq[propertyObject] {
 // with the same name.
 func (r *definitionContext) propertyMembers(namedType *gotypes.Named) iter.Seq[propertyMember] {
 	return func(yield func(propertyMember) bool) {
-		for property := range propertyObjects(namedType) {
+		for property := range r.propertyObjects(namedType) {
 			var member propertyMember
 			switch object := property.Object.(type) {
 			case *gotypes.Var:
@@ -334,7 +340,7 @@ func (r *definitionContext) collectPropertiesFromNamedType(namedType *gotypes.Na
 // Returns true if:
 // - The field is not embedded
 // - The field type is a basic type (int, float64, string, etc.), spx.Value, or spx.List
-func isPropertyField(field *gotypes.Var) bool {
+func (r *definitionContext) isPropertyField(field *gotypes.Var) bool {
 	if field.Embedded() {
 		return false
 	}
@@ -349,7 +355,7 @@ func isPropertyField(field *gotypes.Var) bool {
 	}
 
 	// Allow spx.Value and spx.List
-	if named, ok := fieldType.(*gotypes.Named); ok && isSpxValueOrListType(named) {
+	if named, ok := fieldType.(*gotypes.Named); ok && r.isSpxValueOrListType(named) {
 		return true
 	}
 
@@ -362,9 +368,9 @@ func isPropertyField(field *gotypes.Var) bool {
 //   - The method name starts with an uppercase letter
 //   - The method has no parameters
 //   - The method has exactly one return value
-//   - The return type is a basic type (int, float64, string, etc.), or a named
-//     type from github.com/goplus/spx/v3 named "Value" or "List"
-func isPropertyMethod(method *gotypes.Func) bool {
+//   - The return type is a basic type (int, float64, string, etc.), or Value
+//     or List from the project's registered SDK
+func (r *definitionContext) isPropertyMethod(method *gotypes.Func) bool {
 	if xgoutil.IsXGoInternalName(method.Name()) {
 		return false
 	}
@@ -383,21 +389,15 @@ func isPropertyMethod(method *gotypes.Func) bool {
 	if _, ok := retType.(*gotypes.Basic); ok {
 		return true
 	}
-	if named, ok := retType.(*gotypes.Named); ok && isSpxValueOrListType(named) {
+	if named, ok := retType.(*gotypes.Named); ok && r.isSpxValueOrListType(named) {
 		return true
 	}
 	return false
 }
 
 // isSpxValueOrListType reports whether named is spx.Value or spx.List.
-func isSpxValueOrListType(named *gotypes.Named) bool {
-	obj := named.Obj()
-	pkg := obj.Pkg()
-	if pkg == nil || pkg.Path() != SpxPkgPath {
-		return false
-	}
-
-	switch obj.Name() {
+func (r *definitionContext) isSpxValueOrListType(named *gotypes.Named) bool {
+	switch r.spxTypeName(named) {
 	case "Value", "List":
 		return true
 	}
@@ -408,7 +408,7 @@ func isSpxValueOrListType(named *gotypes.Named) bool {
 // This is useful for determining if a rename operation affects a property that may be
 // monitored by the IDE. Returns true if the object is a field or method that qualifies
 // as a property according to the same criteria used by xgoGetProperties.
-func isPropertyOfEnclosingType(obj gotypes.Object) bool {
+func (r *definitionContext) isPropertyOfEnclosingType(obj gotypes.Object) bool {
 	if obj == nil {
 		return false
 	}
@@ -416,9 +416,9 @@ func isPropertyOfEnclosingType(obj gotypes.Object) bool {
 	// Check if the current object is a property (field or method)
 	switch obj := obj.(type) {
 	case *gotypes.Var:
-		return obj.IsField() && isPropertyField(obj)
+		return obj.IsField() && r.isPropertyField(obj)
 	case *gotypes.Func:
-		return isPropertyMethod(obj)
+		return r.isPropertyMethod(obj)
 	}
 
 	return false
