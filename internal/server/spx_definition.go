@@ -1,150 +1,111 @@
 package server
 
 import (
-	"fmt"
 	gotypes "go/types"
-	"slices"
-	"sync"
 
-	"github.com/goplus/xgolsw/internal"
+	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // SpxPkgPath is the path to the spx package.
 const SpxPkgPath = "github.com/goplus/spx/v3"
 
-var (
-	// GetSpxPkg returns the spx package.
-	GetSpxPkg = sync.OnceValue(func() *gotypes.Package {
-		spxPkg, err := internal.Importer.Import(SpxPkgPath)
-		if err != nil {
-			panic(fmt.Errorf("failed to import spx package: %w", err))
+// isSpxClass reports whether spx supplies the registration's base classes.
+func isSpxClass(class *modfile.Project) bool {
+	return len(class.PkgPaths) != 0 && class.PkgPaths[0] == SpxPkgPath
+}
+
+// spxClassForFile returns the spx registration for filename, if any.
+func spxClassForFile(proj *xgo.Project, filename string) *modfile.Project {
+	class, ok := proj.Module().LookupClass(modfile.ClassExt(filename))
+	if ok && isSpxClass(class) {
+		return class
+	}
+	return nil
+}
+
+// spxSymbols holds the SDK declarations resolved for one request. Type keys
+// preserve resource aliases even when their underlying types are all strings.
+type spxSymbols struct {
+	pkg   *gotypes.Package
+	types map[gotypes.Type]string
+}
+
+// spxSymbols resolves the registered SDK through the project's importer. An
+// unavailable SDK leaves its optional language-server adaptations inactive.
+func (r *definitionContext) spxSymbols() *spxSymbols {
+	if r.spx != nil {
+		return r.spx
+	}
+	r.spx = &spxSymbols{}
+	for class := range r.proj.Module().ClassProjects() {
+		if !isSpxClass(class) {
+			continue
 		}
-		return spxPkg
-	})
+		pkg, err := r.proj.Importer.Import(SpxPkgPath)
+		if err != nil {
+			return r.spx
+		}
+		r.spx.pkg = pkg
+		r.spx.types = make(map[gotypes.Type]string)
+		for _, name := range []string{
+			"Sprite", "SpriteImpl", "BackdropName", "SpriteName",
+			"SpriteCostumeName", "SpriteAnimationName", "SoundName", "WidgetName",
+			"Direction", "layerAction", "dirAction", "EffectKind", "Key", "Edge",
+			"RotationStyle", "PropertyName", "Value", "List",
+		} {
+			if obj := pkg.Scope().Lookup(name); obj != nil {
+				r.spx.types[obj.Type()] = name
+			}
+		}
+		break
+	}
+	return r.spx
+}
 
-	// GetSpxBackdropNameType returns the [spx.BackdropName] type.
-	GetSpxBackdropNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("BackdropName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxSpriteType returns the [spx.Sprite] type.
-	GetSpxSpriteType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Sprite").Type().(*gotypes.Named)
-	})
-
-	// GetSpxSpriteImplType returns the [spx.SpriteImpl] type.
-	GetSpxSpriteImplType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteImpl").Type().(*gotypes.Named)
-	})
-
-	// GetSpxSpriteNameType returns the [spx.SpriteName] type.
-	GetSpxSpriteNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxSpriteCostumeNameType returns the [spx.SpriteCostumeName] type.
-	GetSpxSpriteCostumeNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteCostumeName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxSpriteAnimationNameType returns the [spx.SpriteAnimationName] type.
-	GetSpxSpriteAnimationNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SpriteAnimationName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxSoundNameType returns the [spx.SoundName] type.
-	GetSpxSoundNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("SoundName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxWidgetNameType returns the [spx.WidgetName] type.
-	GetSpxWidgetNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("WidgetName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxDirectionType returns the [spx.Direction] type.
-	GetSpxDirectionType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Direction").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxLayerActionType returns the [spx.LayerAction] type.
-	GetSpxLayerActionType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("layerAction").Type().(*gotypes.Named)
-	})
-
-	// GetSpxDirActionType returns the [spx.DirLayer] type.
-	GetSpxDirActionType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("dirAction").Type().(*gotypes.Named)
-	})
-
-	// GetSpxEffectKindType returns the [spx.EffectKind] type.
-	GetSpxEffectKindType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("EffectKind").Type().(*gotypes.Named)
-	})
-
-	// GetSpxKeyType returns the [spx.Key] type.
-	GetSpxKeyType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Key").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxSpecialObjType returns the [spx.SpecialObj] type.
-	GetSpxSpecialObjType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("Edge").Type().(*gotypes.Named)
-	})
-
-	// GetSpxRotationStyleType returns the [spx.RotationStyle] type.
-	GetSpxRotationStyleType = sync.OnceValue(func() *gotypes.Named {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("RotationStyle").Type().(*gotypes.Named)
-	})
-
-	// GetSpxPropertyNameType returns the [spx.PropertyName] type.
-	GetSpxPropertyNameType = sync.OnceValue(func() *gotypes.Alias {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("PropertyName").Type().(*gotypes.Alias)
-	})
-
-	// GetSpxHSBFunc returns the [spx.HSB] type.
-	GetSpxHSBFunc = sync.OnceValue(func() *gotypes.Func {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("HSB").(*gotypes.Func)
-	})
-
-	// GetSpxHSBAFunc returns the [spx.HSBA] type.
-	GetSpxHSBAFunc = sync.OnceValue(func() *gotypes.Func {
-		spxPkg := GetSpxPkg()
-		return spxPkg.Scope().Lookup("HSBA").(*gotypes.Func)
-	})
-)
-
-// isSpxSymbol reports whether obj belongs to the project's registered spx
-// package. It compares package identity through the configured importer.
+// isSpxSymbol reports whether obj belongs to the project's registered SDK.
 func (r *definitionContext) isSpxSymbol(obj gotypes.Object) bool {
-	pkg := obj.Pkg()
-	if pkg == nil || pkg.Path() != SpxPkgPath {
+	if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != SpxPkgPath {
 		return false
 	}
-	class, ok := r.proj.Module().LookupClass(".spx")
-	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
-		return false
+	return obj.Pkg() == r.spxSymbols().pkg
+}
+
+// spxTypeName resolves alias chains to a recognized SDK type symbol.
+// Edge identifies the SDK's private special-object type.
+// Defined types and same-path packages from other importers remain distinct.
+func (r *definitionContext) spxTypeName(typ gotypes.Type) string {
+	seen := make(map[gotypes.Type]struct{})
+	for typ != nil {
+		if _, ok := seen[typ]; ok {
+			return ""
+		}
+		seen[typ] = struct{}{}
+		if name := r.spxSymbols().types[typ]; name != "" {
+			return name
+		}
+		alias, ok := typ.(*gotypes.Alias)
+		if !ok {
+			return ""
+		}
+		typ = alias.Rhs()
 	}
-	imported, err := r.proj.Importer.Import(SpxPkgPath)
-	return err == nil && imported == pkg
+	return ""
+}
+
+// spxResourceNameType returns the SDK declaration naming a resource type.
+func (r *definitionContext) spxResourceNameType(typ gotypes.Type) string {
+	switch name := r.spxTypeName(typ); name {
+	case "BackdropName", "SpriteName", "SpriteCostumeName", "SpriteAnimationName", "SoundName", "WidgetName":
+		return name
+	}
+	return ""
+}
+
+// isSpxPropertyNameType reports whether typ aliases the SDK's PropertyName.
+func (r *definitionContext) isSpxPropertyNameType(typ gotypes.Type) bool {
+	return r.spxTypeName(typ) == "PropertyName"
 }
 
 // spxFunctionDocumentation resolves the implementation documentation for a
@@ -172,75 +133,4 @@ func (r *definitionContext) spxDisplayTypeName(obj gotypes.Object, typeName stri
 		return "Sprite"
 	}
 	return typeName
-}
-
-// canonicalSpxResourceNameType resolves aliases until it finds a canonical spx
-// resource name type. It returns nil if typ does not represent one.
-func canonicalSpxResourceNameType(typ gotypes.Type) gotypes.Type {
-	seen := make(map[gotypes.Type]struct{})
-	for typ != nil {
-		if _, ok := seen[typ]; ok {
-			return nil
-		}
-		seen[typ] = struct{}{}
-
-		switch typ {
-		case GetSpxBackdropNameType():
-			return GetSpxBackdropNameType()
-		case GetSpxSpriteNameType():
-			return GetSpxSpriteNameType()
-		case GetSpxSpriteCostumeNameType():
-			return GetSpxSpriteCostumeNameType()
-		case GetSpxSpriteAnimationNameType():
-			return GetSpxSpriteAnimationNameType()
-		case GetSpxSoundNameType():
-			return GetSpxSoundNameType()
-		case GetSpxWidgetNameType():
-			return GetSpxWidgetNameType()
-		}
-
-		alias, ok := typ.(*gotypes.Alias)
-		if !ok {
-			return nil
-		}
-
-		rhs := alias.Rhs()
-		if rhs == nil || rhs == typ {
-			return nil
-		}
-		typ = rhs
-	}
-	return nil
-}
-
-// IsSpxResourceNameType reports whether the given type is a spx resource name type.
-func IsSpxResourceNameType(typ gotypes.Type) bool {
-	return canonicalSpxResourceNameType(typ) != nil
-}
-
-// IsSpxPropertyNameType reports whether the given type is or is an alias of
-// [spx.PropertyName], resolving alias chains before comparing.
-func IsSpxPropertyNameType(typ gotypes.Type) bool {
-	seen := make(map[gotypes.Type]struct{})
-	for typ != nil {
-		if _, ok := seen[typ]; ok {
-			return false
-		}
-		seen[typ] = struct{}{}
-
-		if typ == GetSpxPropertyNameType() {
-			return true
-		}
-
-		alias, ok := typ.(*gotypes.Alias)
-		if !ok {
-			return false
-		}
-		rhs := alias.Rhs()
-		if rhs == nil || rhs == typ {
-			return false
-		}
-		typ = rhs
-	}
-	return false
 }

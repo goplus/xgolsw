@@ -11,17 +11,16 @@ func TestServerCompileAt(t *testing.T) {
 	t.Run("UnregisteredClassfile", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.spx": []byte("println 1\n")})
 		result, err := s.compileAt(s.getProj())
-		require.ErrorIs(t, err, errNoMainSpxFile)
+		require.NoError(t, err)
 		assert.Nil(t, result)
 	})
-}
 
-func TestServerCompileAndGetASTFileForDocumentURI(t *testing.T) {
-	t.Run("NoSpxFiles", func(t *testing.T) {
-		s := newTestServer(t, nil)
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.ErrorIs(t, err, errNoMainSpxFile)
+	t.Run("UnavailableSDK", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte("println 1\n")})
+		proj := s.getProj()
+		proj.Importer = completionTestImporter{Importer: proj.Importer, unavailablePath: SpxPkgPath}
+		result, err := s.compileAt(proj)
+		require.NoError(t, err)
 		assert.Nil(t, result)
-		assert.Nil(t, astFile)
 	})
 }

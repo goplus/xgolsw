@@ -55,23 +55,25 @@ func TestSpxSpriteResourceForFile(t *testing.T) {
 		want     string
 	}{
 		{name: "Empty"},
-		{name: "MainFile", filename: "project/Stage.spx"},
-		{name: "MainFileBasename", filename: "Stage.spx"},
+		{name: "MainFile", filename: "main.spx"},
+		{name: "MissingSource", filename: "project/Runner.spx"},
 		{name: "Sprite", filename: "Runner.spx", want: "Runner"},
-		{name: "SpriteBasename", filename: "project/Runner.spx", want: "Runner"},
+		{name: "NormalizedClassName", filename: "Red-Cat.spx", want: "Red_Cat"},
 		{name: "MissingSprite", filename: "Missing.spx"},
 		{name: "OtherExtension", filename: "Runner.xgo"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{
-				"assets/index.json":                []byte(`{}`),
-				"assets/sprites/Runner/index.json": []byte(`{}`),
-				"assets/sprites/Stage/index.json":  []byte(`{}`),
+			s := newSpxTestServer(t, map[string][]byte{
+				"main.spx": nil, "Runner.spx": nil, "Red-Cat.spx": nil,
+				"assets/sprites/Red_Cat/index.json": []byte(`{}`),
+				"assets/sprites/Red-Cat/index.json": []byte(`{}`),
+				"assets/index.json":                 []byte(`{}`),
+				"assets/sprites/Runner/index.json":  []byte(`{}`),
+				"assets/sprites/Stage/index.json":   []byte(`{}`),
 			})
 			set, err := NewSpxResourceSet(s.getProj())
 			require.NoError(t, err)
 			result := newCompileResult(s.getProj(), s.lookupPkgDoc)
-			result.mainSpxFile = "project/Stage.spx"
 			result.spxResourceSet = *set
 			if tt.want == "" {
 				assert.Nil(t, spxSpriteResourceForFile(result, tt.filename))
@@ -160,7 +162,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 		}{
 			{"Project", "main.spx", "func use(name string) {}\nuse \"value\"\n", ""},
 			{"Class", "Runner.spx", "func use(name string) {}\nuse \"value\"\n", "Runner"},
-			{"Callback", "Runner.spx", "func use(name string) {}\nonValue value => {\n\tuse \"value\"\n}\n", "Runner"},
+			{"Callback", "Runner.spx", "func use(name string) {}\nonStart => {\n\tuse \"value\"\n}\n", "Runner"},
 			{"LineDirective", "Runner.spx", "func use(name string) {}\n//line virtual.spx:100:20\nuse \"value\"\n", "Runner"},
 			{"FuncDecorator", "Runner.spx", "func withResource(name string, fn func()) {}\n@withResource(\"value\")\nfunc run() {}\n", "Runner"},
 		} {
@@ -172,7 +174,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 					"assets/sprites/main/index.json":   []byte(`{}`),
 				}
 				files[tt.filename] = []byte(tt.source)
-				s := newFrameworkTestServerWithSpxExtension(t, files)
+				s := newSpxTestServer(t, files)
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
@@ -196,7 +198,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 	})
 
 	t.Run("SourceChanges", func(t *testing.T) {
-		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{
+		s := newSpxTestServer(t, map[string][]byte{
 			"main.spx":                         nil,
 			"Runner.spx":                       []byte("func use(name string) {}\nuse \"value\"\n"),
 			"assets/index.json":                []byte(`{}`),

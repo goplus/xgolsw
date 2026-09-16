@@ -64,15 +64,23 @@ func (r *diagnosticResult) addDiagnostics(documentURI DocumentURI, diags ...Diag
 // diagnosticsAt collects pull diagnostics from project syntax, types, analyzers,
 // and framework-specific checks.
 func (s *Server) diagnosticsAt(proj *xgo.Project) (*diagnosticResult, error) {
-	if result, err := s.diagnosticsForSpx(proj); result != nil || err != nil {
-		return result, err
-	}
 	result := newDiagnosticResult()
 	if _, err := s.collectPackageSyntaxDiagnostics(proj, &result); err != nil {
 		return nil, err
 	}
 	s.collectTypeDiagnostics(proj, &result)
-	s.inspectDiagnosticsAnalyzers(proj, &result, nil)
+	spxResult, err := s.compileAt(proj)
+	if err != nil {
+		return nil, err
+	}
+	var configurePass func(string, *protocol.Pass)
+	if spxResult != nil {
+		for uri, diagnostics := range spxResult.diagnostics {
+			result.addDiagnostics(uri, diagnostics...)
+		}
+		configurePass = spxDiagnosticPass(spxResult)
+	}
+	s.inspectDiagnosticsAnalyzers(proj, &result, configurePass)
 	return &result, nil
 }
 

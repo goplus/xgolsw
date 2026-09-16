@@ -1,5 +1,3 @@
-//go:build !test_no_pkgdata
-
 package server
 
 import (
@@ -61,7 +59,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
@@ -103,7 +101,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
@@ -139,7 +137,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
@@ -190,7 +188,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
 		require.NoError(t, err)
@@ -234,7 +232,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
@@ -280,7 +278,9 @@ func invalidFunc() {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.True(t, result.hasErrorSeverityDiagnostic)
+		diagnostics, err := s.diagnosticsAt(result.proj)
+		require.NoError(t, err)
+		require.True(t, diagnostics.hasErrorSeverityDiagnostic)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
@@ -316,7 +316,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
 		require.NoError(t, err)
@@ -360,7 +360,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
 		require.NoError(t, err)
@@ -402,7 +402,7 @@ onStart => {
 		s := newSpxTestServer(t, m)
 		result, err := s.compile()
 		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
 		require.NoError(t, err)

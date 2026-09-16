@@ -1,31 +1,11 @@
 package server
 
 import (
-	"fmt"
 	gotypes "go/types"
-	"path"
-	"slices"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
-
-// compileForSpxInputSlots prepares resource data only for an spx classfile.
-func (s *Server) compileForSpxInputSlots(proj *xgo.Project, filename string) (*compileResult, error) {
-	if path.Ext(filename) != ".spx" {
-		return nil, nil
-	}
-	class, ok := proj.Module().LookupClass(".spx")
-	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
-		return nil, nil
-	}
-	result, err := s.compileAt(proj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
-	}
-	return result, nil
-}
 
 // inferSpxInputTypeFromTypeInProject attempts to infer the input type from typ
 // using project sprite type metadata.
@@ -33,7 +13,7 @@ func inferSpxInputTypeFromTypeInProject(result *compileResult, typ gotypes.Type)
 	if isSpxSpriteInstanceType(result, typ) {
 		return SpxInputTypeSpriteInstance
 	}
-	return inferSpxInputTypeFromType(typ)
+	return result.inferSpxInputTypeFromType(typ)
 }
 
 // isSpxSpriteInstanceType reports whether the given type represents an spx
@@ -42,14 +22,15 @@ func isSpxSpriteInstanceType(result *compileResult, typ gotypes.Type) bool {
 	if typ == nil {
 		return false
 	}
-	typ = xgoutil.DerefType(typ)
-	if typ == GetSpxSpriteType() {
+	if result.hasSpxSpriteType(gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))) {
 		return true
 	}
-	if result != nil && result.hasSpxSpriteType(typ) {
-		return true
+	sdk := result.spxSymbols()
+	if sdk.pkg == nil {
+		return false
 	}
-	return gotypes.AssignableTo(typ, GetSpxSpriteType())
+	sprite := sdk.pkg.Scope().Lookup("Sprite")
+	return sprite != nil && gotypes.AssignableTo(typ, sprite.Type())
 }
 
 // createValueInputSlotFromColorFuncCall creates a value input slot from an spx
@@ -60,41 +41,44 @@ func createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.
 	}
 
 	fun := xgoutil.FuncFromCallExpr(ctx.typeInfo, callExpr)
-	switch fun {
-	case GetSpxHSBFunc():
+	if fun == nil || !ctx.spxResult.isSpxSymbol(fun) || fun.Signature().Recv() != nil {
+		return nil
+	}
+	switch fun.Name() {
+	case "HSB":
 		return createSpxColorInputSlot(ctx, callExpr, declaredType, XGoInputTypeSpxColorConstructorHSB)
-	case GetSpxHSBAFunc():
+	case "HSBA":
 		return createSpxColorInputSlot(ctx, callExpr, declaredType, XGoInputTypeSpxColorConstructorHSBA)
 	}
 	return nil
 }
 
 // inferSpxInputTypeFromType attempts to infer the input type from the given type.
-func inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
+func (r *definitionContext) inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
 	if _, ok := typ.(*gotypes.Basic); ok {
 		return inferBasicInputType(typ)
 	}
 
-	if IsSpxResourceNameType(typ) {
+	if r.spxResourceNameType(typ) != "" {
 		return SpxInputTypeResourceName
 	}
 
-	switch typ {
-	case GetSpxDirectionType():
+	switch r.spxTypeName(typ) {
+	case "Direction":
 		return SpxInputTypeDirection
-	case GetSpxLayerActionType():
+	case "layerAction":
 		return SpxInputTypeLayerAction
-	case GetSpxDirActionType():
+	case "dirAction":
 		return SpxInputTypeDirAction
-	case GetSpxEffectKindType():
+	case "EffectKind":
 		return SpxInputTypeEffectKind
-	case GetSpxKeyType():
+	case "Key":
 		return SpxInputTypeKey
-	case GetSpxSpecialObjType():
+	case "Edge":
 		return SpxInputTypeSpecialObj
-	case GetSpxRotationStyleType():
+	case "RotationStyle":
 		return SpxInputTypeRotationStyle
-	case GetSpxPropertyNameType():
+	case "PropertyName":
 		return SpxInputTypePropertyName
 	}
 
@@ -102,7 +86,7 @@ func inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
 	if alias, ok := typ.(*gotypes.Alias); ok {
 		rhs := alias.Rhs()
 		if rhs != nil && rhs != typ {
-			return inferSpxInputTypeFromType(rhs)
+			return r.inferSpxInputTypeFromType(rhs)
 		}
 	}
 	return XGoInputTypeUnknown

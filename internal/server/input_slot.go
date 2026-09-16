@@ -42,7 +42,7 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 		return nil, nil
 	}
 	ctx := newInputSlotContext(proj, astFile)
-	ctx.spxResult, err = s.compileForSpxInputSlots(proj, filename)
+	ctx.spxResult, err = s.compileAt(proj)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +716,7 @@ func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, decl
 		SpxInputTypeKey,
 		SpxInputTypeSpecialObj,
 		SpxInputTypeRotationStyle:
-		if cnst, ok := ctx.typeInfo.ObjectOf(ident).(*gotypes.Const); ok && IsInSpxPkg(cnst) {
+		if cnst, ok := ctx.typeInfo.ObjectOf(ident).(*gotypes.Const); ok && ctx.spxResult.isSpxSymbol(cnst) {
 			input = spxEnumInput(cnst, input.Type)
 		}
 	}
@@ -727,26 +727,26 @@ func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, decl
 	}
 	switch accept.Type {
 	case SpxInputTypeResourceName:
-		switch canonicalSpxResourceNameType(declaredType) {
-		case GetSpxBackdropNameType():
+		switch ctx.spxResult.spxResourceNameType(declaredType) {
+		case "BackdropName":
 			accept.ResourceContext = ToPtr(SpxBackdropResourceContextURI)
-		case GetSpxSoundNameType():
+		case "SoundName":
 			accept.ResourceContext = ToPtr(SpxSoundResourceContextURI)
-		case GetSpxSpriteNameType():
+		case "SpriteName":
 			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
-		case GetSpxSpriteCostumeNameType():
+		case "SpriteCostumeName":
 			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(ctx.spxResult, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
 			accept.ResourceContext = ToPtr(FormatSpxSpriteCostumeResourceContextURI(spxSpriteResource.Name))
-		case GetSpxSpriteAnimationNameType():
+		case "SpriteAnimationName":
 			spxSpriteResource := inferSpxSpriteResourceEnclosingNode(ctx.spxResult, ident)
 			if spxSpriteResource == nil {
 				return nil
 			}
 			accept.ResourceContext = ToPtr(FormatSpxSpriteAnimationResourceContextURI(spxSpriteResource.Name))
-		case GetSpxWidgetNameType():
+		case "WidgetName":
 			accept.ResourceContext = ToPtr(SpxWidgetResourceContextURI)
 		default:
 			return nil

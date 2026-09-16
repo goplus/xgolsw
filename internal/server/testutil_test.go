@@ -23,6 +23,16 @@ func (f testImporterFunc) Import(pkgPath string) (*gotypes.Package, error) {
 
 type testServerFactory func(testing.TB, map[string][]byte) *Server
 
+func requireNoDiagnostics(t testing.TB, s *Server) {
+	t.Helper()
+
+	result, err := s.diagnosticsAt(s.getProjWithFile())
+	require.NoError(t, err)
+	for uri, diagnostics := range result.diagnostics {
+		require.Empty(t, diagnostics, "%s", uri)
+	}
+}
+
 func newTestServer(t testing.TB, files map[string][]byte) *Server {
 	t.Helper()
 

@@ -2,10 +2,9 @@ package server
 
 import (
 	gotypes "go/types"
-	"path"
-	"strings"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -19,13 +18,26 @@ func spxSpriteResourceForObject(result *compileResult, obj gotypes.Object) *SpxS
 	return result.spxResourceSet.Sprite(obj.Name())
 }
 
-// spxSpriteResourceForFile returns the sprite resource represented by filename.
-// The project entry file does not represent a sprite.
-func spxSpriteResourceForFile(result *compileResult, filename string) *SpxSpriteResource {
-	if filename == "" || path.Base(filename) == path.Base(result.mainSpxFile) {
+// spxSpriteTypeForFile resolves a work class through its registered compiler
+// naming rules. The runtime identifies sprite resources by generated type name.
+func spxSpriteTypeForFile(proj *xgo.Project, filename string) *gotypes.Named {
+	if spxClassForFile(proj, filename) == nil {
 		return nil
 	}
-	return result.spxResourceSet.Sprite(strings.TrimSuffix(path.Base(filename), ".spx"))
+	file, _ := proj.ASTFile(filename)
+	if file == nil || file.IsProj {
+		return nil
+	}
+	return classTypeForFile(proj, file)
+}
+
+// spxSpriteResourceForFile returns the resource of the generated sprite class.
+func spxSpriteResourceForFile(result *compileResult, filename string) *SpxSpriteResource {
+	named := spxSpriteTypeForFile(result.proj, filename)
+	if named == nil {
+		return nil
+	}
+	return result.spxResourceSet.Sprite(named.Obj().Name())
 }
 
 // spxSpriteResourceForCall resolves an explicit receiver through auto-binding

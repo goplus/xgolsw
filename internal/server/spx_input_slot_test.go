@@ -1,5 +1,3 @@
-//go:build !test_no_pkgdata
-
 package server
 
 import (
@@ -408,7 +406,6 @@ onStart => {
 		assert.Equal(t, "target", slot.Input.Name)
 		assert.Contains(t, slot.PredefinedNames, "target")
 	})
-
 }
 
 func TestFindInputSlotsSpx(t *testing.T) {
@@ -439,9 +436,8 @@ onStart => {
 	}
 	s := newSpxTestServer(t, m)
 
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.False(t, result.hasErrorSeverityDiagnostic)
+	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
 
 	inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
@@ -529,9 +525,8 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteStepTo", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
 		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
@@ -552,9 +547,8 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteClone", func(t *testing.T) {
-		result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///MySprite.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
 		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
@@ -573,7 +567,6 @@ onStart => {
 			End:   Position{Line: 5, Character: 11},
 		})
 	})
-
 }
 
 func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
@@ -586,13 +579,12 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
 	s := newSpxTestServer(t, files)
-	result, _, astFile, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-	require.NoError(t, err)
-	require.False(t, result.hasErrorSeverityDiagnostic)
+	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
 	ctx := newSpxInputSlotContext(t, result, astFile)
 	literal := inputSlotLiteral(t, ctx, `"OtherSprite"`)
-	slot := createValueInputSlotFromBasicLit(ctx, literal, GetSpxSpriteNameType())
+	slot := createValueInputSlotFromBasicLit(ctx, literal, spxTestType(t, s, "SpriteName"))
 	require.NotNil(t, slot)
 	assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
 	assert.Equal(t, SpxInputTypeResourceName, slot.Accept.Type)
@@ -624,9 +616,8 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			source := tt.declaration + "println " + tt.expression + "\n"
 			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
-			result, _, file, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-			require.NoError(t, err)
-			require.False(t, result.hasErrorSeverityDiagnostic)
+			result, file := compileSpxTestFile(t, s, "main.spx")
+			requireNoDiagnostics(t, s)
 			ctx := newSpxInputSlotContext(t, result, file)
 			call := inputSlotCall(t, ctx, "println")
 			require.Len(t, call.Args, 1)
@@ -653,9 +644,8 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 			"assets/index.json":             []byte(`{}`),
 			"assets/sounds/Beep/index.json": []byte(`{}`),
 		})
-		result, _, file, err := s.compileAndGetASTFileForDocumentURI("file:///main.spx")
-		require.NoError(t, err)
-		require.False(t, result.hasErrorSeverityDiagnostic)
+		result, file := compileSpxTestFile(t, s, "main.spx")
+		requireNoDiagnostics(t, s)
 		ctx := newSpxInputSlotContext(t, result, file)
 		call := inputSlotCall(t, ctx, "play")
 		require.Len(t, call.Args, 1)
@@ -703,74 +693,38 @@ func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 			assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxColor}, slot.Accept)
 		})
 	}
-
 }
 
-func TestInferSpxInputTypeFromType(t *testing.T) {
-
-	t.Run("SpxAliasTypes", func(t *testing.T) {
-		for _, tt := range []struct {
-			name       string
-			typeGetter func() *gotypes.Alias
-			want       SpxInputType
-		}{
-			{"BackdropName", GetSpxBackdropNameType, SpxInputTypeResourceName},
-			{"SoundName", GetSpxSoundNameType, SpxInputTypeResourceName},
-			{"SpriteName", GetSpxSpriteNameType, SpxInputTypeResourceName},
-			{"SpriteCostumeName", GetSpxSpriteCostumeNameType, SpxInputTypeResourceName},
-			{"SpriteAnimationName", GetSpxSpriteAnimationNameType, SpxInputTypeResourceName},
-			{"WidgetName", GetSpxWidgetNameType, SpxInputTypeResourceName},
-			{"SpecialDir", GetSpxDirectionType, SpxInputTypeDirection},
-			{"Key", GetSpxKeyType, SpxInputTypeKey},
-			{"PropertyName", GetSpxPropertyNameType, SpxInputTypePropertyName},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				got := inferSpxInputTypeFromType(tt.typeGetter())
-				assert.Equal(t, tt.want, got)
-			})
-		}
-	})
-
-	t.Run("SpxNamedTypes", func(t *testing.T) {
-		for _, tt := range []struct {
-			name       string
-			typeGetter func() *gotypes.Named
-			want       SpxInputType
-		}{
-			{"EffectKind", GetSpxEffectKindType, SpxInputTypeEffectKind},
-			{"SpecialObj", GetSpxSpecialObjType, SpxInputTypeSpecialObj},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				got := inferSpxInputTypeFromType(tt.typeGetter())
-				assert.Equal(t, tt.want, got)
-			})
-		}
-	})
-
-	t.Run("AliasFallback", func(t *testing.T) {
-		pkg := gotypes.NewPackage("example.com/pkg", "pkg")
-		for _, tt := range []struct {
-			name string
-			typ  gotypes.Type
-			want SpxInputType
-		}{
-			{
-				name: "AliasToSpxResourceName",
-				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MySoundName", nil), GetSpxSoundNameType()),
-				want: SpxInputTypeResourceName,
-			},
-			{
-				name: "AliasToSpxDirection",
-				typ:  gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "MyDirection", nil), GetSpxDirectionType()),
-				want: SpxInputTypeDirection,
-			},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				got := inferSpxInputTypeFromType(tt.typ)
-				assert.Equal(t, tt.want, got)
-			})
-		}
-	})
+func TestDefinitionContextInferSpxInputTypeFromType(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want XGoInputType
+	}{
+		{"BackdropName", XGoInputTypeSpxResourceName},
+		{"SoundName", XGoInputTypeSpxResourceName},
+		{"SpriteName", XGoInputTypeSpxResourceName},
+		{"SpriteCostumeName", XGoInputTypeSpxResourceName},
+		{"SpriteAnimationName", XGoInputTypeSpxResourceName},
+		{"WidgetName", XGoInputTypeSpxResourceName},
+		{"Direction", XGoInputTypeSpxDirection},
+		{"Key", XGoInputTypeSpxKey},
+		{"PropertyName", XGoInputTypeSpxPropertyName},
+		{"EffectKind", XGoInputTypeSpxEffectKind},
+		{"Edge", XGoInputTypeSpxSpecialObj},
+		{"RotationStyle", XGoInputTypeSpxRotationStyle},
+		{"layerAction", XGoInputTypeSpxLayerAction},
+		{"dirAction", XGoInputTypeSpxDirAction},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSpxTestServer(t, nil)
+			ctx := &definitionContext{proj: s.getProj()}
+			typ := spxTestType(t, s, tt.name)
+			assert.Equal(t, tt.want, ctx.inferSpxInputTypeFromType(typ))
+			pkg := gotypes.NewPackage("example.com/user", "user")
+			alias := gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "Alias", nil), typ)
+			assert.Equal(t, tt.want, ctx.inferSpxInputTypeFromType(alias))
+		})
+	}
 }
 
 func newSpxInputSlotContext(t *testing.T, result *compileResult, astFile *ast.File) *inputSlotContext {
@@ -779,4 +733,30 @@ func newSpxInputSlotContext(t *testing.T, result *compileResult, astFile *ast.Fi
 	ctx := newInputSlotContext(result.proj, astFile)
 	ctx.spxResult = result
 	return ctx
+}
+
+func TestIsSpxSpriteInstanceType(t *testing.T) {
+	s := newSpxTestServer(t, nil)
+	other := newSpxTestServer(t, nil)
+	result := newCompileResult(s.getProj(), s.lookupPkgDoc)
+	implementation := spxTestType(t, s, "SpriteImpl")
+	pointer := gotypes.NewPointer(implementation)
+	alias := gotypes.NewAlias(gotypes.NewTypeName(0, nil, "Pointer", nil), pointer)
+	for _, tt := range []struct {
+		name string
+		typ  gotypes.Type
+		want bool
+	}{
+		{"Nil", nil, false},
+		{"Interface", spxTestType(t, s, "Sprite"), true},
+		{"ImplementationValue", implementation, false},
+		{"ImplementationPointer", pointer, true},
+		{"PointerAlias", alias, true},
+		{"ForeignInterface", spxTestType(t, other, "Sprite"), false},
+		{"ForeignImplementation", gotypes.NewPointer(spxTestType(t, other, "SpriteImpl")), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSpxSpriteInstanceType(result, tt.typ))
+		})
+	}
 }

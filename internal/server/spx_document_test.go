@@ -1,5 +1,3 @@
-//go:build !test_no_pkgdata
-
 package server
 
 import (

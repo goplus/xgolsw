@@ -1,5 +1,3 @@
-//go:build !test_no_pkgdata
-
 package server
 
 import (
@@ -73,8 +71,8 @@ worker.use names = (["Known", "Missing"])
 				fallback := proj.Importer
 				pkg := gotypes.NewPackage("example.com/audio", "audio")
 				params := gotypes.NewTuple(
-					gotypes.NewParam(token.NoPos, pkg, "first", GetSpxSoundNameType()),
-					gotypes.NewParam(token.NoPos, pkg, "second", GetSpxSoundNameType()),
+					gotypes.NewParam(token.NoPos, pkg, "first", spxTestType(t, s, "SoundName")),
+					gotypes.NewParam(token.NoPos, pkg, "second", spxTestType(t, s, "SoundName")),
 				)
 				pkg.Scope().Insert(gotypes.NewFunc(token.NoPos, pkg, "Play", gotypes.NewSignatureType(nil, nil, nil, params, nil, false)))
 				pkg.MarkComplete()
@@ -153,32 +151,33 @@ configure target = "OtherSprite", unknown = 9
 
 func TestCompileResultIsInSpxEventHandler(t *testing.T) {
 	for _, tt := range []struct {
-		name     string
-		content  string
-		position Position
-		want     bool
+		name   string
+		source string
+		want   bool
 	}{
-		{
-			name:     "OrdinaryCallback",
-			content:  "func invoke(fn func()) { fn() }\ninvoke => {\n    println 1\n}\n",
-			position: Position{Line: 2, Character: 8},
-		},
-		{
-			name:     "NestedOrdinaryCallback",
-			content:  "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        println 1\n    }\n}\n",
-			position: Position{Line: 3, Character: 12},
-			want:     true,
-		},
+		{"OrdinaryCallback", "func invoke(fn func()) { fn() }\ninvoke => {\n    |println 1\n}\n", false},
+		{"UserHandler", "func onCustom(fn func()) { fn() }\nonCustom => {\n    |println 1\n}\n", false},
+		{"ShadowedHandler", "onStart := func(fn func()) { fn() }\nonStart => {\n    |println 1\n}\n", false},
+		{"Handler", "onStart => {\n    |println 1\n}\n", true},
+		{"NestedOrdinaryCallback", "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        |println 1\n    }\n}\n", true},
+		{"ExplicitReceiver", "this.onStart => {\n    |println 1\n}\n", true},
+		{"OverloadedHandler", "onKey KeySpace, => {\n    |println 1\n}\n", true},
+		{"FunctionLiteral", "onStart func() {\n    |println 1\n}\n", true},
+		{"Argument", "onKey |KeySpace, => {}\n", false},
+		{"CallbackParameters", "onKey [KeySpace], |key => { println key }\n", false},
+		{"Unresolved", "onMissing => {\n    |println 1\n}\n", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			files := map[string][]byte{"main.spx": []byte(tt.content), "assets/index.json": []byte(`{}`)}
-			s := newSpxTestServer(t, files)
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
 			result, err := s.compile()
 			require.NoError(t, err)
-			require.Empty(t, result.diagnostics["file:///main.spx"])
-			astFile, err := result.proj.ASTFile("main.spx")
+			if tt.name != "Unresolved" {
+				requireNoDiagnostics(t, s)
+			}
+			file, err := result.proj.ASTFile("main.spx")
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, result.isInSpxEventHandler(PosAt(result.proj, astFile, tt.position)))
+			assert.Equal(t, tt.want, result.isInSpxEventHandler(PosAt(result.proj, file, position)))
 		})
 	}
 }

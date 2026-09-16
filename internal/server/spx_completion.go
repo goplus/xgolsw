@@ -1,31 +1,12 @@
 package server
 
 import (
-	"fmt"
 	gotypes "go/types"
 	"maps"
-	"path"
 	"slices"
 
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
-
-// compileForSpxCompletion prepares resource data only for an spx classfile.
-func (s *Server) compileForSpxCompletion(proj *xgo.Project, filename string) (*compileResult, error) {
-	if path.Ext(filename) != ".spx" {
-		return nil, nil
-	}
-	class, ok := proj.Module().LookupClass(".spx")
-	if !ok || !slices.Contains(class.PkgPaths, SpxPkgPath) {
-		return nil, nil
-	}
-	result, err := s.compileAt(proj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile: %w", err)
-	}
-	return result, nil
-}
 
 // collectSpxTypeSpecific collects spx resource and property name completions.
 func (ctx *completionContext) collectSpxTypeSpecific(typ gotypes.Type) {
@@ -34,36 +15,38 @@ func (ctx *completionContext) collectSpxTypeSpecific(typ gotypes.Type) {
 	}
 
 	if named := resolvedNamedType(typ); named != nil {
-		switch named {
-		case GetSpxSpriteType(), GetSpxSpriteImplType():
+		switch ctx.spxTypeName(named) {
+		case "Sprite", "SpriteImpl":
+			file, _ := ctx.proj.ASTFile(ctx.spxResult.mainSpxFile)
+			projectType := classTypeForFile(ctx.proj, file)
 			for spxSprite := range ctx.spxResult.spxSpriteResourceAutoBindings {
-				if spxSprite.Type() == named {
-					ctx.itemSet.addDefinitions(ctx.definitionsFor(spxSprite, "Game")...)
+				if resolvedNamedType(spxSprite.Type()) == named {
+					ctx.itemSet.addDefinitions(ctx.definitionsForSelection(spxSprite, projectType)...)
 				}
 			}
 		}
 	}
 
 	// Handle spx.PropertyName type - provide property name completions.
-	if inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
+	if ctx.inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
 		if target := ctx.getPropertyTarget(); target != "" {
 			ctx.collectPropertyNames(target)
 		}
 		return
 	}
 
-	switch canonicalSpxResourceNameType(typ) {
-	case GetSpxBackdropNameType():
+	switch ctx.spxResourceNameType(typ) {
+	case "BackdropName":
 		ctx.collectSpxResourceNames(spxResourceCompletionBackdrop, nil)
-	case GetSpxSpriteNameType():
+	case "SpriteName":
 		ctx.collectSpxResourceNames(spxResourceCompletionSprite, nil)
-	case GetSpxSpriteCostumeNameType():
+	case "SpriteCostumeName":
 		ctx.collectSpxResourceNames(spxResourceCompletionCostume, ctx.getSpxSpriteResource())
-	case GetSpxSpriteAnimationNameType():
+	case "SpriteAnimationName":
 		ctx.collectSpxResourceNames(spxResourceCompletionAnimation, ctx.getSpxSpriteResource())
-	case GetSpxSoundNameType():
+	case "SoundName":
 		ctx.collectSpxResourceNames(spxResourceCompletionSound, nil)
-	case GetSpxWidgetNameType():
+	case "WidgetName":
 		ctx.collectSpxResourceNames(spxResourceCompletionWidget, nil)
 	}
 }

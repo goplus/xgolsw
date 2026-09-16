@@ -27,7 +27,7 @@ onTouchStart 123, (s) => { // type mismatch
 }
 `),
 		}
-		s := newSpxTestServer(t, m)
+		s := newSpxIntegrationTestServer(t, m)
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///MySprite.spx"},
 		}

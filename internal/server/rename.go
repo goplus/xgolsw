@@ -139,7 +139,7 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 	}
 
 	// Check if the renamed object is a property and send notification if needed
-	if isPropertyOfEnclosingType(obj) {
+	if (&definitionContext{proj: proj}).isPropertyOfEnclosingType(obj) {
 		s.notifyPropertyRenamed(obj, params)
 	}
 	return &workspaceEdit, nil
@@ -263,28 +263,30 @@ func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteReso
 		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() || tv.Type == nil {
 			continue
 		}
-		if result.hasSpxSpriteType(tv.Type) && tv.Type.String() == "main."+id.SpriteName {
-			rng := RangeForNode(result.proj, expr)
-			if rng.Start == rng.End {
-				continue
-			}
-
-			documentURI := s.nodeDocumentURI(result.proj, expr)
-			textEdit := TextEdit{
-				Range:   rng,
-				NewText: newName,
-			}
-
-			if _, ok := seenTextEdits[documentURI]; !ok {
-				seenTextEdits[documentURI] = make(map[TextEdit]struct{})
-			}
-			if _, ok := seenTextEdits[documentURI][textEdit]; ok {
-				continue
-			}
-			seenTextEdits[documentURI][textEdit] = struct{}{}
-
-			changes[documentURI] = append(changes[documentURI], textEdit)
+		named, ok := tv.Type.(*gotypes.Named)
+		if !ok || !result.hasSpxSpriteType(named) || named.Obj().Name() != id.SpriteName {
+			continue
 		}
+		rng := RangeForNode(result.proj, expr)
+		if rng.Start == rng.End {
+			continue
+		}
+
+		documentURI := s.nodeDocumentURI(result.proj, expr)
+		textEdit := TextEdit{
+			Range:   rng,
+			NewText: newName,
+		}
+
+		if _, ok := seenTextEdits[documentURI]; !ok {
+			seenTextEdits[documentURI] = make(map[TextEdit]struct{})
+		}
+		if _, ok := seenTextEdits[documentURI][textEdit]; ok {
+			continue
+		}
+		seenTextEdits[documentURI][textEdit] = struct{}{}
+
+		changes[documentURI] = append(changes[documentURI], textEdit)
 	}
 	return changes, nil
 }

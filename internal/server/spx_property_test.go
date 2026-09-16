@@ -1,8 +1,8 @@
-//go:build !test_no_pkgdata
-
 package server
 
 import (
+	"github.com/goplus/xgo/token"
+	gotypes "go/types"
 	"slices"
 	"testing"
 
@@ -78,4 +78,22 @@ func CurrentList() List { return list }
 			assert.Contains(t, properties, want)
 		}
 	})
+}
+
+func TestDefinitionContextSpxValueAndListProperties(t *testing.T) {
+	s := newSpxTestServer(t, nil)
+	other := newSpxTestServer(t, nil)
+	ctx := &definitionContext{proj: s.getProj()}
+	for _, name := range []string{"Value", "List"} {
+		t.Run(name, func(t *testing.T) {
+			for _, source := range []*Server{s, other} {
+				typ := spxTestType(t, source, name)
+				field := gotypes.NewField(token.NoPos, nil, "Data", typ, false)
+				getter := gotypes.NewFunc(token.NoPos, nil, "Data", gotypes.NewSignatureType(nil, nil, nil, nil,
+					gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", typ)), false))
+				assert.Equal(t, source == s, ctx.isPropertyOfEnclosingType(field))
+				assert.Equal(t, source == s, ctx.isPropertyOfEnclosingType(getter))
+			}
+		})
+	}
 }
