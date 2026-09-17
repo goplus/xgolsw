@@ -5,20 +5,17 @@ package server
 import (
 	"testing"
 
-	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/pkgdata"
-	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewSpx(t *testing.T) {
+func TestSpxIntegrationConfiguration(t *testing.T) {
 	files := map[string][]byte{"main.spx": []byte("var Count int\nCount = 1\n")}
-	proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
-	s := New(proj, nil, fileMapGetter(files), &MockScheduler{})
-	assert.Same(t, proj, s.getProj())
+	s := newSpxIntegrationTestServer(t, files)
+	proj := s.getProj()
 	assert.Equal(t, "main", proj.PkgPath)
-	assert.Same(t, internal.Importer, proj.Importer)
+	assert.NotNil(t, proj.Importer)
 	_, isProject, ok := proj.Module().ClassInfo("main.spx")
 	assert.True(t, isProject)
 	assert.True(t, ok)
@@ -39,7 +36,9 @@ func TestNewSpx(t *testing.T) {
 	assert.Contains(t, pkgs, SpxPkgPath)
 	doc, err := s.lookupPkgDoc(SpxPkgPath)
 	require.NoError(t, err)
-	wantDoc, err := pkgdata.GetPkgDoc(SpxPkgPath)
+	data, err := pkgdata.New(spxIntegrationPkgDataZip)
 	require.NoError(t, err)
-	assert.Same(t, wantDoc, doc)
+	wantDoc, err := data.GetPkgDoc(SpxPkgPath)
+	require.NoError(t, err)
+	assert.Equal(t, wantDoc, doc)
 }

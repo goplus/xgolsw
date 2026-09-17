@@ -10,13 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/goplus/mod/modload"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/i18n"
-	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
@@ -71,20 +68,8 @@ func (s *Server) getProjWithFile() *xgo.Project {
 	return proj
 }
 
-// New creates a new Server instance with the default module and package data.
-func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
-	mod, err := xgo.NewModule(modload.Default)
-	if err != nil {
-		panic(fmt.Errorf("failed to import classes: %w", err))
-	}
-	proj.PkgPath = "main"
-	proj.SetModule(mod)
-	proj.Importer = internal.Importer
-	return newServer(proj, replier, fileMapGetter, scheduler, pkgdata.ListPkgs, pkgdata.GetPkgDoc)
-}
-
-// newServer creates a server from a configured project and package data providers.
-func newServer(
+// New creates a server from a configured project and package data providers.
+func New(
 	proj *xgo.Project,
 	replier MessageReplier,
 	fileMapGetter FileMapGetter,

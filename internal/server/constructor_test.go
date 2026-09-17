@@ -7,7 +7,6 @@ import (
 
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/mod/modload"
-	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
@@ -15,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewServer(t *testing.T) {
+func TestNew(t *testing.T) {
 	t.Run("ConfiguredProject", func(t *testing.T) {
 		files := map[string][]byte{"main_fixture.gox": []byte("var Count = measure(1)\n")}
 		proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
@@ -27,7 +26,7 @@ func TestNewServer(t *testing.T) {
 		typeInfo, err := proj.TypeInfo()
 		require.NoError(t, err)
 
-		s := newServer(proj, nil, fileMapGetter(files), &MockScheduler{},
+		s := New(proj, nil, fileMapGetter(files), &MockScheduler{},
 			func() ([]string, error) { return nil, nil },
 			func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist },
 		)
@@ -84,7 +83,7 @@ func TestNewServer(t *testing.T) {
 					return nil, fs.ErrNotExist
 				}
 			}
-			s := newServer(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+			s := New(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
 			check := func() {
 				t.Helper()
 
@@ -185,13 +184,10 @@ func TestNewTestServer(t *testing.T) {
 		check(newTestServer(t, files))
 	})
 
-	t.Run("InvalidDefaultClasses", func(t *testing.T) {
+	t.Run("IndependentOfDefaultClasses", func(t *testing.T) {
 		defaultOpt := modload.Default.Opt
 		t.Cleanup(func() { modload.Default.Opt = defaultOpt })
 		modload.Default.Opt = &modfile.File{ClassMods: []string{"example.com/missing-framework"}}
-		require.PanicsWithError(t, "failed to import classes: "+xgomod.ErrNotFound.Error(), func() {
-			New(xgo.NewProject(nil, nil, xgo.FeatAll), nil, nil, nil)
-		})
 
 		for _, tt := range []struct {
 			name      string

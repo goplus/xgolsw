@@ -36,12 +36,11 @@ import (
 	"github.com/goplus/xgolsw/pkgdoc"
 	"golang.org/x/tools/go/gcexportdata"
 
-	_ "github.com/goplus/spx/v3"
 	_ "github.com/qiniu/x"
 )
 
-// stdPkgPaths is the list of standard package paths to generate the exported symbols for.
-var stdPkgPaths = []string{
+// defaultPkgPaths lists the standard and XGo builtin packages included by default.
+var defaultPkgPaths = []string{
 	"builtin",
 
 	"archive/tar",
@@ -148,9 +147,6 @@ var stdPkgPaths = []string{
 	"github.com/qiniu/x/stringslice",
 	// Required for XGo's ? error handling operator
 	"github.com/qiniu/x/errors",
-
-	"github.com/goplus/spx/v3",
-	"github.com/goplus/spx/v3/pkg/spx/pkg/engine",
 }
 
 // generate generates the package data file containing the exported symbols of
@@ -166,7 +162,7 @@ func generate(pkgPaths []string, outputFile string) error {
 	for _, pkgPath := range pkgPaths {
 		buildPkg, err := buildCtx.Import(pkgPath, "", build.ImportComment)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to load package %q: %w", pkgPath, err)
 		}
 
 		pkgName := buildPkg.Name
@@ -316,7 +312,7 @@ func generate(pkgPaths []string, outputFile string) error {
 // execGo executes the given go command.
 func execGo(args ...string) ([]byte, error) {
 	cmd := exec.Command("go", args...)
-	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0")
 	output, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -329,12 +325,12 @@ func execGo(args ...string) ([]byte, error) {
 
 func main() {
 	outputFile := flag.String("o", "pkgdata.zip", "output file")
-	noStd := flag.Bool("no-std", false, "do not generate standard packages")
+	noDefaults := flag.Bool("no-defaults", false, "do not generate default packages")
 	flag.Parse()
 
 	var pkgPaths []string
-	if !*noStd {
-		pkgPaths = stdPkgPaths
+	if !*noDefaults {
+		pkgPaths = defaultPkgPaths
 	}
 	for _, pkgPath := range flag.Args() {
 		if !slices.Contains(pkgPaths, pkgPath) {

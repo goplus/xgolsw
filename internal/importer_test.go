@@ -31,7 +31,7 @@ func Read() Value { return Current }
 `, nil)
 		var opened int
 		reader := &exportReadCloser{Reader: bytes.NewReader(data)}
-		imp := newImporter(func(path string) (io.ReadCloser, error) {
+		imp := NewImporter(func(path string) (io.ReadCloser, error) {
 			assert.Equal(t, pkgPath, path)
 			opened++
 			return reader, nil
@@ -73,7 +73,7 @@ func Read() Value { return Current }
 
 	t.Run("Unsafe", func(t *testing.T) {
 		var opened bool
-		imp := newImporter(func(string) (io.ReadCloser, error) {
+		imp := NewImporter(func(string) (io.ReadCloser, error) {
 			opened = true
 			return nil, fs.ErrNotExist
 		})
@@ -156,7 +156,7 @@ func Read() dependency.Value { return dependency.Value{} }
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := &exportReadCloser{Reader: tt.reader}
-			imp := newImporter(func(string) (io.ReadCloser, error) { return reader, nil })
+			imp := NewImporter(func(string) (io.ReadCloser, error) { return reader, nil })
 			pkg, err := imp.Import("example.com/invalid")
 			require.ErrorContains(t, err, "failed to parse package export data")
 			assert.ErrorContains(t, err, tt.message)
@@ -181,7 +181,7 @@ func Read() dependency.Value { return dependency.Value{} }
 		const pkgPath = "example.com/concurrent"
 		data := exportTestPackage(t, pkgPath, "package concurrent\ntype Value struct { Number int }\n", nil)
 		var opened int
-		imp := newImporter(func(string) (io.ReadCloser, error) {
+		imp := NewImporter(func(string) (io.ReadCloser, error) {
 			opened++
 			return io.NopCloser(bytes.NewReader(data)), nil
 		})
@@ -203,7 +203,7 @@ func Read() dependency.Value { return dependency.Value{} }
 
 	t.Run("OpenError", func(t *testing.T) {
 		wantErr := errors.New("export unavailable")
-		imp := newImporter(func(string) (io.ReadCloser, error) { return nil, wantErr })
+		imp := NewImporter(func(string) (io.ReadCloser, error) { return nil, wantErr })
 		pkg, err := imp.Import("example.com/unavailable")
 		require.ErrorIs(t, err, wantErr)
 		assert.Nil(t, pkg)
@@ -224,8 +224,8 @@ func exportTestPackage(t *testing.T, path, source string, imp gotypes.Importer) 
 	return buf.Bytes()
 }
 
-func importerForTestFiles(files fstest.MapFS) *importer {
-	return newImporter(func(path string) (io.ReadCloser, error) { return files.Open(path + ".pkgexport") })
+func importerForTestFiles(files fstest.MapFS) gotypes.Importer {
+	return NewImporter(func(path string) (io.ReadCloser, error) { return files.Open(path + ".pkgexport") })
 }
 
 type exportReadCloser struct {

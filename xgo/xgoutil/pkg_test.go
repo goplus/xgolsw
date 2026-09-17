@@ -135,7 +135,7 @@ func TestPkgPath(t *testing.T) {
 		assert.Equal(t, "fmt", PkgPath(pkg))
 	})
 
-	t.Run("NestedPackagePath", func(t *testing.T) {
+	t.Run("NestedPkgPath", func(t *testing.T) {
 		pkg := gotypes.NewPackage("example.com/deep/nested/pkg", "pkg")
 		assert.Equal(t, "example.com/deep/nested/pkg", PkgPath(pkg))
 	})

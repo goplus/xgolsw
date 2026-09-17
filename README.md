@@ -23,7 +23,7 @@ through its API interfaces.
 1. [Optional] Generate required package data:
 
   ```bash
-  go generate ./internal/pkgdata
+  go generate ./internal/pkgdata ./internal/server
   ```
 
 2. Build the project:
