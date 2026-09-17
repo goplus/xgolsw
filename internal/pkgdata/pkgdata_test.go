@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestListPkgs(t *testing.T) {
+func TestDataListPkgs(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		embedded map[string]string
@@ -36,7 +36,7 @@ func TestListPkgs(t *testing.T) {
 		},
 		{
 			name:   "CustomOnly",
-			custom: newPkgdataZip(t, map[string]string{"example.com/beta.pkgexport": "export"}),
+			custom: newPkgDataZip(t, map[string]string{"example.com/beta.pkgexport": "export"}),
 			want:   []string{"example.com/beta"},
 		},
 		{
@@ -45,7 +45,7 @@ func TestListPkgs(t *testing.T) {
 				"example.com/beta.pkgexport": "embedded",
 				"example.com/zeta.pkgexport": "export",
 			},
-			custom: newPkgdataZip(t, map[string]string{
+			custom: newPkgDataZip(t, map[string]string{
 				"example.com/alpha.pkgexport": "export",
 				"example.com/beta.pkgexport":  "custom",
 			}),
@@ -53,37 +53,24 @@ func TestListPkgs(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, newPkgdataZip(t, tt.embedded), tt.custom)
-			pkgs, err := ListPkgs()
+			pkgData, err := newData(newPkgDataZip(t, tt.embedded), tt.custom)
+			require.NoError(t, err)
+			pkgs, err := pkgData.ListPkgs()
 			require.NoError(t, err)
 			if len(tt.want) == 0 {
 				assert.Empty(t, pkgs)
 			} else {
+				require.Equal(t, tt.want, pkgs)
+				pkgs[0] = "modified"
+				pkgs, err = pkgData.ListPkgs()
+				require.NoError(t, err)
 				assert.Equal(t, tt.want, pkgs)
 			}
 		})
 	}
-
-	for _, tt := range []struct {
-		name     string
-		embedded []byte
-		custom   []byte
-		message  string
-	}{
-		{name: "InvalidEmbedded", embedded: []byte("invalid zip"), message: "failed to list embed packages"},
-		{name: "InvalidCustom", embedded: newPkgdataZip(t, nil), custom: []byte("invalid zip"), message: "failed to list custom packages"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, tt.embedded, tt.custom)
-			pkgs, err := ListPkgs()
-			require.ErrorIs(t, err, zip.ErrFormat)
-			assert.ErrorContains(t, err, tt.message)
-			assert.Nil(t, pkgs)
-		})
-	}
 }
 
-func TestOpenExport(t *testing.T) {
+func TestDataOpenExport(t *testing.T) {
 	const pkgPath = "example.com/sample"
 	for _, tt := range []struct {
 		name   string
@@ -91,13 +78,14 @@ func TestOpenExport(t *testing.T) {
 		want   string
 	}{
 		{name: "Embedded", want: "embedded export"},
-		{name: "CustomOverridesEmbedded", custom: newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "custom export"}), want: "custom export"},
-		{name: "MissingCustomFallsBack", custom: newPkgdataZip(t, map[string]string{"example.com/other.pkgexport": "other export"}), want: "embedded export"},
-		{name: "EmptyCustomFallsBack", custom: newPkgdataZip(t, nil), want: "embedded export"},
+		{name: "CustomOverridesEmbedded", custom: newPkgDataZip(t, map[string]string{pkgPath + ".pkgexport": "custom export"}), want: "custom export"},
+		{name: "MissingCustomFallsBack", custom: newPkgDataZip(t, map[string]string{"example.com/other.pkgexport": "other export"}), want: "embedded export"},
+		{name: "EmptyCustomFallsBack", custom: newPkgDataZip(t, nil), want: "embedded export"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "embedded export"}), tt.custom)
-			rc, err := OpenExport(pkgPath)
+			pkgData, err := newData(newPkgDataZip(t, map[string]string{pkgPath + ".pkgexport": "embedded export"}), tt.custom)
+			require.NoError(t, err)
+			rc, err := pkgData.OpenExport(pkgPath)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, rc.Close()) })
 			data, err := io.ReadAll(rc)
@@ -113,22 +101,21 @@ func TestOpenExport(t *testing.T) {
 		wantErr  error
 		message  string
 	}{
-		{name: "Missing", embedded: newPkgdataZip(t, nil), custom: newPkgdataZip(t, nil), wantErr: fs.ErrNotExist, message: pkgPath},
-		{name: "InvalidEmbedded", embedded: []byte("invalid zip"), wantErr: zip.ErrFormat, message: "failed to create zip reader"},
+		{name: "Missing", embedded: newPkgDataZip(t, nil), custom: newPkgDataZip(t, nil), wantErr: fs.ErrNotExist, message: pkgPath},
 		{
-			name:     "InvalidCustomDoesNotFallBack",
-			embedded: newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "embedded export"}),
-			custom:   []byte("invalid zip"), wantErr: zip.ErrFormat, message: "failed to open custom package export file",
+			name:     "UnsupportedBaseCompression",
+			embedded: unsupportedCompressionZip(t, pkgPath+".pkgexport"), wantErr: zip.ErrAlgorithm,
 		},
 		{
 			name:     "UnsupportedCompressionDoesNotFallBack",
-			embedded: newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "embedded export"}),
+			embedded: newPkgDataZip(t, map[string]string{pkgPath + ".pkgexport": "embedded export"}),
 			custom:   unsupportedCompressionZip(t, pkgPath+".pkgexport"), wantErr: zip.ErrAlgorithm, message: "failed to open custom package export file",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, tt.embedded, tt.custom)
-			rc, err := OpenExport(pkgPath)
+			pkgData, err := newData(tt.embedded, tt.custom)
+			require.NoError(t, err)
+			rc, err := pkgData.OpenExport(pkgPath)
 			require.ErrorIs(t, err, tt.wantErr)
 			assert.ErrorContains(t, err, tt.message)
 			assert.Nil(t, rc)
@@ -136,7 +123,7 @@ func TestOpenExport(t *testing.T) {
 	}
 }
 
-func TestGetPkgDoc(t *testing.T) {
+func TestDataGetPkgDoc(t *testing.T) {
 	const pkgPath = "example.com/sample"
 	embeddedDoc := &pkgdoc.PkgDoc{
 		Path: pkgPath, Name: "sample", Doc: "Package sample provides test data.\n",
@@ -163,15 +150,16 @@ func TestGetPkgDoc(t *testing.T) {
 		want   *pkgdoc.PkgDoc
 	}{
 		{name: "Embedded", want: embeddedDoc},
-		{name: "CustomOverridesEmbedded", custom: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(customDoc)}), want: customDoc},
-		{name: "MissingCustomFallsBack", custom: newPkgdataZip(t, map[string]string{"example.com/other.pkgdoc": "{}"}), want: embeddedDoc},
+		{name: "CustomOverridesEmbedded", custom: newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(customDoc)}), want: customDoc},
+		{name: "MissingCustomFallsBack", custom: newPkgDataZip(t, map[string]string{"example.com/other.pkgdoc": "{}"}), want: embeddedDoc},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}), tt.custom)
-			doc, err := GetPkgDoc(pkgPath)
+			pkgData, err := newData(newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}), tt.custom)
+			require.NoError(t, err)
+			doc, err := pkgData.GetPkgDoc(pkgPath)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, doc)
-			cachedDoc, err := GetPkgDoc(pkgPath)
+			cachedDoc, err := pkgData.GetPkgDoc(pkgPath)
 			require.NoError(t, err)
 			assert.Same(t, doc, cachedDoc)
 		})
@@ -184,171 +172,41 @@ func TestGetPkgDoc(t *testing.T) {
 		wantErr  error
 		message  string
 	}{
-		{name: "Missing", embedded: newPkgdataZip(t, nil), custom: newPkgdataZip(t, nil), wantErr: fs.ErrNotExist, message: pkgPath},
-		{name: "InvalidEmbedded", embedded: []byte("invalid zip"), wantErr: zip.ErrFormat, message: "failed to create zip reader"},
+		{name: "Missing", embedded: newPkgDataZip(t, nil), custom: newPkgDataZip(t, nil), wantErr: fs.ErrNotExist, message: pkgPath},
 		{
-			name:     "InvalidCustomDoesNotFallBack",
-			embedded: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}),
-			custom:   []byte("invalid zip"), wantErr: zip.ErrFormat, message: "failed to get custom package doc",
+			name:     "UnsupportedBaseCompression",
+			embedded: unsupportedCompressionZip(t, pkgPath+".pkgdoc"), wantErr: zip.ErrAlgorithm, message: "failed to open doc file",
+		},
+		{
+			name:     "InvalidBaseJSON",
+			embedded: newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": "{"}), wantErr: io.ErrUnexpectedEOF, message: "failed to decode doc",
 		},
 		{
 			name:     "InvalidJSONDoesNotFallBack",
-			embedded: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}),
-			custom:   newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": "{"}), wantErr: io.ErrUnexpectedEOF, message: "failed to decode doc",
+			embedded: newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}),
+			custom:   newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": "{"}), wantErr: io.ErrUnexpectedEOF, message: "failed to decode doc",
 		},
 		{
 			name:     "UnsupportedCompressionDoesNotFallBack",
-			embedded: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}),
+			embedded: newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(embeddedDoc)}),
 			custom:   unsupportedCompressionZip(t, pkgPath+".pkgdoc"), wantErr: zip.ErrAlgorithm, message: "failed to open doc file",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			setTestPackageData(t, tt.embedded, tt.custom)
-			doc, err := GetPkgDoc(pkgPath)
+			pkgData, err := newData(tt.embedded, tt.custom)
+			require.NoError(t, err)
+			doc, err := pkgData.GetPkgDoc(pkgPath)
 			require.ErrorIs(t, err, tt.wantErr)
 			assert.ErrorContains(t, err, tt.message)
 			assert.Nil(t, doc)
-			doc, err = GetPkgDoc(pkgPath)
+			doc, err = pkgData.GetPkgDoc(pkgPath)
 			require.ErrorIs(t, err, tt.wantErr, "failed lookups must not be cached as successful results")
 			assert.Nil(t, doc)
-
-			SetCustomPkgdataZip(newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": encodeDoc(customDoc)}))
-			doc, err = GetPkgDoc(pkgPath)
-			require.NoError(t, err)
-			assert.Equal(t, customDoc, doc)
 		})
 	}
 }
 
-func TestSetCustomPkgdataZip(t *testing.T) {
-	t.Run("PackageList", func(t *testing.T) {
-		const pkgPath = "example.com/custom"
-		setTestPackageData(t, newPkgdataZip(t, nil), nil)
-		SetCustomPkgdataZip(newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "export"}))
-		pkgs, err := ListPkgs()
-		require.NoError(t, err)
-		assert.Equal(t, []string{pkgPath}, pkgs)
-
-		SetCustomPkgdataZip(nil)
-		pkgs, err = ListPkgs()
-		require.NoError(t, err)
-		assert.Empty(t, pkgs)
-	})
-
-	t.Run("DocumentationUpdates", func(t *testing.T) {
-		const pkgPath = "example.com/sample"
-		setTestPackageData(t, newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": `{"Doc":"embedded"}`}), nil)
-		for _, tt := range []struct {
-			data []byte
-			want string
-		}{
-			{want: "embedded"},
-			{data: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": `{"Doc":"custom"}`}), want: "custom"},
-			{data: newPkgdataZip(t, map[string]string{pkgPath + ".pkgdoc": `{"Doc":"replacement"}`}), want: "replacement"},
-			{want: "embedded"},
-		} {
-			SetCustomPkgdataZip(tt.data)
-			doc, err := GetPkgDoc(pkgPath)
-			require.NoError(t, err)
-			require.Equal(t, tt.want, doc.Doc)
-		}
-	})
-
-	t.Run("OpenExportSnapshot", func(t *testing.T) {
-		const pkgPath = "example.com/sample"
-		setTestPackageData(t, newPkgdataZip(t, nil), newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "original"}))
-		original, err := OpenExport(pkgPath)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, original.Close()) })
-
-		SetCustomPkgdataZip(newPkgdataZip(t, map[string]string{pkgPath + ".pkgexport": "replacement"}))
-		replacement, err := OpenExport(pkgPath)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, replacement.Close()) })
-		SetCustomPkgdataZip(nil)
-
-		data, err := io.ReadAll(original)
-		require.NoError(t, err)
-		assert.Equal(t, "original", string(data))
-		data, err = io.ReadAll(replacement)
-		require.NoError(t, err)
-		assert.Equal(t, "replacement", string(data))
-	})
-
-	t.Run("ConcurrentAccess", func(t *testing.T) {
-		const pkgPath = "example.com/sample"
-		embedded := newPkgdataZip(t, map[string]string{
-			pkgPath + ".pkgexport": "embedded",
-			pkgPath + ".pkgdoc":    `{"Doc":"embedded"}`,
-		})
-		custom := newPkgdataZip(t, map[string]string{
-			pkgPath + ".pkgexport": "custom",
-			pkgPath + ".pkgdoc":    `{"Doc":"custom"}`,
-		})
-		replacement := newPkgdataZip(t, map[string]string{
-			pkgPath + ".pkgexport": "replacement",
-			pkgPath + ".pkgdoc":    `{"Doc":"replacement"}`,
-		})
-		setTestPackageData(t, embedded, nil)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		wg.Go(func() {
-			<-start
-			for range 100 {
-				SetCustomPkgdataZip(custom)
-				SetCustomPkgdataZip(nil)
-			}
-			SetCustomPkgdataZip(replacement)
-		})
-		for range 4 {
-			wg.Go(func() {
-				<-start
-				for range 100 {
-					pkgs, err := ListPkgs()
-					assert.NoError(t, err)
-					assert.Equal(t, []string{pkgPath}, pkgs)
-					rc, err := OpenExport(pkgPath)
-					if !assert.NoError(t, err) {
-						return
-					}
-					t.Cleanup(func() { require.NoError(t, rc.Close()) })
-					data, err := io.ReadAll(rc)
-					assert.NoError(t, err)
-					assert.Contains(t, []string{"embedded", "custom", "replacement"}, string(data))
-					doc, err := GetPkgDoc(pkgPath)
-					if assert.NoError(t, err) && assert.NotNil(t, doc) {
-						assert.Contains(t, []string{"embedded", "custom", "replacement"}, doc.Doc)
-					}
-				}
-			})
-		}
-		close(start)
-		wg.Wait()
-
-		doc, err := GetPkgDoc(pkgPath)
-		require.NoError(t, err)
-		assert.Equal(t, "replacement", doc.Doc)
-	})
-}
-
-func setTestPackageData(t *testing.T, embedded, custom []byte) {
-	t.Helper()
-
-	// These tests own package-level data and must not run in parallel.
-	pkgdataMu.Lock()
-	originalEmbedded, originalCustom := pkgdataZip, customPkgdataZip
-	t.Cleanup(func() {
-		pkgdataMu.Lock()
-		pkgdataZip, customPkgdataZip = originalEmbedded, originalCustom
-		pkgDocCache.Clear()
-		pkgdataMu.Unlock()
-	})
-	pkgdataZip, customPkgdataZip = embedded, custom
-	pkgDocCache.Clear()
-	pkgdataMu.Unlock()
-}
-
-func newPkgdataZip(t *testing.T, files map[string]string) []byte {
+func newPkgDataZip(t testing.TB, files map[string]string) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -372,4 +230,93 @@ func unsupportedCompressionZip(t *testing.T, name string) []byte {
 	require.NoError(t, err)
 	require.NoError(t, zw.Close())
 	return buf.Bytes()
+}
+
+func TestNew(t *testing.T) {
+	const pkgPath = "example.com/sample"
+	var instances []*Data
+	for _, name := range []string{"first", "second"} {
+		archive := newPkgDataZip(t, map[string]string{
+			pkgPath + ".pkgexport": name,
+			pkgPath + ".pkgdoc":    `{"Doc":"` + name + `"}`,
+		})
+		data, err := New(archive)
+		require.NoError(t, err)
+		clear(archive)
+		instances = append(instances, data)
+	}
+	for i, name := range []string{"first", "second"} {
+		data := instances[i]
+		doc, err := data.GetPkgDoc(pkgPath)
+		require.NoError(t, err)
+		assert.Equal(t, name, doc.Doc)
+		rc, err := data.OpenExport(pkgPath)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, rc.Close()) })
+		content, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		assert.Equal(t, name, string(content))
+	}
+	invalid, err := New([]byte("invalid"))
+	assert.ErrorIs(t, err, zip.ErrFormat)
+	assert.ErrorContains(t, err, "failed to read base package archive")
+	assert.Nil(t, invalid)
+	empty, err := New(newPkgDataZip(t, nil))
+	require.NoError(t, err)
+	packages, err := empty.ListPkgs()
+	require.NoError(t, err)
+	assert.Empty(t, packages)
+}
+
+func TestNewWithEmbedded(t *testing.T) {
+	const pkgPath = "example.com/sample"
+	archive := newPkgDataZip(t, map[string]string{pkgPath + ".pkgdoc": `{"Doc":"custom"}`})
+	data, err := NewWithEmbedded(archive)
+	require.NoError(t, err)
+	clear(archive)
+	doc, err := data.GetPkgDoc(pkgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "custom", doc.Doc)
+	embedded, err := NewWithEmbedded(nil)
+	require.NoError(t, err)
+	_, err = embedded.GetPkgDoc(pkgPath)
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	invalid, err := NewWithEmbedded([]byte("invalid"))
+	assert.ErrorIs(t, err, zip.ErrFormat)
+	assert.ErrorContains(t, err, "failed to read custom package archive")
+	assert.Nil(t, invalid)
+}
+
+func TestDataConcurrentAccess(t *testing.T) {
+	const pkgPath = "example.com/sample"
+	data, err := New(newPkgDataZip(t, map[string]string{
+		pkgPath + ".pkgexport": "export",
+		pkgPath + ".pkgdoc":    `{"Doc":"documentation"}`,
+	}))
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 20 {
+				packages, err := data.ListPkgs()
+				assert.NoError(t, err)
+				assert.Equal(t, []string{pkgPath}, packages)
+				clear(packages)
+				rc, err := data.OpenExport(pkgPath)
+				if !assert.NoError(t, err) {
+					return
+				}
+				content, err := io.ReadAll(rc)
+				assert.NoError(t, err)
+				assert.NoError(t, rc.Close())
+				assert.Equal(t, "export", string(content))
+				doc, err := data.GetPkgDoc(pkgPath)
+				if !assert.NoError(t, err) {
+					return
+				}
+				assert.Equal(t, "documentation", doc.Doc)
+			}
+		})
+	}
+	wg.Wait()
 }

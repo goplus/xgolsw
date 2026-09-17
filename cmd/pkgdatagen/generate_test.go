@@ -31,6 +31,7 @@ func TestGenerate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			const pkgPath = "example.com/fixture/v2"
 			t.Chdir(t.TempDir())
+			t.Setenv("CGO_ENABLED", "1")
 			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
 			for name, source := range map[string]string{
 				"fixture.go": "// Package " + tt.pkgName + " provides fixture values.\npackage " + tt.pkgName + `
@@ -55,6 +56,7 @@ func Add(left, right int) int { return left + right }
 `,
 				"platform_js.go":    "package " + tt.pkgName + "\n\n// WasmOnly belongs to the browser build.\nconst WasmOnly = true\n",
 				"platform_linux.go": "package " + tt.pkgName + "\n\n// NativeOnly belongs to the native build.\nconst NativeOnly = true\n",
+				"platform_cgo.go":   "//go:build cgo\n\npackage " + tt.pkgName + "\n\nconst CgoOnly = true\n",
 				"fixture_test.go":   "package " + tt.pkgName + "\n\n// TestOnly belongs to the tests.\nconst TestOnly = true\n",
 			} {
 				require.NoError(t, os.WriteFile(name, []byte(source), 0o644))
@@ -230,6 +232,30 @@ func Add(left, right int) int { return left + right }
 		outputFile := filepath.Join(t.TempDir(), "missing", "pkgdata.zip")
 		assert.ErrorIs(t, generate(nil, outputFile), fs.ErrNotExist)
 	})
+
+	for _, tt := range []struct {
+		name     string
+		filename string
+	}{
+		{name: "MissingPackage"},
+		{name: "UnsupportedPlatform", filename: "fixture_linux.go"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const pkgPath = "example.com/fixture"
+			t.Chdir(t.TempDir())
+			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
+			if tt.filename != "" {
+				require.NoError(t, os.WriteFile(tt.filename, []byte("package fixture\nconst Value = 1\n"), 0o644))
+			}
+			const original = "previous package data"
+			require.NoError(t, os.WriteFile("pkgdata.zip", []byte(original), 0o644))
+			err := generate([]string{"builtin", pkgPath}, "pkgdata.zip")
+			assert.ErrorContains(t, err, "failed to load package \""+pkgPath+"\"")
+			data, err := os.ReadFile("pkgdata.zip")
+			require.NoError(t, err)
+			assert.Equal(t, original, string(data))
+		})
+	}
 
 	t.Run("InvalidPackage", func(t *testing.T) {
 		const pkgPath = "example.com/invalid"

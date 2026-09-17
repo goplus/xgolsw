@@ -133,7 +133,7 @@ func TestImporterImport(t *testing.T) {
 			assert.Contains(t, recorder.messages[0], "unexpected spx import: "+tt.path)
 		})
 	}
-	t.Run("SimilarPackagePath", func(t *testing.T) {
+	t.Run("SimilarPkgPath", func(t *testing.T) {
 		const pkgPath = "github.com/goplus/spxutils"
 		want := gotypes.NewPackage(pkgPath, "spxutils")
 		i := &importer{t: t, fallback: importerFunc(func(path string) (*gotypes.Package, error) {

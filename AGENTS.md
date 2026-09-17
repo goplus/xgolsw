@@ -65,10 +65,11 @@ LSP character counts. Use the existing UTF-16 conversion helpers in `internal/se
 
 # Generated data
 
-After changing dependencies in `go.mod`, regenerate `internal/pkgdata/pkgdata.zip` by running:
+After changing dependencies in `go.mod`, regenerate `internal/pkgdata/pkgdata.zip` and
+`internal/server/testdata/spx-pkgdata.zip` by running:
 
 ```sh
-go generate ./internal/pkgdata
+go generate ./internal/pkgdata ./internal/server
 ```
 
 # Testing conventions
