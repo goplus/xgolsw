@@ -7,9 +7,9 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// inferSpxInputTypeFromTypeInProject attempts to infer the input type from typ
+// inferInputType attempts to infer the input type from typ
 // using project sprite type metadata.
-func inferSpxInputTypeFromTypeInProject(result *compileResult, typ gotypes.Type) SpxInputType {
+func (result *spxAnalysis) inferInputType(typ gotypes.Type) SpxInputType {
 	if isSpxSpriteInstanceType(result, typ) {
 		return SpxInputTypeSpriteInstance
 	}
@@ -18,14 +18,14 @@ func inferSpxInputTypeFromTypeInProject(result *compileResult, typ gotypes.Type)
 
 // isSpxSpriteInstanceType reports whether the given type represents an spx
 // sprite instance.
-func isSpxSpriteInstanceType(result *compileResult, typ gotypes.Type) bool {
+func isSpxSpriteInstanceType(result *spxAnalysis, typ gotypes.Type) bool {
 	if typ == nil {
 		return false
 	}
 	if result.hasSpxSpriteType(gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))) {
 		return true
 	}
-	sdk := result.spxSymbols()
+	sdk := result.spxSymbols
 	if sdk.pkg == nil {
 		return false
 	}
@@ -35,13 +35,13 @@ func isSpxSpriteInstanceType(result *compileResult, typ gotypes.Type) bool {
 
 // createValueInputSlotFromColorFuncCall creates a value input slot from an spx
 // color function call.
-func createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.CallExpr, declaredType gotypes.Type) *XGoInputSlot {
-	if ctx.spxResult == nil || ctx.typeInfo == nil {
+func (r *spxAnalysis) createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.CallExpr, declaredType gotypes.Type) *XGoInputSlot {
+	if ctx.typeInfo == nil {
 		return nil
 	}
 
 	fun := xgoutil.FuncFromCallExpr(ctx.typeInfo, callExpr)
-	if fun == nil || !ctx.spxResult.isSpxSymbol(fun) || fun.Signature().Recv() != nil {
+	if fun == nil || !r.isSpxSymbol(fun) || fun.Signature().Recv() != nil {
 		return nil
 	}
 	switch fun.Name() {
@@ -54,7 +54,7 @@ func createValueInputSlotFromColorFuncCall(ctx *inputSlotContext, callExpr *ast.
 }
 
 // inferSpxInputTypeFromType attempts to infer the input type from the given type.
-func (r *definitionContext) inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
+func (r *spxSymbols) inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
 	if _, ok := typ.(*gotypes.Basic); ok {
 		return inferBasicInputType(typ)
 	}

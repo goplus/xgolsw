@@ -152,10 +152,10 @@ func XGot_Game_XGox_GetWidget[T any](game any, name WidgetName) *T { return nil 
 `
 
 // compileSpxTestFile preserves partial ASTs for editor tests with syntax errors.
-func compileSpxTestFile(t testing.TB, s *Server, filename string) (*compileResult, *ast.File) {
+func compileSpxTestFile(t testing.TB, s *Server, filename string) (*spxAnalysis, *ast.File) {
 	t.Helper()
 
-	result, err := s.compileAt(s.getProj())
+	result, err := s.analyzeSpx(s.getProj())
 	require.NoError(t, err)
 	file, _ := result.proj.ASTFile(filename)
 	require.NotNil(t, file)

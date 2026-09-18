@@ -57,29 +57,6 @@ func createSpxColorInputSlot(ctx *inputSlotContext, call *ast.CallExpr, declared
 	}
 }
 
-// createSpxResourceInputSlot constructs a slot from a resolved literal reference.
-// References match AST node identity so equal strings elsewhere in the source
-// cannot supply the resource or its context.
-func createSpxResourceInputSlot(ctx *inputSlotContext, lit *ast.BasicLit, declaredType gotypes.Type) *XGoInputSlot {
-	for _, ref := range ctx.spxResult.spxResourceRefs {
-		if ref.Node != lit {
-			continue
-		}
-		return &XGoInputSlot{
-			Kind:   XGoInputSlotKindValue,
-			Accept: XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(ref.ID.ContextURI())},
-			Input: XGoInput{
-				Kind:  XGoInputKindInPlace,
-				Type:  XGoInputTypeSpxResourceName,
-				Value: ref.ID.URI(),
-			},
-			PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
-			Range:           ctx.rangeForPosEnd(lit.Pos(), basicLitEnd(ctx.proj.Fset, ctx.astFile, lit)),
-		}
-	}
-	return nil
-}
-
 // spxEnumInput constructs an in-place input for a recognized spx enum constant.
 // Direction values are numbers. Other enum values retain the constant's name.
 func spxEnumInput(cnst *gotypes.Const, inputType XGoInputType) XGoInput {
@@ -88,4 +65,49 @@ func spxEnumInput(cnst *gotypes.Const, inputType XGoInputType) XGoInput {
 		input.Value, _ = constant.Float64Val(cnst.Val())
 	}
 	return input
+}
+
+// adaptInputSlot specializes inputs recognized by the registered SDK.
+func (r *spxAnalysis) adaptInputSlot(ctx *inputSlotContext, expr ast.Expr, declaredType gotypes.Type, slot *XGoInputSlot) *XGoInputSlot {
+	switch expr := expr.(type) {
+	case *ast.CallExpr:
+		return r.createValueInputSlotFromColorFuncCall(ctx, expr, declaredType)
+	case *ast.BasicLit:
+		if _, resource := r.resourceLiterals[expr]; resource || slot.Accept.Type == SpxInputTypeResourceName {
+			return r.createResourceInputSlot(ctx, expr, declaredType, XGoInputTypeSpxResourceName)
+		}
+	case *ast.Ident:
+		input, accept := slot.Input, slot.Accept
+		switch input.Type {
+		case SpxInputTypeDirection,
+			SpxInputTypeEffectKind,
+			SpxInputTypeLayerAction,
+			SpxInputTypeDirAction,
+			SpxInputTypeKey,
+			SpxInputTypeSpecialObj,
+			SpxInputTypeRotationStyle:
+			if cnst, ok := ctx.typeInfo.ObjectOf(expr).(*gotypes.Const); ok && r.isSpxSymbol(cnst) {
+				input = spxEnumInput(cnst, input.Type)
+			}
+		}
+		switch accept.Type {
+		case SpxInputTypeResourceName:
+			id, _ := r.resolveResourceID(declaredType, "", func() *SpxSpriteResource {
+				return inferSpxSpriteResourceEnclosingNode(r, expr)
+			})
+			if id == nil {
+				return nil
+			}
+			accept.ResourceContext = ToPtr(id.ContextURI())
+		case SpxInputTypeSpriteInstance:
+			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
+			if spxSpriteResource := spxSpriteResourceForObject(r, ctx.typeInfo.ObjectOf(expr)); spxSpriteResource != nil {
+				input.Kind = XGoInputKindInPlace
+				input.Value = spxSpriteResource.ID.URI()
+				input.Name = ""
+			}
+		}
+		slot.Input, slot.Accept = input, accept
+	}
+	return slot
 }

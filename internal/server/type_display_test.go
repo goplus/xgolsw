@@ -185,6 +185,39 @@ func typeDisplayTestSource(t *testing.T, source string) (string, Position) {
 	}
 }
 
+func TestTypeDisplaySourceTypeString(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		filename string
+		source   string
+		want     string
+	}{
+		{"LocalAlias", "main.xgo", "type Name string\ntype Asset = Name\nvar value Asset\necho |value\n", "Asset"},
+		{"ShadowedLocalType", "main.xgo", "type Name string\nvar value Name\nfunc run() {\ntype Name int\necho |value\n}\nrun()\n", ""},
+		{"ImportAlias", "main.xgo", "import f \"example.com/framework\"\nvar value f.Item\necho |value\n", "f.Item"},
+		{"DotImport", "main.xgo", "import . \"example.com/framework\"\nvar value Item\necho |value\n", "Item"},
+		{"Classfile", "main_fixture.gox", "var value Item\necho |value\n", "Item"},
+		{"Generic", "main.xgo", "import f \"example.com/framework\"\nvar value f.Box[int]\necho |value\n", "f.Box[int]"},
+		{"ShadowedTypeArgument", "main.xgo", "import f \"example.com/framework\"\nvar value f.Box[int]\nfunc run() {\ntype int string\necho |value\n}\nrun()\n", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newFrameworkTestServer(t, map[string][]byte{tt.filename: []byte(source)})
+			proj := s.getProj()
+			info, err := proj.TypeInfo()
+			require.NoError(t, err)
+			file, err := proj.ASTFile(tt.filename)
+			require.NoError(t, err)
+			_, obj, _ := objectAtPosition(proj, info, file, ToPosition(proj, file, position))
+			require.NotNil(t, obj)
+			display := newTypeDisplay(proj, file, PosAt(proj, file, position))
+			name, ok := display.sourceTypeString(obj.Type())
+			assert.Equal(t, tt.want != "", ok)
+			assert.Equal(t, tt.want, name)
+		})
+	}
+}
+
 func TestTypeDisplaySourceContexts(t *testing.T) {
 	s := newFrameworkTestServer(t, map[string][]byte{
 		"first.xgo":        []byte("import f \"example.com/framework\"\nfunc first() {\n f.use(nil)\n}\n"),
@@ -373,12 +406,13 @@ func TestDisplayedTypeNames(t *testing.T) {
 	})}).Complete()
 	param := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), constraint)
 	sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{param}, gotypes.NewTuple(gotypes.NewVar(token.NoPos, pkg, "value", param)), nil, false)
-	assert.Equal(t, []*gotypes.TypeName{obj}, slices.Collect(displayedTypeNames(sig)))
+	stringObj := requireValueAs[*gotypes.TypeName](t, gotypes.Universe.Lookup("string"))
+	assert.Equal(t, []*gotypes.TypeName{param.Obj(), stringObj, obj}, slices.Collect(displayedTypeNames(sig)))
 
 	genericObj := gotypes.NewTypeName(token.NoPos, pkg, "Box", nil)
 	generic := gotypes.NewNamed(genericObj, gotypes.NewStruct(nil, nil), nil)
 	generic.SetTypeParams([]*gotypes.TypeParam{gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), constraint)})
-	assert.Equal(t, []*gotypes.TypeName{genericObj, obj}, slices.Collect(displayedTypeNames(generic)))
+	assert.Equal(t, []*gotypes.TypeName{genericObj, stringObj, obj}, slices.Collect(displayedTypeNames(generic)))
 
 	// Names behind recursive type declarations are not printed or expanded.
 	recursive := gotypes.NewTypeName(token.NoPos, pkg, "Node", nil)
@@ -394,6 +428,18 @@ func TestDisplayedTypeNames(t *testing.T) {
 }
 
 func TestTypeDisplayTypeString(t *testing.T) {
+	t.Run("TypeParametersDoNotQualifyPackageTypes", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/framework", "framework")
+		item := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Item", nil), gotypes.NewStruct(nil, nil), nil)
+		param := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), gotypes.Universe.Lookup("any").Type())
+		sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{param}, gotypes.NewTuple(
+			gotypes.NewVar(token.NoPos, pkg, "value", param),
+			gotypes.NewVar(token.NoPos, pkg, "item", item),
+		), nil, false)
+		display := typeDisplay{unqualified: func(obj *gotypes.TypeName) bool { return obj == item.Obj() }}
+		assert.Equal(t, "func[T any](value T, item Item)", display.typeString(sig))
+	})
+
 	for _, tt := range []struct {
 		name string
 		pkg  *gotypes.Package

@@ -16,6 +16,73 @@ import (
 )
 
 func TestServerXGoGetInputSlots(t *testing.T) {
+	t.Run("StringConversions", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			expr string
+		}{
+			{"Builtin", `string("value")`},
+			{"Defined", `Text("value")`},
+			{"Nested", `Text(string(("value")))`},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "echo " + tt.expr + "\n"
+				s := newTestServer(t, map[string][]byte{
+					"types.xgo": []byte("type Text string\n"),
+					"main.xgo":  []byte(source),
+				})
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
+				require.NoError(t, err)
+				require.Len(t, slots, 1)
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: "value"}, slots[0].Input)
+				start, end := PositionOffset([]byte(source), slots[0].Range.Start), PositionOffset([]byte(source), slots[0].Range.End)
+				assert.Equal(t, `"value"`, source[start:end])
+				assert.Equal(t, strings.ReplaceAll(source, "value", "other"), source[:start]+`"other"`+source[end:])
+			})
+		}
+	})
+
+	t.Run("ParenthesizedValues", func(t *testing.T) {
+		for _, tt := range []struct {
+			name  string
+			expr  string
+			input XGoInput
+		}{
+			{"String", `"value"`, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: "value"}},
+			{"DollarEscape", `"$$"`, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: "$"}},
+			{"RawDollarEscape", "`$$`", XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: "$"}},
+			{"Constant", "choice", XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeString, Name: "choice"}},
+			{"Integer", "42", XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeInteger, Value: int64(42)}},
+			{"Negative", "-42", XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeInteger, Value: int64(-42)}},
+			{"Boolean", "true", XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeBoolean, Value: true}},
+			{"Interpolation", `"${dynamic}"`, XGoInput{}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "echo(((" + tt.expr + ")))\n"
+				s := newTestServer(t, map[string][]byte{
+					"values.xgo": []byte("const choice = \"value\"\nvar dynamic = \"value\"\n"),
+					"main.xgo":   []byte(source),
+				})
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
+				require.NoError(t, err)
+				if tt.input.Kind == "" {
+					assert.Empty(t, slots)
+					return
+				}
+				require.Len(t, slots, 1)
+				assert.Equal(t, tt.input, slots[0].Input)
+				start := PositionOffset([]byte(source), slots[0].Range.Start)
+				end := PositionOffset([]byte(source), slots[0].Range.End)
+				assert.Equal(t, tt.expr, source[start:end])
+				assert.Equal(t, "echo(((replacement)))\n", source[:start]+"replacement"+source[end:])
+			})
+		}
+	})
+
 	t.Run("FunctionOverloadKwargs", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
@@ -1208,6 +1275,36 @@ func main() {
 }
 
 func TestCreateValueInputSlotFromBasicLit(t *testing.T) {
+	t.Run("XGoStrings", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			literal string
+			want    string
+			static  bool
+		}{
+			{"Dollar", `"$$"`, "$", true},
+			{"DollarInText", `"A$$B"`, "A$B", true},
+			{"EscapedInterpolation", `"$${name}"`, "${name}", true},
+			{"RawDollar", "`$$`", "$", true},
+			{"Interpolation", `"${name}"`, "", false},
+			{"RawInterpolation", "`${name}`", "", false},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var name = \"dynamic\"\necho " + tt.literal + "\n")})
+				ctx := inputSlotTestContext(t, s, "main.xgo")
+				call := resourceTestCall(t, ctx.proj, "main.xgo")
+				lit := requireValueAs[*ast.BasicLit](t, call.Args[0])
+				slot := createValueInputSlotFromBasicLit(ctx, lit, nil)
+				if !tt.static {
+					assert.Nil(t, slot)
+					return
+				}
+				require.NotNil(t, slot)
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeString, Value: tt.want}, slot.Input)
+			})
+		}
+	})
+
 	m := map[string][]byte{
 		"main.xgo": []byte(`
 func main() {

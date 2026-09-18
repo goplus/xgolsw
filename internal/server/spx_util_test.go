@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDefinitionContextIsSpxSymbolWithoutSDK(t *testing.T) {
+func TestSpxSymbolsIsSpxSymbolWithoutSDK(t *testing.T) {
 	t.Run("NilObject", func(t *testing.T) {
-		assert.False(t, (&definitionContext{proj: newTestServer(t, nil).getProj()}).isSpxSymbol(nil))
+		assert.False(t, newSpxSymbols(newTestServer(t, nil).getProj()).isSpxSymbol(nil))
 	})
 
 	for _, tt := range []struct {
@@ -23,7 +23,7 @@ func TestDefinitionContextIsSpxSymbolWithoutSDK(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := gotypes.NewTypeName(token.NoPos, tt.pkg, "Value", gotypes.Typ[gotypes.Int])
-			assert.False(t, (&definitionContext{proj: newTestServer(t, nil).getProj()}).isSpxSymbol(obj))
+			assert.False(t, newSpxSymbols(newTestServer(t, nil).getProj()).isSpxSymbol(obj))
 		})
 	}
 }

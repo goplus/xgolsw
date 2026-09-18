@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"go/constant"
 	gotypes "go/types"
 	"maps"
@@ -12,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompletionContextCollectSpxResourceNames(t *testing.T) {
+func TestSpxAnalysisCollectSpxResourceNames(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		kind   spxResourceCompletionKind
@@ -45,14 +44,14 @@ func TestCompletionContextCollectSpxResourceNames(t *testing.T) {
 					})
 					set, err := NewSpxResourceSet(s.getProj())
 					require.NoError(t, err)
-					result := newCompileResult(s.getProj(), s.lookupPkgDoc)
+					result := newSpxAnalysis(s.getProj())
 					result.spxResourceSet = *set
-					ctx := &completionContext{spxResult: result, itemSet: newCompletionItemSet(kind)}
+					ctx := &completionContext{itemSet: newCompletionItemSet(kind)}
 					sprite := set.Sprite(tt.sprite)
 					if tt.sprite != "" {
 						require.NotNil(t, sprite)
 					}
-					ctx.collectSpxResourceNames(tt.kind, sprite)
+					result.collectSpxResourceNames(ctx, tt.kind, sprite)
 					require.Len(t, ctx.itemSet.items, len(tt.want))
 					for name, path := range tt.want {
 						label := `"` + name + `"`
@@ -79,101 +78,56 @@ func TestCompletionContextCollectSpxResourceNames(t *testing.T) {
 			spxResourceCompletionBackdrop, spxResourceCompletionSound, spxResourceCompletionSprite,
 			spxResourceCompletionCostume, spxResourceCompletionAnimation, spxResourceCompletionWidget,
 		} {
-			ctx := &completionContext{spxResult: newCompileResult(s.getProj(), s.lookupPkgDoc), itemSet: newCompletionItemSet(Markdown)}
-			ctx.collectSpxResourceNames(kind, nil)
+			result := newSpxAnalysis(s.getProj())
+			ctx := &completionContext{itemSet: newCompletionItemSet(Markdown)}
+			result.collectSpxResourceNames(ctx, kind, nil)
 			assert.Empty(t, ctx.itemSet.items)
 		}
 	})
 
-	t.Run("StringEdits", func(t *testing.T) {
-		for _, tt := range []struct {
-			name     string
-			source   string
-			resource string
-		}{
-			{"OutsideLiteral", "echo re|\n", "${name}"},
-			{"Quoted", "echo \"re|source\"\n", "A\"B\\C$${name}"},
-			{"EscapedPrefix", "echo \"re\\x73|ource\"\n", "resource"},
-			{"Unterminated", "echo \"re|", "Studio"},
-			{"Raw", "echo `re|source`\n", "A\"B\\C"},
-			{"RawWithBacktick", "echo `re|source`\n", "A`B"},
-			{"RawWithDollar", "echo `re|source`\n", "$name"},
-			{"UTF16", "echo \"\U0001f600\", \"re|source\"\r\n", "\U0001f600"},
-			{"LineDirective", "//line virtual.xgo:100:20\necho \"re|source\"\n", "Studio"},
-			{"RawCarriageReturn", "echo `re\rs|ource`\n", "Studio"},
-			{"RawUnterminated", "echo `re|", "Studio"},
-			{"RawUnterminatedCR", "echo `re\r\rsource|", "Studio"},
-			{"RawEndWithCR", "echo `re\r\rsource|`\n", "Studio"},
-			{"MultilineStart", "echo `re|\r\nsource`\n", "Studio"},
-			{"MultilineMiddle", "echo `before\r\nre|source\r\nafter`\n", "A`B"},
-			{"MultilineEnd", "echo `before\r\nresource|`\n", "Studio"},
-			{"MultilineReplacement", "echo `before\r\nre|source\r\nafter`\n", "A\nB"},
-			{"EmptyName", "echo \"re|source\"\n", ""},
-			{"Controls", "echo \"re|source\"\n", "A\n\r\t\x00B"},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				cursor := strings.IndexByte(tt.source, '|')
-				source := strings.Replace(tt.source, "|", "", 1)
-				prefix := source[:cursor]
-				position := Position{Line: uint32(strings.Count(prefix, "\n")), Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:]))}
-				metadata, err := json.Marshal(map[string]any{"backdrops": []map[string]string{{"name": tt.resource}}})
-				require.NoError(t, err)
-				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source), "assets/index.json": metadata})
-				ctx := newCompletionTestContext(t, s, "main.xgo", position)
-				set, err := NewSpxResourceSet(s.getProj())
-				require.NoError(t, err)
-				ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
-				ctx.spxResult.spxResourceSet = *set
-				ctx.collectSpxResourceNames(spxResourceCompletionBackdrop, nil)
-				require.Len(t, ctx.itemSet.items, 1)
-				item := ctx.itemSet.items[0]
-				assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
-				if tt.name == "EscapedPrefix" {
-					assert.Equal(t, `"re\x73ource"`, item.FilterText)
-				} else if ctx.stringLit != nil {
-					delimiter := string(ctx.stringLit.Value[0])
-					wantFilter := delimiter + tt.resource + delimiter
-					if tt.name == "MultilineMiddle" || tt.name == "MultilineEnd" || tt.name == "MultilineReplacement" {
-						wantFilter = tt.resource
-					}
-					assert.Equal(t, wantFilter, item.FilterText)
-				}
-				var edit TextEdit
-				if tt.name == "OutsideLiteral" {
-					edit = TextEdit{Range: Range{Start: Position{Character: 5}, End: Position{Character: 7}}, NewText: item.InsertText}
-				} else {
-					require.NotNil(t, item.TextEdit)
-					edit = requireValueAs[TextEdit](t, item.TextEdit.Value)
-				}
-				updated := applyCompletionTestEdits(t, source, position, append([]TextEdit{edit}, item.AdditionalTextEdits...))
-				proj := newTestServer(t, map[string][]byte{"main.xgo": []byte(updated)}).getProj()
-				call := spxResourceTestCall(t, proj, "main.xgo")
-				info, err := proj.TypeInfo()
-				require.NoError(t, err, updated)
-				value := info.Types[call.Args[len(call.Args)-1]].Value
-				require.NotNil(t, value, updated)
-				assert.Equal(t, tt.resource, constant.StringVal(value))
-			})
-		}
-
-		t.Run("EmptyLineInMultilineLiteral", func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{
-				"main.xgo":          []byte("type Record struct { Score int }\necho `before\n\nafter`\n"),
-				"assets/index.json": []byte(`{"backdrops":[{"name":"Studio"}]}`),
-			})
-			ctx := newCompletionTestContext(t, s, "main.xgo", Position{Line: 2})
-			set, err := NewSpxResourceSet(s.getProj())
-			require.NoError(t, err)
-			ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
-			ctx.spxResult.spxResourceSet = *set
-			ctx.collectSpxResourceNames(spxResourceCompletionBackdrop, nil)
-			ctx.collectPropertyNames("Record")
-			assert.Empty(t, ctx.itemSet.items)
-		})
-	})
 }
 
 func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
+	t.Run("ResourceConversions", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+			want   string
+			absent string
+		}{
+			{"Intrinsic", "echo sdk.BackdropName(\"|\")\n", "Studio", "Beep"},
+			{"Nested", "echo sdk.BackdropName(string(\"|\"))\n", "Studio", "Beep"},
+			{"OuterString", "echo string(sdk.BackdropName(\"|\"))\n", "Studio", "Beep"},
+			{"Contextual", "play sdk.BackdropName(\"|\")\n", "Beep", "Studio"},
+			{"NestedContextual", "play string(sdk.BackdropName(\"|\"))\n", "Beep", "Studio"},
+			{"ReceiverContext", "Runner.setCostume sdk.SpriteCostumeName(\"|\")\n", "runner", "other"},
+			{"NestedReceiverContext", "Runner.setCostume string(sdk.SpriteCostumeName(\"|\"))\n", "runner", "other"},
+			{"PartialName", "play sdk.BackdropName(\"B|\")\n", "Beep", "Studio"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, "import sdk \"github.com/goplus/spx/v3\"\n"+tt.source)
+				s := newSpxTestServer(t, map[string][]byte{
+					"main.spx":                      []byte(source),
+					"assets/index.json":             []byte(`{"backdrops":[{"name":"Studio"}]}`),
+					"assets/sounds/Beep/index.json": []byte(`{}`),
+					"Runner.spx":                    nil, "Other.spx": nil,
+					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"runner"}]}`),
+					"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"other"}]}`),
+				})
+				items := completionItemsAt(t, s, "main.spx", position)
+				item := completionItemByLabel(items, tt.want)
+				require.NotNil(t, item)
+				require.NotNil(t, item.TextEdit)
+				edit := requireValueAs[TextEdit](t, item.TextEdit.Value)
+				updated := applyResourceRenameTestEdits(t, source, []TextEdit{edit})
+				assert.Contains(t, updated, `"`+tt.want+`"`)
+				_, err := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(updated), "Runner.spx": nil}).getProj().TypeInfo()
+				require.NoError(t, err)
+				assert.NotContains(t, completionItemLabels(items), tt.absent)
+			})
+		}
+	})
+
 	t.Run("ResourceNames", func(t *testing.T) {
 		for _, tt := range []struct {
 			name     string
@@ -288,7 +242,7 @@ func test() {
 				assert.Equal(t, "Runner", item.InsertText)
 				data := requireValueAs[*CompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:main?Game.Runner", data.Definition.String())
-				result, err := s.compileAt(s.getProj())
+				result, err := s.analyzeSpx(s.getProj())
 				require.NoError(t, err)
 				info, _ := s.getProj().TypeInfo()
 				require.NotNil(t, info)
@@ -392,6 +346,7 @@ play "r"
 		}{
 			{"Implicit", "Runner.spx", "onClick => {\n\tsetCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
 			{"Explicit", "main.spx", "Runner.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
+			{"ExplicitThis", "Runner.spx", "this.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
 			{"CrossSprite", "Other.spx", "onClick => {\n\tRunner.setCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
 			{"ExplicitLineDirective", "main.spx", "//line virtual.spx:100:20\r\nRunner.setCostume \"\U0001f600r|suffix\"\r\n", []string{"runner"}, []string{"other"}},
 			{"ImplicitLineDirective", "Runner.spx", "//line virtual.spx:100:20\nsetCostume \"r|\"\n", []string{"runner"}, []string{"other"}},

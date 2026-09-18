@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/passes/internal/analysisutil"
@@ -46,6 +47,7 @@ func run(pass *protocol.Pass) (any, error) {
 		}
 
 		isStringValue := func(expr ast.Expr) bool {
+			expr = astutil.Unparen(expr)
 			_, ok := xgoutil.StringLitOrConstValue(expr, pass.TypesInfo.Types[expr])
 			return ok
 		}
@@ -72,12 +74,13 @@ func run(pass *protocol.Pass) (any, error) {
 			}
 
 			// Only validate string literal / constant arguments.
-			propName, ok := xgoutil.StringLitOrConstValue(resolvedArg.Arg, pass.TypesInfo.Types[resolvedArg.Arg])
+			expr := astutil.Unparen(resolvedArg.Arg)
+			propName, ok := xgoutil.StringLitOrConstValue(expr, pass.TypesInfo.Types[expr])
 			if !ok {
 				continue
 			}
 			propertyArgs = append(propertyArgs, propertyArg{
-				expr: resolvedArg.Arg,
+				expr: expr,
 				name: propName,
 			})
 		}

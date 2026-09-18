@@ -8,18 +8,30 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// collectSpxTypeSpecific collects spx resource and property name completions.
-func (ctx *completionContext) collectSpxTypeSpecific(typ gotypes.Type) {
-	if ctx.spxResult == nil || !xgoutil.IsValidType(typ) {
+// collectCompletions uses resolved literal contexts before inferred call types.
+// This keeps nested conversions in the same resource namespace as references.
+func (r *spxAnalysis) collectCompletions(ctx *completionContext) {
+	if value, ok := r.resourceLiterals[ctx.stringLit]; ok {
+		r.collectTypeCompletions(ctx, value.Type)
+		return
+	}
+	for _, typ := range ctx.expectedTypes {
+		r.collectTypeCompletions(ctx, typ)
+	}
+}
+
+// collectTypeCompletions collects spx resource and property name completions.
+func (r *spxAnalysis) collectTypeCompletions(ctx *completionContext, typ gotypes.Type) {
+	if !xgoutil.IsValidType(typ) {
 		return
 	}
 
 	if named := resolvedNamedType(typ); named != nil {
-		switch ctx.spxTypeName(named) {
+		switch r.spxTypeName(named) {
 		case "Sprite", "SpriteImpl":
-			file, _ := ctx.proj.ASTFile(ctx.spxResult.mainSpxFile)
+			file, _ := ctx.proj.ASTFile(r.mainSpxFile)
 			projectType := classTypeForFile(ctx.proj, file)
-			for spxSprite := range ctx.spxResult.spxSpriteResourceAutoBindings {
+			for spxSprite := range r.spxSpriteResourceAutoBindings {
 				if resolvedNamedType(spxSprite.Type()) == named {
 					ctx.itemSet.addDefinitions(ctx.definitionsForSelection(spxSprite, projectType)...)
 				}
@@ -28,26 +40,26 @@ func (ctx *completionContext) collectSpxTypeSpecific(typ gotypes.Type) {
 	}
 
 	// Handle spx.PropertyName type - provide property name completions.
-	if ctx.inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
+	if r.inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
 		if target := ctx.getPropertyTarget(); target != "" {
 			ctx.collectPropertyNames(target)
 		}
 		return
 	}
 
-	switch ctx.spxResourceNameType(typ) {
+	switch r.spxResourceNameType(typ) {
 	case "BackdropName":
-		ctx.collectSpxResourceNames(spxResourceCompletionBackdrop, nil)
+		r.collectSpxResourceNames(ctx, spxResourceCompletionBackdrop, nil)
 	case "SpriteName":
-		ctx.collectSpxResourceNames(spxResourceCompletionSprite, nil)
+		r.collectSpxResourceNames(ctx, spxResourceCompletionSprite, nil)
 	case "SpriteCostumeName":
-		ctx.collectSpxResourceNames(spxResourceCompletionCostume, ctx.getSpxSpriteResource())
+		r.collectSpxResourceNames(ctx, spxResourceCompletionCostume, r.getSpxSpriteResource(ctx))
 	case "SpriteAnimationName":
-		ctx.collectSpxResourceNames(spxResourceCompletionAnimation, ctx.getSpxSpriteResource())
+		r.collectSpxResourceNames(ctx, spxResourceCompletionAnimation, r.getSpxSpriteResource(ctx))
 	case "SoundName":
-		ctx.collectSpxResourceNames(spxResourceCompletionSound, nil)
+		r.collectSpxResourceNames(ctx, spxResourceCompletionSound, nil)
 	case "WidgetName":
-		ctx.collectSpxResourceNames(spxResourceCompletionWidget, nil)
+		r.collectSpxResourceNames(ctx, spxResourceCompletionWidget, nil)
 	}
 }
 
@@ -66,25 +78,25 @@ const (
 // collectSpxResourceNames collects names from project resource data. A nil sprite
 // includes costumes and animations from all sprites. Sprites are visited by name
 // so overlapping resource names have stable previews.
-func (ctx *completionContext) collectSpxResourceNames(kind spxResourceCompletionKind, sprite *SpxSpriteResource) {
-	var spxResourceIDs []SpxResourceID
+func (r *spxAnalysis) collectSpxResourceNames(ctx *completionContext, kind spxResourceCompletionKind, sprite *SpxSpriteResource) {
+	var spxResourceIDs []resourceID
 	switch kind {
 	case spxResourceCompletionBackdrop:
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.spxResult.spxResourceSet.backdrops))
-		for spxBackdropName := range ctx.spxResult.spxResourceSet.backdrops {
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(r.spxResourceSet.backdrops))
+		for spxBackdropName := range r.spxResourceSet.backdrops {
 			spxResourceIDs = append(spxResourceIDs, SpxBackdropResourceID{spxBackdropName})
 		}
 	case spxResourceCompletionSprite:
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.spxResult.spxResourceSet.sprites))
-		for spxSpriteName := range ctx.spxResult.spxResourceSet.sprites {
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(r.spxResourceSet.sprites))
+		for spxSpriteName := range r.spxResourceSet.sprites {
 			spxResourceIDs = append(spxResourceIDs, SpxSpriteResourceID{spxSpriteName})
 		}
 	case spxResourceCompletionCostume, spxResourceCompletionAnimation:
 		sprites := []*SpxSpriteResource{sprite}
 		if sprite == nil {
 			sprites = nil
-			for _, name := range slices.Sorted(maps.Keys(ctx.spxResult.spxResourceSet.sprites)) {
-				sprites = append(sprites, ctx.spxResult.spxResourceSet.sprites[name])
+			for _, name := range slices.Sorted(maps.Keys(r.spxResourceSet.sprites)) {
+				sprites = append(sprites, r.spxResourceSet.sprites[name])
 			}
 		}
 		for _, sprite := range sprites {
@@ -101,39 +113,28 @@ func (ctx *completionContext) collectSpxResourceNames(kind spxResourceCompletion
 			}
 		}
 	case spxResourceCompletionSound:
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.spxResult.spxResourceSet.sounds))
-		for spxSoundName := range ctx.spxResult.spxResourceSet.sounds {
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(r.spxResourceSet.sounds))
+		for spxSoundName := range r.spxResourceSet.sounds {
 			spxResourceIDs = append(spxResourceIDs, SpxSoundResourceID{spxSoundName})
 		}
 	case spxResourceCompletionWidget:
-		spxResourceIDs = slices.Grow(spxResourceIDs, len(ctx.spxResult.spxResourceSet.widgets))
-		for spxWidgetName := range ctx.spxResult.spxResourceSet.widgets {
+		spxResourceIDs = slices.Grow(spxResourceIDs, len(r.spxResourceSet.widgets))
+		for spxWidgetName := range r.spxResourceSet.widgets {
 			spxResourceIDs = append(spxResourceIDs, SpxWidgetResourceID{spxWidgetName})
 		}
 	}
-	seenResourceNames := make(map[string]struct{}, len(spxResourceIDs))
-	for _, spxResourceID := range spxResourceIDs {
-		name := spxResourceID.Name()
-		if _, ok := seenResourceNames[name]; ok {
-			continue
-		}
-		seenResourceNames[name] = struct{}{}
-		item := CompletionItem{
-			Kind:          TextCompletion,
-			Documentation: completionDocumentation(resourceMarkupContent(spxResourceID.URI(), ctx.itemSet.documentationKind)),
-		}
-		if ctx.setCompletionStringValue(&item, name) {
-			ctx.itemSet.add(item)
-		}
-	}
+	ctx.collectResourceNames(spxResourceIDs)
 }
 
 // getSpxSpriteResource returns a [SpxSpriteResource] for the current context.
 // It returns nil if no [SpxSpriteResource] can be inferred.
-func (ctx *completionContext) getSpxSpriteResource() *SpxSpriteResource {
+func (r *spxAnalysis) getSpxSpriteResource(ctx *completionContext) *SpxSpriteResource {
 	callExpr := ctx.getEnclosingCallExpr()
-	if callExpr != nil {
-		return inferSpxSpriteResourceEnclosingNode(ctx.spxResult, callExpr)
+	if value, ok := r.resourceLiterals[ctx.stringLit]; ok {
+		callExpr = value.Call
 	}
-	return spxSpriteResourceForFile(ctx.spxResult, ctx.filename)
+	if callExpr != nil {
+		return inferSpxSpriteResourceEnclosingNode(r, callExpr)
+	}
+	return spxSpriteResourceForFile(r, ctx.filename)
 }

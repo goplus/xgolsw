@@ -10,81 +10,32 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// SpxResourceID is the ID of an spx resource.
-type SpxResourceID interface {
-	Name() string
-	URI() SpxResourceURI
-	ContextURI() SpxResourceContextURI
-}
-
-// SpxResourceRef is a reference to an spx resource.
-type SpxResourceRef struct {
-	ID   SpxResourceID
-	Kind SpxResourceRefKind
-	Node ast.Node
-}
-
-// SpxResourceRefKind is the kind of an spx resource reference.
-type SpxResourceRefKind string
-
-const (
-	SpxResourceRefKindStringLiteral        SpxResourceRefKind = "stringLiteral"
-	SpxResourceRefKindAutoBindingReference SpxResourceRefKind = "autoBindingReference"
-	SpxResourceRefKindConstantReference    SpxResourceRefKind = "constantReference"
-)
-
-// resourceNodeEnd returns the source end of a resource reference or constant
-// initializer, including carriage returns omitted from raw literals.
-func resourceNodeEnd(fset *token.FileSet, astFile *ast.File, node ast.Node) token.Pos {
-	for {
-		switch n := node.(type) {
-		case *ast.BinaryExpr:
-			node = n.Y
-		case *ast.BasicLit:
-			return basicLitEnd(fset, astFile, n)
-		default:
-			return node.End()
-		}
-	}
-}
-
-// resourceRange returns the physical UTF-16 range of a resource reference or
-// initializer in astFile, ignoring line directives.
-func resourceRange(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
-	file := proj.Fset.File(node.Pos())
-	return Range{
-		Start: FromPosition(proj, astFile, file.PositionFor(node.Pos(), false)),
-		End:   FromPosition(proj, astFile, file.PositionFor(resourceNodeEnd(proj.Fset, astFile, node), false)),
-	}
-}
-
 // ParseSpxResourceURI parses an spx resource URI and returns the corresponding
 // spx resource ID.
-func ParseSpxResourceURI(uri SpxResourceURI) (SpxResourceID, error) {
+func ParseSpxResourceURI(uri SpxResourceURI) (resourceID, error) {
 	u, err := url.Parse(string(uri))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse spx resource URI: %w", err)
 	}
-	pathParts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	escapedPath := u.EscapedPath()
+	pathParts := strings.Split(strings.TrimPrefix(escapedPath, "/"), "/")
 	pathPartCount := len(pathParts)
-	if u.Scheme != "spx" || u.Host != "resources" || path.Clean(u.Path) != u.Path || pathPartCount < 2 {
+	if u.Scheme != "spx" || u.Host != "resources" || (pathPartCount != 2 && pathPartCount != 4) {
 		return nil, fmt.Errorf("invalid spx resource URI: %s", uri)
 	}
-	switch pathParts[0] {
-	case "backdrops":
-		return SpxBackdropResourceID{BackdropName: pathParts[1]}, nil
-	case "sounds":
-		return SpxSoundResourceID{SoundName: pathParts[1]}, nil
-	case "sprites":
-		if pathPartCount == 2 {
-			return SpxSpriteResourceID{SpriteName: pathParts[1]}, nil
+	// Preserve literal dots and escaped slashes within resource names.
+	// url.Parse has already validated the path's percent escapes.
+	for i, part := range pathParts {
+		if part == "" {
+			return nil, fmt.Errorf("invalid spx resource URI: %s", uri)
 		}
-		if pathPartCount > 3 {
+		pathParts[i], _ = url.PathUnescape(part)
+	}
+	if pathPartCount == 4 {
+		if pathParts[0] == "sprites" {
 			switch pathParts[2] {
 			case "costumes":
 				return SpxSpriteCostumeResourceID{SpriteName: pathParts[1], CostumeName: pathParts[3]}, nil
@@ -92,6 +43,15 @@ func ParseSpxResourceURI(uri SpxResourceURI) (SpxResourceID, error) {
 				return SpxSpriteAnimationResourceID{SpriteName: pathParts[1], AnimationName: pathParts[3]}, nil
 			}
 		}
+		return nil, fmt.Errorf("unsupported or malformed spx resource type in URI: %s", uri)
+	}
+	switch pathParts[0] {
+	case "backdrops":
+		return SpxBackdropResourceID{BackdropName: pathParts[1]}, nil
+	case "sounds":
+		return SpxSoundResourceID{SoundName: pathParts[1]}, nil
+	case "sprites":
+		return SpxSpriteResourceID{SpriteName: pathParts[1]}, nil
 	case "widgets":
 		return SpxWidgetResourceID{WidgetName: pathParts[1]}, nil
 	}
@@ -251,7 +211,7 @@ func (set *SpxResourceSet) Widget(name string) *SpxWidgetResource {
 }
 
 // Contains reports whether the given resource ID exists in the set.
-func (set *SpxResourceSet) Contains(id SpxResourceID) bool {
+func (set *SpxResourceSet) Contains(id resourceID) bool {
 	switch id := id.(type) {
 	case SpxBackdropResourceID:
 		return set.Backdrop(id.BackdropName) != nil
@@ -284,12 +244,12 @@ type SpxBackdropResourceID struct {
 	BackdropName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxBackdropResourceID) Name() string {
 	return id.BackdropName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxBackdropResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.BackdropName)))
 }
@@ -297,7 +257,7 @@ func (id SpxBackdropResourceID) URI() SpxResourceURI {
 // SpxBackdropResourceContextURI is the [SpxResourceContextURI] of [SpxBackdropResource].
 const SpxBackdropResourceContextURI SpxResourceContextURI = "spx://resources/backdrops"
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxBackdropResourceID) ContextURI() SpxResourceContextURI {
 	return SpxBackdropResourceContextURI
 }
@@ -314,12 +274,12 @@ type SpxSoundResourceID struct {
 	SoundName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxSoundResourceID) Name() string {
 	return id.SoundName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxSoundResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SoundName)))
 }
@@ -327,7 +287,7 @@ func (id SpxSoundResourceID) URI() SpxResourceURI {
 // SpxSoundResourceContextURI is the [SpxResourceContextURI] of [SpxSoundResource].
 const SpxSoundResourceContextURI SpxResourceContextURI = "spx://resources/sounds"
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxSoundResourceID) ContextURI() SpxResourceContextURI {
 	return SpxSoundResourceContextURI
 }
@@ -355,12 +315,12 @@ type SpxSpriteResourceID struct {
 	SpriteName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxSpriteResourceID) Name() string {
 	return id.SpriteName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxSpriteResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SpriteName)))
 }
@@ -368,7 +328,7 @@ func (id SpxSpriteResourceID) URI() SpxResourceURI {
 // SpxSpriteResourceContextURI is the [SpxResourceContextURI] of [SpxSpriteResource].
 const SpxSpriteResourceContextURI SpxResourceContextURI = "spx://resources/sprites"
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxSpriteResourceID) ContextURI() SpxResourceContextURI {
 	return SpxSpriteResourceContextURI
 }
@@ -408,12 +368,12 @@ type SpxSpriteCostumeResourceID struct {
 	CostumeName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxSpriteCostumeResourceID) Name() string {
 	return id.CostumeName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxSpriteCostumeResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.CostumeName)))
 }
@@ -424,7 +384,7 @@ func FormatSpxSpriteCostumeResourceContextURI(spriteName string) SpxResourceCont
 	return SpxResourceContextURI(fmt.Sprintf("%s/%s/costumes", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
 }
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxSpriteCostumeResourceID) ContextURI() SpxResourceContextURI {
 	return FormatSpxSpriteCostumeResourceContextURI(id.SpriteName)
 }
@@ -443,12 +403,12 @@ type SpxSpriteAnimationResourceID struct {
 	AnimationName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxSpriteAnimationResourceID) Name() string {
 	return id.AnimationName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxSpriteAnimationResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.AnimationName)))
 }
@@ -459,7 +419,7 @@ func FormatSpxSpriteAnimationResourceContextURI(spriteName string) SpxResourceCo
 	return SpxResourceContextURI(fmt.Sprintf("%s/%s/animations", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
 }
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxSpriteAnimationResourceID) ContextURI() SpxResourceContextURI {
 	return FormatSpxSpriteAnimationResourceContextURI(id.SpriteName)
 }
@@ -478,12 +438,12 @@ type SpxWidgetResourceID struct {
 	WidgetName string
 }
 
-// Name implements [SpxResourceID].
+// Name implements [resourceID].
 func (id SpxWidgetResourceID) Name() string {
 	return id.WidgetName
 }
 
-// URI implements [SpxResourceID].
+// URI implements [resourceID].
 func (id SpxWidgetResourceID) URI() SpxResourceURI {
 	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.WidgetName)))
 }
@@ -491,7 +451,7 @@ func (id SpxWidgetResourceID) URI() SpxResourceURI {
 // SpxWidgetResourceContextURI is the [SpxResourceContextURI] of [SpxWidgetResource].
 const SpxWidgetResourceContextURI SpxResourceContextURI = "spx://resources/widgets"
 
-// ContextURI implements [SpxResourceID].
+// ContextURI implements [resourceID].
 func (id SpxWidgetResourceID) ContextURI() SpxResourceContextURI {
 	return SpxWidgetResourceContextURI
 }

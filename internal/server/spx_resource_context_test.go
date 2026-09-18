@@ -27,7 +27,7 @@ func TestSpxSpriteResourceForObject(t *testing.T) {
 	require.NotNil(t, missing)
 	set, err := NewSpxResourceSet(proj)
 	require.NoError(t, err)
-	result := newCompileResult(proj, s.lookupPkgDoc)
+	result := newSpxAnalysis(proj)
 	result.spxResourceSet = *set
 	result.spxSpriteResourceAutoBindings[runner] = struct{}{}
 	result.spxSpriteResourceAutoBindings[missing] = struct{}{}
@@ -43,9 +43,9 @@ func TestSpxSpriteResourceForObject(t *testing.T) {
 	sameName := otherInfo.Pkg.Scope().Lookup("Runner")
 	require.NotNil(t, sameName)
 	assert.Nil(t, spxSpriteResourceForObject(result, sameName), "auto-bindings match object identity, not just names")
-	otherResult := newCompileResult(proj, s.lookupPkgDoc)
+	otherResult := newSpxAnalysis(proj)
 	otherResult.spxResourceSet = *set
-	assert.Nil(t, spxSpriteResourceForObject(otherResult, runner), "auto-bindings belong to each compile result")
+	assert.Nil(t, spxSpriteResourceForObject(otherResult, runner), "auto-bindings belong to each project analysis")
 }
 
 func TestSpxSpriteResourceForFile(t *testing.T) {
@@ -73,7 +73,7 @@ func TestSpxSpriteResourceForFile(t *testing.T) {
 			})
 			set, err := NewSpxResourceSet(s.getProj())
 			require.NoError(t, err)
-			result := newCompileResult(s.getProj(), s.lookupPkgDoc)
+			result := newSpxAnalysis(s.getProj())
 			result.spxResourceSet = *set
 			if tt.want == "" {
 				assert.Nil(t, spxSpriteResourceForFile(result, tt.filename))
@@ -90,14 +90,14 @@ func TestSpxSpriteResourceForCall(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n")})
 			proj := s.getProj()
-			call := spxResourceTestCall(t, proj, "main.xgo")
+			call := resourceTestCall(t, proj, "main.xgo")
 			pos := token.NoPos
 			if name == "UnregisteredPosition" {
 				pos = token.Pos(proj.Fset.Base())
 			}
 			require.Nil(t, proj.Fset.File(pos))
 			requireValueAs[*ast.Ident](t, call.Fun).NamePos = pos
-			result := newCompileResult(proj, s.lookupPkgDoc)
+			result := newSpxAnalysis(proj)
 			var got *SpxSpriteResource
 			require.NotPanics(t, func() {
 				got = spxSpriteResourceForCall(result, call)
@@ -134,7 +134,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 				require.NoError(t, err)
 				set, err := NewSpxResourceSet(proj)
 				require.NoError(t, err)
-				result := newCompileResult(proj, s.lookupPkgDoc)
+				result := newSpxAnalysis(proj)
 				result.spxResourceSet = *set
 				runner := info.Pkg.Scope().Lookup("Runner")
 				require.NotNil(t, runner)
@@ -180,7 +180,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 				require.NoError(t, err)
 				set, err := NewSpxResourceSet(proj)
 				require.NoError(t, err)
-				result := newCompileResult(proj, s.lookupPkgDoc)
+				result := newSpxAnalysis(proj)
 				result.mainSpxFile = "main.spx"
 				result.spxResourceSet = *set
 				file, err := proj.ASTFile(tt.filename)
@@ -205,10 +205,10 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 			"assets/sprites/Runner/index.json": []byte(`{}`),
 		})
 		proj := s.getProj()
-		call := spxResourceTestCall(t, proj, "Runner.spx")
+		call := resourceTestCall(t, proj, "Runner.spx")
 		set, err := NewSpxResourceSet(proj)
 		require.NoError(t, err)
-		result := newCompileResult(proj, s.lookupPkgDoc)
+		result := newSpxAnalysis(proj)
 		result.mainSpxFile = "main.spx"
 		result.spxResourceSet = *set
 		require.NotNil(t, set.Sprite("Runner"))

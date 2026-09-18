@@ -11,10 +11,9 @@ import (
 // function name.
 var spxEventHandlerFuncNameRE = regexp.MustCompile(`^on[A-Z]\w*$`)
 
-// isSpxEventHandler reports whether obj is an SDK event registration function.
-func (r *definitionContext) isSpxEventHandler(obj gotypes.Object) bool {
-	fun, ok := obj.(*gotypes.Func)
-	if !ok || fun == nil || !r.isSpxSymbol(fun) {
+// isEventHandler reports whether fun is an SDK event registration function.
+func (r *spxSymbols) isEventHandler(fun *gotypes.Func) bool {
+	if !r.isSpxSymbol(fun) {
 		return false
 	}
 	name, _ := xgoutil.ParseXGoFuncName(fun.Name())

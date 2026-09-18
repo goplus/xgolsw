@@ -2,12 +2,15 @@ package server
 
 import (
 	"bytes"
+	gotypes "go/types"
 	"strconv"
 	"strings"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // setCompletionStringValue configures a literal string candidate, replacing the
@@ -29,9 +32,9 @@ func (ctx *completionContext) setCompletionStringValue(item *CompletionItem, val
 	// Match the source prefix, including the delimiter covered by the edit.
 	delimiter := string(lit.Value[0])
 	item.FilterText = delimiter + value + delimiter
-	if delimiter == `"` {
-		typed := string(ctx.astFile.Code[ctx.tokenFile.Offset(lit.Pos()):ctx.tokenFile.Offset(ctx.sourcePos)])
-		if prefix, err := strconv.Unquote(typed + delimiter); err == nil && strings.HasPrefix(value, prefix) {
+	typed := string(ctx.astFile.Code[ctx.tokenFile.Offset(lit.Pos()):ctx.tokenFile.Offset(ctx.sourcePos)])
+	if expr, err := parser.ParseExpr(typed + delimiter); err == nil {
+		if prefix, ok := xgoutil.StringLitOrConstValue(expr, gotypes.TypeAndValue{}); ok && strings.HasPrefix(value, prefix) {
 			item.FilterText = typed + value[len(prefix):] + delimiter
 		}
 	}

@@ -1131,6 +1131,35 @@ func TestToLowerCamelCase(t *testing.T) {
 }
 
 func TestStringLitOrConstValue(t *testing.T) {
+	t.Run("XGoLiterals", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+			want   string
+			ok     bool
+		}{
+			{"DollarEscape", `"A$$B"`, "A$B", true},
+			{"EscapedInterpolation", `"$${name}"`, "${name}", true},
+			{"AdjacentDollarEscapes", `"$$$$"`, "$$", true},
+			{"TrailingDollar", `"$$$"`, "$$", true},
+			{"MixedDollarEscapes", `"\x24$$"`, "$$", true},
+			{"EscapeBeforeInterpolation", `"$$${name}"`, "", false},
+			{"EscapeAfterInterpolation", `"${name}$$"`, "", false},
+			{"RawDollarEscape", "`A\r$$\rB`", "A$B", true},
+			{"InterpolatedExpression", `"${name}"`, "", false},
+			{"InterpolatedConstant", `"${42}"`, "", false},
+			{"InterpolationAfterText", `"prefix-${name}"`, "", false},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				expr, err := parser.ParseExpr(tt.source)
+				require.NoError(t, err)
+				value, ok := StringLitOrConstValue(expr, gotypes.TypeAndValue{})
+				assert.Equal(t, tt.ok, ok)
+				assert.Equal(t, tt.want, value)
+			})
+		}
+	})
+
 	t.Run("StringLiteral", func(t *testing.T) {
 		strLit := &ast.BasicLit{
 			Kind:  token.STRING,
@@ -1141,6 +1170,28 @@ func TestStringLitOrConstValue(t *testing.T) {
 		value, ok := StringLitOrConstValue(strLit, tv)
 		require.True(t, ok, "want string literal to be accepted")
 		assert.Equal(t, "literal", value)
+	})
+
+	t.Run("InvalidXGoLiterals", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+		}{
+			{"UnterminatedQuoted", `"$$text`},
+			{"UnterminatedRaw", "`$$text"},
+			{"InvalidEscape", `"$$\x"`},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				expr, err := parser.ParseExpr(tt.source)
+				require.Error(t, err)
+				lit, ok := expr.(*ast.BasicLit)
+				require.True(t, ok)
+				require.NotNil(t, lit.Extra)
+				value, ok := StringLitOrConstValue(lit, gotypes.TypeAndValue{})
+				assert.False(t, ok)
+				assert.Empty(t, value)
+			})
+		}
 	})
 
 	t.Run("StringConstant", func(t *testing.T) {

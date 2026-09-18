@@ -41,14 +41,14 @@ func TestPreferredMarkupKind(t *testing.T) {
 }
 
 func TestResourceMarkupContent(t *testing.T) {
-	uri := XGoResourceURI("spx://resources/sounds/MySound")
+	uri := XGoResourceURI("test://resources/clips/Intro")
 	assert.Equal(t, MarkupContent{
 		Kind:  Markdown,
-		Value: "<resource-preview resource=\"spx://resources/sounds/MySound\" />\n",
+		Value: "<resource-preview resource=\"test://resources/clips/Intro\" />\n",
 	}, resourceMarkupContent(uri, Markdown))
 	assert.Equal(t, MarkupContent{
 		Kind:  PlainText,
-		Value: "spx://resources/sounds/MySound",
+		Value: "test://resources/clips/Intro",
 	}, resourceMarkupContent(uri, PlainText))
 }
 

@@ -9,6 +9,16 @@ import (
 )
 
 func TestServerTextDocumentCompletionContext(t *testing.T) {
+	t.Run("StringConversionArguments", func(t *testing.T) {
+		for _, expression := range []string{`string("|")`, `Text("|")`, `Text(string("|"))`} {
+			source, position := typeDisplayTestSource(t, "type Text string\necho "+expression+"\n")
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			_, err := s.getProj().TypeInfo()
+			require.NoError(t, err)
+			assert.Empty(t, completionItemsAt(t, s, "main.xgo", position))
+		}
+	})
+
 	t.Run("CrossFileSourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string

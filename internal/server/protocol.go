@@ -393,7 +393,7 @@ type XGoInputSpxColorValue struct {
 // document link.
 type XGoResourceRefDocumentLinkData struct {
 	// The kind of the XGo resource reference.
-	Kind SpxResourceRefKind `json:"kind"`
+	Kind XGoResourceRefKind `json:"kind"`
 }
 
 // XGoCompletionItemData represents data in a completion item.
