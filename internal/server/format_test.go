@@ -1184,6 +1184,17 @@ onStart => {
 	})
 }
 
+func TestFormatClassDecls(t *testing.T) {
+	t.Run("LineDirectives", func(t *testing.T) {
+		s := newFrameworkTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte("func run() {\n// Inside.\n_ = 1\n//line virtual.xgo:1\n}\n"),
+		})
+		formatted, err := formatClassDecls(s.getProj(), "main_fixture.gox")
+		require.NoError(t, err)
+		assert.Equal(t, "func run() {\n\t// Inside.\n\t_ = 1\n//line virtual.xgo:1\n}\n", string(formatted))
+	})
+}
+
 func TestOverloadResolvedCallExprArgType(t *testing.T) {
 	pkg := gotypes.NewPackage("main", "main")
 	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)

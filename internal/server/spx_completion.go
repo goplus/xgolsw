@@ -134,7 +134,7 @@ func (r *spxAnalysis) getSpxSpriteResource(ctx *completionContext) *SpxSpriteRes
 		callExpr = value.Call
 	}
 	if callExpr != nil {
-		return inferSpxSpriteResourceEnclosingNode(r, callExpr)
+		return inferSpxSpriteResourceEnclosingNode(ctx.proj, r, callExpr)
 	}
-	return spxSpriteResourceForFile(r, ctx.filename)
+	return spxSpriteResourceForFile(ctx.proj, r, ctx.filename)
 }

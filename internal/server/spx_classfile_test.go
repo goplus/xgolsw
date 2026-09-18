@@ -33,16 +33,16 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				Ext: tt.projectExt, FullExt: fullExt, Class: "Game", PkgPaths: []string{SpxPkgPath},
 				Works: []*modfile.Class{{Ext: tt.workExt, Class: "SpriteImpl", Prefix: tt.prefix, Embedded: true}},
 			}}}}))
-			result, err := s.analyzeSpx(s.getProj())
+			result, err := analyzeSpx(s.getProj())
 			require.NoError(t, err)
 			requireNoDiagnostics(t, s)
 			assert.Equal(t, tt.project, result.mainSpxFile)
-			named := spxSpriteTypeForFile(result.proj, tt.sprite)
+			named := spxSpriteTypeForFile(s.getProj(), tt.sprite)
 			require.NotNil(t, named)
 			assert.Equal(t, tt.className, named.Obj().Name())
 			assert.True(t, result.hasSpxSpriteType(named))
-			assert.Same(t, result.spxResourceSet.Sprite(tt.className), spxSpriteResourceForFile(result, tt.sprite))
-			assert.Nil(t, spxSpriteResourceForFile(result, tt.project))
+			assert.Same(t, result.spxResourceSet.Sprite(tt.className), spxSpriteResourceForFile(s.getProj(), result, tt.sprite))
+			assert.Nil(t, spxSpriteResourceForFile(s.getProj(), result, tt.project))
 			for _, filename := range []string{tt.project, tt.sprite} {
 				uri := s.toDocumentURI(filename)
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: uri}})
@@ -84,7 +84,7 @@ func TestSpxClassForFile(t *testing.T) {
 	t.Run("OtherFrameworkUsingSpxExtension", func(t *testing.T) {
 		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte("echo 1\n")})
 		assert.Nil(t, spxClassForFile(s.getProj(), "main.spx"))
-		result, err := s.analyzeSpx(s.getProj())
+		result, err := analyzeSpx(s.getProj())
 		require.NoError(t, err)
 		assert.Nil(t, result)
 	})

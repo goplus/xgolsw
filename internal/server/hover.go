@@ -31,17 +31,21 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-	if hover, err := s.hoverForResource(proj, position, markupKind); hover != nil || err != nil {
+	if hover, err := hoverForResource(proj, position, markupKind); hover != nil || err != nil {
 		return hover, err
 	}
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, nil
 	}
+	enums, err := enumInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
 	ctx := &definitionContext{
 		proj:         proj,
 		typeDisplay:  newTypeDisplay(proj, astFile, PosAt(proj, astFile, params.Position)),
-		enumInfo:     newEnumInfo(astPkg, typeInfo),
+		enumInfo:     enums,
 		lookupPkgDoc: s.lookupPkgDoc,
 	}
 	if hover := hoverForXGoUnit(proj, typeInfo, astFile, position, markupKind); hover != nil {

@@ -29,6 +29,60 @@ func (i semanticTokenPositionImporter) Import(path string) (*gotypes.Package, er
 }
 
 func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
+	t.Run("ImplicitReceiver", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{"NormalClass", "Record.gox", newTestServer},
+			{"ProjectClass", "main_fixture.gox", newFrameworkTestServer},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{tt.filename: []byte("func run() {\n\t_ = this\n}\n")}
+				if tt.filename == "Worker_fixture.gox" {
+					files["main_fixture.gox"] = nil
+				}
+				s := tt.newServer(t, files)
+				tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, tokens)
+				_, err = s.getProj().TypeInfo()
+				require.NoError(t, err)
+				decoded := decodeSemanticTokens(tokens.Data)
+				assert.Contains(t, decoded, decodedSemanticToken{line: 1, character: 5, length: 4, tokenType: VariableType})
+				for _, tokenType := range []SemanticTokenTypes{ParameterType, StructType, OperatorType} {
+					assertNoOverlappingSemanticToken(t, decoded, decodedSemanticToken{line: 0, length: 4, tokenType: tokenType})
+				}
+			})
+		}
+	})
+
+	t.Run("ExplicitReceiver", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("type Item struct{}\nfunc (item *Item) run() {\n\t_ = item\n}\n"),
+		})
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		_, err = s.getProj().TypeInfo()
+		require.NoError(t, err)
+		decoded := decodeSemanticTokens(tokens.Data)
+		for _, want := range []decodedSemanticToken{
+			{line: 1, character: 6, length: 4, tokenType: ParameterType},
+			{line: 1, character: 11, length: 1, tokenType: OperatorType},
+			{line: 1, character: 12, length: 4, tokenType: StructType},
+			{line: 2, character: 5, length: 4, tokenType: VariableType},
+		} {
+			assert.Contains(t, decoded, want)
+		}
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string

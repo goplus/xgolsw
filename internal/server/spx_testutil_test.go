@@ -151,13 +151,13 @@ type Monitor struct{}
 func XGot_Game_XGox_GetWidget[T any](game any, name WidgetName) *T { return nil }
 `
 
-// compileSpxTestFile preserves partial ASTs for editor tests with syntax errors.
-func compileSpxTestFile(t testing.TB, s *Server, filename string) (*spxAnalysis, *ast.File) {
+// analyzeSpxTestFile preserves partial ASTs for editor tests with syntax errors.
+func analyzeSpxTestFile(t testing.TB, s *Server, filename string) (*spxAnalysis, *ast.File) {
 	t.Helper()
 
-	result, err := s.analyzeSpx(s.getProj())
+	result, err := analyzeSpx(s.getProj())
 	require.NoError(t, err)
-	file, _ := result.proj.ASTFile(filename)
+	file, _ := s.getProj().ASTFile(filename)
 	require.NotNil(t, file)
 	return result, file
 }

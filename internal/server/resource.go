@@ -69,11 +69,10 @@ func resourceRange(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
 	}
 }
 
-// resourceAnalysis contains references, availability, and resource diagnostics.
+// resourceAnalysis contains references, availability, and untranslated diagnostics.
 // A nil contains function means that resource metadata is unavailable.
 type resourceAnalysis struct {
-	diagnosticResult
-	proj             *xgo.Project
+	diagnostics      []sourceDiagnostic
 	resourceRefs     []resourceRef
 	seenResourceRefs map[resourceRef]struct{}
 	contains         func(resourceID) bool
@@ -82,20 +81,20 @@ type resourceAnalysis struct {
 // resourceRefAtPosition returns the smallest resource reference containing
 // position and its source file, including the position immediately after its
 // source text.
-func (r *resourceAnalysis) resourceRefAtPosition(position token.Position) (*resourceRef, *ast.File) {
+func (r *resourceAnalysis) resourceRefAtPosition(proj *xgo.Project, position token.Position) (*resourceRef, *ast.File) {
 	var (
 		bestRef      *resourceRef
 		bestFile     *ast.File
 		bestNodeSpan int
 	)
-	fset := r.proj.Fset
+	fset := proj.Fset
 	for _, ref := range r.resourceRefs {
-		node := resourceSourceNode(r.proj, ref.Node)
+		node := resourceSourceNode(proj, ref.Node)
 		nodePos := fset.PositionFor(node.Pos(), false)
 		if nodePos.Filename != position.Filename {
 			continue
 		}
-		astFile := sourceASTFile(r.proj, node.Pos())
+		astFile := sourceASTFile(proj, node.Pos())
 		if astFile == nil {
 			continue
 		}

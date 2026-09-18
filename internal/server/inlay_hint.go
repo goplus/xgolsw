@@ -110,7 +110,7 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 		}
 
 		// Create an inlay hint with the parameter name before the argument.
-		position := proj.Fset.Position(resolvedArg.Arg.Pos())
+		position := proj.Fset.PositionFor(resolvedArg.Arg.Pos(), false)
 		label := xgoutil.SourceParamName(resolvedArg.Param)
 		if variadicArg {
 			label += "..."

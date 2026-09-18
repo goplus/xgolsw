@@ -157,7 +157,7 @@ func TestInputSlotContextFrameworkResources(t *testing.T) {
 	info, err := proj.TypeInfo()
 	require.NoError(t, err)
 	assetType := info.Pkg.Scope().Lookup("Asset").Type()
-	result := newTestResourceAnalysis(proj, testResourceID{"files", "logo"})
+	result := newTestResourceAnalysis(testResourceID{"files", "logo"})
 	for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
 		result.addResourceRef(ref)
 	}

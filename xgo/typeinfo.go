@@ -44,6 +44,8 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	if astPkg == nil {
 		return nil, fmt.Errorf("failed to retrieve AST package: %w", astErr)
 	}
+	proj.astMu.Lock()
+	defer proj.astMu.Unlock()
 
 	typeInfo := &types.Info{
 		Info: typesutil.Info{

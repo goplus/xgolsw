@@ -76,10 +76,10 @@ func TestSpxSpriteResourceForFile(t *testing.T) {
 			result := newSpxAnalysis(s.getProj())
 			result.spxResourceSet = *set
 			if tt.want == "" {
-				assert.Nil(t, spxSpriteResourceForFile(result, tt.filename))
+				assert.Nil(t, spxSpriteResourceForFile(s.getProj(), result, tt.filename))
 			} else {
 				require.NotNil(t, set.Sprite(tt.want))
-				assert.Same(t, set.Sprite(tt.want), spxSpriteResourceForFile(result, tt.filename))
+				assert.Same(t, set.Sprite(tt.want), spxSpriteResourceForFile(s.getProj(), result, tt.filename))
 			}
 		})
 	}
@@ -100,7 +100,7 @@ func TestSpxSpriteResourceForCall(t *testing.T) {
 			result := newSpxAnalysis(proj)
 			var got *SpxSpriteResource
 			require.NotPanics(t, func() {
-				got = spxSpriteResourceForCall(result, call)
+				got = spxSpriteResourceForCall(s.getProj(), result, call)
 			})
 			assert.Nil(t, got)
 		})
@@ -142,7 +142,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 				file, err := proj.ASTFile("main.xgo")
 				require.NoError(t, err)
 				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
-				got := inferSpxSpriteResourceEnclosingNode(result, literal)
+				got := inferSpxSpriteResourceEnclosingNode(s.getProj(), result, literal)
 				if tt.want == "" {
 					assert.Nil(t, got)
 				} else {
@@ -186,7 +186,7 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 				file, err := proj.ASTFile(tt.filename)
 				require.NoError(t, err)
 				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
-				got := inferSpxSpriteResourceEnclosingNode(result, literal)
+				got := inferSpxSpriteResourceEnclosingNode(s.getProj(), result, literal)
 				if tt.want == "" {
 					assert.Nil(t, got)
 				} else {
@@ -212,8 +212,8 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 		result.mainSpxFile = "main.spx"
 		result.spxResourceSet = *set
 		require.NotNil(t, set.Sprite("Runner"))
-		assert.Same(t, set.Sprite("Runner"), inferSpxSpriteResourceEnclosingNode(result, call))
+		assert.Same(t, set.Sprite("Runner"), inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
 		s.ModifyFiles([]FileChange{{Path: "Runner.spx", Content: []byte("func use(name string) {}\nuse \"other\"\n"), Version: 1}})
-		assert.Nil(t, inferSpxSpriteResourceEnclosingNode(result, call))
+		assert.Nil(t, inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
 	})
 }

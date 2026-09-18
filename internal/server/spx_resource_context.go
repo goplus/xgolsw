@@ -32,8 +32,8 @@ func spxSpriteTypeForFile(proj *xgo.Project, filename string) *gotypes.Named {
 }
 
 // spxSpriteResourceForFile returns the resource of the generated sprite class.
-func spxSpriteResourceForFile(result *spxAnalysis, filename string) *SpxSpriteResource {
-	named := spxSpriteTypeForFile(result.proj, filename)
+func spxSpriteResourceForFile(proj *xgo.Project, result *spxAnalysis, filename string) *SpxSpriteResource {
+	named := spxSpriteTypeForFile(proj, filename)
 	if named == nil {
 		return nil
 	}
@@ -43,22 +43,22 @@ func spxSpriteResourceForFile(result *spxAnalysis, filename string) *SpxSpriteRe
 // spxSpriteResourceForCall resolves an explicit receiver through auto-binding
 // object identity. Implicit receivers and the compiler-generated this receiver
 // use the call's physical classfile.
-func spxSpriteResourceForCall(result *spxAnalysis, call *ast.CallExpr) *SpxSpriteResource {
+func spxSpriteResourceForCall(proj *xgo.Project, result *spxAnalysis, call *ast.CallExpr) *SpxSpriteResource {
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
-		return spxSpriteResourceForFile(result, result.proj.Fset.PositionFor(call.Pos(), false).Filename)
+		return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(call.Pos(), false).Filename)
 	case *ast.SelectorExpr:
 		ident, ok := fun.X.(*ast.Ident)
 		if !ok {
 			return nil
 		}
-		typeInfo, _ := result.proj.TypeInfo()
+		typeInfo, _ := proj.TypeInfo()
 		if typeInfo == nil {
 			return nil
 		}
-		astPkg, _ := result.proj.ASTPackage()
-		if xgoutil.IsSyntheticThisIdent(result.proj.Fset, typeInfo, astPkg, ident) {
-			return spxSpriteResourceForFile(result, result.proj.Fset.PositionFor(call.Pos(), false).Filename)
+		astPkg, _ := proj.ASTPackage()
+		if xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+			return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(call.Pos(), false).Filename)
 		}
 		return spxSpriteResourceForObject(result, typeInfo.ObjectOf(ident))
 	default:
@@ -68,14 +68,14 @@ func spxSpriteResourceForCall(result *spxAnalysis, call *ast.CallExpr) *SpxSprit
 
 // inferSpxSpriteResourceEnclosingNode infers the enclosing [SpxSpriteResource]
 // for the given node. It returns nil if no [SpxSpriteResource] can be inferred.
-func inferSpxSpriteResourceEnclosingNode(result *spxAnalysis, node ast.Node) *SpxSpriteResource {
-	astFile := sourceASTFile(result.proj, node.Pos())
+func inferSpxSpriteResourceEnclosingNode(proj *xgo.Project, result *spxAnalysis, node ast.Node) *SpxSpriteResource {
+	astFile := sourceASTFile(proj, node.Pos())
 	if astFile == nil {
 		return nil
 	}
 	for pathNode := range xgoutil.PathEnclosingIntervalNodes(astFile, node.Pos(), node.End(), false) {
 		if call := callExprFromNode(pathNode); call != nil {
-			return spxSpriteResourceForCall(result, call)
+			return spxSpriteResourceForCall(proj, result, call)
 		}
 	}
 	return nil

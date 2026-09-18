@@ -8,11 +8,12 @@ import (
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // frameworkAdapter supplies symbol semantics for a registered framework.
-// It is resolved from the current project importer and never shared across servers.
+// It is resolved from the current project importer.
 type frameworkAdapter interface {
 	displayTypeName(gotypes.Object, string) string
 	functionDocumentation(*gotypes.Func, *pkgdoc.PkgDoc) (string, bool)
@@ -20,17 +21,39 @@ type frameworkAdapter interface {
 	isEventHandler(*gotypes.Func) bool
 }
 
-// frameworkAnalysis supplies the optional capabilities of a framework for one
-// project snapshot. Source references use the shared resource analysis pipeline.
+// frameworkAnalysis holds immutable framework data for one project state.
+// Operations receive the requesting project or context so cached data can also
+// be used by snapshots without retaining a mutable project or server.
 type frameworkAnalysis struct {
-	adapter   frameworkAdapter
-	resources *resourceAnalysis
-	diagnosticResult
-	configurePass      func(string, *protocol.Pass)
+	adapter            frameworkAdapter
+	resources          *resourceAnalysis
+	configurePass      func(*xgo.Project) func(string, *protocol.Pass)
 	collectCompletions func(*completionContext)
 	inputType          func(gotypes.Type) XGoInputType
 	adaptInputSlot     func(*inputSlotContext, ast.Expr, gotypes.Type, *XGoInputSlot) *XGoInputSlot
-	renameResources    func([]XGoRenameResourceParams) (*WorkspaceEdit, error)
+	renameResources    func(*Server, *xgo.Project, []XGoRenameResourceParams) (*WorkspaceEdit, error)
+}
+
+// frameworkAnalysisCacheKind identifies cached framework analysis.
+type frameworkAnalysisCacheKind struct{}
+
+// frameworkAdapterCacheKind identifies cached framework symbol semantics.
+type frameworkAdapterCacheKind struct{}
+
+// resolveFrameworkAdapter retrieves optional symbol semantics without scanning resources.
+func resolveFrameworkAdapter(proj *xgo.Project) frameworkAdapter {
+	data, _ := proj.Cache(frameworkAdapterCacheKind{})
+	adapter, _ := data.(frameworkAdapter)
+	return adapter
+}
+
+// analyzeFramework retrieves optional framework analysis for the project state.
+func analyzeFramework(proj *xgo.Project) (*frameworkAnalysis, error) {
+	data, err := proj.Cache(frameworkAnalysisCacheKind{})
+	if err != nil {
+		return nil, err
+	}
+	return data.(*frameworkAnalysis), nil
 }
 
 // frameworkAdapter resolves optional symbol semantics once per request.

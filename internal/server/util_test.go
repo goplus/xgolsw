@@ -139,6 +139,12 @@ func TestUTF16PosToUTF8Offset(t *testing.T) {
 			utf16Pos: 5,
 			want:     0,
 		},
+		{name: "InvalidUTF8Byte", s: "\xffx", utf16Pos: 1, want: 1},
+		{name: "InvalidUTF8AtEnd", s: "x\xff", utf16Pos: 2, want: 2},
+		{name: "IncompleteUTF8Sequence", s: "\xe2\x82", utf16Pos: 2, want: 2},
+		{name: "InvalidUTF8BeforeSurrogate", s: "\xff\U0001f600", utf16Pos: 2, want: 1},
+		{name: "InvalidUTF8BeyondEnd", s: "\xff\U0001f600", utf16Pos: 99, want: 5},
+		{name: "ReplacementCharacter", s: "\ufffdx", utf16Pos: 1, want: 3},
 		{
 			name:     "NegativeOffset",
 			s:        "abc",
@@ -293,6 +299,26 @@ func TestPositionOffset(t *testing.T) {
 }
 
 func TestToPosition(t *testing.T) {
+	t.Run("EndOfFile", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+		}{
+			{"LF", "var value = 1\nvalue\n"},
+			{"CRLF", "var value = 1\r\nvalue\r\n"},
+			{"WithoutNewline", "var value = 1\nvalue"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				proj, astFile := testProjectFile(t, tt.source)
+				for _, position := range []Position{{Line: 2}, {Line: 2, Character: 4}, {Line: 99}} {
+					got := ToPosition(proj, astFile, position)
+					assert.Equal(t, len(tt.source), got.Offset)
+					assert.Equal(t, PositionOffset([]byte(tt.source), position), got.Offset)
+				}
+			})
+		}
+	})
+
 	proj, astFile := testProjectFile(t, "package main\r\nvar x int")
 
 	for _, tt := range []struct {

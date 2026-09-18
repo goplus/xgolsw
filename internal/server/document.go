@@ -25,7 +25,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	links, err := s.documentLinksForResources(proj, filename)
+	links, err := documentLinksForResources(proj, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -33,9 +33,13 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if typeInfo == nil {
 		return nil, nil
 	}
+	enums, err := enumInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
 	ctx := &definitionContext{
 		proj:         proj,
-		enumInfo:     newEnumInfo(astPkg, typeInfo),
+		enumInfo:     enums,
 		lookupPkgDoc: s.lookupPkgDoc,
 	}
 
@@ -71,7 +75,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 
 	// Add links for symbol definitions and uses in this file.
 	addLinksForIdent := func(ident *ast.Ident) {
-		if ident.Implicit() || xgoutil.NodeFilename(proj.Fset, ident) != filename {
+		if ident.Implicit() || proj.Fset.PositionFor(ident.Pos(), false).Filename != filename {
 			return
 		}
 		if _, ok := kwargNames[ident.Pos()]; ok {

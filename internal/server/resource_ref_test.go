@@ -15,7 +15,7 @@ func TestResourceAnalysisAddResourceRef(t *testing.T) {
 	proj := s.getProj()
 	call := resourceTestCall(t, proj, "main.xgo")
 	require.Len(t, call.Args, 2)
-	result := newTestResourceAnalysis(proj)
+	result := newTestResourceAnalysis()
 	first := resourceRef{ID: testResourceID{"scenes", "Studio"}, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[0]}
 	second := first
 	second.Node = call.Args[1]
@@ -27,7 +27,7 @@ func TestResourceAnalysisAddResourceRef(t *testing.T) {
 		result.addResourceRef(ref)
 	}
 	assert.Equal(t, []resourceRef{first, second, otherID, otherKind}, result.resourceRefs)
-	other := newTestResourceAnalysis(proj)
+	other := newTestResourceAnalysis()
 	other.addResourceRef(first)
 	assert.Equal(t, []resourceRef{first}, other.resourceRefs)
 }
@@ -62,9 +62,9 @@ func TestResourceAnalysisResourceRefAtPosition(t *testing.T) {
 				{ID: testResourceID{"clips", "Beep"}, Node: call.Args[1]},
 			}
 			for _, orderedRefs := range [][]resourceRef{refs, {refs[2], refs[1], refs[0]}} {
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				result.resourceRefs = orderedRefs
-				ref, _ := result.resourceRefAtPosition(token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
+				ref, _ := result.resourceRefAtPosition(s.getProj(), token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
 				if tt.want < 0 {
 					assert.Nil(t, ref)
 				} else {
@@ -137,10 +137,10 @@ func TestResourceAnalysisResourceRefAtPosition(t *testing.T) {
 				file, err := proj.ASTFile("main.xgo")
 				require.NoError(t, err)
 				for _, order := range [][]resourceRef{refs, {refs[2], refs[1], refs[0]}} {
-					result := newTestResourceAnalysis(proj)
+					result := newTestResourceAnalysis()
 					result.resourceRefs = order
 					for _, check := range tt.checks {
-						ref, _ := result.resourceRefAtPosition(ToPosition(proj, file, check.position))
+						ref, _ := result.resourceRefAtPosition(s.getProj(), ToPosition(proj, file, check.position))
 						if check.want < 0 {
 							assert.Nil(t, ref, "at %v", check.position)
 						} else {

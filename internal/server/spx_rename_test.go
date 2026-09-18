@@ -57,7 +57,7 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -99,7 +99,7 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -135,7 +135,7 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -186,7 +186,7 @@ onStart => {
 			"assets/sounds/Sound1/index.json":    []byte(`{"path":"sound1.wav"}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -247,7 +247,7 @@ onStart => {
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -293,9 +293,9 @@ func invalidFunc() {
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
-		diagnostics, err := s.diagnosticsAt(result.proj)
+		diagnostics, err := s.diagnosticsAt(s.getProj())
 		require.NoError(t, err)
 		require.True(t, diagnostics.hasErrorSeverityDiagnostic)
 
@@ -331,7 +331,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -375,7 +375,7 @@ onStart => {
 			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
@@ -417,7 +417,7 @@ onStart => {
 			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 

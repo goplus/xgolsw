@@ -17,7 +17,7 @@ import (
 func (s *Server) renameResourceAtRefs(t testing.TB, result *resourceAnalysis, id resourceID, newName string) map[DocumentURI][]TextEdit {
 	t.Helper()
 
-	changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{id: newName})
+	changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{id: newName})
 	require.NoError(t, err)
 	return changes
 }
@@ -41,11 +41,11 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
 					result.addResourceRef(ref)
 				}
-				changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{
+				changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{
 					testResourceID{"files", "Studio"}: "Park",
 					testResourceID{"files", "Other"}:  "Changed",
 				})
@@ -89,7 +89,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 					if value.Call != nil {
 						return testResourceID{"other", value.Name}, true
@@ -99,7 +99,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 					result.addResourceRef(ref)
 				}
 				require.Len(t, result.resourceRefs, 2)
-				changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
+				changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
 				if tt.wantType == "" {
 					require.ErrorContains(t, err, "cannot preserve resource constant type")
 					assert.Nil(t, changes)
@@ -120,12 +120,12 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
-		result := newTestResourceAnalysis(proj)
+		result := newTestResourceAnalysis()
 		for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
 			result.addResourceRef(ref)
 		}
 		require.Len(t, result.resourceRefs, 1)
-		changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
+		changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
 		require.ErrorContains(t, err, "cannot rename a resource within a derived constant")
 		assert.Nil(t, changes)
 	})
@@ -148,7 +148,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			require.NoError(t, err)
 			assetType := info.Pkg.Scope().Lookup("Asset").Type()
 			otherType := info.Pkg.Scope().Lookup("OtherAsset").Type()
-			result := newTestResourceAnalysis(proj, testResourceID{step.collection, step.oldName})
+			result := newTestResourceAnalysis(testResourceID{step.collection, step.oldName})
 			for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 				switch value.Type {
 				case assetType:
@@ -161,7 +161,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				result.addResourceRef(ref)
 			}
 			require.Len(t, result.resourceRefs, 3)
-			links := result.resourceDocumentLinks("main.xgo")
+			links := result.resourceDocumentLinks(s.getProj(), "main.xgo")
 			require.NotEmpty(t, links)
 			changes := s.renameResourceAtRefs(t, result, testResourceID{step.collection, step.oldName}, step.newName)
 			require.Len(t, changes, 1)
@@ -214,7 +214,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 					if value.Call != nil {
 						return testResourceID{"other", value.Name}, true
@@ -224,7 +224,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 					result.addResourceRef(ref)
 				}
 				require.Len(t, result.resourceRefs, 2)
-				changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
+				changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
 				if tt.wantType == "" {
 					require.ErrorContains(t, err, "cannot preserve resource constant type")
 					assert.Nil(t, changes)
@@ -248,7 +248,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
-		result := newTestResourceAnalysis(proj)
+		result := newTestResourceAnalysis()
 		for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 			if _, ok := value.Expr.(*ast.Ident); ok {
 				return testResourceID{"other", value.Name}, true
@@ -258,7 +258,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			result.addResourceRef(ref)
 		}
 		require.Len(t, result.resourceRefs, 2)
-		changes, err := s.renameResourcesAtRefs(result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
+		changes, err := s.renameResourcesAtRefs(s.getProj(), result, map[resourceID]string{testResourceID{"files", "Studio"}: "Park"})
 		require.ErrorContains(t, err, "cannot preserve resource constant type")
 		assert.Nil(t, changes)
 	})
@@ -347,7 +347,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				otherType := info.Pkg.Scope().Lookup("OtherAsset").Type()
 				definedType := info.Pkg.Scope().Lookup("Defined").Type()
 				otherDefinedType := info.Pkg.Scope().Lookup("OtherDefined").Type()
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 					switch value.Type {
 					case assetType, definedType:
@@ -378,7 +378,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
-		result := newTestResourceAnalysis(proj)
+		result := newTestResourceAnalysis()
 		for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
 			result.addResourceRef(ref)
 		}
@@ -406,7 +406,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		call := resourceTestCall(t, proj, "main.xgo")
 		require.Len(t, call.Args, 7)
 		id := testResourceID{"scenes", "Studio"}
-		result := newTestResourceAnalysis(proj)
+		result := newTestResourceAnalysis()
 		result.resourceRefs = []resourceRef{
 			{ID: id, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[1]},
 			{ID: id, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[1]},
@@ -474,7 +474,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				call := resourceTestCall(t, proj, "main.xgo")
 				require.Len(t, call.Args, 1)
 				id := testResourceID{"scenes", "Studio"}
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindConstantReference, Node: call.Args[0]})
 				changes := s.renameResourceAtRefs(t, result, id, "Park")
 				require.Equal(t, map[DocumentURI][]TextEdit{"file:///main.xgo": {tt.want}}, changes)
@@ -531,7 +531,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 						call := resourceTestCall(t, proj, "main.xgo")
 						require.Len(t, call.Args, 1)
 						id := testResourceID{"scenes", "Studio"}
-						result := newTestResourceAnalysis(proj)
+						result := newTestResourceAnalysis()
 						result.addResourceRef(resourceRef{ID: id, Kind: form.kind, Node: call.Args[0]})
 						changes := s.renameResourceAtRefs(t, result, id, tt.newName)
 						require.Len(t, changes, 1)
@@ -569,7 +569,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				call := resourceTestCall(t, proj, "main.xgo")
 				require.Len(t, call.Args, 2)
 				id := testResourceID{"scenes", tt.oldName}
-				result := newTestResourceAnalysis(proj)
+				result := newTestResourceAnalysis()
 				result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindConstantReference, Node: call.Args[0]})
 				assert.Empty(t, s.renameResourceAtRefs(t, result, id, "Park"))
 				result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[1]})
@@ -590,7 +590,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		proj := s.getProj()
 		call := resourceTestCall(t, proj, "main.xgo")
 		require.Len(t, call.Args, 3)
-		result := newTestResourceAnalysis(proj)
+		result := newTestResourceAnalysis()
 		spriteID := testResourceID{"actors", "Runner"}
 		skinID := testResourceID{"actors/Runner/skins", "idle"}
 		result.resourceRefs = []resourceRef{

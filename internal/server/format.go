@@ -227,13 +227,13 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 		if doc := getDeclDoc(decl); doc != nil {
 			processedComments[doc] = struct{}{}
 		}
-		startLine := fset.Position(decl.Pos()).Line
-		endLine := fset.Position(decl.End()).Line
+		startLine := fset.PositionFor(decl.Pos(), false).Line
+		endLine := fset.PositionFor(decl.End(), false).Line
 		for _, cg := range astFile.Comments {
 			if _, ok := processedComments[cg]; ok {
 				continue
 			}
-			cgStartLine := fset.Position(cg.Pos()).Line
+			cgStartLine := fset.PositionFor(cg.Pos(), false).Line
 			if cgStartLine >= startLine && cgStartLine <= endLine {
 				processedComments[cg] = struct{}{}
 			}
@@ -271,9 +271,9 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 
 	// Find comments that appears on the same line after the given position.
 	findInlineComments := func(pos token.Pos) *ast.CommentGroup {
-		line := fset.Position(pos).Line
+		line := fset.PositionFor(pos, false).Line
 		for _, cg := range astFile.Comments {
-			if fset.Position(cg.Pos()).Line != line {
+			if fset.PositionFor(cg.Pos(), false).Line != line {
 				continue
 			}
 			if cg.Pos() > pos {

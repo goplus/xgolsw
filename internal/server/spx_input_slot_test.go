@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -477,11 +478,11 @@ onStart => {
 	}
 	s := newSpxTestServer(t, m)
 
-	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	result, astFile := analyzeSpxTestFile(t, s, "main.spx")
 	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
 
-	inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+	inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 	require.NotNil(t, inputSlots)
 	assert.NotEmpty(t, inputSlots)
 
@@ -566,11 +567,11 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteStepTo", func(t *testing.T) {
-		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		result, astFile := analyzeSpxTestFile(t, s, "MySprite.spx")
 		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
-		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+		inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 		require.NotNil(t, inputSlots)
 		assert.NotEmpty(t, inputSlots)
 
@@ -588,11 +589,11 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteClone", func(t *testing.T) {
-		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		result, astFile := analyzeSpxTestFile(t, s, "MySprite.spx")
 		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
-		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+		inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 		require.NotNil(t, inputSlots)
 		assert.NotEmpty(t, inputSlots)
 
@@ -620,10 +621,10 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
 	s := newSpxTestServer(t, files)
-	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	result, astFile := analyzeSpxTestFile(t, s, "main.spx")
 	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
-	ctx := newSpxInputSlotContext(t, result, astFile)
+	ctx := newSpxInputSlotContext(t, s.getProj(), result, astFile)
 	literal := inputSlotLiteral(t, ctx, `"OtherSprite"`)
 	slot := createValueInputSlotFromBasicLit(ctx, literal, spxTestType(t, s, "SpriteName"))
 	require.NotNil(t, slot)
@@ -657,9 +658,9 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			source := tt.declaration + "println " + tt.expression + "\n"
 			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
-			result, file := compileSpxTestFile(t, s, "main.spx")
+			result, file := analyzeSpxTestFile(t, s, "main.spx")
 			requireNoDiagnostics(t, s)
-			ctx := newSpxInputSlotContext(t, result, file)
+			ctx := newSpxInputSlotContext(t, s.getProj(), result, file)
 			call := inputSlotCall(t, ctx, "println")
 			require.Len(t, call.Args, 1)
 			ident := requireValueAs[*ast.Ident](t, call.Args[0])
@@ -685,9 +686,9 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 			"assets/index.json":             []byte(`{}`),
 			"assets/sounds/Beep/index.json": []byte(`{}`),
 		})
-		result, file := compileSpxTestFile(t, s, "main.spx")
+		result, file := analyzeSpxTestFile(t, s, "main.spx")
 		requireNoDiagnostics(t, s)
-		ctx := newSpxInputSlotContext(t, result, file)
+		ctx := newSpxInputSlotContext(t, s.getProj(), result, file)
 		call := inputSlotCall(t, ctx, "play")
 		require.Len(t, call.Args, 1)
 		ident := requireValueAs[*ast.Ident](t, call.Args[0])
@@ -768,10 +769,10 @@ func TestSpxSymbolsInferSpxInputTypeFromType(t *testing.T) {
 	}
 }
 
-func newSpxInputSlotContext(t *testing.T, result *spxAnalysis, astFile *ast.File) *inputSlotContext {
+func newSpxInputSlotContext(t *testing.T, proj *xgo.Project, result *spxAnalysis, astFile *ast.File) *inputSlotContext {
 	t.Helper()
 
-	ctx := newInputSlotContext(result.proj, astFile)
+	ctx := newInputSlotContext(proj, astFile)
 	ctx.frameworkResult = &frameworkAnalysis{inputType: result.inferInputType, adaptInputSlot: result.adaptInputSlot}
 	return ctx
 }

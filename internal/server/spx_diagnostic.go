@@ -5,17 +5,18 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // spxDiagnosticPass supplies property information to analyzers for an spx project.
-func spxDiagnosticPass(result *spxAnalysis) func(string, *protocol.Pass) {
-	ctx := &definitionContext{proj: result.proj, framework: result.spxSymbols, frameworkResolved: true}
+func spxDiagnosticPass(proj *xgo.Project, result *spxAnalysis) func(string, *protocol.Pass) {
+	ctx := &definitionContext{proj: proj, framework: result.spxSymbols, frameworkResolved: true}
 	propertyNamesCache := make(map[*gotypes.Named]map[string]struct{})
 	return func(filename string, pass *protocol.Pass) {
-		file, _ := result.proj.ASTFile(filename)
+		file, _ := proj.ASTFile(filename)
 		pass.IsPropertyNameType = result.isSpxPropertyNameType
 		pass.GetPropertyNamesForCall = func(call *ast.CallExpr) map[string]struct{} {
-			named := propertyTargetForCall(result.proj, file, call)
+			named := propertyTargetForCall(proj, file, call)
 			if named == nil {
 				return nil
 			}

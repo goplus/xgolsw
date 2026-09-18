@@ -43,7 +43,7 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 		return nil, nil
 	}
 	ctx := newInputSlotContext(proj, astFile)
-	ctx.frameworkResult, err = s.analyzeFramework(proj)
+	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 	astPkg, _ := proj.ASTPackage()
 	var predefinedScopes []*gotypes.Scope
 	if astFile.IsClass {
-		filename := xgoutil.NodeFilename(proj.Fset, astFile)
+		filename := proj.Fset.PositionFor(astFile.Pos(), false).Filename
 		if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
 			for _, pkgPath := range class.PkgPaths {
 				pkg, err := proj.Importer.Import(pkgPath)

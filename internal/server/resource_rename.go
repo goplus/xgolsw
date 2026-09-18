@@ -11,6 +11,7 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
@@ -25,7 +26,7 @@ type resourceRenamePlan struct {
 
 // newResourceRenamePlan identifies initializers that directly name renamed
 // resources or whose uses all require the same new value.
-func newResourceRenamePlan(result *resourceAnalysis, info *types.Info, renames map[resourceID]string) *resourceRenamePlan {
+func newResourceRenamePlan(proj *xgo.Project, result *resourceAnalysis, info *types.Info, renames map[resourceID]string) *resourceRenamePlan {
 	p := &resourceRenamePlan{
 		initializers: make(map[gotypes.Object]ast.Expr),
 		owners:       make(map[ast.Node]ast.Expr),
@@ -39,7 +40,7 @@ func newResourceRenamePlan(result *resourceAnalysis, info *types.Info, renames m
 		name string
 	}
 	declarations := make(map[constantKey]ast.Expr)
-	astPkg, _ := result.proj.ASTPackage()
+	astPkg, _ := proj.ASTPackage()
 	if astPkg != nil {
 		for _, file := range astPkg.Files {
 			ast.Inspect(file, func(node ast.Node) bool {
@@ -116,13 +117,13 @@ func newResourceRenamePlan(result *resourceAnalysis, info *types.Info, renames m
 
 // renameResourcesAtRefs builds non-overlapping edits for all requested resource
 // renames while preserving constant uses that require different values.
-func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[resourceID]string) (map[DocumentURI][]TextEdit, error) {
+func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalysis, renames map[resourceID]string) (map[DocumentURI][]TextEdit, error) {
 	changes := make(map[DocumentURI][]TextEdit)
-	info, _ := result.proj.TypeInfo()
+	info, _ := proj.TypeInfo()
 	if info == nil || len(renames) == 0 {
 		return changes, nil
 	}
-	plan := newResourceRenamePlan(result, info, renames)
+	plan := newResourceRenamePlan(proj, result, info, renames)
 	seen := make(map[DocumentURI]map[TextEdit]bool)
 	addEdit := func(node ast.Node, name string, quoted bool) error {
 		if expr, ok := node.(ast.Expr); ok && quoted {
@@ -130,11 +131,11 @@ func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[res
 				node = literal
 			}
 		}
-		file := sourceASTFile(result.proj, node.Pos())
+		file := sourceASTFile(proj, node.Pos())
 		if file == nil {
 			return nil
 		}
-		edit := TextEdit{Range: resourceRange(result.proj, file, node), NewText: name}
+		edit := TextEdit{Range: resourceRange(proj, file, node), NewText: name}
 		if quoted {
 			edit.NewText = strings.ReplaceAll(strconv.Quote(name), "$", `\x24`)
 			if lit, ok := node.(*ast.BasicLit); ok {
@@ -152,17 +153,17 @@ func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[res
 				// Retain defined string types when replacing a typed expression.
 				if typ := info.TypeOf(expr); typ != nil {
 					if _, ok := gotypes.Unalias(typ).(*gotypes.Named); ok {
-						display := newTypeDisplay(result.proj, file, node.Pos())
+						display := newTypeDisplay(proj, file, node.Pos())
 						name, ok := display.sourceTypeString(typ)
 						if !ok {
-							return fmt.Errorf("cannot preserve resource constant type %q at %s", display.typeString(typ), result.proj.Fset.PositionFor(node.Pos(), false))
+							return fmt.Errorf("cannot preserve resource constant type %q at %s", display.typeString(typ), proj.Fset.PositionFor(node.Pos(), false))
 						}
 						edit.NewText = name + "(" + edit.NewText + ")"
 					}
 				}
 			}
 		}
-		uri := s.toDocumentURI(result.proj.Fset.File(node.Pos()).Name())
+		uri := s.toDocumentURI(proj.Fset.File(node.Pos()).Name())
 		if seen[uri] == nil {
 			seen[uri] = make(map[TextEdit]bool)
 		}
@@ -187,7 +188,7 @@ func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[res
 		if owner := plan.owners[ref.Node]; owner != nil {
 			if _, renamed := renames[ref.ID]; renamed && ref.Kind == XGoResourceRefKindStringLiteral && owner != ref.Node {
 				if _, replaced := plan.values[owner]; !replaced {
-					return nil, fmt.Errorf("cannot rename a resource within a derived constant at %s", result.proj.Fset.PositionFor(ref.Node.Pos(), false))
+					return nil, fmt.Errorf("cannot rename a resource within a derived constant at %s", proj.Fset.PositionFor(ref.Node.Pos(), false))
 				}
 			}
 			continue
@@ -241,7 +242,7 @@ func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[res
 		// Retaining a defined string type here would introduce a resource
 		// conversion with the old name inside an unchanged initializer.
 		if _, named := gotypes.Unalias(obj.Type()).(*gotypes.Named); named && owner != nil {
-			return nil, fmt.Errorf("cannot preserve a derived constant at %s", result.proj.Fset.PositionFor(owner.Pos(), false))
+			return nil, fmt.Errorf("cannot preserve a derived constant at %s", proj.Fset.PositionFor(owner.Pos(), false))
 		}
 		if err := addEdit(ident, original, true); err != nil {
 			return nil, err
@@ -255,12 +256,13 @@ func (s *Server) renameResourcesAtRefs(result *resourceAnalysis, renames map[res
 
 // renameResources dispatches resource edits to the current framework.
 func (s *Server) renameResources(params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
-	result, err := s.analyzeFramework(s.getProjWithFile())
+	proj := s.getProjWithFile()
+	result, err := analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}
 	if result == nil || result.renameResources == nil {
 		return nil, fmt.Errorf("resource analysis is unavailable")
 	}
-	return result.renameResources(params)
+	return result.renameResources(s, proj, params)
 }

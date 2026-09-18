@@ -28,9 +28,10 @@ show "Missing"
 		info, err := proj.TypeInfo()
 		require.NoError(t, err)
 		result := newSpxAnalysis(proj)
-		configurePass := spxDiagnosticPass(result)
+		configurePass := spxDiagnosticPass(proj, result)
+		diagnostics := newDiagnosticResult()
 		propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
-		s.inspectDiagnosticsAnalyzers(proj, &result.diagnosticResult, func(filename string, pass *protocol.Pass) {
+		s.inspectDiagnosticsAnalyzers(proj, &diagnostics, func(filename string, pass *protocol.Pass) {
 			configurePass(filename, pass)
 			pass.IsPropertyNameType = func(typ gotypes.Type) bool { return typ == propertyNameType }
 		})
@@ -39,7 +40,7 @@ show "Missing"
 				Severity: SeverityError, Message: `unknown property "Missing"`,
 				Range: Range{Start: Position{Line: 3, Character: 5}, End: Position{Line: 3, Character: 14}},
 			}},
-		}, result.diagnostics)
+		}, diagnostics.diagnostics)
 	})
 
 	t.Run("PropertyShadowingUpdates", func(t *testing.T) {
@@ -61,15 +62,16 @@ show "Missing"
 				info, err := proj.TypeInfo()
 				require.NoError(t, err)
 				result := newSpxAnalysis(proj)
-				configurePass := spxDiagnosticPass(result)
+				configurePass := spxDiagnosticPass(proj, result)
+				diagnostics := newDiagnosticResult()
 				propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
-				s.inspectDiagnosticsAnalyzers(proj, &result.diagnosticResult, func(filename string, pass *protocol.Pass) {
+				s.inspectDiagnosticsAnalyzers(proj, &diagnostics, func(filename string, pass *protocol.Pass) {
 					configurePass(filename, pass)
 					// Keep the adapter's target lookup and use the fixture's property-name type.
 					pass.IsPropertyNameType = func(typ gotypes.Type) bool { return typ == propertyNameType }
 				})
 				if !tt.shadowed {
-					assert.Empty(t, result.diagnostics)
+					assert.Empty(t, diagnostics.diagnostics)
 					return
 				}
 				var want []Diagnostic
@@ -80,7 +82,7 @@ show "Missing"
 						Range: Range{Start: Position{Line: line, Character: 10}, End: Position{Line: line, Character: uint32(12 + len(name))}},
 					})
 				}
-				assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, result.diagnostics)
+				assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, diagnostics.diagnostics)
 			})
 		}
 	})

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerAddEmptySpxResourceNameDiagnostic(t *testing.T) {
+func TestAddEmptySpxResourceNameDiagnostic(t *testing.T) {
 	for _, resource := range []struct {
 		name string
 		kind string
@@ -37,20 +37,20 @@ func TestServerAddEmptySpxResourceNameDiagnostic(t *testing.T) {
 					call := resourceTestCall(t, proj, "main.xgo")
 					require.Len(t, call.Args, 1)
 					result := newSpxAnalysis(proj)
-					s.addEmptySpxResourceNameDiagnostic(result, call.Args[0], resource.kind)
-					s.addEmptySpxResourceNameDiagnostic(result, call.Args[0], resource.kind)
+					addEmptySpxResourceNameDiagnostic(s.getProj(), result, call.Args[0], resource.kind)
+					addEmptySpxResourceNameDiagnostic(s.getProj(), result, call.Args[0], resource.kind)
 					assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": {{
 						Severity: SeverityError, Range: form.wantRange,
 						Message: resource.kind + " resource name cannot be empty",
-					}}}, result.diagnostics)
-					assert.True(t, result.hasErrorSeverityDiagnostic)
+					}}}, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
+					assert.True(t, resourceDiagnostics(s, result.resourceAnalysis).hasErrorSeverityDiagnostic)
 				})
 			}
 		})
 	}
 }
 
-func TestServerAddSpxResourceNotFoundDiagnostic(t *testing.T) {
+func TestAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 	for _, tt := range []struct {
 		name         string
 		resourceType string
@@ -73,15 +73,15 @@ func TestServerAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 			result := newSpxAnalysis(proj)
 			var want []Diagnostic
 			for i, span := range [][2]uint32{{5, 12}, {14, 21}, {23, 30}} {
-				s.addSpxResourceNotFoundDiagnostic(result, call.Args[i], tt.resourceType, "Ghost", tt.spriteName)
-				s.addSpxResourceNotFoundDiagnostic(result, call.Args[i], tt.resourceType, "Ghost", tt.spriteName)
+				addSpxResourceNotFoundDiagnostic(s.getProj(), result, call.Args[i], tt.resourceType, "Ghost", tt.spriteName)
+				addSpxResourceNotFoundDiagnostic(s.getProj(), result, call.Args[i], tt.resourceType, "Ghost", tt.spriteName)
 				want = append(want, Diagnostic{
 					Severity: SeverityError, Message: tt.want,
 					Range: Range{Start: Position{Line: 1, Character: span[0]}, End: Position{Line: 1, Character: span[1]}},
 				})
 			}
-			assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, result.diagnostics)
-			assert.True(t, result.hasErrorSeverityDiagnostic)
+			assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
+			assert.True(t, resourceDiagnostics(s, result.resourceAnalysis).hasErrorSeverityDiagnostic)
 			assert.Empty(t, newSpxAnalysis(proj).diagnostics)
 		})
 	}
@@ -92,15 +92,15 @@ func TestServerAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 		call := resourceTestCall(t, proj, "main.xgo")
 		require.Len(t, call.Args, 1)
 		result := newSpxAnalysis(proj)
-		s.addSpxResourceNotFoundDiagnostic(result, call.Args[0], "sound", "A\"B\nC", "")
+		addSpxResourceNotFoundDiagnostic(s.getProj(), result, call.Args[0], "sound", "A\"B\nC", "")
 		assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": {{
 			Severity: SeverityError, Message: `sound resource "A\"B\nC" not found`,
 			Range: Range{Start: Position{Character: 5}, End: Position{Line: 1, Character: 2}},
-		}}}, result.diagnostics)
+		}}}, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
 	})
 }
 
-func TestServerInspectForSpxResourceSet(t *testing.T) {
+func TestInspectForSpxResourceSet(t *testing.T) {
 	t.Run("Resources", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"assets/index.json":             []byte(`{"backdrops":[{"name":"Studio"}]}`),
@@ -108,11 +108,11 @@ func TestServerInspectForSpxResourceSet(t *testing.T) {
 		})
 		proj := s.getProj()
 		result := newSpxAnalysis(proj)
-		s.inspectForSpxResourceSet(proj, result)
+		inspectForSpxResourceSet(proj, result)
 		assert.NotNil(t, result.spxResourceSet.Backdrop("Studio"))
 		assert.NotNil(t, result.spxResourceSet.Sound("Beep"))
-		assert.Empty(t, result.diagnostics)
-		assert.False(t, result.hasErrorSeverityDiagnostic)
+		assert.Empty(t, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
+		assert.False(t, resourceDiagnostics(s, result.resourceAnalysis).hasErrorSeverityDiagnostic)
 	})
 
 	t.Run("MetadataErrors", func(t *testing.T) {
@@ -134,14 +134,14 @@ func TestServerInspectForSpxResourceSet(t *testing.T) {
 				result := newSpxAnalysis(proj)
 				result.mainSpxFile = "project/Stage.spx"
 				prior := Diagnostic{Severity: SeverityWarning, Message: "Existing warning"}
-				result.addDiagnostics("file:///other.xgo", prior)
-				s.inspectForSpxResourceSet(proj, result)
-				s.inspectForSpxResourceSet(proj, result)
+				result.diagnostics = append(result.diagnostics, sourceDiagnostic{"other.xgo", prior})
+				inspectForSpxResourceSet(proj, result)
+				inspectForSpxResourceSet(proj, result)
 				assert.Equal(t, map[DocumentURI][]Diagnostic{
 					"file:///other.xgo":         {prior},
 					"file:///project/Stage.spx": {{Severity: SeverityError, Message: "failed to create spx resource set: " + tt.message}},
-				}, result.diagnostics)
-				assert.True(t, result.hasErrorSeverityDiagnostic)
+				}, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
+				assert.True(t, resourceDiagnostics(s, result.resourceAnalysis).hasErrorSeverityDiagnostic)
 				assert.Equal(t, SpxResourceSet{}, result.spxResourceSet)
 			})
 		}

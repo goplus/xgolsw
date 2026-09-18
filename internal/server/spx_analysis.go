@@ -37,9 +37,13 @@ type spxAnalysis struct {
 
 // newSpxAnalysis creates a new [spxAnalysis].
 func newSpxAnalysis(proj *xgo.Project) *spxAnalysis {
+	symbols, _ := resolveFrameworkAdapter(proj).(*spxSymbols)
+	if symbols == nil {
+		symbols = &spxSymbols{}
+	}
 	return &spxAnalysis{
-		spxSymbols:                    newSpxSymbols(proj),
-		resourceAnalysis:              &resourceAnalysis{proj: proj, diagnosticResult: newDiagnosticResult()},
+		spxSymbols:                    symbols,
+		resourceAnalysis:              &resourceAnalysis{},
 		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
 		resourceLiterals:              make(map[*ast.BasicLit]resourceValue),
 		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
@@ -62,10 +66,10 @@ func (r *spxAnalysis) hasSpxSpriteResourceAutoBinding(obj gotypes.Object) bool {
 // analyzeSpx analyzes spx resources throughout the project. It returns nil when
 // the project has no spx classfiles or its SDK is unavailable. Syntax errors,
 // type errors, and analyzers are handled separately by diagnosticsAt.
-func (s *Server) analyzeSpx(snapshot *xgo.Project) (*spxAnalysis, error) {
+func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
 	var hasSpxFile bool
-	for file := range snapshot.Files() {
-		if spxClassForFile(snapshot, file) != nil {
+	for file := range proj.Files() {
+		if spxClassForFile(proj, file) != nil {
 			hasSpxFile = true
 			break
 		}
@@ -74,24 +78,24 @@ func (s *Server) analyzeSpx(snapshot *xgo.Project) (*spxAnalysis, error) {
 		return nil, nil
 	}
 
-	result := newSpxAnalysis(snapshot)
+	result := newSpxAnalysis(proj)
 	if result.spxSymbols.pkg == nil {
 		return nil, nil
 	}
-	astPkg, err := snapshot.ASTPackage()
+	astPkg, err := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, err
 	}
 	for filename, astFile := range astPkg.Files {
-		if spxClassForFile(snapshot, filename) == nil {
+		if spxClassForFile(proj, filename) == nil {
 			continue
 		}
 		if astFile.Name.Name != "main" && astFile.Pos().IsValid() {
-			result.addDiagnostics(s.toDocumentURI(filename), Diagnostic{
+			result.diagnostics = append(result.diagnostics, sourceDiagnostic{filename, Diagnostic{
 				Severity: SeverityError,
-				Range:    RangeForASTFileNode(result.proj, astFile, astFile.Name),
-				Message:  s.translate("package name must be main"),
-			})
+				Range:    RangeForASTFileNode(proj, astFile, astFile.Name),
+				Message:  "package name must be main",
+			}})
 			continue
 		}
 
@@ -99,33 +103,32 @@ func (s *Server) analyzeSpx(snapshot *xgo.Project) (*spxAnalysis, error) {
 			result.mainSpxFile = filename
 		}
 	}
-	snapshot.TypeInfo()
+	proj.TypeInfo()
 	for filename := range astPkg.Files {
-		if named := spxSpriteTypeForFile(snapshot, filename); named != nil {
+		if named := spxSpriteTypeForFile(proj, filename); named != nil {
 			result.spxSpriteTypes[named] = struct{}{}
 		}
 	}
 
-	s.inspectForSpxResourceSet(snapshot, result)
-	s.inspectForSpxResourceRefs(result)
+	inspectForSpxResourceSet(proj, result)
+	inspectForSpxResourceRefs(proj, result)
 
 	return result, nil
 }
 
 // inspectForSpxResourceSet loads the project's spx resource set.
-func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *spxAnalysis) {
-	spxResourceSet, err := NewSpxResourceSet(snapshot)
+func inspectForSpxResourceSet(proj *xgo.Project, result *spxAnalysis) {
+	spxResourceSet, err := NewSpxResourceSet(proj)
 	result.spxResourceSetErr = err
 	if err != nil {
 		filename := result.mainSpxFile
 		if filename == "" {
 			filename = spxResourceRootDir + "/index.json"
 		}
-		documentURI := s.toDocumentURI(filename)
-		result.addDiagnostics(documentURI, Diagnostic{
+		result.diagnostics = append(result.diagnostics, sourceDiagnostic{filename, Diagnostic{
 			Severity: SeverityError,
-			Message:  s.translate(fmt.Sprintf("failed to create spx resource set: %v", err)),
-		})
+			Message:  fmt.Sprintf("failed to create spx resource set: %v", err),
+		}})
 		return
 	}
 	result.spxResourceSet = *spxResourceSet
@@ -133,11 +136,11 @@ func (s *Server) inspectForSpxResourceSet(snapshot *xgo.Project, result *spxAnal
 }
 
 // inspectForSpxResourceRefs collects source references using SDK resource types.
-func (s *Server) inspectForSpxResourceRefs(result *spxAnalysis) {
-	s.inspectForAutoBindingSpxResources(result)
-	info, _ := result.proj.TypeInfo()
+func inspectForSpxResourceRefs(proj *xgo.Project, result *spxAnalysis) {
+	inspectForAutoBindingSpxResources(proj, result)
+	info, _ := proj.TypeInfo()
 	callSprites := make(map[*ast.CallExpr]*SpxSpriteResource)
-	for ref := range resourceReferences(result.proj, func(value resourceValue) (resourceID, bool) {
+	for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
 		if value.Intrinsic {
 			switch result.spxResourceNameType(value.Type) {
 			case "BackdropName", "SpriteName", "SoundName", "WidgetName":
@@ -147,11 +150,11 @@ func (s *Server) inspectForSpxResourceRefs(result *spxAnalysis) {
 		}
 		id, recognized := result.resolveResourceID(value.Type, value.Name, func() *SpxSpriteResource {
 			if value.Call == nil {
-				return spxSpriteResourceForFile(result, result.proj.Fset.PositionFor(value.Expr.Pos(), false).Filename)
+				return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(value.Expr.Pos(), false).Filename)
 			}
 			sprite, ok := callSprites[value.Call]
 			if !ok {
-				sprite = s.resolveSpxSpriteContextFromCallExpr(result, value.Call)
+				sprite = resolveSpxSpriteContextFromCallExpr(proj, result, value.Call)
 				callSprites[value.Call] = sprite
 			}
 			return sprite
@@ -163,20 +166,20 @@ func (s *Server) inspectForSpxResourceRefs(result *spxAnalysis) {
 		}
 		return id, recognized
 	}) {
-		s.inspectSpxResourceRef(result, ref)
+		inspectSpxResourceRef(proj, result, ref)
 	}
 }
 
 // inspectForAutoBindingSpxResources inspects for auto-binding spx resources and
 // their references.
-func (s *Server) inspectForAutoBindingSpxResources(result *spxAnalysis) {
-	typeInfo, _ := result.proj.TypeInfo()
+func inspectForAutoBindingSpxResources(proj *xgo.Project, result *spxAnalysis) {
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return
 	}
 
-	file, _ := result.proj.ASTFile(result.mainSpxFile)
-	gameType := classTypeForFile(result.proj, file)
+	file, _ := proj.ASTFile(result.mainSpxFile)
+	gameType := classTypeForFile(proj, file)
 	if gameType == nil {
 		return
 	}
@@ -206,8 +209,8 @@ func (s *Server) inspectForAutoBindingSpxResources(result *spxAnalysis) {
 }
 
 // resolveSpxSpriteContextFromCallExpr resolves the sprite context from a call expression.
-func (s *Server) resolveSpxSpriteContextFromCallExpr(result *spxAnalysis, callExpr *ast.CallExpr) *SpxSpriteResource {
-	typeInfo, _ := result.proj.TypeInfo()
+func resolveSpxSpriteContextFromCallExpr(proj *xgo.Project, result *spxAnalysis, callExpr *ast.CallExpr) *SpxSpriteResource {
+	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil
 	}
@@ -226,7 +229,7 @@ func (s *Server) resolveSpxSpriteContextFromCallExpr(result *spxAnalysis, callEx
 	}
 	switch result.spxTypeName(xgoutil.DerefType(funcSigRecv.Type())) {
 	case "Sprite", "SpriteImpl":
-		return spxSpriteResourceForCall(result, callExpr)
+		return spxSpriteResourceForCall(proj, result, callExpr)
 	}
 	return nil
 }
@@ -266,7 +269,7 @@ func (result *spxAnalysis) resolveResourceID(typ gotypes.Type, name string, getS
 
 // inspectSpxResourceRef records a resolved string resource reference and
 // diagnoses empty names or missing resources without consulting SDK types.
-func (s *Server) inspectSpxResourceRef(result *spxAnalysis, ref resourceRef) {
+func inspectSpxResourceRef(proj *xgo.Project, result *spxAnalysis, ref resourceRef) {
 	var resourceType, emptyResourceType, spriteName string
 	switch id := ref.ID.(type) {
 	case SpxBackdropResourceID:
@@ -286,25 +289,25 @@ func (s *Server) inspectSpxResourceRef(result *spxAnalysis, ref resourceRef) {
 		emptyResourceType = resourceType
 	}
 	if ref.ID.Name() == "" {
-		s.addEmptySpxResourceNameDiagnostic(result, ref.Node, emptyResourceType)
+		addEmptySpxResourceNameDiagnostic(proj, result, ref.Node, emptyResourceType)
 		return
 	}
 	result.addResourceRef(ref)
 	if result.spxResourceSetErr == nil && !result.spxResourceSet.Contains(ref.ID) {
-		s.addSpxResourceNotFoundDiagnostic(result, ref.Node, resourceType, ref.ID.Name(), spriteName)
+		addSpxResourceNotFoundDiagnostic(proj, result, ref.Node, resourceType, ref.ID.Name(), spriteName)
 	}
 }
 
 // addEmptySpxResourceNameDiagnostic diagnoses an empty SDK resource name.
-func (s *Server) addEmptySpxResourceNameDiagnostic(result *spxAnalysis, expr ast.Node, resourceType string) {
-	s.addResourceDiagnostic(result.resourceAnalysis, expr, fmt.Sprintf("%s resource name cannot be empty", resourceType))
+func addEmptySpxResourceNameDiagnostic(proj *xgo.Project, result *spxAnalysis, expr ast.Node, resourceType string) {
+	addResourceDiagnostic(proj, result.resourceAnalysis, expr, fmt.Sprintf("%s resource name cannot be empty", resourceType))
 }
 
 // addSpxResourceNotFoundDiagnostic diagnoses a missing SDK resource.
-func (s *Server) addSpxResourceNotFoundDiagnostic(result *spxAnalysis, expr ast.Node, resourceType, resourceName, contextSpriteName string) {
+func addSpxResourceNotFoundDiagnostic(proj *xgo.Project, result *spxAnalysis, expr ast.Node, resourceType, resourceName, contextSpriteName string) {
 	message := fmt.Sprintf("%s resource %q not found", resourceType, resourceName)
 	if contextSpriteName != "" {
 		message = fmt.Sprintf("%s in sprite %q", message, contextSpriteName)
 	}
-	s.addResourceDiagnostic(result.resourceAnalysis, expr, message)
+	addResourceDiagnostic(proj, result.resourceAnalysis, expr, message)
 }

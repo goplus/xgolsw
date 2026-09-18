@@ -135,6 +135,8 @@ func (p *Project) SetModule(module *Module) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.module = module
+	p.cacheRevision++
 	clear(p.caches)
 	clear(p.fileCaches)
+	p.sharedAST = false
 }

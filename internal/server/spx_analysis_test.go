@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerAnalyzeSpxCallResourceReferences(t *testing.T) {
+func TestAnalyzeSpxCallResourceReferences(t *testing.T) {
 	for _, tt := range []struct {
 		name            string
 		source          string
@@ -85,7 +85,7 @@ worker.use names = (["Known", "Missing"])
 			}
 			_, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
-			result, err := s.analyzeSpx(s.getProjWithFile())
+			result, err := analyzeSpx(s.getProjWithFile())
 			require.NoError(t, err)
 			require.Len(t, result.resourceRefs, 2)
 			var wantLinks []DocumentLink
@@ -141,7 +141,7 @@ configure target = "OtherSprite", unknown = 9
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, files)
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Len(t, result.resourceRefs, 1)
@@ -149,41 +149,7 @@ configure target = "OtherSprite", unknown = 9
 	})
 }
 
-func TestSpxAnalysisIsInFrameworkEventHandler(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		source string
-		want   bool
-	}{
-		{"OrdinaryCallback", "func invoke(fn func()) { fn() }\ninvoke => {\n    |println 1\n}\n", false},
-		{"UserHandler", "func onCustom(fn func()) { fn() }\nonCustom => {\n    |println 1\n}\n", false},
-		{"ShadowedHandler", "onStart := func(fn func()) { fn() }\nonStart => {\n    |println 1\n}\n", false},
-		{"Handler", "onStart => {\n    |println 1\n}\n", true},
-		{"NestedOrdinaryCallback", "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        |println 1\n    }\n}\n", true},
-		{"ExplicitReceiver", "this.onStart => {\n    |println 1\n}\n", true},
-		{"OverloadedHandler", "onKey KeySpace, => {\n    |println 1\n}\n", true},
-		{"FunctionLiteral", "onStart func() {\n    |println 1\n}\n", true},
-		{"Argument", "onKey |KeySpace, => {}\n", false},
-		{"CallbackParameters", "onKey [KeySpace], |key => { println key }\n", false},
-		{"Unresolved", "onMissing => {\n    |println 1\n}\n", false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			source, position := typeDisplayTestSource(t, tt.source)
-			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
-			result, err := s.analyzeSpx(s.getProjWithFile())
-			require.NoError(t, err)
-			if tt.name != "Unresolved" {
-				requireNoDiagnostics(t, s)
-			}
-			file, err := result.proj.ASTFile("main.spx")
-			require.NoError(t, err)
-			ctx := &definitionContext{proj: result.proj}
-			assert.Equal(t, tt.want, ctx.isInFrameworkEventHandler(PosAt(result.proj, file, position)))
-		})
-	}
-}
-
-func TestServerInspectForSpxResourceRefs(t *testing.T) {
+func TestInspectForSpxResourceRefs(t *testing.T) {
 	for _, resource := range []struct {
 		name string
 		id   resourceID
@@ -226,13 +192,13 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 					})
 					_, err := s.getProj().TypeInfo()
 					require.NoError(t, err)
-					result, err := s.analyzeSpx(s.getProjWithFile())
+					result, err := analyzeSpx(s.getProjWithFile())
 					require.NoError(t, err)
 					require.Len(t, result.resourceRefs, 1)
 					ref := result.resourceRefs[0]
 					assert.Equal(t, resource.id, ref.ID)
 					assert.Equal(t, form.kind, ref.Kind)
-					for _, diagnostics := range result.diagnostics {
+					for _, diagnostics := range resourceDiagnostics(s, result.resourceAnalysis).diagnostics {
 						assert.Empty(t, diagnostics)
 					}
 					offset := strings.LastIndex(source, form.needle)
@@ -276,7 +242,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.getProjWithFile())
 				require.NoError(t, err)
 				require.Len(t, result.resourceRefs, 2)
 				got := make(map[resourceID]XGoResourceRefKind)
@@ -287,7 +253,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 					SpxSoundResourceID{"Known"}:    XGoResourceRefKindStringLiteral,
 					SpxBackdropResourceID{"Known"}: XGoResourceRefKindConstantReference,
 				}, got)
-				assert.Empty(t, result.diagnostics["file:///main.spx"])
+				assert.Empty(t, resourceDiagnostics(s, result.resourceAnalysis).diagnostics["file:///main.spx"])
 			})
 		}
 	})
@@ -341,14 +307,14 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.getProjWithFile())
 				require.NoError(t, err)
 				var got []resourceID
 				for _, ref := range result.resourceRefs {
 					got = append(got, ref.ID)
 				}
 				assert.ElementsMatch(t, tt.want, got)
-				for _, diagnostics := range result.diagnostics {
+				for _, diagnostics := range resourceDiagnostics(s, result.resourceAnalysis).diagnostics {
 					assert.Empty(t, diagnostics)
 				}
 			})
@@ -391,14 +357,14 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 						result.mainSpxFile = "main.spx"
 						result.spxResourceSet = *set
 						require.NotPanics(t, func() {
-							s.inspectForSpxResourceRefs(result)
+							inspectForSpxResourceRefs(s.getProj(), result)
 						})
 						require.Len(t, result.resourceRefs, 1)
 						ref := result.resourceRefs[0]
 						assert.Equal(t, resource.id, ref.ID)
 						assert.Equal(t, XGoResourceRefKindStringLiteral, ref.Kind)
 						assert.Equal(t, `"Known"`, requireValueAs[*ast.BasicLit](t, ref.Node).Value)
-						assert.Empty(t, result.diagnostics)
+						assert.Empty(t, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
 					})
 				}
 			})
@@ -425,7 +391,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				s := newSpxTestServer(t, files)
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.getProjWithFile())
 				require.NoError(t, err)
 				var ids []resourceID
 				for _, ref := range result.resourceRefs {

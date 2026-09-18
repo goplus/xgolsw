@@ -17,7 +17,6 @@ import (
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // MessageReplier is an interface for sending messages back to the client.
@@ -56,6 +55,9 @@ type Server struct {
 	clientCapabilities ClientCapabilities
 	initializeCalled   bool
 	initialized        bool
+	diagnosticsMu      sync.Mutex
+	pendingDiagnostics map[DocumentURI]*diagnosticRequest
+	diagnosticsRunning bool
 }
 
 func (s *Server) getProj() *xgo.Project {
@@ -77,6 +79,9 @@ func New(
 	listPkgs func() ([]string, error),
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
 ) *Server {
+	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
+	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
+	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
@@ -617,9 +622,9 @@ func (s *Server) toDocumentURI(path string) DocumentURI {
 	return DocumentURI(string(s.workspaceRootURI) + path)
 }
 
-// posDocumentURI returns the [DocumentURI] for the given position in the project.
+// posDocumentURI returns the physical document URI for pos, ignoring line directives.
 func (s *Server) posDocumentURI(proj *xgo.Project, pos token.Pos) DocumentURI {
-	return s.toDocumentURI(xgoutil.PosFilename(proj.Fset, pos))
+	return s.toDocumentURI(proj.Fset.PositionFor(pos, false).Filename)
 }
 
 // nodeDocumentURI returns the [DocumentURI] for the given node in the project.
