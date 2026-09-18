@@ -11,6 +11,53 @@ import (
 )
 
 func TestServerSpxProjectResources(t *testing.T) {
+	t.Run("ExplicitThisWithEscapedResourceName", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":                         nil,
+			"Runner.spx":                       []byte("this.setCostume \"idle/front\"\nthis.setCostume \"idle\"\n"),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"idle/front"},{"name":"idle"}]}`),
+		})
+		requireNoDiagnostics(t, s)
+		id := TextDocumentIdentifier{URI: "file:///Runner.spx"}
+		const resourceURI XGoResourceURI = "spx://resources/sprites/Runner/costumes/idle%2Ffront"
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: id})
+		require.NoError(t, err)
+		assert.Contains(t, documentLinkTargets(t, links), string(resourceURI))
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
+		require.NoError(t, err)
+		assert.NotNil(t, findInputSlot(slots, resourceURI, "", XGoInputTypeSpxResourceName, XGoInputKindInPlace))
+		edit, err := s.renameResources([]XGoRenameResourceParams{{
+			Resource: XGoResourceIdentifier{URI: resourceURI}, NewName: "rest",
+		}})
+		require.NoError(t, err)
+		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+			id.URI: {{Range: Range{Start: Position{Character: 17}, End: Position{Character: 27}}, NewText: "rest"}},
+		})
+	})
+
+	t.Run("XGoStrings", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":                   []byte("var choice = \"Known\"\nplay \"${choice}\"\nplay \"$$\"\n"),
+			"assets/index.json":          []byte(`{}`),
+			"assets/sounds/$/index.json": []byte(`{}`),
+		})
+		requireNoDiagnostics(t, s)
+		id := TextDocumentIdentifier{URI: "file:///main.spx"}
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: id})
+		require.NoError(t, err)
+		assert.Contains(t, documentLinkTargets(t, links), "spx://resources/sounds/$")
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
+		require.NoError(t, err)
+		assert.NotNil(t, findInputSlot(slots, XGoResourceURI("spx://resources/sounds/$"), "", XGoInputTypeSpxResourceName, XGoInputKindInPlace))
+		assert.Nil(t, findInputSlot(slots, "${choice}", "", XGoInputTypeString, XGoInputKindInPlace))
+		edits, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{
+			URI: (SpxSoundResourceID{SoundName: "${choice}"}).URI(),
+		}, NewName: "Renamed"}})
+		require.NoError(t, err)
+		assert.Empty(t, edits.Changes)
+	})
+
 	for _, tt := range []struct {
 		name, filename, prefix string
 		withoutProject         bool
@@ -50,7 +97,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 			assert.Equal(t, resourceMarkupContent("spx://resources/sounds/Known", Markdown), hover.Contents)
 			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: id})
 			require.NoError(t, err)
-			assert.Contains(t, links, DocumentLink{Range: span, Target: toURI("spx://resources/sounds/Known"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}})
+			assert.Contains(t, links, DocumentLink{Range: span, Target: toURI("spx://resources/sounds/Known"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}})
 			assert.NotContains(t, documentLinkTargets(t, links), "spx://resources/sounds/Missing")
 			slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
 			require.NoError(t, err)
@@ -65,7 +112,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 				Severity: SeverityError, Message: `sound resource "Missing" not found`,
 				Range: Range{Start: Position{Line: position.Line + 1, Character: 5}, End: Position{Line: position.Line + 1, Character: 14}},
 			}}, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
-			edit, err := s.spxRenameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
+			edit, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
 			require.NoError(t, err)
 			assert.Equal(t, map[DocumentURI][]TextEdit{id.URI: {{
 				Range: Range{Start: Position{Line: position.Line, Character: 6}, End: Position{Line: position.Line, Character: 11}}, NewText: "Renamed",
@@ -91,7 +138,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, findInputSlot(slots, "Known", "", XGoInputTypeString, XGoInputKindInPlace))
 		assert.NotContains(t, completionItemLabels(completionItemsAt(t, s, "helper.xgo", position)), "Known")
-		edit, err := s.spxRenameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
+		edit, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
 		require.NoError(t, err)
 		assert.Empty(t, edit.Changes)
 	})
@@ -164,7 +211,7 @@ func TestServerSpxProjectUnavailableMetadata(t *testing.T) {
 			slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
 			require.NoError(t, err)
 			assert.NotNil(t, findInputSlot(slots, int64(1), "", XGoInputTypeInteger, XGoInputKindInPlace))
-			edit, err := s.spxRenameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
+			edit, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
 			require.ErrorContains(t, err, tt.wantError)
 			assert.Nil(t, edit)
 		})
@@ -182,7 +229,7 @@ func TestServerSpxProjectUnavailableMetadata(t *testing.T) {
 
 func TestServerSpxRenameResourcesUnavailableProject(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 1\n")})
-	edit, err := s.spxRenameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
-	require.ErrorContains(t, err, "spx resource analysis is unavailable")
+	edit, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Renamed"}})
+	require.ErrorContains(t, err, "resource analysis is unavailable")
 	assert.Nil(t, edit)
 }

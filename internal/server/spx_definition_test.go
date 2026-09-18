@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDefinitionContextSpxResourceNameType(t *testing.T) {
+func TestSpxSymbolsSpxResourceNameType(t *testing.T) {
 	s := newSpxTestServer(t, nil)
-	ctx := &definitionContext{proj: s.getProj()}
+	ctx := newSpxSymbols(s.getProj())
 	pkg := gotypes.NewPackage("example.com/pkg", "pkg")
 	soundAlias := gotypes.NewAlias(
 		gotypes.NewTypeName(token.NoPos, pkg, "MySoundName", nil),
@@ -63,10 +63,10 @@ func TestDefinitionContextSpxResourceNameType(t *testing.T) {
 	}
 }
 
-func TestDefinitionContextSpxTypesFromProject(t *testing.T) {
+func TestSpxSymbolsSpxTypeName(t *testing.T) {
 	s := newSpxTestServer(t, nil)
 	other := newSpxTestServer(t, nil)
-	ctx := &definitionContext{proj: s.getProj()}
+	ctx := newSpxSymbols(s.getProj())
 	for _, name := range []string{"SoundName", "PropertyName", "Value", "List", "Sprite", "SpriteImpl"} {
 		t.Run(name, func(t *testing.T) {
 			own := spxTestType(t, s, name)
@@ -83,7 +83,7 @@ func TestDefinitionContextSpxTypesFromProject(t *testing.T) {
 	t.Run("ImporterChange", func(t *testing.T) {
 		proj := s.getProj().Snapshot()
 		proj.Importer = other.getProj().Importer
-		next := &definitionContext{proj: proj}
+		next := newSpxSymbols(proj)
 		assert.Empty(t, next.spxTypeName(spxTestType(t, s, "SoundName")))
 		assert.Equal(t, "SoundName", next.spxTypeName(spxTestType(t, other, "SoundName")))
 		assert.Equal(t, "SoundName", ctx.spxTypeName(spxTestType(t, s, "SoundName")))
@@ -92,16 +92,16 @@ func TestDefinitionContextSpxTypesFromProject(t *testing.T) {
 	t.Run("UnavailableSDK", func(t *testing.T) {
 		proj := s.getProj().Snapshot()
 		proj.Importer = completionTestImporter{Importer: proj.Importer, unavailablePath: SpxPkgPath}
-		ctx := &definitionContext{proj: proj}
+		ctx := newSpxSymbols(proj)
 		assert.Empty(t, ctx.spxResourceNameType(spxTestType(t, s, "SoundName")))
 		assert.False(t, ctx.isSpxPropertyNameType(spxTestType(t, s, "PropertyName")))
-		assert.False(t, ctx.isSpxValueOrListType(requireValueAs[*gotypes.Named](t, spxTestType(t, s, "Value"))))
+		assert.False(t, ctx.isPropertyType(requireValueAs[*gotypes.Named](t, spxTestType(t, s, "Value"))))
 	})
 
 	t.Run("PartialSDK", func(t *testing.T) {
 		s := newSpxSymbolTestServer(t, nil, SpxPkgPath)
 		setSpxSymbolTestModule(t, s, SpxPkgPath)
-		ctx := &definitionContext{proj: s.getProj()}
+		ctx := newSpxSymbols(s.getProj())
 		assert.Equal(t, "SpriteImpl", ctx.spxTypeName(spxTestType(t, s, "SpriteImpl")))
 		assert.Empty(t, ctx.spxResourceNameType(gotypes.Typ[gotypes.String]))
 	})

@@ -25,7 +25,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	links, err := s.documentLinksForSpxResources(proj, filename)
+	links, err := s.documentLinksForResources(proj, filename)
 	if err != nil {
 		return nil, err
 	}

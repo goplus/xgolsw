@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerCompileAt(t *testing.T) {
+func TestServerAnalyzeFramework(t *testing.T) {
 	t.Run("UnregisteredClassfile", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.spx": []byte("println 1\n")})
-		result, err := s.compileAt(s.getProj())
+		result, err := s.analyzeFramework(s.getProj())
 		require.NoError(t, err)
 		assert.Nil(t, result)
 	})
@@ -19,7 +19,7 @@ func TestServerCompileAt(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte("println 1\n")})
 		proj := s.getProj()
 		proj.Importer = completionTestImporter{Importer: proj.Importer, unavailablePath: SpxPkgPath}
-		result, err := s.compileAt(proj)
+		result, err := s.analyzeFramework(proj)
 		require.NoError(t, err)
 		assert.Nil(t, result)
 	})

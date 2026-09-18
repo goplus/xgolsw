@@ -22,6 +22,7 @@ import (
 	"iter"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
@@ -174,18 +175,40 @@ func ToLowerCamelCase(s string) string {
 // StringLitOrConstValue attempts to get the value from a string literal or
 // constant. It returns the string value and true if successful, or empty string
 // and false if the expression is not a string literal or constant, or if the
-// value cannot be determined.
+// value cannot be determined. It decodes XGo dollar escapes and excludes
+// literals containing interpolated expressions.
 func StringLitOrConstValue(expr ast.Expr, tv gotypes.TypeAndValue) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {
 			return "", false
 		}
+		// Validate the whole literal before decoding parser-split fragments.
 		v, err := strconv.Unquote(e.Value)
 		if err != nil {
 			return "", false
 		}
-		return v, true
+		if e.Extra == nil {
+			return v, true
+		}
+		var value strings.Builder
+		quote := e.Value[:1]
+		for _, part := range e.Extra.Parts {
+			text, ok := part.(string)
+			if !ok {
+				return "", false
+			}
+			// The parser ends each dollar-escape part with "$$".
+			if strings.HasSuffix(text, "$$") {
+				text = text[:len(text)-1]
+			}
+			v, err := strconv.Unquote(quote + text + quote)
+			if err != nil {
+				return "", false
+			}
+			value.WriteString(v)
+		}
+		return value.String(), true
 	case *ast.Ident:
 		if tv.Value != nil && tv.Value.Kind() == constant.String {
 			// If it's a constant, we can get its value.

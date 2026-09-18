@@ -32,57 +32,53 @@ type spxSymbols struct {
 	types map[gotypes.Type]string
 }
 
-// spxSymbols resolves the registered SDK through the project's importer. An
-// unavailable SDK leaves its optional language-server adaptations inactive.
-func (r *definitionContext) spxSymbols() *spxSymbols {
-	if r.spx != nil {
-		return r.spx
-	}
-	r.spx = &spxSymbols{}
-	for class := range r.proj.Module().ClassProjects() {
+// newSpxSymbols resolves SDK declarations through the project's importer.
+// Missing registrations or exports leave the optional adapter inactive.
+func newSpxSymbols(proj *xgo.Project) *spxSymbols {
+	symbols := &spxSymbols{}
+	for class := range proj.Module().ClassProjects() {
 		if !isSpxClass(class) {
 			continue
 		}
-		pkg, err := r.proj.Importer.Import(SpxPkgPath)
+		pkg, err := proj.Importer.Import(SpxPkgPath)
 		if err != nil {
-			return r.spx
+			return symbols
 		}
-		r.spx.pkg = pkg
-		r.spx.types = make(map[gotypes.Type]string)
+		symbols.pkg = pkg
+		symbols.types = make(map[gotypes.Type]string)
 		for _, name := range []string{
-			"Sprite", "SpriteImpl", "BackdropName", "SpriteName",
-			"SpriteCostumeName", "SpriteAnimationName", "SoundName", "WidgetName",
-			"Direction", "layerAction", "dirAction", "EffectKind", "Key", "Edge",
-			"RotationStyle", "PropertyName", "Value", "List",
+			"Sprite", "SpriteImpl", "BackdropName", "SpriteName", "SpriteCostumeName",
+			"SpriteAnimationName", "SoundName", "WidgetName", "Direction", "layerAction",
+			"dirAction", "EffectKind", "Key", "Edge", "RotationStyle", "PropertyName", "Value", "List",
 		} {
 			if obj := pkg.Scope().Lookup(name); obj != nil {
-				r.spx.types[obj.Type()] = name
+				symbols.types[obj.Type()] = name
 			}
 		}
 		break
 	}
-	return r.spx
+	return symbols
 }
 
 // isSpxSymbol reports whether obj belongs to the project's registered SDK.
-func (r *definitionContext) isSpxSymbol(obj gotypes.Object) bool {
+func (r *spxSymbols) isSpxSymbol(obj gotypes.Object) bool {
 	if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != SpxPkgPath {
 		return false
 	}
-	return obj.Pkg() == r.spxSymbols().pkg
+	return obj.Pkg() == r.pkg
 }
 
 // spxTypeName resolves alias chains to a recognized SDK type symbol.
 // Edge identifies the SDK's private special-object type.
 // Defined types and same-path packages from other importers remain distinct.
-func (r *definitionContext) spxTypeName(typ gotypes.Type) string {
+func (r *spxSymbols) spxTypeName(typ gotypes.Type) string {
 	seen := make(map[gotypes.Type]struct{})
 	for typ != nil {
 		if _, ok := seen[typ]; ok {
 			return ""
 		}
 		seen[typ] = struct{}{}
-		if name := r.spxSymbols().types[typ]; name != "" {
+		if name := r.types[typ]; name != "" {
 			return name
 		}
 		alias, ok := typ.(*gotypes.Alias)
@@ -95,7 +91,7 @@ func (r *definitionContext) spxTypeName(typ gotypes.Type) string {
 }
 
 // spxResourceNameType returns the SDK declaration naming a resource type.
-func (r *definitionContext) spxResourceNameType(typ gotypes.Type) string {
+func (r *spxSymbols) spxResourceNameType(typ gotypes.Type) string {
 	switch name := r.spxTypeName(typ); name {
 	case "BackdropName", "SpriteName", "SpriteCostumeName", "SpriteAnimationName", "SoundName", "WidgetName":
 		return name
@@ -104,14 +100,14 @@ func (r *definitionContext) spxResourceNameType(typ gotypes.Type) string {
 }
 
 // isSpxPropertyNameType reports whether typ aliases the SDK's PropertyName.
-func (r *definitionContext) isSpxPropertyNameType(typ gotypes.Type) bool {
+func (r *spxSymbols) isSpxPropertyNameType(typ gotypes.Type) bool {
 	return r.spxTypeName(typ) == "PropertyName"
 }
 
-// spxFunctionDocumentation resolves the implementation documentation for a
+// functionDocumentation resolves the implementation documentation for a
 // public Sprite method. Absent implementation entries leave the declaration's
 // documentation in effect.
-func (r *definitionContext) spxFunctionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc) (string, bool) {
+func (r *spxSymbols) functionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc) (string, bool) {
 	if doc == nil {
 		return "", false
 	}
@@ -126,11 +122,20 @@ func (r *definitionContext) spxFunctionDocumentation(fun *gotypes.Func, doc *pkg
 	return "", false
 }
 
-// spxDisplayTypeName maps the project's spx implementation type to its public
+// displayTypeName maps the project's spx implementation type to its public
 // name. Other symbols retain their declared type names.
-func (r *definitionContext) spxDisplayTypeName(obj gotypes.Object, typeName string) string {
+func (r *spxSymbols) displayTypeName(obj gotypes.Object, typeName string) string {
 	if typeName == "SpriteImpl" && r.isSpxSymbol(obj) {
 		return "Sprite"
 	}
 	return typeName
+}
+
+// isPropertyType reports whether named is spx.Value or spx.List.
+func (r *spxSymbols) isPropertyType(named *gotypes.Named) bool {
+	switch r.spxTypeName(named) {
+	case "Value", "List":
+		return true
+	}
+	return false
 }

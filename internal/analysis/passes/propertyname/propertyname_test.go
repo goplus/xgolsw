@@ -3,6 +3,7 @@ package propertyname
 import (
 	gotypes "go/types"
 	"iter"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,48 @@ func testPropertyNames(_ *ast.CallExpr) map[string]struct{} {
 }
 
 func TestPropertyname(t *testing.T) {
+	t.Run("ParenthesizedArguments", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			call     string
+			expr     string
+			wantName string
+		}{
+			{"Literal", `showVar((("unknown")))`, `"unknown"`, "unknown"},
+			{"Constant", `showVar(((choice)))`, "choice", "unknown"},
+			{"DollarEscape", `showVar((("$$")))`, `"$$"`, "$"},
+			{"Kwarg", `showOption name = (("unknown"))`, `"unknown"`, "unknown"},
+			{"Known", `showVar((("x")))`, `"x"`, ""},
+			{"Variable", `showVar(((dynamic)))`, "dynamic", ""},
+			{"Interpolation", `showVar((("${dynamic}")))`, `"${dynamic}"`, ""},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const prefix = `package test
+type PropertyName string
+type Options struct { Name PropertyName }
+func showVar(name PropertyName) {}
+func showOption(opts Options?) {}
+const choice = "unknown"
+var dynamic PropertyName = "unknown"
+func run() { `
+				diagnostics := runPropertynameAnalyzer(t, prefix+tt.call+" }\n", propertynameCallbacks{
+					isPropertyNameType:      isTestPropertyNameType,
+					getPropertyNamesForCall: testPropertyNames,
+				})
+				if tt.wantName == "" {
+					assert.Empty(t, diagnostics)
+					return
+				}
+				require.Len(t, diagnostics, 1)
+				diagnostic := diagnostics[0]
+				assert.Equal(t, `unknown property "`+tt.wantName+`"`, diagnostic.Message)
+				start := token.Pos(len(prefix) + strings.Index(tt.call, tt.expr) + 1)
+				assert.Equal(t, start, diagnostic.Pos)
+				assert.Equal(t, start+token.Pos(len(tt.expr)), diagnostic.End)
+			})
+		}
+	})
+
 	for _, tt := range []struct {
 		name      string
 		src       string
@@ -86,6 +129,33 @@ func run() {
 				getPropertyNamesForCall: testPropertyNames,
 			},
 			wantDiag: false,
+		},
+		{
+			name: "InterpolatedProperty",
+			src: `package test
+type PropertyName string
+var name PropertyName = "x"
+func showVar(name PropertyName) {}
+func run() { showVar("${name}") }
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType:      isTestPropertyNameType,
+				getPropertyNamesForCall: testPropertyNames,
+			},
+		},
+		{
+			name: "DollarEscape",
+			src: `package test
+type PropertyName string
+func showVar(name PropertyName) {}
+func run() { showVar("$$") }
+`,
+			callbacks: propertynameCallbacks{
+				isPropertyNameType: isTestPropertyNameType,
+				getPropertyNamesForCall: func(*ast.CallExpr) map[string]struct{} {
+					return propertyNameSet("$")
+				},
+			},
 		},
 		{
 			name: "UnknownPropertyFuncDecorator",
@@ -319,6 +389,8 @@ var property PropertyName
 func run() {
 	log(1)
 	showVar(property)
+	log((1))
+	showVar((property))
 }
 `, propertynameCallbacks{
 		isPropertyNameType: isTestPropertyNameType,

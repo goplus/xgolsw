@@ -74,9 +74,13 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
-	ctx.spxResult, err = s.compileAt(proj)
+	ctx.frameworkResult, err = s.analyzeFramework(proj)
 	if err != nil {
 		return nil, err
+	}
+	if ctx.frameworkResult != nil {
+		ctx.framework = ctx.frameworkResult.adapter
+		ctx.frameworkResolved = true
 	}
 	ctx.analyze()
 	if err := ctx.collect(); err != nil {
@@ -122,15 +126,15 @@ type completionContext struct {
 	itemSet  *completionItemSet
 	listPkgs func() ([]string, error)
 
-	typeInfo       *types.Info
-	spxResult      *compileResult
-	filename       string
-	astFile        *ast.File
-	astFileScope   *gotypes.Scope
-	tokenFile      *token.File
-	pos            token.Pos // Position used for AST lookup.
-	sourcePos      token.Pos // Physical cursor position used for edits.
-	innermostScope *gotypes.Scope
+	typeInfo        *types.Info
+	frameworkResult *frameworkAnalysis
+	filename        string
+	astFile         *ast.File
+	astFileScope    *gotypes.Scope
+	tokenFile       *token.File
+	pos             token.Pos // Position used for AST lookup.
+	sourcePos       token.Pos // Physical cursor position used for edits.
+	innermostScope  *gotypes.Scope
 
 	kind completionKind
 
@@ -150,7 +154,7 @@ type completionContext struct {
 	stringLit               *ast.BasicLit
 	inCallKwargName         bool
 	inFuncDecorator         bool
-	inSpxEventHandler       bool
+	inFrameworkEventHandler bool
 	valueExpression         bool
 	expectedFuncResultCount int
 
@@ -507,8 +511,8 @@ func (ctx *completionContext) analyze() {
 		}
 	}
 
-	if ctx.spxResult != nil {
-		ctx.inSpxEventHandler = ctx.spxResult.isInSpxEventHandler(ctx.pos)
+	if ctx.frameworkAdapter() != nil {
+		ctx.inFrameworkEventHandler = ctx.isInFrameworkEventHandler(ctx.pos)
 	}
 }
 
@@ -1058,8 +1062,8 @@ func (ctx *completionContext) collectGeneral() error {
 	}
 	ctx.addVisibleEnumMembers(enumContext.expectedTypes...)
 
-	for _, expectedType := range ctx.expectedTypes {
-		ctx.collectSpxTypeSpecific(expectedType)
+	if ctx.frameworkResult != nil && ctx.frameworkResult.collectCompletions != nil {
+		ctx.frameworkResult.collectCompletions(ctx)
 	}
 
 	if ctx.inStringLit {
@@ -1124,7 +1128,7 @@ func (ctx *completionContext) collectGeneral() error {
 				continue
 			}
 			for member := range xgoutil.StructMembers(named, ctx.isClassBaseType) {
-				if ctx.inSpxEventHandler && ctx.isSpxEventHandler(member.Member) {
+				if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(member.Member) {
 					continue
 				}
 				ctx.itemSet.addDefinitions(ctx.definitionsForMember(member)...)
@@ -1360,7 +1364,7 @@ func (ctx *completionContext) collectCall() error {
 		return ctx.collectGeneral()
 	}
 	sig, ok := typ.(*gotypes.Signature)
-	if !ok {
+	if !ok || sig == nil {
 		return ctx.collectGeneral()
 	}
 	argIndex := ctx.getCurrentArgIndex(callExpr)

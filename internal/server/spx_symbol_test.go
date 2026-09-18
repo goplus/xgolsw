@@ -73,7 +73,7 @@ func setSpxSymbolTestModule(t testing.TB, s *Server, pkgPath string) {
 	}}}}))
 }
 
-func TestDefinitionContextIsSpxSymbol(t *testing.T) {
+func TestSpxSymbolsIsSpxSymbol(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
 		registered  bool
@@ -112,7 +112,7 @@ func TestDefinitionContextIsSpxSymbol(t *testing.T) {
 					return nil, fs.ErrNotExist
 				})
 			}
-			ctx := &definitionContext{proj: proj}
+			ctx := newSpxSymbols(proj)
 			assert.Equal(t, tt.want, ctx.isSpxSymbol(obj))
 			assert.False(t, ctx.isSpxSymbol(gotypes.Universe.Lookup("int")))
 		})

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/goplus/xgolsw/pkgdoc"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +62,7 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 					if state.exists {
 						assert.Contains(t, links, DocumentLink{
 							Range: wantRange, Target: toURI(string(id.URI())),
-							Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral},
+							Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral},
 						})
 					} else {
 						assert.NotContains(t, documentLinkTargets(t, links), string(id.URI()))
@@ -106,11 +105,10 @@ func TestServerTextDocumentHoverSpxResourceDocumentation(t *testing.T) {
 			return doc, nil
 		}
 
-		result, err := s.compileAt(s.workspaceRootFS)
+		ctx := &definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc}
+		pkg, err := ctx.proj.Importer.Import("fmt")
 		require.NoError(t, err)
-		pkg, err := result.proj.Importer.Import("fmt")
-		require.NoError(t, err)
-		defs := result.definitionsFor(pkg.Scope().Lookup("Println"), "")
+		defs := ctx.definitionsFor(pkg.Scope().Lookup("Println"), "")
 		require.Len(t, defs, 1)
 		assert.Equal(t, wantDoc, defs[0].Detail)
 		assert.Equal(t, []string{"fmt"}, lookups)

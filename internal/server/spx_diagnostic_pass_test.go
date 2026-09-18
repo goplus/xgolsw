@@ -27,7 +27,7 @@ show "Missing"
 		proj.SetModule(newTestModule(t, config))
 		info, err := proj.TypeInfo()
 		require.NoError(t, err)
-		result := newCompileResult(proj, s.lookupPkgDoc)
+		result := newSpxAnalysis(proj)
 		configurePass := spxDiagnosticPass(result)
 		propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
 		s.inspectDiagnosticsAnalyzers(proj, &result.diagnosticResult, func(filename string, pass *protocol.Pass) {
@@ -60,7 +60,7 @@ show "Missing"
 				proj := s.getProj()
 				info, err := proj.TypeInfo()
 				require.NoError(t, err)
-				result := newCompileResult(proj, s.lookupPkgDoc)
+				result := newSpxAnalysis(proj)
 				configurePass := spxDiagnosticPass(result)
 				propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
 				s.inspectDiagnosticsAnalyzers(proj, &result.diagnosticResult, func(filename string, pass *protocol.Pass) {

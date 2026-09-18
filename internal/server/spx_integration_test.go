@@ -32,7 +32,7 @@ func newSpxIntegrationTestServer(t testing.TB, files map[string][]byte) *Server 
 
 func TestSpxIntegrationSymbols(t *testing.T) {
 	s := newSpxIntegrationTestServer(t, nil)
-	ctx := &definitionContext{proj: s.getProj()}
+	ctx := newSpxSymbols(s.getProj())
 	for _, name := range []string{
 		"Sprite", "SpriteImpl", "BackdropName", "SpriteName", "SpriteCostumeName",
 		"SpriteAnimationName", "SoundName", "WidgetName", "Direction", "layerAction",

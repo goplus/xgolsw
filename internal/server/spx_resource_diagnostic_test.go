@@ -34,9 +34,9 @@ func TestServerAddEmptySpxResourceNameDiagnostic(t *testing.T) {
 				t.Run(form.name, func(t *testing.T) {
 					s := newTestServer(t, map[string][]byte{"main.xgo": []byte(form.source)})
 					proj := s.getProj()
-					call := spxResourceTestCall(t, proj, "main.xgo")
+					call := resourceTestCall(t, proj, "main.xgo")
 					require.Len(t, call.Args, 1)
-					result := newCompileResult(proj, s.lookupPkgDoc)
+					result := newSpxAnalysis(proj)
 					s.addEmptySpxResourceNameDiagnostic(result, call.Args[0], resource.kind)
 					s.addEmptySpxResourceNameDiagnostic(result, call.Args[0], resource.kind)
 					assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": {{
@@ -68,9 +68,9 @@ func TestServerAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("const Missing = \"Ghost\"\necho \"Ghost\", Missing, \"Ghost\"\n")})
 			proj := s.getProj()
-			call := spxResourceTestCall(t, proj, "main.xgo")
+			call := resourceTestCall(t, proj, "main.xgo")
 			require.Len(t, call.Args, 3)
-			result := newCompileResult(proj, s.lookupPkgDoc)
+			result := newSpxAnalysis(proj)
 			var want []Diagnostic
 			for i, span := range [][2]uint32{{5, 12}, {14, 21}, {23, 30}} {
 				s.addSpxResourceNotFoundDiagnostic(result, call.Args[i], tt.resourceType, "Ghost", tt.spriteName)
@@ -82,16 +82,16 @@ func TestServerAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 			}
 			assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, result.diagnostics)
 			assert.True(t, result.hasErrorSeverityDiagnostic)
-			assert.Empty(t, newCompileResult(proj, s.lookupPkgDoc).diagnostics)
+			assert.Empty(t, newSpxAnalysis(proj).diagnostics)
 		})
 	}
 
 	t.Run("EscapedName", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo `A\"B\nC`\n")})
 		proj := s.getProj()
-		call := spxResourceTestCall(t, proj, "main.xgo")
+		call := resourceTestCall(t, proj, "main.xgo")
 		require.Len(t, call.Args, 1)
-		result := newCompileResult(proj, s.lookupPkgDoc)
+		result := newSpxAnalysis(proj)
 		s.addSpxResourceNotFoundDiagnostic(result, call.Args[0], "sound", "A\"B\nC", "")
 		assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": {{
 			Severity: SeverityError, Message: `sound resource "A\"B\nC" not found`,
@@ -107,7 +107,7 @@ func TestServerInspectForSpxResourceSet(t *testing.T) {
 			"assets/sounds/Beep/index.json": []byte(`{}`),
 		})
 		proj := s.getProj()
-		result := newCompileResult(proj, s.lookupPkgDoc)
+		result := newSpxAnalysis(proj)
 		s.inspectForSpxResourceSet(proj, result)
 		assert.NotNil(t, result.spxResourceSet.Backdrop("Studio"))
 		assert.NotNil(t, result.spxResourceSet.Sound("Beep"))
@@ -131,7 +131,7 @@ func TestServerInspectForSpxResourceSet(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, tt.files)
 				proj := s.getProj()
-				result := newCompileResult(proj, s.lookupPkgDoc)
+				result := newSpxAnalysis(proj)
 				result.mainSpxFile = "project/Stage.spx"
 				prior := Diagnostic{Severity: SeverityWarning, Message: "Existing warning"}
 				result.addDiagnostics("file:///other.xgo", prior)

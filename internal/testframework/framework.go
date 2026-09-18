@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/goplus/gogen/packages"
+	"github.com/goplus/gogen/packages/cache"
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/mod/xgomod"
@@ -28,6 +29,10 @@ const PkgPath = "example.com/framework"
 //
 //go:embed testdata/framework.go
 var source string
+
+// exportCache reuses dependency export files for the fixed toolchain and module
+// of each test process. Package types and source positions remain importer-local.
+var exportCache = cache.New(func(string, bool) string { return cache.HashSkip })
 
 // NewBaseModule returns a fresh module with only XGo's builtin classfiles.
 func NewBaseModule(t testing.TB) *xgomod.Module {
@@ -66,7 +71,7 @@ func NewImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
 	return &importer{
 		t:         t,
 		framework: framework,
-		fallback:  packages.NewImporter(fset),
+		fallback:  newFallbackImporter(fset),
 	}
 }
 
@@ -74,7 +79,14 @@ func NewImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
 func NewBaseImporter(t testing.TB, fset *token.FileSet) gotypes.Importer {
 	t.Helper()
 
-	return &importer{t: t, fallback: packages.NewImporter(fset)}
+	return &importer{t: t, fallback: newFallbackImporter(fset)}
+}
+
+// newFallbackImporter loads independent package types from shared export files.
+func newFallbackImporter(fset *token.FileSet) gotypes.Importer {
+	imp := packages.NewImporter(fset)
+	imp.SetCache(exportCache)
+	return imp
 }
 
 // importer rejects spx, optionally supplies the test framework, and delegates other imports.

@@ -4,7 +4,6 @@ import (
 	gotypes "go/types"
 	"testing"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -118,107 +117,6 @@ func run() {
 				assert.Equal(t, XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}, slot.Input.Value)
 			})
 		}
-	})
-}
-
-func TestCreateSpxResourceInputSlot(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		id      SpxResourceID
-		uri     SpxResourceURI
-		context SpxResourceContextURI
-	}{
-		{
-			name: "Backdrop", id: SpxBackdropResourceID{"Item"},
-			uri: "spx://resources/backdrops/Item", context: "spx://resources/backdrops",
-		},
-		{
-			name: "Sound", id: SpxSoundResourceID{"Item"},
-			uri: "spx://resources/sounds/Item", context: "spx://resources/sounds",
-		},
-		{
-			name: "Sprite", id: SpxSpriteResourceID{"Item"},
-			uri: "spx://resources/sprites/Item", context: "spx://resources/sprites",
-		},
-		{
-			name: "Costume", id: SpxSpriteCostumeResourceID{"Runner", "Item"},
-			uri:     "spx://resources/sprites/Runner/costumes/Item",
-			context: "spx://resources/sprites/Runner/costumes",
-		},
-		{
-			name: "Animation", id: SpxSpriteAnimationResourceID{"Runner", "Item"},
-			uri:     "spx://resources/sprites/Runner/animations/Item",
-			context: "spx://resources/sprites/Runner/animations",
-		},
-		{
-			name: "Widget", id: SpxWidgetResourceID{"Item"},
-			uri: "spx://resources/widgets/Item", context: "spx://resources/widgets",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("const choice = \"other\"\nvar number int\necho \"Item\", \"Item\"\n")})
-			ctx := inputSlotTestContext(t, s, "main.xgo")
-			call := inputSlotCall(t, ctx, "echo")
-			require.Len(t, call.Args, 2)
-			first := requireValueAs[*ast.BasicLit](t, call.Args[0])
-			second := requireValueAs[*ast.BasicLit](t, call.Args[1])
-			ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
-			ctx.spxResult.addSpxResourceRef(SpxResourceRef{ID: tt.id, Kind: SpxResourceRefKindStringLiteral, Node: second})
-			assert.Nil(t, createSpxResourceInputSlot(ctx, first, gotypes.Typ[gotypes.String]))
-			slot := createSpxResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String])
-			require.NotNil(t, slot)
-			assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
-			assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(tt.context)}, slot.Accept)
-			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeSpxResourceName, Value: tt.uri}, slot.Input)
-			assert.Equal(t, []string{"choice"}, slot.PredefinedNames)
-			assert.Equal(t, Range{Start: Position{Line: 2, Character: 13}, End: Position{Line: 2, Character: 19}}, slot.Range)
-		})
-	}
-
-	t.Run("SourceRanges", func(t *testing.T) {
-		for _, tt := range []struct {
-			name    string
-			literal string
-		}{
-			{"Quoted", `"Item"`},
-			{"Escaped", `"I\x74em"`},
-			{"CarriageReturns", "`I\rt\r\rem`"},
-			{"Multiline", "`I\r\n\U0001f600tem`"},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				const prefix = "//line virtual.xgo:100:20\r\necho \"\U0001f600\", "
-				const suffix = ", 42\r\n"
-				source := prefix + tt.literal + suffix
-				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
-				ctx := inputSlotTestContext(t, s, "main.xgo")
-				call := inputSlotCall(t, ctx, "echo")
-				require.Len(t, call.Args, 3)
-				lit := requireValueAs[*ast.BasicLit](t, call.Args[1])
-				ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
-				ctx.spxResult.addSpxResourceRef(SpxResourceRef{ID: SpxSoundResourceID{"Item"}, Node: lit})
-				slot := createSpxResourceInputSlot(ctx, lit, nil)
-				require.NotNil(t, slot)
-				start := PositionOffset([]byte(source), slot.Range.Start)
-				end := PositionOffset([]byte(source), slot.Range.End)
-				assert.Equal(t, tt.literal, source[start:end])
-				assert.Equal(t, prefix+`"Other"`+suffix, source[:start]+`"Other"`+source[end:])
-			})
-		}
-	})
-
-	t.Run("SourceChanges", func(t *testing.T) {
-		const source = "echo \"Item\"\n"
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
-		ctx := inputSlotTestContext(t, s, "main.xgo")
-		lit := inputSlotLiteral(t, ctx, `"Item"`)
-		result := newCompileResult(s.getProj(), s.lookupPkgDoc)
-		result.addSpxResourceRef(SpxResourceRef{ID: SpxSoundResourceID{"Item"}, Node: lit})
-		ctx.spxResult = result
-		require.NotNil(t, createSpxResourceInputSlot(ctx, lit, nil))
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: 1}})
-		ctx = inputSlotTestContext(t, s, "main.xgo")
-		ctx.spxResult = result
-		assert.Nil(t, createSpxResourceInputSlot(ctx, inputSlotLiteral(t, ctx, `"Item"`), nil))
 	})
 }
 

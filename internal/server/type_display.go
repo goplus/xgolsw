@@ -17,6 +17,7 @@ import (
 type typeDisplay struct {
 	qualifier   gotypes.Qualifier
 	unqualified func(*gotypes.TypeName) bool
+	sourceName  func(*gotypes.TypeName) (string, bool)
 }
 
 // newTypeDisplay resolves package qualifiers at pos in file. The result belongs
@@ -78,6 +79,52 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 		return obj
 	}
 
+	unqualified := func(obj *gotypes.TypeName) bool {
+		if obj.Pkg() == info.Pkg {
+			visible := lookup(obj.Name())
+			return visible == nil || visible == obj
+		}
+		if visible := lookup(obj.Name()); visible != nil {
+			return visible == obj
+		}
+		var found gotypes.Object
+		for _, pkg := range lookups {
+			if candidate := pkg.Scope().Lookup(obj.Name()); candidate != nil && candidate.Exported() {
+				if found != nil && found != candidate {
+					return false
+				}
+				found = candidate
+			}
+		}
+		return found == obj
+	}
+	// A class member can shadow a type in expression context, including the
+	// function position of a conversion. Type annotations have no such conflict.
+	class := classTypeForFile(proj, file)
+	sourceLookup := func(name string) gotypes.Object {
+		at, obj := scope.LookupParent(name, pos)
+		if obj != nil && at != info.Pkg.Scope() && at != gotypes.Universe && at != info.Scopes[file] {
+			return obj
+		}
+		if class != nil {
+			if member, _, _ := gotypes.LookupFieldOrMethod(class, true, info.Pkg, name); member != nil {
+				return member
+			}
+			var alias string
+			if name[0] >= 'a' && name[0] <= 'z' {
+				alias = string(name[0]-'a'+'A') + name[1:]
+			} else if name[0] == '_' {
+				alias = "XGo" + name
+			}
+			if alias != "" {
+				member, _, _ := gotypes.LookupFieldOrMethod(class, true, info.Pkg, alias)
+				if fun, ok := member.(*gotypes.Func); ok {
+					return fun
+				}
+			}
+		}
+		return lookup(name)
+	}
 	return typeDisplay{qualifier: func(pkg *gotypes.Package) string {
 		for _, name := range imports[pkg] {
 			if lookup(name.Name()) == name {
@@ -100,25 +147,43 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			}
 		}
 		return pkg.Name()
-	}, unqualified: func(obj *gotypes.TypeName) bool {
-		if obj.Pkg() == info.Pkg {
-			visible := lookup(obj.Name())
-			return visible == nil || visible == obj
-		}
-		if visible := lookup(obj.Name()); visible != nil {
-			return visible == obj
-		}
-		var found gotypes.Object
-		for _, pkg := range lookups {
-			if candidate := pkg.Scope().Lookup(obj.Name()); candidate != nil && candidate.Exported() {
-				if found != nil && found != candidate {
-					return false
-				}
-				found = candidate
+	}, unqualified: unqualified, sourceName: func(obj *gotypes.TypeName) (string, bool) {
+		if unqualified(obj) {
+			if visible := sourceLookup(obj.Name()); visible == nil || visible == obj {
+				return obj.Name(), true
 			}
 		}
-		return found == obj
+		if !obj.Exported() {
+			return "", false
+		}
+		for _, name := range imports[obj.Pkg()] {
+			if sourceLookup(name.Name()) == name {
+				return name.Name() + "." + obj.Name(), true
+			}
+		}
+		return "", false
 	}}
+}
+
+// sourceTypeString formats a type only when every name resolves in the source
+// context. Display-only package qualifiers cannot be used in generated edits.
+func (d typeDisplay) sourceTypeString(typ gotypes.Type) (string, bool) {
+	unqualified := make(map[*gotypes.TypeName]bool)
+	qualifiers := make(map[*gotypes.Package]string)
+	for obj := range displayedTypeNames(typ) {
+		name, ok := d.sourceName(obj)
+		if !ok {
+			return "", false
+		}
+		if qualifier, _, qualified := strings.Cut(name, "."); qualified {
+			qualifiers[obj.Pkg()] = qualifier
+		} else {
+			unqualified[obj] = true
+		}
+	}
+	d.unqualified = func(obj *gotypes.TypeName) bool { return unqualified[obj] }
+	d.qualifier = func(pkg *gotypes.Package) string { return qualifiers[pkg] }
+	return d.typeString(typ), true
 }
 
 // typeString formats a type using the source context's package qualifiers.
@@ -145,6 +210,9 @@ func (d typeDisplay) typeString(typ gotypes.Type) string {
 	// throughout that type to avoid confusing it with the visible name.
 	short := make(map[*gotypes.Package]bool)
 	for obj := range displayedTypeNames(typ) {
+		if _, parameter := obj.Type().(*gotypes.TypeParam); parameter {
+			continue
+		}
 		pkg := obj.Pkg()
 		if value, seen := short[pkg]; !seen || value {
 			short[pkg] = d.unqualified(obj)
@@ -203,6 +271,14 @@ func displayedTypeNames(typ gotypes.Type) iter.Seq[*gotypes.TypeName] {
 					if !yield(gotypes.Unsafe.Scope().Lookup("Pointer").(*gotypes.TypeName)) {
 						return
 					}
+				} else if obj, ok := gotypes.Universe.Lookup(typ.Name()).(*gotypes.TypeName); ok {
+					if !yield(obj) {
+						return
+					}
+				}
+			case *gotypes.TypeParam:
+				if !yield(typ.Obj()) {
+					return
 				}
 			case *gotypes.Map:
 				pending = append(pending, typ.Key(), typ.Elem())

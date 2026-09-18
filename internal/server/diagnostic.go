@@ -69,16 +69,16 @@ func (s *Server) diagnosticsAt(proj *xgo.Project) (*diagnosticResult, error) {
 		return nil, err
 	}
 	s.collectTypeDiagnostics(proj, &result)
-	spxResult, err := s.compileAt(proj)
+	frameworkResult, err := s.analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}
 	var configurePass func(string, *protocol.Pass)
-	if spxResult != nil {
-		for uri, diagnostics := range spxResult.diagnostics {
+	if frameworkResult != nil {
+		for uri, diagnostics := range frameworkResult.diagnostics {
 			result.addDiagnostics(uri, diagnostics...)
 		}
-		configurePass = spxDiagnosticPass(spxResult)
+		configurePass = frameworkResult.configurePass
 	}
 	s.inspectDiagnosticsAnalyzers(proj, &result, configurePass)
 	return &result, nil

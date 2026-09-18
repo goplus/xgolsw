@@ -39,7 +39,7 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 			}
 			cmdParams = append(cmdParams, cmdParam)
 		}
-		return s.spxRenameResources(cmdParams)
+		return s.renameResources(cmdParams)
 	case CommandXGoGetInputSlots, CommandSpxGetInputSlots:
 		var cmdParams []XGoGetInputSlotsParams
 		for _, arg := range params.Arguments {
@@ -63,70 +63,7 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 	return nil, fmt.Errorf("unknown command: %s", params.Command)
 }
 
-// spxRenameResources renames spx resources in the workspace.
-func (s *Server) spxRenameResources(params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
-	result, err := s.compile()
-	if err != nil {
-		return nil, err
-	}
-	if result == nil {
-		return nil, fmt.Errorf("spx resource analysis is unavailable")
-	}
-	if result.spxResourceSetErr != nil {
-		return nil, fmt.Errorf("failed to load spx resources: %w", result.spxResourceSetErr)
-	}
-	return s.spxRenameResourcesWithCompileResult(result, params)
-}
-
-// spxRenameResourcesWithCompileResult renames spx resources in the workspace with the given compile result.
-func (s *Server) spxRenameResourcesWithCompileResult(result *compileResult, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
-	workspaceEdit := WorkspaceEdit{
-		Changes: make(map[DocumentURI][]TextEdit),
-	}
-	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
-	for _, param := range params {
-		id, err := ParseSpxResourceURI(param.Resource.URI)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse spx resource URI: %w", err)
-		}
-		var changes map[DocumentURI][]TextEdit
-		switch id := id.(type) {
-		case SpxBackdropResourceID:
-			changes, err = s.spxRenameBackdropResource(result, id, param.NewName)
-		case SpxSoundResourceID:
-			changes, err = s.spxRenameSoundResource(result, id, param.NewName)
-		case SpxSpriteResourceID:
-			changes, err = s.spxRenameSpriteResource(result, id, param.NewName)
-		case SpxSpriteCostumeResourceID:
-			changes, err = s.spxRenameSpriteCostumeResource(result, id, param.NewName)
-		case SpxSpriteAnimationResourceID:
-			changes, err = s.spxRenameSpriteAnimationResource(result, id, param.NewName)
-		case SpxWidgetResourceID:
-			changes, err = s.spxRenameWidgetResource(result, id, param.NewName)
-		default:
-			return nil, fmt.Errorf("unsupported spx resource type: %T", id)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to rename spx resource %q: %w", param.Resource.URI, err)
-		}
-		for documentURI, textEdits := range changes {
-			if _, ok := seenTextEdits[documentURI]; !ok {
-				seenTextEdits[documentURI] = make(map[TextEdit]struct{})
-			}
-			for _, textEdit := range textEdits {
-				if _, ok := seenTextEdits[documentURI][textEdit]; ok {
-					continue
-				}
-				seenTextEdits[documentURI][textEdit] = struct{}{}
-
-				workspaceEdit.Changes[documentURI] = append(workspaceEdit.Changes[documentURI], textEdit)
-			}
-		}
-	}
-	return &workspaceEdit, nil
-}
-
-// xgoGetProperties gets properties for a specific target (e.g., "Game" or a sprite name).
+// xgoGetProperties gets properties for a project or class type.
 // Returns a list of properties including:
 //  1. Direct fields (non-embedded) of the target type, including unexported fields
 //  2. Methods with no parameters (excluding receiver) and exactly one output parameter,
@@ -336,10 +273,8 @@ func (r *definitionContext) collectPropertiesFromNamedType(namedType *gotypes.Na
 	return properties
 }
 
-// isPropertyField checks if a field should be included as a property.
-// Returns true if:
-// - The field is not embedded
-// - The field type is a basic type (int, float64, string, etc.), spx.Value, or spx.List
+// isPropertyField includes unembedded basic fields in the main package and
+// fields whose type is exposed by the framework.
 func (r *definitionContext) isPropertyField(field *gotypes.Var) bool {
 	if field.Embedded() {
 		return false
@@ -354,8 +289,8 @@ func (r *definitionContext) isPropertyField(field *gotypes.Var) bool {
 		}
 	}
 
-	// Allow spx.Value and spx.List
-	if named, ok := fieldType.(*gotypes.Named); ok && r.isSpxValueOrListType(named) {
+	// Include property types supplied by the framework.
+	if named, ok := fieldType.(*gotypes.Named); ok && r.isFrameworkPropertyType(named) {
 		return true
 	}
 
@@ -368,8 +303,7 @@ func (r *definitionContext) isPropertyField(field *gotypes.Var) bool {
 //   - The method name starts with an uppercase letter
 //   - The method has no parameters
 //   - The method has exactly one return value
-//   - The return type is a basic type (int, float64, string, etc.), or Value
-//     or List from the project's registered SDK
+//   - The return type is a basic type (int, float64, string, etc.), or a framework property type
 func (r *definitionContext) isPropertyMethod(method *gotypes.Func) bool {
 	if xgoutil.IsXGoInternalName(method.Name()) {
 		return false
@@ -384,21 +318,12 @@ func (r *definitionContext) isPropertyMethod(method *gotypes.Func) bool {
 		return false
 	}
 
-	// The return type must be a basic type, spx.Value, or spx.List
+	// The return type must be a basic type or a framework property type.
 	retType := gotypes.Unalias(xgoutil.DerefType(sig.Results().At(0).Type()))
 	if _, ok := retType.(*gotypes.Basic); ok {
 		return true
 	}
-	if named, ok := retType.(*gotypes.Named); ok && r.isSpxValueOrListType(named) {
-		return true
-	}
-	return false
-}
-
-// isSpxValueOrListType reports whether named is spx.Value or spx.List.
-func (r *definitionContext) isSpxValueOrListType(named *gotypes.Named) bool {
-	switch r.spxTypeName(named) {
-	case "Value", "List":
+	if named, ok := retType.(*gotypes.Named); ok && r.isFrameworkPropertyType(named) {
 		return true
 	}
 	return false
