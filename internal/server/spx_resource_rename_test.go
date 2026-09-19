@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) renameSpxResource(result *spxAnalysis, id resourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	edit, err := s.renameSpxResources(result, []XGoRenameResourceParams{{
+	edit, err := s.renameSpxResources(s.getProj(), result, []XGoRenameResourceParams{{
 		Resource: XGoResourceIdentifier{URI: id.URI()}, NewName: newName,
 	}})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 					s := newSpxTestServer(t, files)
 					requireNoDiagnostics(t, s)
 					uri := XGoResourceURI("spx://resources/" + tt.collection + "/" + name)
-					links, err := s.documentLinksForResources(s.getProj(), "main.spx")
+					links, err := documentLinksForResources(s.getProj(), "main.spx")
 					require.NoError(t, err)
 					require.NotEmpty(t, links)
 					for _, link := range links {
@@ -319,7 +319,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 				require.NoError(t, err)
 				result := newSpxAnalysis(proj)
 				result.spxResourceSet = *set
-				edit, err := s.renameSpxResources(result, []XGoRenameResourceParams{
+				edit, err := s.renameSpxResources(s.getProj(), result, []XGoRenameResourceParams{
 					{Resource: XGoResourceIdentifier{URI: tt.first.URI()}, NewName: "Renamed"},
 					{Resource: XGoResourceIdentifier{URI: tt.second.URI()}, NewName: "Renamed"},
 				})
@@ -363,7 +363,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 				require.NoError(t, err)
 				result := newSpxAnalysis(proj)
 				result.spxResourceSet = *set
-				edit, err := s.renameSpxResources(result, []XGoRenameResourceParams{{
+				edit, err := s.renameSpxResources(s.getProj(), result, []XGoRenameResourceParams{{
 					Resource: XGoResourceIdentifier{URI: tt.uri}, NewName: "Taken",
 				}})
 				assert.EqualError(t, err, "failed to rename spx resource \""+string(tt.uri)+"\": "+tt.wantErr)
@@ -404,7 +404,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 			params = append(params, XGoRenameResourceParams{Resource: XGoResourceIdentifier{URI: rename.id.URI()}, NewName: rename.newName})
 		}
 		params = append(params, params[0])
-		edit, err := s.renameSpxResources(result, params)
+		edit, err := s.renameSpxResources(s.getProj(), result, params)
 		require.NoError(t, err)
 		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
 			"file:///main.xgo": {
@@ -420,21 +420,21 @@ func TestServerRenameSpxResources(t *testing.T) {
 		assert.Nil(t, set.Backdrop("Beep"))
 
 		params = append(params, XGoRenameResourceParams{Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Missing/costumes/idle"}, NewName: "rest"})
-		edit, err = s.renameSpxResources(result, params)
+		edit, err = s.renameSpxResources(s.getProj(), result, params)
 		assert.ErrorContains(t, err, `sprite resource "Missing" not found`)
 		assert.Nil(t, edit, "a failed batch must not return partial edits")
 	})
 
 	t.Run("Empty", func(t *testing.T) {
 		s := newTestServer(t, nil)
-		edit, err := s.renameSpxResources(newSpxAnalysis(s.getProj()), nil)
+		edit, err := s.renameSpxResources(s.getProj(), newSpxAnalysis(s.getProj()), nil)
 		require.NoError(t, err)
 		assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{})
 	})
 
 	t.Run("InvalidURI", func(t *testing.T) {
 		s := newTestServer(t, nil)
-		edit, err := s.renameSpxResources(newSpxAnalysis(s.getProj()), []XGoRenameResourceParams{{
+		edit, err := s.renameSpxResources(s.getProj(), newSpxAnalysis(s.getProj()), []XGoRenameResourceParams{{
 			Resource: XGoResourceIdentifier{URI: "file:///assets/Studio"}, NewName: "Park",
 		}})
 		assert.EqualError(t, err, "failed to parse spx resource URI: invalid spx resource URI: file:///assets/Studio")

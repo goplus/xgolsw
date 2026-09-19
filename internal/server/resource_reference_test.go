@@ -72,7 +72,7 @@ func TestResourceReferences(t *testing.T) {
 					if tt.name != "IncompleteCall" {
 						require.NoError(t, err)
 					}
-					result := newTestResourceAnalysis(proj)
+					result := newTestResourceAnalysis()
 					for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
 						result.addResourceRef(ref)
 					}
@@ -84,7 +84,7 @@ func TestResourceReferences(t *testing.T) {
 							assert.Equal(t, XGoResourceRefKindConstantReference, ref.Kind)
 						}
 						if _, converted := ref.Node.(*ast.CallExpr); converted {
-							hover := result.resourceHover(proj.Fset.PositionFor(ref.Node.Pos(), false), Markdown)
+							hover := result.resourceHover(s.getProj(), proj.Fset.PositionFor(ref.Node.Pos(), false), Markdown)
 							assert.Nil(t, hover, "the conversion type must retain its symbol hover")
 							file := sourceASTFile(proj, ref.Node.Pos())
 							span := resourceRange(proj, file, ref.Node)
@@ -175,10 +175,10 @@ func TestResourceAnalysisUnavailableMetadata(t *testing.T) {
 	proj := s.getProj()
 	call := resourceTestCall(t, proj, "main.xgo")
 	lit := requireValueAs[*ast.BasicLit](t, call.Args[0])
-	result := &resourceAnalysis{proj: proj}
+	result := &resourceAnalysis{}
 	result.addResourceRef(resourceRef{ID: testResourceID{"files", "missing"}, Node: lit})
-	assert.Empty(t, result.resourceDocumentLinks("main.xgo"))
-	assert.NotNil(t, result.resourceHover(proj.Fset.Position(lit.Pos()), Markdown))
+	assert.Empty(t, result.resourceDocumentLinks(s.getProj(), "main.xgo"))
+	assert.NotNil(t, result.resourceHover(s.getProj(), proj.Fset.Position(lit.Pos()), Markdown))
 }
 
 func TestResourceReferencesStringLiterals(t *testing.T) {

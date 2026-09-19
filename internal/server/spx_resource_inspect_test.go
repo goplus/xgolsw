@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerInspectSpxResourceRef(t *testing.T) {
+func TestInspectSpxResourceRef(t *testing.T) {
 	for _, resource := range []struct {
 		name      string
 		newID     func(string) resourceID
@@ -51,8 +51,8 @@ func TestServerInspectSpxResourceRef(t *testing.T) {
 					var wantLinks []DocumentLink
 					for i, kind := range []XGoResourceRefKind{XGoResourceRefKindConstantReference, XGoResourceRefKindStringLiteral} {
 						ref := resourceRef{ID: resource.newID(value.value), Kind: kind, Node: call.Args[i]}
-						s.inspectSpxResourceRef(result, ref)
-						s.inspectSpxResourceRef(result, ref)
+						inspectSpxResourceRef(s.getProj(), result, ref)
+						inspectSpxResourceRef(s.getProj(), result, ref)
 						span := Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 10}}
 						if i == 1 {
 							span = Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: 12 + uint32(len(literal))}}
@@ -70,9 +70,9 @@ func TestServerInspectSpxResourceRef(t *testing.T) {
 						}
 					}
 					assert.Equal(t, wantRefs, result.resourceRefs)
-					assert.Equal(t, wantDiagnostics, result.diagnostics["file:///main.xgo"])
-					assert.Equal(t, len(wantDiagnostics) > 0, result.hasErrorSeverityDiagnostic)
-					assert.ElementsMatch(t, wantLinks, result.resourceAnalysis.resourceDocumentLinks("main.xgo"))
+					assert.Equal(t, wantDiagnostics, resourceDiagnostics(s, result.resourceAnalysis).diagnostics["file:///main.xgo"])
+					assert.Equal(t, len(wantDiagnostics) > 0, resourceDiagnostics(s, result.resourceAnalysis).hasErrorSeverityDiagnostic)
+					assert.ElementsMatch(t, wantLinks, result.resourceAnalysis.resourceDocumentLinks(s.getProj(), "main.xgo"))
 				})
 			}
 		})

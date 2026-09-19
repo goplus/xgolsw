@@ -27,6 +27,29 @@ type enumInfo struct {
 	regularConstsByObject map[*gotypes.Const]struct{}
 }
 
+// enumInfoCacheKind identifies the source-level enum index for a project state.
+type enumInfoCacheKind struct{}
+
+// buildEnumInfoCache indexes enums and ordinary constants in the project.
+func buildEnumInfoCache(proj *xgo.Project) (any, error) {
+	// Share completed types and syntax, then pin them against concurrent edits.
+	// If an edit invalidates the types first, Snapshot rebuilds its own syntax.
+	proj.TypeInfo()
+	proj = proj.Snapshot()
+	astPkg, _ := proj.ASTPackage()
+	typeInfo, _ := proj.TypeInfo()
+	return newEnumInfo(astPkg, typeInfo), nil
+}
+
+// enumInfoForProject retrieves the cached enum index, including partial type information.
+func enumInfoForProject(proj *xgo.Project) (*enumInfo, error) {
+	data, err := proj.Cache(enumInfoCacheKind{})
+	if err != nil {
+		return nil, err
+	}
+	return data.(*enumInfo), nil
+}
+
 // enumTypeInfo describes one source-level enum type.
 type enumTypeInfo struct {
 	name    string

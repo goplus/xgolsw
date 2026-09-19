@@ -22,13 +22,14 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
-// IdentAtPosition returns the identifier at the given position in the given AST file.
+// IdentAtPosition returns the identifier at a physical source position in astFile,
+// ignoring line directives.
 func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.File, position token.Position) *ast.Ident {
 	if fset == nil || typeInfo == nil || astFile == nil {
 		return nil
 	}
 
-	astFilePosition := fset.Position(astFile.Pos())
+	astFilePosition := fset.PositionFor(astFile.Pos(), false)
 	if astFilePosition.Filename != position.Filename {
 		return nil
 	}
@@ -73,8 +74,8 @@ func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.Fil
 		if identPos < linePos || identPos >= lineEnd {
 			return
 		}
-		identPosPosition := fset.Position(identPos)
-		identEndPosition := fset.Position(ident.End())
+		identPosPosition := fset.PositionFor(identPos, false)
+		identEndPosition := fset.PositionFor(ident.End(), false)
 		if identPosPosition.Column > position.Column || identEndPosition.Column <= position.Column {
 			return
 		}

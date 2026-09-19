@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"time"
 
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
@@ -11,20 +10,20 @@ import (
 )
 
 // didOpen handles the textDocument/didOpen notification from the LSP client.
-// It updates the project with the new file content and publishes diagnostics.
-// The document URI is converted to a filesystem path, and a file change is created
-// with the document's content and version number.
+// It starts a document session with the client's content and version, including
+// when a reopened document has a lower version than its previous session.
 func (s *Server) didOpen(params *DidOpenTextDocumentParams) error {
 	path, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return err
 	}
 
-	return s.didModifyFile([]FileChange{{
-		Path:    path,
+	s.putDocumentFile(path, &xgo.File{
 		Content: []byte(params.TextDocument.Text),
 		Version: int(params.TextDocument.Version),
-	}})
+	})
+	s.publishFileDiagnostics(path)
+	return nil
 }
 
 // didChange handles the textDocument/didChange notification from the LSP client.
@@ -40,34 +39,32 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 		return err
 	}
 
-	// Create a file change record
-	changes := []FileChange{{
+	s.ModifyFiles([]FileChange{{
 		Path:    path,
 		Content: content,
 		Version: int(params.TextDocument.Version),
-	}}
-
-	return s.didModifyFile(changes)
+	}})
+	s.publishFileDiagnostics(path)
+	return nil
 }
 
 // didSave handles the textDocument/didSave notification from the LSP client.
-// If the notification includes the document text, the project is updated.
-// Otherwise, no change is made since the document content hasn't changed.
-// Save notifications typically don't include version numbers, so 0 is used.
+// Included text replaces the document content without changing its version.
 func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
-	// If text is included in save notification, update the file
-	if params.Text != nil {
-		path, err := s.fromDocumentURI(params.TextDocument.URI)
-		if err != nil {
-			return err
-		}
-
-		return s.didModifyFile([]FileChange{{
-			Path:    path,
-			Content: []byte(*params.Text),
-			Version: int(time.Now().UnixMilli()),
-		}})
+	if params.Text == nil {
+		return nil
 	}
+	path, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return err
+	}
+
+	file := &xgo.File{Content: []byte(*params.Text)}
+	if old, ok := s.getProj().File(path); ok {
+		file.Version = old.Version
+	}
+	s.putDocumentFile(path, file)
+	s.publishFileDiagnostics(path)
 	return nil
 }
 
@@ -75,81 +72,98 @@ func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
 // When a document is closed, its diagnostics are cleared by sending an empty
 // diagnostics array to the client.
 func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
-	// Clear diagnostics when file is closed
-	return s.publishDiagnostics(params.TextDocument.URI, nil)
-}
-
-// didModifyFile updates project files synchronously and publishes diagnostics
-// asynchronously so document modifications do not wait for analysis.
-func (s *Server) didModifyFile(changes []FileChange) error {
-	s.ModifyFiles(changes)
-
-	go func() {
-		for _, change := range changes {
-			uri := s.toDocumentURI(change.Path)
-			diagnostics := s.getDiagnostics(change.Path)
-			s.publishDiagnostics(uri, diagnostics)
-		}
-	}()
-
+	s.queueDiagnostics(params.TextDocument.URI, &diagnosticRequest{clear: true})
 	return nil
 }
 
-// changedText processes document content changes from the client.
-// It supports two modes of operation:
-//  1. Full replacement: Replace the entire document content (when only one change with no range is provided)
-//  2. Incremental updates: Apply specific changes to portions of the document
-//
-// Returns the updated document content or an error if the changes couldn't be applied.
-func (s *Server) changedText(uri string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
+// diagnosticRequest records the latest pending diagnostic action for a document.
+type diagnosticRequest struct {
+	path  string
+	clear bool
+}
+
+// publishFileDiagnostics schedules analysis without blocking document changes.
+func (s *Server) publishFileDiagnostics(path string) {
+	s.queueDiagnostics(s.toDocumentURI(path), &diagnosticRequest{path: path})
+}
+
+// queueDiagnostics replaces superseded work and starts a publisher when needed.
+func (s *Server) queueDiagnostics(uri DocumentURI, request *diagnosticRequest) {
+	s.diagnosticsMu.Lock()
+	defer s.diagnosticsMu.Unlock()
+	if s.pendingDiagnostics == nil {
+		s.pendingDiagnostics = make(map[DocumentURI]*diagnosticRequest)
+	}
+	s.pendingDiagnostics[uri] = request
+	if !s.diagnosticsRunning {
+		s.diagnosticsRunning = true
+		go s.publishPendingDiagnostics()
+	}
+}
+
+// publishPendingDiagnostics serializes publication so an older result cannot
+// arrive after a newer result or a close notification's empty report. Client
+// callbacks run without the queue lock and may schedule more work.
+func (s *Server) publishPendingDiagnostics() {
+	for {
+		s.diagnosticsMu.Lock()
+		if len(s.pendingDiagnostics) == 0 {
+			s.diagnosticsRunning = false
+			s.diagnosticsMu.Unlock()
+			return
+		}
+		var uri DocumentURI
+		var request *diagnosticRequest
+		for uri, request = range s.pendingDiagnostics {
+			break
+		}
+		s.diagnosticsMu.Unlock()
+
+		revision := s.getProj().Revision()
+		var diagnostics []Diagnostic
+		if !request.clear {
+			diagnostics = s.getDiagnostics(request.path)
+		}
+		s.diagnosticsMu.Lock()
+		// Discard superseded requests and results invalidated by edits to any source file.
+		if s.pendingDiagnostics[uri] != request || (!request.clear && s.getProj().Revision() != revision) {
+			s.diagnosticsMu.Unlock()
+			continue
+		}
+		delete(s.pendingDiagnostics, uri)
+		s.diagnosticsMu.Unlock()
+		s.publishDiagnostics(uri, diagnostics)
+	}
+}
+
+// changedText applies full and incremental changes in notification order without
+// modifying the project. Each range refers to the preceding change's result.
+func (s *Server) changedText(path string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
 	if len(changes) == 0 {
 		return nil, fmt.Errorf("%w: no content changes provided", jsonrpc2.ErrInternal)
 	}
 
-	// Check if the client sent the full content of the file.
-	// We accept a full content change even if the server expected incremental changes.
-	if len(changes) == 1 && changes[0].Range == nil && changes[0].RangeLength == 0 {
-		// Full replacement mode
-		return []byte(changes[0].Text), nil
+	var content []byte
+	if changes[0].Range != nil {
+		file, ok := s.getProj().File(path)
+		if !ok {
+			return nil, fmt.Errorf("%w: file not found", jsonrpc2.ErrInternal)
+		}
+		content = file.Content
 	}
 
-	// Incremental update mode
-	return s.applyIncrementalChanges(uri, changes)
-}
-
-// applyIncrementalChanges applies a sequence of changes to the document content.
-// For each change, it:
-//  1. Computes the byte offsets for the specified range
-//  2. Verifies the range is valid
-//  3. Replaces the specified range with the new text
-//
-// Returns the updated document content or an error if the changes couldn't be applied.
-func (s *Server) applyIncrementalChanges(path string, changes []protocol.TextDocumentContentChangeEvent) ([]byte, error) {
-	// Get current file content
-	file, ok := s.getProj().File(path)
-	if !ok {
-		return nil, fmt.Errorf("%w: file not found", jsonrpc2.ErrInternal)
-	}
-
-	content := file.Content
-
-	// Apply each change sequentially
 	for _, change := range changes {
-		// Ensure the change includes range information
 		if change.Range == nil {
-			return nil, fmt.Errorf("%w: unexpected nil range for change", jsonrpc2.ErrInternal)
+			content = []byte(change.Text)
+			continue
 		}
 
-		// Convert LSP positions to byte offsets
 		start := PositionOffset(content, change.Range.Start)
 		end := PositionOffset(content, change.Range.End)
-
-		// Validate range
 		if end < start {
 			return nil, fmt.Errorf("%w: invalid range for content change", jsonrpc2.ErrInternal)
 		}
 
-		// Apply the change
 		var buf bytes.Buffer
 		buf.Write(content[:start])
 		buf.WriteString(change.Text)
@@ -178,30 +192,28 @@ func (s *Server) getDiagnostics(path string) []Diagnostic {
 type FileChange struct {
 	Path    string
 	Content []byte
-	Version int // Version is timestamp in milliseconds
+	Version int // Client document version.
 }
 
 // ModifyFiles modifies files in the project.
 func (s *Server) ModifyFiles(changes []FileChange) {
-	// Get project
-	p := s.getProj()
-	// Process all changes in a batch
 	for _, change := range changes {
-		// Create new file with updated content
-		file := &xgo.File{
+		if old, ok := s.getProj().File(change.Path); ok && change.Version <= old.Version {
+			continue
+		}
+		s.putDocumentFile(change.Path, &xgo.File{
 			Content: change.Content,
 			Version: change.Version,
-		}
-
-		// Check if file exists
-		if oldFile, ok := p.File(change.Path); ok {
-			// Only update if version is newer
-			if change.Version > oldFile.Version {
-				p.PutFile(change.Path, file)
-			}
-		} else {
-			// New file, always add
-			p.PutFile(change.Path, file)
-		}
+		})
 	}
+}
+
+// putDocumentFile replaces document content while preserving the provider
+// timestamp so an unchanged file map does not overwrite the update.
+func (s *Server) putDocumentFile(path string, file *xgo.File) {
+	proj := s.getProj()
+	if old, ok := proj.File(path); ok {
+		file.ModTime = old.ModTime
+	}
+	proj.PutFile(path, file)
 }

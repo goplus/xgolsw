@@ -27,6 +27,18 @@ import (
 )
 
 func TestIdentAtPosition(t *testing.T) {
+	t.Run("LineDirective", func(t *testing.T) {
+		fset, astFile, err := newTestFile("main.xgo", "//line virtual.xgo:100:20\nvar value = 1\n")
+		require.NoError(t, err)
+		ident := findIdent(astFile, "value")
+		require.NotNil(t, ident)
+		info := newTestTypeInfo(map[*ast.Ident]gotypes.Object{
+			ident: gotypes.NewVar(ident.Pos(), nil, "value", gotypes.Typ[gotypes.Int]),
+		}, nil)
+		assert.Same(t, ident, IdentAtPosition(fset, info, astFile, token.Position{Filename: "main.xgo", Line: 2, Column: 5}))
+		assert.Nil(t, IdentAtPosition(fset, info, astFile, token.Position{Filename: "virtual.xgo", Line: 100, Column: 24}))
+	})
+
 	t.Run("ExactMatch", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1\nvar short = 2")
 		require.NoError(t, err)

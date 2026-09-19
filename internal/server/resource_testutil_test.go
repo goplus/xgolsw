@@ -1,10 +1,6 @@
 package server
 
-import (
-	"net/url"
-
-	"github.com/goplus/xgolsw/xgo"
-)
+import "net/url"
 
 type testResourceID struct {
 	collection string
@@ -19,14 +15,18 @@ func (id testResourceID) ContextURI() XGoResourceContextURI {
 	return XGoResourceContextURI("test://resources/" + id.collection)
 }
 
-func newTestResourceAnalysis(proj *xgo.Project, ids ...resourceID) *resourceAnalysis {
+func newTestResourceAnalysis(ids ...resourceID) *resourceAnalysis {
 	existing := make(map[resourceID]bool, len(ids))
 	for _, id := range ids {
 		existing[id] = true
 	}
 	return &resourceAnalysis{
-		proj:             proj,
-		diagnosticResult: newDiagnosticResult(),
-		contains:         func(id resourceID) bool { return existing[id] },
+		contains: func(id resourceID) bool { return existing[id] },
 	}
+}
+
+func resourceDiagnostics(s *Server, analysis *resourceAnalysis) diagnosticResult {
+	result := newDiagnosticResult()
+	s.collectResourceDiagnostics(&result, analysis)
+	return result
 }

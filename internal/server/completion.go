@@ -56,11 +56,15 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	if hasClientCapabilities {
 		documentationKind = preferredMarkupKind(clientCapabilities.CompletionItem.DocumentationFormat)
 	}
+	enums, err := enumInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
 	ctx := &completionContext{
 		definitionContext: definitionContext{
 			proj:         proj,
 			typeDisplay:  newTypeDisplay(proj, astFile, pos),
-			enumInfo:     newEnumInfo(astPkg, typeInfo),
+			enumInfo:     enums,
 			lookupPkgDoc: s.lookupPkgDoc,
 		},
 		itemSet:        newCompletionItemSet(documentationKind),
@@ -74,7 +78,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
-	ctx.frameworkResult, err = s.analyzeFramework(proj)
+	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}

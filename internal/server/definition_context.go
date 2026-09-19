@@ -153,8 +153,8 @@ func (r *definitionContext) definitionsForSelection(obj gotypes.Object, receiver
 func (r *definitionContext) importDocumentationAtPosition(astFile *ast.File, position token.Position) (*pkgdoc.PkgDoc, *ast.ImportSpec) {
 	fset := r.proj.Fset
 	for _, imp := range astFile.Imports {
-		nodePos := fset.Position(imp.Pos())
-		nodeEnd := fset.Position(imp.End())
+		nodePos := fset.PositionFor(imp.Pos(), false)
+		nodeEnd := fset.PositionFor(imp.End(), false)
 		if nodePos.Filename != position.Filename ||
 			position.Line != nodePos.Line ||
 			position.Column < nodePos.Column ||

@@ -2,11 +2,13 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"iter"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
@@ -69,16 +71,16 @@ func (s *Server) diagnosticsAt(proj *xgo.Project) (*diagnosticResult, error) {
 		return nil, err
 	}
 	s.collectTypeDiagnostics(proj, &result)
-	frameworkResult, err := s.analyzeFramework(proj)
+	frameworkResult, err := analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}
 	var configurePass func(string, *protocol.Pass)
 	if frameworkResult != nil {
-		for uri, diagnostics := range frameworkResult.diagnostics {
-			result.addDiagnostics(uri, diagnostics...)
+		s.collectResourceDiagnostics(&result, frameworkResult.resources)
+		if frameworkResult.configurePass != nil {
+			configurePass = frameworkResult.configurePass(proj)
 		}
-		configurePass = frameworkResult.configurePass
 	}
 	s.inspectDiagnosticsAnalyzers(proj, &result, configurePass)
 	return &result, nil
@@ -91,15 +93,9 @@ func (s *Server) collectPackageSyntaxDiagnostics(proj *xgo.Project, result *diag
 	if astPkg == nil {
 		return nil, err
 	}
-	for filename := range astPkg.Files {
-		s.collectSyntaxDiagnostics(proj, filename, result)
-	}
-	var errorList scanner.ErrorList
-	if errors.As(err, &errorList) {
-		for _, e := range errorList {
-			if _, ok := result.diagnostics[s.toDocumentURI(e.Pos.Filename)]; !ok {
-				s.collectSyntaxDiagnostics(proj, e.Pos.Filename, result)
-			}
+	for filename := range proj.Files() {
+		if proj.IsSourceFile(filename) {
+			s.collectSyntaxDiagnostics(proj, filename, result)
 		}
 	}
 	return astPkg, nil
@@ -110,15 +106,17 @@ func (s *Server) collectSyntaxDiagnostics(proj *xgo.Project, filename string, re
 	uri := s.toDocumentURI(filename)
 	result.diagnostics[uri] = []Diagnostic{}
 	astFile, err := proj.ASTFile(filename)
-	if err == nil {
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
 		return astFile
 	}
 	var errorList scanner.ErrorList
 	if errors.As(err, &errorList) && astFile != nil && astFile.Pos().IsValid() {
+		file := xgoutil.NodeTokenFile(proj.Fset, astFile)
 		for _, e := range errorList {
+			position := file.PositionFor(file.Pos(e.Pos.Offset), false)
 			result.addDiagnostics(uri, Diagnostic{
 				Severity: SeverityError,
-				Range:    RangeForASTFilePosition(proj, astFile, e.Pos),
+				Range:    RangeForASTFilePosition(proj, astFile, position),
 				Message:  s.translate(e.Msg),
 			})
 		}
@@ -134,31 +132,46 @@ func (s *Server) collectSyntaxDiagnostics(proj *xgo.Project, filename string, re
 // collectTypeDiagnostics collects type errors and returns the project's type information.
 func (s *Server) collectTypeDiagnostics(proj *xgo.Project, result *diagnosticResult) *types.Info {
 	handleErr := func(err error) {
-		if typeErr, ok := err.(typesutil.Error); ok {
-			if !typeErr.Pos.IsValid() {
-				// Implicit import failures may have no source position to report.
-				return
-			}
-			position := typeErr.Fset.Position(typeErr.Pos)
-			result.addDiagnostics(s.toDocumentURI(position.Filename), Diagnostic{
-				Severity: SeverityError,
-				Range:    RangeForPosEnd(proj, typeErr.Pos, typeErr.End),
-				Message:  typeErr.Msg,
-			})
+		typeErr, ok := err.(typesutil.Error)
+		if !ok {
+			return
 		}
+		span, ok := diagnosticRange(proj, typeErr.Pos, typeErr.End)
+		if !ok {
+			// Edits can replace or remove the source during type checking.
+			// Implicit import failures may also have no source position.
+			return
+		}
+		position := typeErr.Fset.PositionFor(typeErr.Pos, false)
+		result.addDiagnostics(s.toDocumentURI(position.Filename), Diagnostic{
+			Severity: SeverityError,
+			Range:    span,
+			Message:  typeErr.Msg,
+		})
 	}
 	typeInfo, err := proj.TypeInfo()
-	if err != nil {
-		switch err := err.(type) {
-		case errors.List:
-			for _, e := range err {
-				handleErr(e)
-			}
-		default:
-			handleErr(err)
+	switch err := err.(type) {
+	case errors.List:
+		for _, e := range err {
+			handleErr(e)
 		}
+	default:
+		handleErr(err)
 	}
 	return typeInfo
+}
+
+// diagnosticRange converts physical positions only while their source version
+// is still present in the project.
+func diagnosticRange(proj *xgo.Project, pos, end token.Pos) (Range, bool) {
+	astFile := sourceASTFile(proj, pos)
+	if astFile == nil {
+		return Range{}, false
+	}
+	return Range{
+		Start: FromPosition(proj, astFile, proj.Fset.PositionFor(pos, false)),
+		End:   FromPosition(proj, astFile, proj.Fset.PositionFor(end, false)),
+	}, true
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_diagnostic
@@ -217,8 +230,12 @@ func (s *Server) inspectDiagnosticsAnalyzers(proj *xgo.Project, result *diagnost
 			Pkg:       typeInfo.Pkg,
 			TypesInfo: typeInfo,
 			Report: func(d protocol.Diagnostic) {
+				span, ok := diagnosticRange(proj, d.Pos, d.End)
+				if !ok {
+					return
+				}
 				diagnostics = append(diagnostics, Diagnostic{
-					Range:    RangeForPosEnd(proj, d.Pos, d.End),
+					Range:    span,
 					Severity: SeverityError,
 					Message:  s.translate(d.Message),
 				})

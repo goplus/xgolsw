@@ -11,7 +11,7 @@ import (
 // cannot supply the resource or its context.
 func (r *resourceAnalysis) createResourceInputSlot(ctx *inputSlotContext, lit *ast.BasicLit, declaredType gotypes.Type, inputType XGoInputType) *XGoInputSlot {
 	for _, ref := range r.resourceRefs {
-		if resourceSourceNode(r.proj, ref.Node) != lit {
+		if resourceSourceNode(ctx.proj, ref.Node) != lit {
 			continue
 		}
 		return &XGoInputSlot{

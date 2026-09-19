@@ -242,7 +242,7 @@ func test() {
 				assert.Equal(t, "Runner", item.InsertText)
 				data := requireValueAs[*CompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:main?Game.Runner", data.Definition.String())
-				result, err := s.analyzeSpx(s.getProj())
+				result, err := analyzeSpx(s.getProj())
 				require.NoError(t, err)
 				info, _ := s.getProj().TypeInfo()
 				require.NotNil(t, info)

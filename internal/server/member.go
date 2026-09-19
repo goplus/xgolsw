@@ -229,7 +229,7 @@ func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
 				return ""
 			case *ast.GenDecl:
 				if structType == nil && node == astFile.ClassFields {
-					name, _ := cl.GetFileClassType(astFile, xgoutil.NodeFilename(proj.Fset, astFile), proj.Module().LookupClass)
+					name, _ := cl.GetFileClassType(astFile, proj.Fset.PositionFor(astFile.Pos(), false).Filename, proj.Module().LookupClass)
 					return name
 				}
 				return ""

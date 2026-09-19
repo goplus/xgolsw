@@ -184,7 +184,7 @@ const (
 			"main.spx":          []byte("play \"MissingSound\"\n"),
 			"assets/index.json": []byte(`{}`),
 		})
-		result, err := s.analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.getProjWithFile())
 		require.NoError(t, err)
 		require.Len(t, result.resourceRefs, 1)
 		assert.Equal(t, SpxSoundResourceID{"MissingSound"}, result.resourceRefs[0].ID)

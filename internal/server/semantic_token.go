@@ -102,7 +102,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if typeInfo == nil {
 		return nil, nil
 	}
-	enums := newEnumInfo(astPkg, typeInfo)
+	enums, err := enumInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
 
 	fset := proj.Fset
 	var tokenInfos []semanticTokenInfo
@@ -111,8 +114,8 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			return
 		}
 
-		start := fset.Position(startPos)
-		end := fset.Position(endPos)
+		start := fset.PositionFor(startPos, false)
+		end := fset.PositionFor(endPos, false)
 		if start.Line <= 0 || start.Column <= 0 || end.Offset <= start.Offset {
 			return
 		}
@@ -169,6 +172,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		}
 	}
 
+	implicitReceivers := make(map[*ast.FieldList]bool)
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		if node == nil || !node.Pos().IsValid() {
 			return true
@@ -400,6 +404,9 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
 			}
 		case *ast.FuncDecl:
+			if node.IsClass {
+				implicitReceivers[node.Recv] = true
+			}
 			if node.Shadow {
 				return true
 			}
@@ -413,6 +420,9 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Name.Pos(), node.Name.End(), OperatorType, []SemanticTokenModifiers{ModDeclaration})
 			}
 		case *ast.OverloadFuncDecl:
+			if node.IsClass {
+				implicitReceivers[node.Recv] = true
+			}
 			addToken(node.Func, node.Func+token.Pos(len("func")), KeywordType, nil)
 			if node.Recv != nil {
 				addToken(node.Recv.Opening, node.Recv.Opening+1, OperatorType, nil)
@@ -437,6 +447,9 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.Path.Pos(), node.Path.End(), StringType, nil)
 			}
 		case *ast.FieldList:
+			if implicitReceivers[node] {
+				return false
+			}
 			if node.Opening.IsValid() {
 				addToken(node.Opening, node.Opening+1, OperatorType, nil)
 			}
@@ -560,8 +573,8 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 		segments    = make([]semanticTokenDataSegment, 0, len(tokenInfos))
 	)
 	for _, info := range tokenInfos {
-		start := fset.Position(info.startPos)
-		end := fset.Position(info.endPos)
+		start := fset.PositionFor(info.startPos, false)
+		end := fset.PositionFor(info.endPos, false)
 
 		typeIndex := getSemanticTokenTypeIndex(info.tokenType)
 		modifiersMask := getSemanticTokenModifiersMask(info.tokenModifiers)

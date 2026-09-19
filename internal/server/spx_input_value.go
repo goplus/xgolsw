@@ -93,7 +93,7 @@ func (r *spxAnalysis) adaptInputSlot(ctx *inputSlotContext, expr ast.Expr, decla
 		switch accept.Type {
 		case SpxInputTypeResourceName:
 			id, _ := r.resolveResourceID(declaredType, "", func() *SpxSpriteResource {
-				return inferSpxSpriteResourceEnclosingNode(r, expr)
+				return inferSpxSpriteResourceEnclosingNode(ctx.proj, r, expr)
 			})
 			if id == nil {
 				return nil

@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,193 @@ func requireMapStringAny(t *testing.T, data any) map[string]any {
 	result, ok := data.(map[string]any)
 	require.True(t, ok, "want map[string]any, got %T", data)
 	return result
+}
+
+type delayedCacheKind struct {
+	calls   atomic.Int32
+	entered chan struct{}
+	resume  chan struct{}
+}
+
+func (k *delayedCacheKind) String() string {
+	// Pause a caller after its cache miss but before it enters singleflight.
+	if k.calls.Add(1) == 1 {
+		close(k.entered)
+		<-k.resume
+	}
+	return "delayed"
+}
+
+func testCacheCompletedAfterMiss(t *testing.T, fileCache bool) {
+	t.Helper()
+
+	for _, tt := range []struct {
+		name string
+		data any
+		err  error
+	}{
+		{name: "Value", data: new(int)},
+		{name: "Nil"},
+		{name: "Error", err: assert.AnError},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			proj := NewProject(nil, map[string]*File{"main.xgo": file("println 1")}, 0)
+			kind := &delayedCacheKind{entered: make(chan struct{}), resume: make(chan struct{})}
+			release := sync.OnceFunc(func() { close(kind.resume) })
+			t.Cleanup(release)
+			var builds atomic.Int32
+			builder := func(*Project) (any, error) {
+				builds.Add(1)
+				return tt.data, tt.err
+			}
+			get := func() (any, error) { return proj.Cache(kind) }
+			if fileCache {
+				proj.RegisterFileCacheBuilder(kind, func(p *Project, _ string, _ *File) (any, error) {
+					return builder(p)
+				})
+				get = func() (any, error) { return proj.FileCache(kind, "main.xgo") }
+			} else {
+				proj.RegisterCacheBuilder(kind, builder)
+			}
+			var wg sync.WaitGroup
+			var delayedData any
+			var delayedErr error
+			wg.Go(func() { delayedData, delayedErr = get() })
+			<-kind.entered
+			data, err := get()
+			release()
+			wg.Wait()
+			assert.Equal(t, tt.data, data)
+			assert.ErrorIs(t, err, tt.err)
+			assert.Equal(t, data, delayedData)
+			assert.ErrorIs(t, delayedErr, tt.err)
+			assert.EqualValues(t, 1, builds.Load())
+		})
+	}
+}
+
+func testCacheInvalidatedDuringBuild(t *testing.T, fileCache bool) {
+	t.Helper()
+
+	for _, tt := range []struct {
+		name   string
+		change func(*testing.T, *Project)
+	}{
+		{"PutFile", func(t *testing.T, p *Project) { p.PutFile("main.xgo", file("println 2")) }},
+		{"DeleteFile", func(t *testing.T, p *Project) { require.NoError(t, p.DeleteFile("main.xgo")) }},
+		{"RenameFile", func(t *testing.T, p *Project) { require.NoError(t, p.RenameFile("main.xgo", "renamed.xgo")) }},
+		{"UpdateFiles", func(t *testing.T, p *Project) {
+			p.UpdateFiles(map[string]*File{"main.xgo": {Content: []byte("println 2"), ModTime: time.Unix(1, 0)}})
+		}},
+		{"SetModule", func(t *testing.T, p *Project) { p.SetModule(p.Module()) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, result := range []struct {
+				name string
+				data any
+				err  error
+			}{
+				{name: "Value", data: "old"},
+				{name: "Nil"},
+				{name: "Error", err: assert.AnError},
+			} {
+				t.Run(result.name, func(t *testing.T) {
+					proj := NewProject(nil, map[string]*File{"main.xgo": file("println 1")}, 0)
+					type cacheKind struct{}
+					var builds int
+					builder := func(p *Project) (any, error) {
+						builds++
+						if builds == 1 {
+							tt.change(t, p)
+							return result.data, result.err
+						}
+						return "current", nil
+					}
+					get := func() (any, error) { return proj.Cache(cacheKind{}) }
+					if fileCache {
+						proj.RegisterFileCacheBuilder(cacheKind{}, func(p *Project, _ string, _ *File) (any, error) {
+							return builder(p)
+						})
+						get = func() (any, error) { return proj.FileCache(cacheKind{}, "main.xgo") }
+					} else {
+						proj.RegisterCacheBuilder(cacheKind{}, builder)
+					}
+					data, err := get()
+					assert.Equal(t, result.data, data)
+					assert.ErrorIs(t, err, result.err)
+					for range 2 {
+						data, err = get()
+						if _, exists := proj.File("main.xgo"); fileCache && !exists {
+							assert.Nil(t, data)
+							assert.ErrorIs(t, err, fs.ErrNotExist)
+							assert.Equal(t, 1, builds)
+						} else {
+							require.NoError(t, err)
+							assert.Equal(t, "current", data)
+							assert.Equal(t, 2, builds)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func testCacheConcurrentInvalidation(t *testing.T, fileCache bool) {
+	t.Helper()
+
+	synctest.Test(t, func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{"main.xgo": file("println 1")}, 0)
+		type cacheKind struct{}
+		entered, resume := make(chan struct{}), make(chan struct{})
+		release := sync.OnceFunc(func() { close(resume) })
+		t.Cleanup(release)
+		var builds atomic.Int32
+		builder := func(*Project) (any, error) {
+			build := builds.Add(1)
+			if build == 1 {
+				close(entered)
+				<-resume
+			}
+			return build, nil
+		}
+		get := func() (any, error) { return proj.Cache(cacheKind{}) }
+		if fileCache {
+			proj.RegisterFileCacheBuilder(cacheKind{}, func(p *Project, _ string, _ *File) (any, error) {
+				return builder(p)
+			})
+			get = func() (any, error) { return proj.FileCache(cacheKind{}, "main.xgo") }
+		} else {
+			proj.RegisterCacheBuilder(cacheKind{}, builder)
+		}
+		var wg sync.WaitGroup
+		var old, current any
+		var oldErr, currentErr error
+		wg.Go(func() { old, oldErr = get() })
+		<-entered
+		proj.PutFile("main.xgo", file("println 2"))
+		done := make(chan struct{})
+		wg.Go(func() {
+			current, currentErr = get()
+			close(done)
+		})
+		synctest.Wait()
+		select {
+		case <-done:
+			require.FailNow(t, "cache builders for the same kind ran concurrently")
+		default:
+		}
+		release()
+		wg.Wait()
+		require.NoError(t, oldErr)
+		require.NoError(t, currentErr)
+		assert.EqualValues(t, 1, old)
+		assert.EqualValues(t, 2, current)
+		cached, err := get()
+		require.NoError(t, err)
+		assert.Equal(t, current, cached)
+		assert.EqualValues(t, 2, builds.Load())
+	})
 }
 
 func TestProjectRegisterCacheBuilder(t *testing.T) {
@@ -294,6 +482,18 @@ func TestProjectRegisterFileCacheBuilder(t *testing.T) {
 }
 
 func TestProjectCache(t *testing.T) {
+	t.Run("ConcurrentInvalidation", func(t *testing.T) {
+		testCacheConcurrentInvalidation(t, false)
+	})
+
+	t.Run("InvalidatedDuringBuild", func(t *testing.T) {
+		testCacheInvalidatedDuringBuild(t, false)
+	})
+
+	t.Run("CompletedAfterMiss", func(t *testing.T) {
+		testCacheCompletedAfterMiss(t, false)
+	})
+
 	t.Run("CacheWithBuilder", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
 
@@ -548,6 +748,18 @@ func TestProjectCache(t *testing.T) {
 }
 
 func TestProjectFileCache(t *testing.T) {
+	t.Run("ConcurrentInvalidation", func(t *testing.T) {
+		testCacheConcurrentInvalidation(t, true)
+	})
+
+	t.Run("InvalidatedDuringBuild", func(t *testing.T) {
+		testCacheInvalidatedDuringBuild(t, true)
+	})
+
+	t.Run("CompletedAfterMiss", func(t *testing.T) {
+		testCacheCompletedAfterMiss(t, true)
+	})
+
 	t.Run("FileCacheWithBuilder", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
 

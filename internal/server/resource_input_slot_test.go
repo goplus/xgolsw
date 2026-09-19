@@ -16,7 +16,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		const source = "type Asset string\necho Asset(\"Item\")\n"
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
-		result := newTestResourceAnalysis(s.getProj())
+		result := newTestResourceAnalysis()
 		for ref := range resourceReferences(s.getProj(), testResourceResolver(t, s.getProj())) {
 			result.addResourceRef(ref)
 		}
@@ -67,7 +67,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 			require.Len(t, call.Args, 2)
 			first := requireValueAs[*ast.BasicLit](t, call.Args[0])
 			second := requireValueAs[*ast.BasicLit](t, call.Args[1])
-			result := newTestResourceAnalysis(s.getProj())
+			result := newTestResourceAnalysis()
 			result.addResourceRef(resourceRef{ID: tt.id, Kind: XGoResourceRefKindStringLiteral, Node: second})
 			assert.Nil(t, result.createResourceInputSlot(ctx, first, gotypes.Typ[gotypes.String], testResourceInputType))
 			slot := result.createResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String], testResourceInputType)
@@ -99,7 +99,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 				call := inputSlotCall(t, ctx, "echo")
 				require.Len(t, call.Args, 3)
 				lit := requireValueAs[*ast.BasicLit](t, call.Args[1])
-				result := newTestResourceAnalysis(s.getProj())
+				result := newTestResourceAnalysis()
 				result.addResourceRef(resourceRef{ID: testResourceID{"clips", "Item"}, Node: lit})
 				slot := result.createResourceInputSlot(ctx, lit, nil, testResourceInputType)
 				require.NotNil(t, slot)
@@ -116,7 +116,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		lit := inputSlotLiteral(t, ctx, `"Item"`)
-		result := newTestResourceAnalysis(s.getProj())
+		result := newTestResourceAnalysis()
 		result.addResourceRef(resourceRef{ID: testResourceID{"clips", "Item"}, Node: lit})
 		require.NotNil(t, result.createResourceInputSlot(ctx, lit, nil, testResourceInputType))
 		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: 1}})

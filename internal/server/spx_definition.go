@@ -25,7 +25,7 @@ func spxClassForFile(proj *xgo.Project, filename string) *modfile.Project {
 	return nil
 }
 
-// spxSymbols holds the SDK declarations resolved for one request. Type keys
+// spxSymbols holds cached SDK declarations for one project state. Type keys
 // preserve resource aliases even when their underlying types are all strings.
 type spxSymbols struct {
 	pkg   *gotypes.Package

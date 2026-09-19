@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
+
+	"github.com/goplus/xgolsw/xgo"
 )
 
 // validateResourceRename checks spx resource namespaces before generating edits.
@@ -48,8 +50,8 @@ func (r *spxAnalysis) validateResourceRename(id resourceID, newName string) erro
 
 // appendSpxSpriteTypeRenames adds source type references for renamed sprites.
 // Aliases retain their own names and enclosing type expressions are not edited.
-func (s *Server) appendSpxSpriteTypeRenames(result *spxAnalysis, renames map[resourceID]string, changes map[DocumentURI][]TextEdit) {
-	info, _ := result.proj.TypeInfo()
+func (s *Server) appendSpxSpriteTypeRenames(proj *xgo.Project, result *spxAnalysis, renames map[resourceID]string, changes map[DocumentURI][]TextEdit) {
+	info, _ := proj.TypeInfo()
 	if info == nil {
 		return
 	}
@@ -62,17 +64,17 @@ func (s *Server) appendSpxSpriteTypeRenames(result *spxAnalysis, renames map[res
 		if !renamed {
 			continue
 		}
-		file := sourceASTFile(result.proj, ident.Pos())
+		file := sourceASTFile(proj, ident.Pos())
 		if file == nil {
 			continue
 		}
-		uri := s.toDocumentURI(result.proj.Fset.File(ident.Pos()).Name())
-		changes[uri] = append(changes[uri], TextEdit{Range: resourceRange(result.proj, file, ident), NewText: newName})
+		uri := s.toDocumentURI(proj.Fset.File(ident.Pos()).Name())
+		changes[uri] = append(changes[uri], TextEdit{Range: resourceRange(proj, file, ident), NewText: newName})
 	}
 }
 
 // renameSpxResources validates the complete batch and plans its edits together.
-func (s *Server) renameSpxResources(result *spxAnalysis, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
+func (s *Server) renameSpxResources(proj *xgo.Project, result *spxAnalysis, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
 	if result.spxResourceSetErr != nil {
 		return nil, fmt.Errorf("failed to load spx resources: %w", result.spxResourceSetErr)
 	}
@@ -103,10 +105,10 @@ func (s *Server) renameSpxResources(result *spxAnalysis, params []XGoRenameResou
 		targets[destination] = true
 		renames[id] = param.NewName
 	}
-	changes, err := s.renameResourcesAtRefs(result.resourceAnalysis, renames)
+	changes, err := s.renameResourcesAtRefs(proj, result.resourceAnalysis, renames)
 	if err != nil {
 		return nil, err
 	}
-	s.appendSpxSpriteTypeRenames(result, renames, changes)
+	s.appendSpxSpriteTypeRenames(proj, result, renames, changes)
 	return &WorkspaceEdit{Changes: changes}, nil
 }
