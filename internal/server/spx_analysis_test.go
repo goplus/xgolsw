@@ -85,7 +85,7 @@ worker.use names = (["Known", "Missing"])
 			}
 			_, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
-			result, err := analyzeSpx(s.getProjWithFile())
+			result, err := analyzeSpx(s.syncProject())
 			require.NoError(t, err)
 			require.Len(t, result.resourceRefs, 2)
 			var wantLinks []DocumentLink
@@ -141,7 +141,7 @@ configure target = "OtherSprite", unknown = 9
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, files)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Len(t, result.resourceRefs, 1)
@@ -192,7 +192,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 					})
 					_, err := s.getProj().TypeInfo()
 					require.NoError(t, err)
-					result, err := analyzeSpx(s.getProjWithFile())
+					result, err := analyzeSpx(s.syncProject())
 					require.NoError(t, err)
 					require.Len(t, result.resourceRefs, 1)
 					ref := result.resourceRefs[0]
@@ -242,7 +242,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
 				require.Len(t, result.resourceRefs, 2)
 				got := make(map[resourceID]XGoResourceRefKind)
@@ -307,7 +307,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
 				var got []resourceID
 				for _, ref := range result.resourceRefs {
@@ -391,7 +391,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				s := newSpxTestServer(t, files)
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := analyzeSpx(s.getProjWithFile())
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
 				var ids []resourceID
 				for _, ref := range result.resourceRefs {

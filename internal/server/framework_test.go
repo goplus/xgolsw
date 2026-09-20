@@ -153,7 +153,7 @@ func TestCompletionContextFrameworkEventHandlers(t *testing.T) {
 
 func TestInputSlotContextFrameworkResources(t *testing.T) {
 	s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("type Asset string\nfunc use(asset Asset) {}\nuse ((\"logo\"))\nprintln \"ordinary\"\n")})
-	proj := s.getProj()
+	proj := s.requestProject()
 	info, err := proj.TypeInfo()
 	require.NoError(t, err)
 	assetType := info.Pkg.Scope().Lookup("Asset").Type()

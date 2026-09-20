@@ -23,8 +23,10 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/qiniu/x/errors"
 )
 
@@ -64,7 +66,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	if err := typesutil.NewChecker(
 		&gotypes.Config{
 			Error:    func(err error) { checkerErrs.Add(err) },
-			Importer: proj.Importer,
+			Importer: newDependencyImporter(proj.Importer),
 		},
 		&typesutil.Config{
 			Types: typeInfo.Pkg,
@@ -86,8 +88,61 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			typeInfo.ObjToDef[obj] = ident
 		}
 	}
+	// Recover declarations omitted by the compiler so all consumers share the
+	// same source mapping for local types and type switch variables.
+	for _, file := range astPkg.Files {
+		ast.Inspect(file, func(node ast.Node) bool {
+			if stmt, ok := node.(*ast.TypeSwitchStmt); ok {
+				recordTypeSwitchDeclaration(typeInfo, stmt)
+				return true
+			}
+			spec, ok := node.(*ast.TypeSpec)
+			if !ok || typeInfo.Defs[spec.Name] != nil {
+				return true
+			}
+			scope := xgoutil.InnermostScopeAt(proj.Fset, typeInfo, astPkg, spec.Name.Pos())
+			if scope == nil || scope == typeInfo.Pkg.Scope() {
+				return true
+			}
+			obj, ok := scope.Lookup(spec.Name.Name).(*gotypes.TypeName)
+			if ok && typeInfo.ObjToDef[obj] == nil {
+				typeInfo.Defs[spec.Name] = obj
+				typeInfo.ObjToDef[obj] = spec.Name
+			}
+			return true
+		})
+	}
 
 	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
+}
+
+// recordTypeSwitchDeclaration links the variables in each case scope to their
+// shared declaration without changing their branch-specific types.
+func recordTypeSwitchDeclaration(info *types.Info, stmt *ast.TypeSwitchStmt) {
+	assign, ok := stmt.Assign.(*ast.AssignStmt)
+	if !ok || assign.Tok != token.DEFINE {
+		return
+	}
+	ident, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok || ident.Name == "_" {
+		return
+	}
+	// The parser identifies type switch guards by their single type assertion.
+	assertion := assign.Rhs[0].(*ast.TypeAssertExpr)
+	typ := info.TypeOf(assertion.X)
+	if typ == nil || !gotypes.IsInterface(typ) {
+		return
+	}
+	obj := gotypes.NewVar(ident.Pos(), info.Pkg, ident.Name, typ)
+	info.Defs[ident] = obj
+	info.ObjToDef[obj] = ident
+	for _, clause := range stmt.Body.List {
+		if scope := info.Scopes[clause]; scope != nil {
+			if variable, ok := scope.Lookup(ident.Name).(*gotypes.Var); ok {
+				info.ObjToDef[variable] = ident
+			}
+		}
+	}
 }
 
 // TypeInfo retrieves the [types.Info] from the project. The returned [types.Info]

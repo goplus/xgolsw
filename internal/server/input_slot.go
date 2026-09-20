@@ -33,7 +33,7 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", param.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -61,16 +61,16 @@ type inputSlotContext struct {
 	typeInfo                 *types.Info
 	parents                  map[ast.Node]ast.Node
 	scopeObjects             map[*gotypes.Scope][]gotypes.Object
-	scopeStartPositions      map[*gotypes.Scope][]token.Pos
+	scopeBoundaries          map[*gotypes.Scope][]token.Pos
 	predefinedNames          map[predefinedNamesCacheKey][]string
 	utf16ColumnsByByteOffset []uint32
 }
 
 // predefinedNamesCacheKey identifies expressions with the same visible names.
 type predefinedNamesCacheKey struct {
-	scope              *gotypes.Scope
-	declaredType       gotypes.Type
-	visibleObjectCount int
+	scope            *gotypes.Scope
+	declaredType     gotypes.Type
+	visibilityRegion int
 }
 
 // newInputSlotContext creates a context for finding input slots in astFile.
@@ -82,7 +82,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 		filename := proj.Fset.PositionFor(astFile.Pos(), false).Filename
 		if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
 			for _, pkgPath := range class.PkgPaths {
-				pkg, err := proj.Importer.Import(pkgPath)
+				pkg, err := proj.Import(pkgPath)
 				if err == nil {
 					predefinedScopes = append(predefinedScopes, pkg.Scope())
 				}
@@ -97,7 +97,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 		typeInfo:                 typeInfo,
 		parents:                  nodeParents(astFile),
 		scopeObjects:             make(map[*gotypes.Scope][]gotypes.Object),
-		scopeStartPositions:      make(map[*gotypes.Scope][]token.Pos),
+		scopeBoundaries:          make(map[*gotypes.Scope][]token.Pos),
 		predefinedNames:          make(map[predefinedNamesCacheKey][]string),
 		utf16ColumnsByByteOffset: buildUTF16ColumnIndex(astFile.Code),
 	}
@@ -175,22 +175,10 @@ func (c *inputSlotContext) rangeForPosEnd(pos, end token.Pos) Range {
 
 // innermostScope returns the innermost type-checker scope containing node.
 func (c *inputSlotContext) innermostScope(node ast.Node) *gotypes.Scope {
+	pos := node.Pos()
 	for node != nil {
-		if scope := c.typeInfo.Scopes[node]; scope != nil {
+		if scope := xgoutil.ScopeAtNode(c.typeInfo, node, pos); scope != nil {
 			return scope
-		}
-		switch node := node.(type) {
-		case *ast.FuncDecl:
-			if scope := c.typeInfo.Scopes[node.Type]; scope != nil {
-				return scope
-			}
-		case *ast.FuncLit:
-			if scope := c.typeInfo.Scopes[node.Type]; scope != nil {
-				return scope
-			}
-			if scope := c.typeInfo.Scopes[node.Body]; scope != nil {
-				return scope
-			}
 		}
 		node = c.parents[node]
 	}
@@ -213,40 +201,50 @@ func (c *inputSlotContext) objectsInScope(scope *gotypes.Scope) []gotypes.Object
 	return objects
 }
 
-// objectScopeStart returns the position where obj becomes visible. Package
-// and file objects are visible throughout their scopes. Local declarations
-// become visible after their initializers, not at their identifier positions.
-func (c *inputSlotContext) objectScopeStart(obj gotypes.Object) token.Pos {
+// objectUnavailableRange returns the source interval where obj is not yet
+// visible within its recorded scope. Most declarations become visible after
+// their initializer. A comprehension filter variable is also visible before
+// its declaration in source because the result expression precedes the clauses.
+func objectUnavailableRange(info *types.Info, file *ast.File, obj gotypes.Object, parents map[ast.Node]ast.Node) (start, end token.Pos) {
 	scope := obj.Parent()
-	if scope == c.typeInfo.Scopes[c.astFile] || c.typeInfo.Pkg != nil && scope == c.typeInfo.Pkg.Scope() {
-		return token.NoPos
+	if scope == info.Scopes[file] || info.Pkg != nil && scope == info.Pkg.Scope() {
+		return token.NoPos, token.NoPos
 	}
-	switch node := c.parents[c.typeInfo.ObjToDef[obj]].(type) {
-	case *ast.ValueSpec, *ast.AssignStmt:
-		return node.End()
+	switch node := parents[info.ObjToDef[obj]].(type) {
+	case *ast.ValueSpec:
+		return token.NoPos, node.End()
+	case *ast.AssignStmt:
+		if clause, ok := parents[node].(*ast.ForPhrase); ok && clause.Init == node {
+			return node.Pos(), node.End()
+		}
+		return token.NoPos, node.End()
 	case *ast.RangeStmt:
-		return node.Body.Pos()
+		return token.NoPos, node.Body.Pos()
+	case *ast.TypeSpec:
+		return token.NoPos, node.Name.Pos()
 	default:
-		return obj.Pos()
+		return token.NoPos, obj.Pos()
 	}
 }
 
-// visibleObjectCount counts variables and constants whose scopes have started
-// at pos in scope and its parents. It partitions the candidate cache at every
-// declaration that can change name visibility.
-func (c *inputSlotContext) visibleObjectCount(scope *gotypes.Scope, pos token.Pos) int {
-	positions, ok := c.scopeStartPositions[scope]
+// visibilityRegion partitions the candidate cache at every source boundary
+// where an object in scope or its parents changes visibility.
+func (c *inputSlotContext) visibilityRegion(scope *gotypes.Scope, pos token.Pos) int {
+	positions, ok := c.scopeBoundaries[scope]
 	if !ok {
 		for current := scope; current != nil && current != gotypes.Universe; current = current.Parent() {
 			for _, obj := range c.objectsInScope(current) {
-				switch obj.(type) {
-				case *gotypes.Var, *gotypes.Const:
-					positions = append(positions, c.objectScopeStart(obj))
+				start, end := objectUnavailableRange(c.typeInfo, c.astFile, obj, c.parents)
+				if start.IsValid() {
+					positions = append(positions, start)
+				}
+				if end.IsValid() {
+					positions = append(positions, end)
 				}
 			}
 		}
 		slices.Sort(positions)
-		c.scopeStartPositions[scope] = positions
+		c.scopeBoundaries[scope] = positions
 	}
 	count, _ := slices.BinarySearch(positions, pos+1)
 	return count
@@ -472,7 +470,7 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 	innermostScope := ctx.innermostScope(expr)
 	key := predefinedNamesCacheKey{scope: innermostScope, declaredType: declaredType}
 	if innermostScope != nil {
-		key.visibleObjectCount = ctx.visibleObjectCount(innermostScope, expr.Pos())
+		key.visibilityRegion = ctx.visibilityRegion(innermostScope, expr.Pos())
 	}
 	if names, ok := ctx.predefinedNames[key]; ok {
 		return names
@@ -481,6 +479,9 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 	var names []string
 	seenNames := make(map[string]struct{})
 	addObjectName := func(obj gotypes.Object) {
+		if variable, ok := obj.(*gotypes.Var); ok && isGeneratedVariable(ctx.proj, variable) {
+			return
+		}
 		name := obj.Name()
 		if _, ok := obj.(*gotypes.Func); ok {
 			name = xgoutil.ToLowerCamelCase(name)
@@ -501,13 +502,12 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 				return
 			}
 		case *gotypes.Func:
+			// Only property expressions can supply a value without arguments.
+			funcSig := obj.Signature()
+			if funcSig.Params().Len() != 0 || funcSig.Results().Len() != 1 {
+				return
+			}
 			if declaredType != nil {
-				// For functions with no parameters and exactly one return value,
-				// check if the return type is assignable to the declared type.
-				funcSig := obj.Signature()
-				if funcSig.Params().Len() != 0 || funcSig.Results().Len() != 1 {
-					return
-				}
 				funcReturnType := funcSig.Results().At(0).Type()
 				if !gotypes.AssignableTo(funcReturnType, declaredType) {
 					return
@@ -519,45 +519,37 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 		names = append(names, name)
 	}
 
+	var classType *gotypes.Named
 	for scope := innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
-		objects := ctx.objectsInScope(scope)
-		names = slices.Grow(names, len(objects))
-		for _, obj := range objects {
-			if ctx.objectScopeStart(obj) <= expr.Pos() {
-				switch obj.(type) {
-				case *gotypes.Var, *gotypes.Const:
-					addObjectName(obj)
-				}
-			}
-
-			if !ctx.astFile.IsClass || !xgoutil.IsSyntheticThisIdent(
-				ctx.proj.Fset,
-				ctx.typeInfo,
-				ctx.astPkg,
-				ctx.typeInfo.ObjToDef[obj],
-			) {
-				continue
-			}
-			objType := xgoutil.DerefType(obj.Type())
-			named, ok := objType.(*gotypes.Named)
-			if !ok || !xgoutil.IsNamedStructType(named) {
-				continue
-			}
-
-			for structMember := range xgoutil.StructMembers(named, nil) {
+		// All locals, including parameters ordered after "this", hide members.
+		if scope == ctx.typeInfo.Pkg.Scope() && xgoutil.IsNamedStructType(classType) {
+			for structMember := range xgoutil.StructMembers(classType, nil) {
 				switch member := structMember.Member.(type) {
 				case *gotypes.Var:
 					if !member.Origin().Embedded() {
 						addObjectName(member)
 					}
 				case *gotypes.Func:
-					// Add methods with no parameters and exactly one return value.
-					// These methods can be used as property expressions in XGo.
-					funcSig := member.Signature()
-					if funcSig.Params().Len() == 0 && funcSig.Results().Len() == 1 {
-						addObjectName(member)
-					}
+					addObjectName(member)
 				}
+			}
+		}
+		objects := ctx.objectsInScope(scope)
+		names = slices.Grow(names, len(objects))
+		for _, obj := range objects {
+			start, end := objectUnavailableRange(ctx.typeInfo, ctx.astFile, obj, ctx.parents)
+			if expr.Pos() < start || expr.Pos() >= end {
+				switch obj.(type) {
+				case *gotypes.Var, *gotypes.Const:
+					addObjectName(obj)
+				default:
+					seenNames[obj.Name()] = struct{}{}
+				}
+			}
+
+			// Registered classfile methods can omit the receiver's Defs entry.
+			if ctx.astFile.IsClass && obj.Name() == "this" && obj.Pos() == ctx.astFile.Pos() {
+				classType, _ = xgoutil.DerefType(obj.Type()).(*gotypes.Named)
 			}
 		}
 	}
@@ -594,7 +586,7 @@ func checkValueInputSlot(ctx *inputSlotContext, expr ast.Expr, declaredType goty
 // checkAddressInputSlot checks if the expression is an address input slot.
 func checkAddressInputSlot(ctx *inputSlotContext, expr ast.Expr) *XGoInputSlot {
 	ident, ok := expr.(*ast.Ident)
-	if !ok {
+	if !ok || !xgoutil.IsSourceIdent(xgoutil.NodeTokenFile(ctx.proj.Fset, ctx.astFile), ctx.astFile.Code, ident) {
 		return nil
 	}
 	return &XGoInputSlot{
@@ -694,7 +686,7 @@ func createValueInputSlotFromNumberUnitLit(ctx *inputSlotContext, lit *ast.Numbe
 
 // createValueInputSlotFromIdent creates a value input slot from an identifier.
 func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, declaredType gotypes.Type) *XGoInputSlot {
-	if ctx.typeInfo == nil {
+	if ctx.typeInfo == nil || !xgoutil.IsSourceIdent(xgoutil.NodeTokenFile(ctx.proj.Fset, ctx.astFile), ctx.astFile.Code, ident) {
 		return nil
 	}
 	typ := ctx.typeInfo.TypeOf(ident)

@@ -123,6 +123,60 @@ func TestNewProject(t *testing.T) {
 	})
 }
 
+func TestProjectFork(t *testing.T) {
+	t.Run("IsolatedAnalysis", func(t *testing.T) {
+		proj := newFrameworkTestProject(t, map[string]*File{
+			"main_fixture.gox": file("var value int\nfunc Work() { value = measure(1) }\n"),
+		}, FeatAll)
+		original, err := proj.TypeInfo()
+		require.NoError(t, err)
+		astFile, err := proj.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		base := proj.Fset.Base()
+		fork := proj.Fork()
+		assert.Same(t, proj.Module(), fork.Module())
+		assert.Equal(t, proj.PkgPath, fork.PkgPath)
+		assert.NotSame(t, proj.Fset, fork.Fset)
+		info, err := fork.TypeInfo()
+		require.NoError(t, err)
+		assert.NotSame(t, original, info)
+		forkAST, err := fork.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		assert.NotSame(t, astFile, forkAST)
+		_, err = fork.PkgDoc()
+		require.NoError(t, err)
+		fork.PutFile("main_fixture.gox", file("var other string\n"))
+		_, err = fork.TypeInfo()
+		require.NoError(t, err)
+		unchanged, err := proj.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, original, unchanged)
+		assert.Equal(t, base, proj.Fset.Base())
+		require.NoError(t, proj.DeleteFile("main_fixture.gox"))
+		current, ok := fork.File("main_fixture.gox")
+		require.True(t, ok)
+		assert.Equal(t, "var other string\n", string(current.Content))
+	})
+
+	t.Run("CacheBuilders", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{"data": file("original")}, 0)
+		proj.RegisterCacheBuilder("data", func(proj *Project) (any, error) {
+			data, _ := proj.File("data")
+			return string(data.Content), nil
+		})
+		value, err := proj.Cache("data")
+		require.NoError(t, err)
+		assert.Equal(t, "original", value)
+		fork := proj.Fork()
+		fork.PutFile("data", file("changed"))
+		value, err = fork.Cache("data")
+		require.NoError(t, err)
+		assert.Equal(t, "changed", value)
+		_, err = fork.ASTPackage()
+		assert.ErrorIs(t, err, ErrUnknownCacheKind)
+	})
+}
+
 func TestProjectSnapshot(t *testing.T) {
 	t.Run("SharedImporterTypeChecking", func(t *testing.T) {
 		proj := newFrameworkTestProject(t, map[string]*File{
@@ -142,7 +196,7 @@ func TestProjectSnapshot(t *testing.T) {
 		require.NoError(t, err)
 		projects := []*Project{proj}
 		for range 15 {
-			projects = append(projects, proj.Snapshot())
+			projects = append(projects, proj.Snapshot(), proj.Fork())
 		}
 		var wg sync.WaitGroup
 		start := make(chan struct{})
@@ -158,7 +212,7 @@ func TestProjectSnapshot(t *testing.T) {
 		for _, err := range errs {
 			require.NoError(t, err)
 		}
-		assert.Zero(t, concurrentImports.Load(), "snapshots must serialize checking with their shared importer")
+		assert.Zero(t, concurrentImports.Load(), "projects must serialize checking with their shared importer")
 	})
 
 	t.Run("ConcurrentTypeChecking", func(t *testing.T) {

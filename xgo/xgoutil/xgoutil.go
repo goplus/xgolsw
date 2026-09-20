@@ -164,12 +164,12 @@ func ReturnValueIndex(stmt *ast.ReturnStmt, target ast.Expr) int {
 	return -1
 }
 
-// ToLowerCamelCase converts the first character of a Go identifier to lowercase.
+// ToLowerCamelCase lowercases an initial ASCII letter, matching XGo method aliases.
 func ToLowerCamelCase(s string) string {
-	if s == "" {
+	if s == "" || s[0] < 'A' || s[0] > 'Z' {
 		return s
 	}
-	return string(s[0]|32) + s[1:]
+	return string(s[0]+('a'-'A')) + s[1:]
 }
 
 // StringLitOrConstValue attempts to get the value from a string literal or

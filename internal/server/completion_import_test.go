@@ -1,14 +1,56 @@
 package server
 
 import (
+	gotypes "go/types"
 	"io/fs"
 	"testing"
 
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServerTextDocumentCompletionImportBindings(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		source string
+		want   []string
+		absent []string
+	}{
+		{name: "DeclaredName", source: "import \"example.com/version/v2\"\nprintln versioned.Value\n|\n", want: []string{"versioned"}, absent: []string{"v2"}},
+		{name: "Alias", source: "import custom \"example.com/version/v2\"\nprintln custom.Value\n|\n", want: []string{"custom"}, absent: []string{"versioned", "v2"}},
+		{name: "Dot", source: "import . \"example.com/framework\"\nprintln Limit\n|\n", want: []string{"Limit", "runWhen"}, absent: []string{".", "framework"}},
+		{name: "Blank", source: "import _ \"fmt\"\n|\n", absent: []string{"_", "fmt"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			proj := s.getProj()
+			fallback := proj.Importer
+			pkg := gotypes.NewPackage("example.com/version/v2", "versioned")
+			pkg.Scope().Insert(gotypes.NewVar(token.NoPos, pkg, "Value", gotypes.Typ[gotypes.Int]))
+			pkg.MarkComplete()
+			proj.Importer = testImporterFunc(func(pkgPath string) (*gotypes.Package, error) {
+				if pkgPath == pkg.Path() {
+					return pkg, nil
+				}
+				return fallback.Import(pkgPath)
+			})
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			items := completionItemsAt(t, s, "main.xgo", position)
+			labels := completionItemLabels(items)
+			for _, label := range tt.want {
+				assert.Contains(t, labels, label)
+			}
+			for _, label := range tt.absent {
+				assert.NotContains(t, labels, label)
+			}
+		})
+	}
+}
 
 func TestServerTextDocumentCompletionImports(t *testing.T) {
 	for _, tt := range []struct {

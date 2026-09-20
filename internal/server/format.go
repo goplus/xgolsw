@@ -6,7 +6,6 @@ import (
 	gotypes "go/types"
 	"io/fs"
 	"iter"
-	"maps"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -23,7 +22,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document uri %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProj()
+	proj := s.syncProject()
 	if !proj.IsSourceFile(filename) {
 		return nil, nil
 	}
@@ -71,12 +70,8 @@ func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, 
 	// Type checking can modify other classfiles too. Use fresh caches for all
 	// files and a fresh file set so temporary source positions are not retained
 	// by the project after formatting.
-	files := maps.Collect(proj.Files())
-	files[filename] = &xgo.File{Content: original}
-	snapshot := xgo.NewProject(nil, files, xgo.FeatASTCache|xgo.FeatTypeInfoCache)
-	snapshot.PkgPath = proj.PkgPath
-	snapshot.SetModule(proj.Module())
-	snapshot.Importer = proj.Importer
+	snapshot := proj.Fork()
+	snapshot.PutFile(filename, &xgo.File{Content: original})
 	formatted := original
 	for _, formatter := range []sourceFormatter{
 		formatXGo,

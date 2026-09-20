@@ -6,12 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func (s *Server) renameSpxResource(result *spxAnalysis, id resourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	edit, err := s.renameSpxResources(s.getProj(), result, []XGoRenameResourceParams{{
+func (s *Server) renameSpxResource(proj *xgo.Project, result *spxAnalysis, id resourceID, newName string) (map[DocumentURI][]TextEdit, error) {
+	edit, err := s.renameSpxResources(proj, result, []XGoRenameResourceParams{{
 		Resource: XGoResourceIdentifier{URI: id.URI()}, NewName: newName,
 	}})
 	if err != nil {
@@ -42,7 +43,7 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 				require.NoError(t, err)
 				result := newSpxAnalysis(proj)
 				result.spxSpriteTypes[info.Pkg.Scope().Lookup("Runner").Type()] = struct{}{}
-				changes, err := s.renameSpxResource(result, SpxSpriteResourceID{SpriteName: "Runner"}, "Player")
+				changes, err := s.renameSpxResource(proj, result, SpxSpriteResourceID{SpriteName: "Runner"}, "Player")
 				require.NoError(t, err)
 				require.Len(t, changes, 1)
 				edits := changes["file:///main.xgo"]
@@ -84,7 +85,7 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 	want := map[DocumentURI][]TextEdit{
 		"file:///main.xgo": {{Range: Range{Start: Position{Line: 1, Character: 6}, End: Position{Line: 1, Character: 12}}, NewText: "Player"}},
 	}
-	changes, err := s.renameSpxResource(result, id, "Player")
+	changes, err := s.renameSpxResource(proj, result, id, "Player")
 	require.NoError(t, err)
 	assert.Equal(t, want, changes, "only classified sprite types should be renamed")
 
@@ -97,13 +98,13 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 		{Range: Range{Start: Position{Line: 3, Character: 13}, End: Position{Line: 3, Character: 19}}, NewText: "Player"},
 		{Range: Range{Start: Position{Line: 4, Character: 11}, End: Position{Line: 4, Character: 17}}, NewText: "Player"},
 	}
-	changes, err = s.renameSpxResource(result, id, "Player")
+	changes, err = s.renameSpxResource(proj, result, id, "Player")
 	require.NoError(t, err)
 	require.Len(t, changes, len(want))
 	for uri, edits := range want {
 		assert.ElementsMatch(t, edits, changes[uri], "edits for %s", uri)
 	}
-	changes, err = s.renameSpxResource(result, SpxSpriteResourceID{SpriteName: "Unclassified"}, "Player")
+	changes, err = s.renameSpxResource(proj, result, SpxSpriteResourceID{SpriteName: "Unclassified"}, "Player")
 	require.NoError(t, err)
 	assert.Empty(t, changes)
 }

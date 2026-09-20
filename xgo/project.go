@@ -79,8 +79,9 @@ type Project struct {
 	files         map[string]*File
 	filesSnapshot atomic.Pointer[map[string]*File] // Immutable snapshot for lock-free file reads.
 
-	// astMu serializes type checking across snapshots sharing an importer and
-	// excludes documentation reads while the compiler mutates syntax.
+	// astMu serializes package initialization and type checking across snapshots
+	// sharing an importer. It also excludes documentation reads while the compiler
+	// mutates syntax.
 	astMu *sync.Mutex
 
 	cacheBuilders map[CacheKind]CacheBuilder
@@ -172,6 +173,22 @@ func (p *Project) SnapshotWithOverlay(overlay map[string]*File) *Project {
 		snapshot.PutFile(path, file)
 	}
 	return snapshot
+}
+
+// Fork creates a project with the same files and configuration but a fresh file
+// set and empty analysis caches. Type checking remains serialized with the
+// original project and its snapshots because they share an importer.
+func (p *Project) Fork() *Project {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	proj := NewProject(nil, p.files, 0)
+	proj.PkgPath = p.PkgPath
+	proj.module = p.module
+	proj.Importer = p.Importer
+	proj.astMu = p.astMu
+	proj.cacheBuilders = maps.Clone(p.cacheBuilders)
+	proj.fileCacheBuilders = maps.Clone(p.fileCacheBuilders)
+	return proj
 }
 
 // Revision returns this project instance's file and module revision.

@@ -26,7 +26,7 @@ type testServerFactory func(testing.TB, map[string][]byte) *Server
 func requireNoDiagnostics(t testing.TB, s *Server) {
 	t.Helper()
 
-	result, err := s.diagnosticsAt(s.getProjWithFile())
+	result, err := s.diagnosticsAt(s.syncProject())
 	require.NoError(t, err)
 	for uri, diagnostics := range result.diagnostics {
 		require.Empty(t, diagnostics, "%s", uri)

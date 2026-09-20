@@ -9,6 +9,49 @@ import (
 )
 
 func TestServerTextDocumentInlayHint(t *testing.T) {
+	t.Run("PartialCallRange", func(t *testing.T) {
+		for _, kind := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+		} {
+			t.Run(kind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name string
+					call string
+					rng  Range
+					want []InlayHint
+				}{
+					{name: "BeforeArguments", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2}, End: Position{Line: 2, Character: 8}}},
+					{name: "FirstArgument", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 8}, End: Position{Line: 2, Character: 14}}, want: []InlayHint{{Position: Position{Line: 2, Character: 8}, Label: "first", Kind: Parameter}}},
+					{name: "SecondArgument", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 14}, End: Position{Line: 2, Character: 15}}, want: []InlayHint{{Position: Position{Line: 2, Character: 14}, Label: "second", Kind: Parameter}}},
+					{name: "BetweenArguments", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 12}, End: Position{Line: 2, Character: 14}}},
+					{name: "Empty", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 14}, End: Position{Line: 2, Character: 14}}},
+					{name: "NestedCall", call: "combine \"\U0001f600\", pick(2)", rng: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 20}}, want: []InlayHint{{Position: Position{Line: 2, Character: 19}, Label: "index", Kind: Parameter}}},
+					{name: "MultipleLines", call: "combine(\n\"text\",\n2,\n)", rng: Range{Start: Position{Line: 4}, End: Position{Line: 5}}, want: []InlayHint{{Position: Position{Line: 4}, Label: "second", Kind: Parameter}}},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						files := map[string][]byte{kind.filename: []byte("func combine(first string, second int) {}\nfunc pick(index int) int { return index }\n" + tt.call + "\n")}
+						if kind.filename == "Worker_fixture.gox" {
+							files["main_fixture.gox"] = nil
+						}
+						s := kind.newServer(t, files)
+						_, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						hints, err := s.textDocumentInlayHint(&InlayHintParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)}, Range: tt.rng})
+						require.NoError(t, err)
+						assert.ElementsMatch(t, tt.want, hints)
+					})
+				}
+			})
+		}
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string
@@ -267,6 +310,33 @@ func main() {
 }
 
 func TestCollectInlayHints(t *testing.T) {
+	t.Run("VariadicOverloadParameters", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			parameter string
+			want      []InlayHint
+		}{
+			{name: "Ambiguous", parameter: "items"},
+			{name: "Shared", parameter: "values", want: []InlayHint{{Position: Position{Line: 6, Character: 8}, Label: "values...", Kind: Parameter}}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "func intArgs(values ...int) {}\nfunc anyArgs(" + tt.parameter + " ...any) {}\nfunc combine = (\nintArgs\nanyArgs\n)\ncombine 1, unknown\n"
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				proj := s.requestProject()
+				_, err := proj.TypeInfo()
+				require.ErrorContains(t, err, "undefined: unknown")
+				file, err := proj.ASTFile("main.xgo")
+				require.NoError(t, err)
+				hints := collectInlayHints(proj, file, 0, 0)
+				if tt.want == nil {
+					assert.Empty(t, hints)
+				} else {
+					assert.Equal(t, tt.want, hints)
+				}
+			})
+		}
+	})
+
 	t.Run("FunctionOverloadKwargs", func(t *testing.T) {
 		for _, tt := range []struct {
 			name string
@@ -363,7 +433,7 @@ func TestCollectInlayHints(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
-			proj := s.getProjWithFile()
+			proj := s.syncProject()
 			astFile, err := proj.ASTFile("main.xgo")
 			require.NoError(t, err)
 			require.NotNil(t, astFile)
@@ -377,7 +447,7 @@ func TestCollectInlayHints(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"main.xgo": []byte("func use(value int) {}\nuse 1\nuse 2\nuse 3\n"),
 		})
-		proj := s.getProjWithFile()
+		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
@@ -391,6 +461,14 @@ func TestCollectInlayHints(t *testing.T) {
 		assert.Equal(t, []InlayHint{
 			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
 		}, collectInlayHints(proj, astFile, start, end))
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
+			{Position: Position{Line: 3, Character: 4}, Label: "value", Kind: Parameter},
+		}, collectInlayHints(proj, astFile, start, 0))
+		assert.Equal(t, []InlayHint{
+			{Position: Position{Line: 1, Character: 4}, Label: "value", Kind: Parameter},
+			{Position: Position{Line: 2, Character: 4}, Label: "value", Kind: Parameter},
+		}, collectInlayHints(proj, astFile, 0, end))
 		_, err = proj.TypeInfo()
 		assert.NoError(t, err)
 	})
@@ -421,7 +499,7 @@ func TestCollectInlayHints(t *testing.T) {
 				"    worker.handle " + tt.argument + "\n" +
 				"}\n"
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
-			proj := s.getProjWithFile()
+			proj := s.syncProject()
 			astFile, err := proj.ASTFile("main.xgo")
 			require.NoError(t, err)
 			require.NotNil(t, astFile)
@@ -442,7 +520,7 @@ func main() {
 `),
 		})
 
-		proj := s.getProjWithFile()
+		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
@@ -477,7 +555,7 @@ func main() {
 `),
 		})
 
-		proj := s.getProjWithFile()
+		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
@@ -503,7 +581,7 @@ func main() {
 `),
 		})
 
-		proj := s.getProjWithFile()
+		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)
@@ -528,7 +606,7 @@ func main() {
 `),
 		})
 
-		proj := s.getProjWithFile()
+		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.NoError(t, err)
 		require.NotNil(t, astFile)

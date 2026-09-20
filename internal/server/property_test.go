@@ -15,6 +15,16 @@ import (
 )
 
 func TestServerXGoGetProperties(t *testing.T) {
+	t.Run("UnicodeMethodNames", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("type Record struct{}\nfunc (Record) \u0393amma() int { return 1 }\nfunc (Record) \u03b4elta() int { return 2 }\n")})
+		_, err := s.requestProject().TypeInfo()
+		require.NoError(t, err)
+		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+		require.NoError(t, err)
+		require.Len(t, properties, 1)
+		assert.Equal(t, "\u0393amma", properties[0].Name)
+	})
+
 	t.Run("OverloadWrapper", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
 func (r *Record) intValue() int { return 1 }

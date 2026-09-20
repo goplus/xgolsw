@@ -646,6 +646,19 @@ func TestFromPosition(t *testing.T) {
 }
 
 func TestBasicLitEnd(t *testing.T) {
+	t.Run("MissingImportPath", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("import alias\n")})
+		proj := s.requestProject()
+		file, err := proj.ASTFile("main.xgo")
+		require.Error(t, err)
+		require.NotNil(t, file)
+		require.Len(t, file.Imports, 1)
+		lit := file.Imports[0].Path
+		require.NotNil(t, lit)
+		require.Empty(t, lit.Value)
+		assert.Equal(t, lit.Pos(), basicLitEnd(proj.Fset, file, lit))
+	})
+
 	for _, tt := range []struct {
 		name      string
 		directive string

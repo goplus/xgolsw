@@ -40,7 +40,7 @@ func newSpxSymbols(proj *xgo.Project) *spxSymbols {
 		if !isSpxClass(class) {
 			continue
 		}
-		pkg, err := proj.Importer.Import(SpxPkgPath)
+		pkg, err := proj.Import(SpxPkgPath)
 		if err != nil {
 			return symbols
 		}

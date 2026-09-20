@@ -18,11 +18,21 @@ func (s *Server) didOpen(params *DidOpenTextDocumentParams) error {
 		return err
 	}
 
-	s.putDocumentFile(path, &xgo.File{
+	files := s.readProviderFiles()
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
+	s.syncFilesLocked(files)
+	if s.openFiles == nil {
+		s.openFiles = make(map[string]*xgo.File)
+	}
+	file := &xgo.File{
 		Content: []byte(params.TextDocument.Text),
 		Version: int(params.TextDocument.Version),
-	})
-	s.publishFileDiagnostics(path)
+	}
+	s.putDocumentFileLocked(path, file)
+	s.openFiles[path] = file
+	s.queueOpenDiagnosticsLocked()
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
 	return nil
 }
 
@@ -34,17 +44,18 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 		return err
 	}
 
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
 	content, err := s.changedText(path, params.ContentChanges)
 	if err != nil {
 		return err
 	}
-
-	s.ModifyFiles([]FileChange{{
+	s.modifyFilesLocked([]FileChange{{
 		Path:    path,
 		Content: content,
 		Version: int(params.TextDocument.Version),
 	}})
-	s.publishFileDiagnostics(path)
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
 	return nil
 }
 
@@ -59,20 +70,35 @@ func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
 		return err
 	}
 
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
 	file := &xgo.File{Content: []byte(*params.Text)}
 	if old, ok := s.getProj().File(path); ok {
 		file.Version = old.Version
 	}
-	s.putDocumentFile(path, file)
-	s.publishFileDiagnostics(path)
+	s.putDocumentFileLocked(path, file)
+	s.queueOpenDiagnosticsLocked()
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
 	return nil
 }
 
 // didClose handles the textDocument/didClose notification from the LSP client.
-// When a document is closed, its diagnostics are cleared by sending an empty
-// diagnostics array to the client.
+// It restores provider ownership of the file and clears its diagnostics.
 func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
-	s.queueDiagnostics(params.TextDocument.URI, &diagnosticRequest{clear: true})
+	path, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return err
+	}
+	files := s.readProviderFiles()
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
+	delete(s.openFiles, path)
+	// A preserved provider timestamp cannot identify discarded editor content.
+	// Remove it before synchronization so even unchanged provider files reload.
+	s.getProj().DeleteFile(path)
+	s.syncFilesLocked(files)
+	s.queueOpenDiagnosticsLocked()
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{clear: true})
 	return nil
 }
 
@@ -82,15 +108,19 @@ type diagnosticRequest struct {
 	clear bool
 }
 
-// publishFileDiagnostics schedules analysis without blocking document changes.
-func (s *Server) publishFileDiagnostics(path string) {
-	s.queueDiagnostics(s.toDocumentURI(path), &diagnosticRequest{path: path})
+// queueOpenDiagnosticsLocked refreshes all open documents because source files
+// share a package. The caller holds projectMu.
+func (s *Server) queueOpenDiagnosticsLocked() {
+	for path := range s.openFiles {
+		if s.getProj().IsSourceFile(path) {
+			s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+		}
+	}
 }
 
-// queueDiagnostics replaces superseded work and starts a publisher when needed.
-func (s *Server) queueDiagnostics(uri DocumentURI, request *diagnosticRequest) {
-	s.diagnosticsMu.Lock()
-	defer s.diagnosticsMu.Unlock()
+// queueDiagnosticsLocked replaces superseded work and starts a publisher when
+// needed. The caller holds projectMu.
+func (s *Server) queueDiagnosticsLocked(uri DocumentURI, request *diagnosticRequest) {
 	if s.pendingDiagnostics == nil {
 		s.pendingDiagnostics = make(map[DocumentURI]*diagnosticRequest)
 	}
@@ -106,10 +136,10 @@ func (s *Server) queueDiagnostics(uri DocumentURI, request *diagnosticRequest) {
 // callbacks run without the queue lock and may schedule more work.
 func (s *Server) publishPendingDiagnostics() {
 	for {
-		s.diagnosticsMu.Lock()
+		s.projectMu.Lock()
 		if len(s.pendingDiagnostics) == 0 {
 			s.diagnosticsRunning = false
-			s.diagnosticsMu.Unlock()
+			s.projectMu.Unlock()
 			return
 		}
 		var uri DocumentURI
@@ -117,21 +147,22 @@ func (s *Server) publishPendingDiagnostics() {
 		for uri, request = range s.pendingDiagnostics {
 			break
 		}
-		s.diagnosticsMu.Unlock()
-
 		revision := s.getProj().Revision()
+		proj := s.projectSnapshotLocked()
+		s.projectMu.Unlock()
+
 		var diagnostics []Diagnostic
 		if !request.clear {
-			diagnostics = s.getDiagnostics(request.path)
+			diagnostics = s.diagnosticsForFile(proj, request.path)
 		}
-		s.diagnosticsMu.Lock()
+		s.projectMu.Lock()
 		// Discard superseded requests and results invalidated by edits to any source file.
 		if s.pendingDiagnostics[uri] != request || (!request.clear && s.getProj().Revision() != revision) {
-			s.diagnosticsMu.Unlock()
+			s.projectMu.Unlock()
 			continue
 		}
 		delete(s.pendingDiagnostics, uri)
-		s.diagnosticsMu.Unlock()
+		s.projectMu.Unlock()
 		s.publishDiagnostics(uri, diagnostics)
 	}
 }
@@ -174,13 +205,12 @@ func (s *Server) changedText(path string, changes []protocol.TextDocumentContent
 	return content, nil
 }
 
-// getDiagnostics collects syntax and type errors for a modified document.
-// Analyzers and framework-specific checks run through pull diagnostics.
-func (s *Server) getDiagnostics(path string) []Diagnostic {
-	proj := s.getProj()
+// diagnosticsForFile collects syntax and type errors from a stable project.
+func (s *Server) diagnosticsForFile(proj *xgo.Project, path string) []Diagnostic {
 	if !proj.IsSourceFile(path) {
 		return nil
 	}
+	proj.TypeInfo()
 	result := newDiagnosticResult()
 	if astFile := s.collectSyntaxDiagnostics(proj, path, &result); astFile != nil {
 		s.collectTypeDiagnostics(proj, &result)
@@ -197,23 +227,39 @@ type FileChange struct {
 
 // ModifyFiles modifies files in the project.
 func (s *Server) ModifyFiles(changes []FileChange) {
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
+	s.modifyFilesLocked(changes)
+}
+
+// modifyFilesLocked applies a batch of versioned edits and refreshes diagnostics
+// if any file changed. The caller holds projectMu.
+func (s *Server) modifyFilesLocked(changes []FileChange) {
+	changed := false
 	for _, change := range changes {
 		if old, ok := s.getProj().File(change.Path); ok && change.Version <= old.Version {
 			continue
 		}
-		s.putDocumentFile(change.Path, &xgo.File{
+		s.putDocumentFileLocked(change.Path, &xgo.File{
 			Content: change.Content,
 			Version: change.Version,
 		})
+		changed = true
+	}
+	if changed {
+		s.queueOpenDiagnosticsLocked()
 	}
 }
 
-// putDocumentFile replaces document content while preserving the provider
-// timestamp so an unchanged file map does not overwrite the update.
-func (s *Server) putDocumentFile(path string, file *xgo.File) {
+// putDocumentFileLocked updates editor content, preserving the provider timestamp
+// for changes outside an open session. The caller holds projectMu.
+func (s *Server) putDocumentFileLocked(path string, file *xgo.File) {
 	proj := s.getProj()
 	if old, ok := proj.File(path); ok {
 		file.ModTime = old.ModTime
 	}
 	proj.PutFile(path, file)
+	if _, open := s.openFiles[path]; open {
+		s.openFiles[path] = file
+	}
 }

@@ -7,12 +7,10 @@ import (
 	"iter"
 	"path"
 	"slices"
-	"strconv"
 	"unicode"
 
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -26,7 +24,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -1109,84 +1107,125 @@ func (ctx *completionContext) collectGeneral() error {
 
 	// Add local definitions from innermost scope and its parents.
 	pkg := ctx.typeInfo.Pkg
-	className, _ := cl.GetFileClassType(ctx.astFile, ctx.filename, ctx.proj.Module().LookupClass)
-	for scope := ctx.innermostScope; scope != nil; scope = scope.Parent() {
-		isInMainScope := ctx.innermostScope == ctx.astFileScope && scope == pkg.Scope()
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if !xgoutil.IsExportedOrInMainPkg(obj) {
-				continue
+	seenNames := make(map[string]bool)
+	memberNames := make(map[string]bool)
+	addDefinitions := func(defs ...symbolDefinition) {
+		for _, def := range defs {
+			if !seenNames[def.CompletionItemLabel] {
+				ctx.itemSet.addDefinitions(def)
 			}
-			if !ctx.valueExpression && slices.Contains(ctx.assignTargets, obj) {
-				continue
-			}
-
-			ctx.itemSet.addDefinitions(ctx.definitionsFor(obj, "")...)
-
-			isMainScopeObj := isInMainScope && name == className
-			if name != "this" && !isMainScopeObj {
-				continue
-			}
-			named, ok := xgoutil.DerefType(obj.Type()).(*gotypes.Named)
-			if !ok || !xgoutil.IsNamedStructType(named) {
-				continue
-			}
-			for member := range xgoutil.StructMembers(named, ctx.isClassBaseType) {
+		}
+		// Reserve names even when incompatible, keeping overloads in one batch.
+		for _, def := range defs {
+			seenNames[def.CompletionItemLabel] = true
+		}
+	}
+	var classType *gotypes.Named
+	if ctx.innermostScope == ctx.astFileScope {
+		classType = classTypeForFile(ctx.proj, ctx.astFile)
+	}
+	var parents map[ast.Node]ast.Node
+	for scope := ctx.innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
+		// Locals take precedence over class members, which take precedence
+		// over package declarations and imports.
+		if scope == pkg.Scope() && xgoutil.IsNamedStructType(classType) &&
+			!(ctx.kind == completionKindDecl && ctx.declValueSpec.Values == nil) {
+			var defs []symbolDefinition
+			for member := range xgoutil.StructMembers(classType, ctx.isClassBaseType) {
 				if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(member.Member) {
 					continue
 				}
-				ctx.itemSet.addDefinitions(ctx.definitionsForMember(member)...)
+				defs = append(defs, ctx.definitionsForMember(member)...)
+			}
+			for _, def := range defs {
+				if !seenNames[def.CompletionItemLabel] {
+					memberNames[def.CompletionItemLabel] = true
+				}
+			}
+			addDefinitions(defs...)
+		}
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if _, ok := obj.(*gotypes.PkgName); ok {
+				continue
+			}
+			if variable, ok := obj.(*gotypes.Var); ok && name != "this" && isGeneratedVariable(ctx.proj, variable) {
+				continue
+			}
+			if scope != pkg.Scope() && scope != ctx.astFileScope {
+				if ident := ctx.typeInfo.ObjToDef[obj]; ident != nil {
+					if parents == nil {
+						parents = nodeParents(ctx.astFile)
+					}
+					start, end := objectUnavailableRange(ctx.typeInfo, ctx.astFile, obj, parents)
+					if start <= ctx.pos && ctx.pos < end {
+						continue
+					}
+				}
+			}
+			// A visible inner declaration hides outer names even when the
+			// inner object is incompatible with the expected completion type.
+			if seenNames[name] {
+				// Class members do not shadow types in type annotations. Keep
+				// those types available alongside value candidates.
+				if _, ok := obj.(*gotypes.TypeName); ok && memberNames[name] {
+					ctx.itemSet.addDefinitions(ctx.definitionsFor(obj, "")...)
+				}
+				continue
+			}
+			if !xgoutil.IsExportedOrInMainPkg(obj) {
+				continue
+			}
+			if ctx.valueExpression || !slices.Contains(ctx.assignTargets, obj) {
+				addDefinitions(ctx.definitionsFor(obj, "")...)
+			}
+			seenNames[name] = true
+
+			if name == "this" {
+				classType, _ = xgoutil.DerefType(obj.Type()).(*gotypes.Named)
 			}
 		}
 	}
 
 	// Add imported package definitions.
+	var importedMembers []*gotypes.Package
 	for _, importSpec := range ctx.astFile.Imports {
-		if importSpec.Path == nil {
-			continue
-		}
-		pkgPath, err := strconv.Unquote(importSpec.Path.Value)
-		if err != nil {
-			continue
-		}
-		var detail string
-		if pkgDoc, err := ctx.lookupPkgDoc(pkgPath); err == nil {
-			detail = pkgDoc.Doc
-		}
-
-		pkgPathBase := path.Base(pkgPath)
-		pkgName := pkgPathBase
+		var obj gotypes.Object
 		if importSpec.Name != nil {
-			pkgName = importSpec.Name.Name
+			obj = ctx.typeInfo.Defs[importSpec.Name]
+		} else {
+			obj = ctx.typeInfo.Implicits[importSpec]
 		}
-
-		ctx.itemSet.addDefinitions(symbolDefinition{
-			ID: XGoDefinitionIdentifier{
-				Package: &pkgPath,
-			},
-			Overview: "package " + pkgPathBase,
-			Detail:   detail,
-
-			CompletionItemLabel:            pkgName,
-			CompletionItemKind:             ModuleCompletion,
-			CompletionItemInsertText:       pkgName,
-			CompletionItemInsertTextFormat: PlainTextTextFormat,
-		})
+		pkgName, ok := obj.(*gotypes.PkgName)
+		if !ok {
+			continue
+		}
+		switch pkgName.Name() {
+		case ".":
+			importedMembers = append(importedMembers, pkgName.Imported())
+		case "_":
+		default:
+			addDefinitions(ctx.definitionsFor(pkgName, "")...)
+		}
 	}
 
 	// Add other definitions.
 	if ctx.astFile.IsClass {
 		if class, ok := ctx.proj.Module().LookupClass(modfile.ClassExt(ctx.filename)); ok {
 			for _, pkgPath := range class.PkgPaths {
-				pkg, err := ctx.proj.Importer.Import(pkgPath)
+				pkg, err := ctx.proj.Import(pkgPath)
 				if err != nil {
 					continue
 				}
-				ctx.collectPackageMembers(pkg)
+				importedMembers = append(importedMembers, pkg)
 			}
 		}
 	}
-	ctx.itemSet.addDefinitions(ctx.builtinDefinitions(ctx.proj.Importer, ctx.lookupPkgDoc)...)
+	for _, pkg := range importedMembers {
+		pkgDoc, _ := ctx.lookupPkgDoc(pkg.Path())
+		addDefinitions(ctx.definitionsForPkg(pkg, pkgDoc)...)
+	}
+	addDefinitions(ctx.builtinDefinitions(ctx.proj, ctx.lookupPkgDoc)...)
 	ctx.itemSet.addDefinitions(generalCompletionSnippets...)
 	if ctx.innermostScope == ctx.astFileScope {
 		ctx.itemSet.addDefinitions(fileScopeCompletionSnippets...)

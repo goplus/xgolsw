@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -89,7 +90,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -108,15 +109,10 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	}
 
 	fset := proj.Fset
+	file := xgoutil.NodeTokenFile(fset, astFile)
 	var tokenInfos []semanticTokenInfo
 	addToken := func(startPos, endPos token.Pos, tokenType SemanticTokenTypes, tokenModifiers []SemanticTokenModifiers) {
-		if !startPos.IsValid() || !endPos.IsValid() {
-			return
-		}
-
-		start := fset.PositionFor(startPos, false)
-		end := fset.PositionFor(endPos, false)
-		if start.Line <= 0 || start.Column <= 0 || end.Offset <= start.Offset {
+		if startPos < file.Pos(0) || endPos <= startPos || endPos > file.Pos(file.Size()) {
 			return
 		}
 
@@ -127,69 +123,58 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			tokenModifiers: tokenModifiers,
 		})
 	}
+	var syntaxExpressions []ast.Expr
 	addStringToken := func(node *ast.BasicLit) {
-		endPos := node.End()
+		endPos := basicLitEnd(fset, astFile, node)
 		if node.Extra == nil || len(node.Extra.Parts) == 0 {
 			addToken(node.Pos(), endPos, StringType, nil)
 			return
 		}
 
-		partPos := node.ValuePos + 1
 		stringStart := node.ValuePos
 		for _, part := range node.Extra.Parts {
-			switch v := part.(type) {
-			case string:
-				partPos = ast.NextPartPos(partPos, v)
-			case ast.Expr:
+			if v, ok := part.(ast.Expr); ok {
+				syntaxExpressions = append(syntaxExpressions, v)
 				if stringStart < v.Pos() {
 					addToken(stringStart, v.Pos(), StringType, nil)
 				}
 				if v.End() < endPos {
 					addToken(v.End(), v.End()+1, StringType, nil)
 				}
-				partPos = v.End() + 1
-				stringStart = partPos
+				stringStart = v.End() + 1
 			}
 		}
 		if stringStart < endPos {
 			addToken(stringStart, endPos, StringType, nil)
 		}
 	}
-	addCallExprTokens := func(callExpr *ast.CallExpr, addKwargs bool) {
-		addToken(callExpr.Lparen, callExpr.Lparen+1, OperatorType, nil)
-		addToken(callExpr.Rparen, callExpr.Rparen+1, OperatorType, nil)
-		if callExpr.Ellipsis.IsValid() {
-			addToken(callExpr.Ellipsis, callExpr.Ellipsis+3, OperatorType, nil)
-		}
-		if !addKwargs {
-			return
-		}
-		for _, kwarg := range callExpr.Kwargs {
-			if len(lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name)) == 0 {
-				continue
-			}
-			addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
-		}
-	}
-
 	implicitReceivers := make(map[*ast.FieldList]bool)
+	operatorDeclarations := make(map[token.Pos]bool)
+	declarationTypes := make(map[*ast.Ident]SemanticTokenTypes)
+	seenNodes := make(map[ast.Node]bool)
 	ast.Inspect(astFile, func(node ast.Node) bool {
-		if node == nil || !node.Pos().IsValid() {
+		// Lowering can reuse whole source expressions, including their literals.
+		if node == nil || seenNodes[node] {
+			return false
+		}
+		seenNodes[node] = true
+		if !node.Pos().IsValid() {
 			return true
 		}
 
 		switch node := node.(type) {
-		case *ast.Comment:
-			addToken(node.Pos(), node.End(), CommentType, nil)
-		case *ast.BadExpr:
-			addToken(node.From, node.To, OperatorType, nil)
-		case *ast.BadStmt:
-			addToken(node.From, node.To, OperatorType, nil)
-		case *ast.EmptyStmt:
-			if !node.Implicit {
-				addToken(node.Semicolon, node.Semicolon+1, OperatorType, nil)
-			}
 		case *ast.Ident:
+			if !xgoutil.IsSourceIdent(file, astFile.Code, node) {
+				return false
+			}
+			if tokenType, ok := declarationTypes[node]; ok {
+				if tokenType == OperatorType {
+					operatorDeclarations[node.Pos()] = true
+				} else {
+					addToken(node.Pos(), node.End(), tokenType, []SemanticTokenModifiers{ModDeclaration})
+				}
+				return true
+			}
 			if enums.declarationType(node) != nil {
 				addToken(node.Pos(), node.End(), EnumType, []SemanticTokenModifiers{ModDeclaration})
 				return true
@@ -205,9 +190,6 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			}
 			obj := enums.objectForIdent(typeInfo, node)
 			if obj == nil {
-				if token.Lookup(node.Name).IsKeyword() {
-					addToken(node.Pos(), node.End(), KeywordType, nil)
-				}
 				return true
 			}
 
@@ -293,274 +275,85 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			if isXGoUnitNumberKind(node.Kind) {
 				addToken(node.ValuePos, node.ValuePos+token.Pos(len(node.Value)), NumberType, nil)
 			}
-		case *ast.CompositeLit:
-			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
-			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
-		case *ast.EnumType:
-			addToken(node.Const, node.Const+token.Pos(len("const")), KeywordType, nil)
-			if node.Lparen.IsValid() {
-				addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-				addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
-			}
-		case *ast.FuncDecorator:
-			addToken(node.At, node.At+1, OperatorType, nil)
-			addCallExprTokens(&node.CallExpr, false)
-		case *ast.FuncLit:
-			addToken(node.Type.Func, node.Type.Func+token.Pos(len("func")), KeywordType, nil)
-		case *ast.SliceLit:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			addToken(node.Rbrack, node.Rbrack+1, OperatorType, nil)
-		case *ast.MatrixLit:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			addToken(node.Rbrack, node.Rbrack+1, OperatorType, nil)
-		case *ast.StarExpr:
-			addToken(node.Star, node.Star+1, OperatorType, nil)
-		case *ast.UnaryExpr:
-			opLen := len(node.Op.String())
-			addToken(node.OpPos, node.OpPos+token.Pos(opLen), OperatorType, nil)
-		case *ast.BinaryExpr:
-			opLen := len(node.Op.String())
-			addToken(node.OpPos, node.OpPos+token.Pos(opLen), OperatorType, nil)
-		case *ast.ParenExpr:
-			addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
-		case *ast.SelectorExpr:
-			addToken(node.Sel.Pos()-1, node.Sel.Pos(), OperatorType, nil)
-		case *ast.IndexExpr:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			addToken(node.Rbrack, node.Rbrack+1, OperatorType, nil)
-		case *ast.IndexListExpr:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			addToken(node.Rbrack, node.Rbrack+1, OperatorType, nil)
-		case *ast.SliceExpr:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			addToken(node.Rbrack, node.Rbrack+1, OperatorType, nil)
-		case *ast.TypeAssertExpr:
-			addToken(node.Lparen-1, node.Lparen, OperatorType, nil)
-			addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-			if node.Type == nil {
-				addToken(node.Lparen+1, node.Lparen+1+token.Pos(len("type")), KeywordType, nil)
-			}
-			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
 		case *ast.CallExpr:
-			addCallExprTokens(node, true)
-		case *ast.KeyValueExpr:
-			addToken(node.Colon, node.Colon+1, OperatorType, nil)
-		case *ast.ErrWrapExpr:
-			addToken(node.TokPos, node.TokPos+1, OperatorType, nil)
-			if node.Default != nil {
-				addToken(node.TokPos+1, node.TokPos+2, OperatorType, nil)
-			}
-		case *ast.EnvExpr:
-			addToken(node.TokPos, node.TokPos+1, OperatorType, nil)
-			if node.HasBrace() {
-				addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
-				addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
-			}
-		case *ast.RangeExpr:
-			addToken(node.To, node.To+1, OperatorType, nil)
-			if node.Colon2.IsValid() {
-				addToken(node.Colon2, node.Colon2+1, OperatorType, nil)
-			}
-		case *ast.ArrayType:
-			addToken(node.Lbrack, node.Lbrack+1, OperatorType, nil)
-			if node.Len == nil {
-				addToken(node.Lbrack+1, node.Lbrack+2, OperatorType, nil)
-			}
-		case *ast.StructType:
-			addToken(node.Struct, node.Struct+token.Pos(len("struct")), KeywordType, nil)
-		case *ast.InterfaceType:
-			addToken(node.Interface, node.Interface+token.Pos(len("interface")), KeywordType, nil)
-		case *ast.FuncType:
-			if node.Func.IsValid() {
-				addToken(node.Func, node.Func+token.Pos(len("func")), KeywordType, nil)
-			}
-			if node.TypeParams != nil {
-				addToken(node.TypeParams.Opening, node.TypeParams.Opening+1, OperatorType, nil)
-				addToken(node.TypeParams.Closing, node.TypeParams.Closing+1, OperatorType, nil)
-			}
-		case *ast.MapType:
-			addToken(node.Map, node.Map+token.Pos(len("map")), KeywordType, nil)
-		case *ast.ChanType:
-			addToken(node.Begin, node.Begin+token.Pos(len("chan")), KeywordType, nil)
-			if node.Arrow.IsValid() {
-				addToken(node.Arrow, node.Arrow+2, OperatorType, nil)
-			}
-		case *ast.GenDecl:
-			switch node.Tok {
-			case token.IMPORT:
-				addToken(node.TokPos, node.TokPos+token.Pos(len("import")), KeywordType, nil)
-			case token.CONST:
-				addToken(node.TokPos, node.TokPos+token.Pos(len("const")), KeywordType, nil)
-			case token.TYPE:
-				addToken(node.TokPos, node.TokPos+token.Pos(len("type")), KeywordType, nil)
-			case token.VAR:
-				addToken(node.TokPos, node.TokPos+token.Pos(len("var")), KeywordType, nil)
-			}
-			if node.Lparen.IsValid() {
-				addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-			}
-			if node.Rparen.IsValid() {
-				addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
+			for _, kwarg := range node.Kwargs {
+				if len(lookupCallExprKwargTargets(typeInfo, node, kwarg.Name.Name)) > 0 {
+					addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
+				}
 			}
 		case *ast.FuncDecl:
 			if node.IsClass {
 				implicitReceivers[node.Recv] = true
 			}
-			if node.Shadow {
-				return true
-			}
-
-			addToken(node.Type.Func, node.Type.Func+token.Pos(len("func")), KeywordType, nil)
-			if node.Recv != nil {
-				addToken(node.Recv.Opening, node.Recv.Opening+1, OperatorType, nil)
-				addToken(node.Recv.Closing, node.Recv.Closing+1, OperatorType, nil)
-			}
 			if node.Operator {
-				addToken(node.Name.Pos(), node.Name.End(), OperatorType, []SemanticTokenModifiers{ModDeclaration})
+				declarationTypes[node.Name] = OperatorType
 			}
 		case *ast.OverloadFuncDecl:
 			if node.IsClass {
 				implicitReceivers[node.Recv] = true
 			}
-			addToken(node.Func, node.Func+token.Pos(len("func")), KeywordType, nil)
-			if node.Recv != nil {
-				addToken(node.Recv.Opening, node.Recv.Opening+1, OperatorType, nil)
-				addToken(node.Recv.Closing, node.Recv.Closing+1, OperatorType, nil)
-			}
 			if node.Operator {
-				addToken(node.Name.Pos(), node.Name.End(), OperatorType, []SemanticTokenModifiers{ModDeclaration})
+				declarationTypes[node.Name] = OperatorType
+			} else if node.Recv != nil {
+				declarationTypes[node.Name] = MethodType
 			} else {
-				var tokenType SemanticTokenTypes
-				if node.Recv != nil {
-					tokenType = MethodType
-				} else {
-					tokenType = FunctionType
-				}
-				addToken(node.Name.Pos(), node.Name.End(), tokenType, []SemanticTokenModifiers{ModDeclaration})
-			}
-			addToken(node.Assign, node.Assign+1, OperatorType, nil)
-			addToken(node.Lparen, node.Lparen+1, OperatorType, nil)
-			addToken(node.Rparen, node.Rparen+1, OperatorType, nil)
-		case *ast.ImportSpec:
-			if node.Path != nil {
-				addToken(node.Path.Pos(), node.Path.End(), StringType, nil)
+				declarationTypes[node.Name] = FunctionType
 			}
 		case *ast.FieldList:
 			if implicitReceivers[node] {
 				return false
 			}
-			if node.Opening.IsValid() {
-				addToken(node.Opening, node.Opening+1, OperatorType, nil)
-			}
-			if node.Closing.IsValid() {
-				addToken(node.Closing, node.Closing+1, OperatorType, nil)
-			}
 		case *ast.LabeledStmt:
-			addToken(node.Label.Pos(), node.Label.End(), LabelType, nil)
-			addToken(node.Colon, node.Colon+1, OperatorType, nil)
-		case *ast.SendStmt:
-			addToken(node.Arrow, node.Arrow+2, OperatorType, nil)
-		case *ast.IncDecStmt:
-			addToken(node.TokPos, node.TokPos+2, OperatorType, nil)
-		case *ast.AssignStmt:
-			opLen := len(node.Tok.String())
-			addToken(node.TokPos, node.TokPos+token.Pos(opLen), OperatorType, nil)
-		case *ast.GoStmt:
-			addToken(node.Go, node.Go+token.Pos(len("go")), KeywordType, nil)
-		case *ast.DeferStmt:
-			addToken(node.Defer, node.Defer+token.Pos(len("defer")), KeywordType, nil)
-		case *ast.ReturnStmt:
-			addToken(node.Return, node.Return+token.Pos(len("return")), KeywordType, nil)
-		case *ast.BranchStmt:
-			opLen := len(node.Tok.String())
-			addToken(node.TokPos, node.TokPos+token.Pos(opLen), KeywordType, nil)
-		case *ast.BlockStmt:
-			addToken(node.Lbrace, node.Lbrace+1, OperatorType, nil)
-			addToken(node.Rbrace, node.Rbrace+1, OperatorType, nil)
-		case *ast.IfStmt:
-			addToken(node.If, node.If+token.Pos(len("if")), KeywordType, nil)
-		case *ast.CaseClause:
-			if node.List == nil {
-				addToken(node.Case, node.Case+token.Pos(len("default")), KeywordType, nil)
-			} else {
-				addToken(node.Case, node.Case+token.Pos(len("case")), KeywordType, nil)
-			}
-		case *ast.SwitchStmt:
-			addToken(node.Switch, node.Switch+token.Pos(len("switch")), KeywordType, nil)
-		case *ast.TypeSwitchStmt:
-			addToken(node.Switch, node.Switch+token.Pos(len("switch")), KeywordType, nil)
-		case *ast.CommClause:
-			if node.Comm == nil {
-				addToken(node.Case, node.Case+token.Pos(len("default")), KeywordType, nil)
-			} else {
-				addToken(node.Case, node.Case+token.Pos(len("case")), KeywordType, nil)
-			}
-			addToken(node.Colon, node.Colon+1, OperatorType, nil)
-		case *ast.SelectStmt:
-			addToken(node.Select, node.Select+token.Pos(len("select")), KeywordType, nil)
-		case *ast.ForStmt:
-			addToken(node.For, node.For+token.Pos(len("for")), KeywordType, nil)
-		case *ast.RangeStmt:
-			addToken(node.For, node.For+token.Pos(len("for")), KeywordType, nil)
-			if !node.NoRangeOp {
-				addToken(node.For+token.Pos(len("for")+1), node.For+token.Pos(len("for range")), KeywordType, nil)
-			}
-			if node.Tok != token.ILLEGAL {
-				addToken(node.TokPos, node.TokPos+token.Pos(len(node.Tok.String())), OperatorType, nil)
-			}
-		case *ast.ArrowExpr:
-			addToken(node.Rarrow, node.Rarrow+2, OperatorType, nil)
-			if node.LhsHasParen {
-				addToken(node.First, node.First+1, OperatorType, nil)
-				addToken(node.Rarrow-1, node.Rarrow, OperatorType, nil)
-			}
-			if node.RhsHasParen {
-				addToken(node.Rarrow+2, node.Rarrow+3, OperatorType, nil)
-				addToken(node.Last-1, node.Last, OperatorType, nil)
-			}
-		case *ast.LambdaExpr:
-			addToken(node.Rarrow, node.Rarrow+2, OperatorType, nil)
-			if node.LhsHasParen {
-				addToken(node.First, node.First+1, OperatorType, nil)
-				addToken(node.Rarrow-1, node.Rarrow, OperatorType, nil)
-			}
-		case *ast.ForPhrase:
-			addToken(node.For, node.For+token.Pos(len("for")), KeywordType, nil)
-			addToken(node.TokPos, node.TokPos+2, OperatorType, nil)
-			if node.IfPos.IsValid() {
-				addToken(node.IfPos, node.IfPos+token.Pos(len("if")), KeywordType, nil)
-			}
-		case *ast.ForPhraseStmt:
-			addToken(node.For, node.For+token.Pos(len("for")), KeywordType, nil)
-			addToken(node.TokPos, node.TokPos+2, OperatorType, nil)
-			if node.IfPos.IsValid() {
-				addToken(node.IfPos, node.IfPos+token.Pos(len("if")), KeywordType, nil)
-			}
-			if node.Body != nil {
-				addToken(node.Body.Lbrace, node.Body.Lbrace+1, OperatorType, nil)
-				addToken(node.Body.Rbrace, node.Body.Rbrace+1, OperatorType, nil)
-			}
-		case *ast.ComprehensionExpr:
-			addToken(node.Lpos, node.Lpos+1, OperatorType, nil)
-			addToken(node.Rpos, node.Rpos+1, OperatorType, nil)
-			if kvExpr, ok := node.Elt.(*ast.KeyValueExpr); ok {
-				addToken(kvExpr.Colon, kvExpr.Colon+1, OperatorType, nil)
-			}
-		case *ast.Ellipsis:
-			addToken(node.Ellipsis, node.Ellipsis+3, OperatorType, nil)
-		case *ast.ElemEllipsis:
-			addToken(node.Ellipsis, node.Ellipsis+3, OperatorType, nil)
+			declarationTypes[node.Label] = LabelType
 		}
 		return true
 	})
 
-	slices.SortFunc(tokenInfos, func(a, b semanticTokenInfo) int {
-		if a.startPos != b.startPos {
-			return cmp.Compare(a.startPos, b.startPos)
+	// Scan physical syntax separately from compiler-mutated ASTs. Interpolated
+	// expressions need their own scan because the lexer sees their outer string
+	// as a single literal. Each scan owns its line table.
+	addSyntaxTokens := func(start, end token.Pos) {
+		end = min(end, file.Pos(file.Size()))
+		if start < file.Pos(0) || end <= start {
+			return
 		}
-		return cmp.Compare(a.endPos, b.endPos)
-	})
+		source := astFile.Code[file.Offset(start):file.Offset(end)]
+		var scan scanner.Scanner
+		scan.Init(token.NewFileSet().AddFile("", int(start), len(source)), source, nil, scanner.ScanComments)
+		for {
+			pos, tok, lit := scan.Scan()
+			if tok == token.EOF {
+				break
+			}
+			switch {
+			case tok == token.COMMENT:
+				// The scanner strips carriage returns from comment text.
+				// Recover its physical end directly from the source delimiters.
+				comment := source[int(pos-start):]
+				length := len(comment)
+				if bytes.HasPrefix(comment, []byte("/*")) {
+					if closing := bytes.Index(comment[2:], []byte("*/")); closing >= 0 {
+						length = closing + 4
+					}
+				} else if newline := bytes.IndexByte(comment, '\n'); newline >= 0 {
+					length = newline
+				}
+				addToken(pos, pos+token.Pos(length), CommentType, nil)
+			case tok.IsKeyword():
+				addToken(pos, pos+token.Pos(len(tok.String())), KeywordType, nil)
+			case tok.IsOperator() && lit != "\n":
+				var modifiers []SemanticTokenModifiers
+				if operatorDeclarations[pos] {
+					modifiers = []SemanticTokenModifiers{ModDeclaration}
+				}
+				addToken(pos, pos+token.Pos(len(tok.String())), OperatorType, modifiers)
+			}
+		}
+	}
+	addSyntaxTokens(file.Pos(0), file.Pos(file.Size()))
+	for _, expr := range syntaxExpressions {
+		addSyntaxTokens(expr.Pos(), expr.End())
+	}
 
 	type semanticTokenDataSegment struct {
 		semanticTokenSegment
@@ -582,7 +375,6 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 			FromPosition(proj, astFile, start),
 			FromPosition(proj, astFile, end),
 			lineLengths,
-			semanticTokenFallbackLength(astFile.Code, start.Offset, end.Offset),
 		) {
 			segments = append(segments, semanticTokenDataSegment{
 				semanticTokenSegment: segment,
@@ -638,38 +430,11 @@ func semanticTokenLineLengths(content []byte) []uint32 {
 	return lengths
 }
 
-// semanticTokenFallbackLength returns a UTF-16 length for token.Pos spans
-// whose converted LSP start and end positions collapse to an empty range.
-func semanticTokenFallbackLength(content []byte, startOffset, endOffset int) uint32 {
-	if endOffset <= startOffset {
-		return 0
-	}
-	fallbackLength := uint32(endOffset - startOffset)
-	if startOffset < 0 || startOffset >= len(content) {
-		return fallbackLength
-	}
-
-	clippedEndOffset := min(endOffset, len(content))
-	if clippedEndOffset <= startOffset {
-		return fallbackLength
-	}
-	return uint32(UTF16Len(string(content[startOffset:clippedEndOffset])))
-}
-
 // semanticTokenSegments splits a semantic token range into single-line
-// segments encoded with LSP UTF-16 positions. The fallback length preserves
-// spans whose converted start and end positions collapse to an empty range.
-func semanticTokenSegments(start, end Position, lineLengths []uint32, fallbackLength uint32) []semanticTokenSegment {
-	fallbackSegment := semanticTokenSegment{
-		line:   start.Line,
-		char:   start.Character,
-		length: fallbackLength,
-	}
-	if start.Line > end.Line || (start.Line == end.Line && start.Character >= end.Character) {
-		if fallbackLength == 0 {
-			return nil
-		}
-		return []semanticTokenSegment{fallbackSegment}
+// segments encoded with LSP UTF-16 positions. Empty ranges emit no token.
+func semanticTokenSegments(start, end Position, lineLengths []uint32) []semanticTokenSegment {
+	if comparePositions(start, end) >= 0 {
+		return nil
 	}
 	if start.Line == end.Line {
 		return []semanticTokenSegment{{
@@ -702,9 +467,6 @@ func semanticTokenSegments(start, end Position, lineLengths []uint32, fallbackLe
 			line:   end.Line,
 			length: end.Character,
 		})
-	}
-	if len(segments) == 0 && fallbackLength > 0 {
-		return []semanticTokenSegment{fallbackSegment}
 	}
 	return segments
 }

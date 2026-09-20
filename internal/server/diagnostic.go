@@ -136,10 +136,22 @@ func (s *Server) collectTypeDiagnostics(proj *xgo.Project, result *diagnosticRes
 		if !ok {
 			return
 		}
+		if !typeErr.Pos.IsValid() {
+			// Package-wide failures, including implicit import errors, have no
+			// source span. Report them at the start of each source document.
+			for filename := range proj.Files() {
+				if proj.IsSourceFile(filename) {
+					result.addDiagnostics(s.toDocumentURI(filename), Diagnostic{
+						Severity: SeverityError,
+						Message:  typeErr.Msg,
+					})
+				}
+			}
+			return
+		}
 		span, ok := diagnosticRange(proj, typeErr.Pos, typeErr.End)
 		if !ok {
-			// Edits can replace or remove the source during type checking.
-			// Implicit import failures may also have no source position.
+			// Ignore positions outside this source snapshot.
 			return
 		}
 		position := typeErr.Fset.PositionFor(typeErr.Pos, false)
@@ -168,15 +180,23 @@ func diagnosticRange(proj *xgo.Project, pos, end token.Pos) (Range, bool) {
 	if astFile == nil {
 		return Range{}, false
 	}
+	// Recovery nodes can end past EOF. Keep their ranges in the original
+	// token file instead of resolving the endpoint in an adjacent source file.
+	file := proj.Fset.File(pos)
+	end = min(max(end, pos), file.Pos(file.Size()))
 	return Range{
-		Start: FromPosition(proj, astFile, proj.Fset.PositionFor(pos, false)),
-		End:   FromPosition(proj, astFile, proj.Fset.PositionFor(end, false)),
+		Start: FromPosition(proj, astFile, file.PositionFor(pos, false)),
+		End:   FromPosition(proj, astFile, file.PositionFor(end, false)),
 	}, true
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_diagnostic
 func (s *Server) textDocumentDiagnostic(params *DocumentDiagnosticParams) (*DocumentDiagnosticReport, error) {
-	result, err := s.diagnosticsAt(s.getProjWithFile())
+	path, err := s.fromDocumentURI(params.TextDocument.URI)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.diagnosticsAt(s.requestProject())
 	if err != nil {
 		return nil, err
 	}
@@ -184,14 +204,14 @@ func (s *Server) textDocumentDiagnostic(params *DocumentDiagnosticParams) (*Docu
 	return &DocumentDiagnosticReport{Value: RelatedFullDocumentDiagnosticReport{
 		FullDocumentDiagnosticReport: FullDocumentDiagnosticReport{
 			Kind:  string(DiagnosticFull),
-			Items: append([]Diagnostic{}, result.diagnostics[params.TextDocument.URI]...),
+			Items: append([]Diagnostic{}, result.diagnostics[s.toDocumentURI(path)]...),
 		},
 	}}, nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#workspace_diagnostic
 func (s *Server) workspaceDiagnostic(params *WorkspaceDiagnosticParams) (*WorkspaceDiagnosticReport, error) {
-	result, err := s.diagnosticsAt(s.getProjWithFile())
+	result, err := s.diagnosticsAt(s.requestProject())
 	if err != nil {
 		return nil, err
 	}

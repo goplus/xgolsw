@@ -1097,6 +1097,20 @@ func foo() string {
 }
 
 func TestToLowerCamelCase(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		text string
+	}{
+		{name: "UnicodeUpper", text: "\u0393amma"},
+		{name: "UnicodeLower", text: "\u03b4elta"},
+		{name: "UnicodeUncased", text: "\u503c"},
+		{name: "LeadingUnderscore", text: "_value"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.text, ToLowerCamelCase(tt.text))
+		})
+	}
+
 	t.Run("EmptyString", func(t *testing.T) {
 		assert.Empty(t, ToLowerCamelCase(""))
 	})

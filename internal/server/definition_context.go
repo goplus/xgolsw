@@ -38,7 +38,7 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 		// Builtin interface methods, such as error.Error, retain their member
 		// declarations rather than using builtin symbol descriptions.
 		if fun, ok := obj.(*gotypes.Func); !ok || fun.Signature().Recv() == nil {
-			return []symbolDefinition{r.definitionForBuiltin(obj, r.proj.Importer, r.lookupPkgDoc)}
+			return []symbolDefinition{r.definitionForBuiltin(obj, r.proj, r.lookupPkgDoc)}
 		}
 	}
 

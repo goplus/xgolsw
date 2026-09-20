@@ -10,6 +10,24 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+// isGeneratedVariable reports whether a recorded variable declaration comes
+// from compiler-generated syntax. Imported variables have no local declaration.
+func isGeneratedVariable(proj *xgo.Project, obj *gotypes.Var) bool {
+	info, _ := proj.TypeInfo()
+	ident := info.ObjToDef[obj.Origin()]
+	if ident == nil {
+		// Compiler-created closure results have neither a recorded declaration
+		// nor a source position. Package members and imported objects stay visible.
+		return obj.Pkg() == info.Pkg && !obj.IsField() && obj.Parent() != info.Pkg.Scope() && !obj.Pos().IsValid()
+	}
+	astPkg, _ := proj.ASTPackage()
+	file := xgoutil.NodeTokenFile(proj.Fset, ident)
+	if file == nil || astPkg.Files[file.Name()] == nil {
+		return true
+	}
+	return !xgoutil.IsSourceIdent(file, astPkg.Files[file.Name()].Code, ident)
+}
+
 // objectSource returns the current source file and position of a project object.
 // Imported objects can use positions from another file set, so package identity
 // must be checked before interpreting the position in the project's file set.
@@ -19,8 +37,7 @@ func objectSource(proj *xgo.Project, obj gotypes.Object) (*ast.File, token.Pos) 
 		return nil, token.NoPos
 	}
 	pos := obj.Pos()
-	// Generated range variables can have no object position while their
-	// declaration identifiers are still recorded.
+	// Local types and generated range variables can lack object positions.
 	if !pos.IsValid() {
 		if ident := info.ObjToDef[obj]; ident != nil && !ident.Implicit() {
 			pos = ident.Pos()
@@ -28,28 +45,6 @@ func objectSource(proj *xgo.Project, obj gotypes.Object) (*ast.File, token.Pos) 
 	}
 	if pos.IsValid() {
 		return sourceASTFile(proj, pos), pos
-	}
-	// Local type declarations can lack both an object position and a Defs
-	// entry. Resolve their syntax against the compiler's scope objects.
-	if _, ok := obj.(*gotypes.TypeName); !ok || obj.Parent() == nil || obj.Parent() == info.Pkg.Scope() {
-		return nil, token.NoPos
-	}
-	pkg, _ := proj.ASTPackage()
-	for _, file := range pkg.Files {
-		ast.Inspect(file, func(node ast.Node) bool {
-			if pos.IsValid() {
-				return false
-			}
-			if spec, ok := node.(*ast.TypeSpec); ok && spec.Name.Name == obj.Name() {
-				if scope := xgoutil.InnermostScopeAt(proj.Fset, info, pkg, spec.Name.Pos()); scope == obj.Parent() {
-					pos = spec.Name.Pos()
-				}
-			}
-			return true
-		})
-		if pos.IsValid() {
-			return file, pos
-		}
 	}
 	return nil, token.NoPos
 }

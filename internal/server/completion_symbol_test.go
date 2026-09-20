@@ -140,11 +140,13 @@ type RecordList = []Record
 				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox": []byte("import \"fmt\"\nvar Count int\nCount = 1\n\n"),
 				})
-				proj := s.workspaceRootFS
+				importer := &completionTestImporter{Importer: s.getProj().Importer}
+				s.getProj().Importer = importer
+				proj := s.requestProject()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
 				// Package data can become unavailable after type information was cached.
-				proj.Importer = completionTestImporter{Importer: proj.Importer, unavailablePath: tt.pkgPath}
+				importer.unavailablePath = tt.pkgPath
 				items := completionItemsAt(t, s, "main_fixture.gox", Position{Line: 3})
 				for _, label := range []string{"Count", "fmt", "len", "echo"} {
 					assert.Contains(t, completionItemLabels(items), label)
@@ -1014,4 +1016,119 @@ func completionItemsAt(t *testing.T, s *Server, filename string, position Positi
 	items := requireValueAs[[]CompletionItem](t, result)
 	require.NotNil(t, items)
 	return items
+}
+
+func TestServerTextDocumentCompletionComprehensionScopes(t *testing.T) {
+	for _, kind := range []struct {
+		name      string
+		filename  string
+		newServer testServerFactory
+	}{
+		{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+		{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
+		{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+		{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+	} {
+		t.Run(kind.name, func(t *testing.T) {
+			const source = "var shared int\nfunc label(n int) string { return \"\" }\nfunc run() {\nprintln [label(22) for shared <- []string{label(11)}]\n}\n"
+			files := map[string][]byte{kind.filename: []byte(source)}
+			if kind.filename == "Worker_fixture.gox" {
+				files["main_fixture.gox"] = nil
+			}
+			s := kind.newServer(t, files)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			line := strings.Split(source, "\n")[3]
+			for _, value := range []string{"11", "22"} {
+				items := completionItemsAt(t, s, kind.filename, Position{Line: 3, Character: uint32(strings.Index(line, value))})
+				labels := completionItemLabels(items)
+				assert.NotContains(t, labels, "_xgo_ret")
+				if value == "11" {
+					assert.Contains(t, labels, "shared")
+				} else {
+					assert.NotContains(t, labels, "shared")
+				}
+			}
+		})
+	}
+}
+
+func TestServerTextDocumentCompletionShadowing(t *testing.T) {
+	for _, kind := range []struct {
+		name       string
+		filename   string
+		registered bool
+	}{
+		{name: "XGo", filename: "main.xgo"},
+		{name: "NormalClass", filename: "Record.gox"},
+		{name: "ProjectClass", filename: "main_fixture.gox", registered: true},
+		{name: "WorkClass", filename: "Worker_fixture.gox", registered: true},
+	} {
+		t.Run(kind.name, func(t *testing.T) {
+			for _, tt := range []struct {
+				name       string
+				prefix     string
+				label      string
+				kind       CompletionItemKind
+				count      int
+				registered bool
+			}{
+				{name: "Builtin", label: "len", kind: FunctionCompletion, count: 1},
+				{name: "BuiltinAlias", label: "echo", kind: FunctionCompletion, count: 1},
+				{name: "Import", prefix: "import \"fmt\"\n", label: "fmt", kind: ModuleCompletion, count: 1},
+				{name: "ImportAlias", prefix: "import f \"fmt\"\n", label: "f", kind: ModuleCompletion, count: 1},
+				{name: "DotImport", prefix: "import . \"example.com/framework\"\n", label: "Limit", kind: ConstantCompletion, count: 1},
+				{name: "FrameworkConstant", label: "Limit", kind: ConstantCompletion, count: 1, registered: true},
+				{name: "FrameworkFunction", label: "runWhen", kind: FunctionCompletion, count: 1, registered: true},
+				{name: "MethodOverloads", label: "measure", kind: FunctionCompletion, count: 2, registered: true},
+			} {
+				if tt.registered && !kind.registered {
+					continue
+				}
+				t.Run(tt.name, func(t *testing.T) {
+					var s *Server
+					for version, name := range []string{tt.label, "localValue"} {
+						source, position := typeDisplayTestSource(t, tt.prefix+"func number(n int) {}\nfunc run() {\n"+
+							name+" := \"\"\nprintln "+name+"\n|\nnumber(11)\n}\n")
+						if s == nil {
+							files := map[string][]byte{kind.filename: []byte(source)}
+							if kind.filename == "Worker_fixture.gox" {
+								files["main_fixture.gox"] = nil
+							}
+							s = newFrameworkTestServer(t, files)
+						} else {
+							s.ModifyFiles([]FileChange{{Path: kind.filename, Content: []byte(source), Version: version}})
+						}
+						info, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						var uses int
+						for ident, obj := range info.Uses {
+							if ident.Name == name {
+								variable := requireValueAs[*gotypes.Var](t, obj)
+								assert.Equal(t, "string", variable.Type().String())
+								uses++
+							}
+						}
+						require.Positive(t, uses)
+						items := completionItemsAt(t, s, kind.filename, position)
+						wantCount, wantKind := tt.count, tt.kind
+						if version == 0 {
+							wantCount, wantKind = 1, VariableCompletion
+						}
+						assert.Equal(t, wantCount, countCompletionItemLabel(items, tt.label))
+						for _, item := range items {
+							if item.Label == tt.label {
+								assert.Equal(t, wantKind, item.Kind)
+							}
+						}
+						if version == 0 {
+							// An incompatible local must still hide the outer candidate.
+							items = completionItemsAt(t, s, kind.filename, Position{Line: position.Line + 1, Character: 7})
+							assert.NotContains(t, completionItemLabels(items), tt.label)
+						}
+					}
+				})
+			}
+		})
+	}
 }

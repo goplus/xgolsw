@@ -1766,7 +1766,7 @@ func main() {
 		}
 		server := newTestServer(t, files)
 
-		proj := server.getProjWithFile()
+		proj := server.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")
 		require.Error(t, err)
 		require.NotNil(t, astFile)
@@ -1829,7 +1829,7 @@ func findAddressInputSlot(inputSlots []XGoInputSlot, name string) *XGoInputSlot 
 func inputSlotTestContext(t *testing.T, s *Server, filename string) *inputSlotContext {
 	t.Helper()
 
-	proj := s.getProjWithFile()
+	proj := s.syncProject()
 	astFile, err := proj.ASTFile(filename)
 	require.NoError(t, err)
 	require.NotNil(t, astFile)

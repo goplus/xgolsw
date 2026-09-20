@@ -149,7 +149,7 @@ work
 				s := newFrameworkTestServer(t, map[string][]byte{
 					"main_fixture.gox": []byte("type Color const (\n// Red documentation.\nRed = iota\n)\nvar color Color = Red\n"),
 				})
-				proj := s.getProj()
+				proj := s.syncProject()
 				_, err := tt.warm(proj)
 				require.NoError(t, err)
 				enums, err := enumInfoForProject(proj)
@@ -172,12 +172,12 @@ work
 			"enums.xgo": []byte("type Color const (\nRed = iota\nBlue\n)\n"),
 			"main.xgo":  []byte("var color Color = Red\n"),
 		})
-		proj := s.getProj()
 		var builds int
-		proj.RegisterCacheBuilder(enumInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
+		s.getProj().RegisterCacheBuilder(enumInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
 			builds++
 			return buildEnumInfoCache(proj)
 		})
+		proj := s.requestProject()
 		info, err := enumInfoForProject(proj)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Blue", "Red"}, enumMemberNames(info))

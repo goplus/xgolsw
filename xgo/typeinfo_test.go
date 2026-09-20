@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/goplus/mod/xgomod"
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,6 +115,169 @@ func test() {
 }
 
 func TestProjectTypeInfo(t *testing.T) {
+	t.Run("TypeSwitchRecovery", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			body    string
+			wantVar bool
+			wantErr bool
+			refs    int
+		}{
+			{name: "NoBinding", body: "switch input.(type) { case int: }"},
+			{name: "BlankBinding", body: "switch _ := input.(type) { case int: }"},
+			{name: "EmptySwitch", body: "switch value := input.(type) {}", wantVar: true},
+			{name: "InvalidInput", body: "switch value := (1).(type) { default: }", wantErr: true},
+			{name: "MissingInput", body: "switch value := missing.(type) { default: }", wantErr: true},
+			{name: "AssignmentBinding", body: "switch value = input.(type) { default: }", wantErr: true},
+			{name: "MultipleBindings", body: "switch other, value := input.(type) { default: }", wantErr: true},
+			{name: "IncompleteBody", body: "switch value := input.(type) {", wantVar: true, wantErr: true},
+			{name: "BodyError", body: "switch value := input.(type) { case int: echo value; missing() }", wantVar: true, wantErr: true, refs: 1},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				proj := newTestProject(t, map[string]*File{"main.xgo": file("func use(input any) {\n" + tt.body + "\n}\n")}, FeatAll)
+				info, err := proj.TypeInfo()
+				require.NotNil(t, info)
+				_, parseErr := proj.ASTFile("main.xgo")
+				if tt.wantErr {
+					assert.True(t, err != nil || parseErr != nil)
+				} else {
+					require.NoError(t, err)
+					require.NoError(t, parseErr)
+				}
+				var declarations []gotypes.Object
+				for ident, obj := range info.Defs {
+					if ident.Name == "value" && obj != nil {
+						declarations = append(declarations, obj)
+					}
+				}
+				if tt.wantVar {
+					require.Len(t, declarations, 1)
+					assert.Len(t, info.RefIdentsFor(declarations[0]), tt.refs)
+				} else {
+					assert.Empty(t, declarations)
+				}
+			})
+		}
+	})
+
+	t.Run("TypeSwitchDeclarations", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`func use(input any) {
+switch value := input.(type) {
+case int: echo value
+case string: echo value
+case bool, float64: echo value
+default: echo value
+}
+switch value := input.(type) {
+case int: echo value
+}
+}
+`)}, FeatAll)
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+		for _, view := range []*Project{proj, proj.Snapshot(), proj.Fork()} {
+			info, err := view.TypeInfo()
+			require.NoError(t, err)
+			astFile, err := view.ASTFile("main.xgo")
+			require.NoError(t, err)
+			var declarations []gotypes.Object
+			ast.Inspect(astFile, func(node ast.Node) bool {
+				stmt, ok := node.(*ast.TypeSwitchStmt)
+				if !ok {
+					return true
+				}
+				assign, ok := stmt.Assign.(*ast.AssignStmt)
+				require.True(t, ok)
+				ident, ok := assign.Lhs[0].(*ast.Ident)
+				require.True(t, ok)
+				declaration := info.Defs[ident]
+				require.NotNil(t, declaration)
+				declarations = append(declarations, declaration)
+				assert.True(t, gotypes.IsInterface(declaration.Type()))
+				assert.Same(t, ident, info.ObjToDef[declaration])
+				assert.Len(t, info.RefIdentsFor(declaration), len(stmt.Body.List))
+				for _, clause := range stmt.Body.List {
+					scope := info.Scopes[clause]
+					require.NotNil(t, scope)
+					variable := scope.Lookup(ident.Name)
+					require.NotNil(t, variable)
+					assert.NotSame(t, declaration, variable)
+					assert.Same(t, ident, info.ObjToDef[variable])
+					assert.Same(t, declaration, info.ObjectDeclaration(variable))
+					assert.ElementsMatch(t, info.RefIdentsFor(declaration), info.RefIdentsFor(variable))
+				}
+				return true
+			})
+			require.Len(t, declarations, 2)
+			assert.NotSame(t, declarations[0], declarations[1])
+			var referenceTypes []string
+			for ident, obj := range info.Uses {
+				if ident.Name == "value" {
+					referenceTypes = append(referenceTypes, obj.Type().String())
+				}
+			}
+			assert.ElementsMatch(t, []string{"int", "int", "string", "interface{}", "interface{}"}, referenceTypes)
+		}
+	})
+
+	t.Run("LocalTypeDeclarations", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			filename   string
+			newProject func(*testing.T, map[string]*File, uint) *Project
+		}{
+			{"XGo", "main.xgo", newTestProject},
+			{"NormalClass", "Record.gox", newTestProject},
+			{"ProjectClass", "main_fixture.gox", newFrameworkTestProject},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestProject},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string]*File{tt.filename: file(`func first() {
+	type Item int
+	var value Item
+	echo value
+	{
+		type Item = string
+		var value Item
+		echo value
+	}
+}
+func second() {
+	type Item struct { Value int }
+	var value Item
+	echo value
+}
+`)}
+				if tt.name == "WorkClass" {
+					files["main_fixture.gox"] = file("")
+				}
+				proj := tt.newProject(t, files, FeatAll)
+				_, err := proj.TypeInfo()
+				require.NoError(t, err)
+				for _, view := range []*Project{proj, proj.Snapshot(), proj.Fork()} {
+					info, err := view.TypeInfo()
+					require.NoError(t, err)
+					astFile, err := view.ASTFile(tt.filename)
+					require.NoError(t, err)
+					objects := make(map[gotypes.Object]bool)
+					ast.Inspect(astFile, func(node ast.Node) bool {
+						if spec, ok := node.(*ast.TypeSpec); ok {
+							obj := info.Defs[spec.Name]
+							require.NotNil(t, obj)
+							assert.Same(t, spec.Name, info.ObjToDef[obj])
+							assert.Same(t, info.Pkg, obj.Pkg())
+							assert.False(t, objects[obj], "same-named local types must have distinct objects")
+							objects[obj] = true
+							assert.Len(t, info.RefIdentsFor(obj), 1)
+						}
+						return true
+					})
+					assert.Len(t, objects, 3)
+				}
+			})
+		}
+	})
+
 	t.Run("OverloadDeclarations", func(t *testing.T) {
 		proj := newTestProject(t, map[string]*File{
 			"main.xgo": file(`func pickInt(value int) {}

@@ -312,6 +312,13 @@ func TestIsUnexpandableXGoOverloadableFunc(t *testing.T) {
 }
 
 func TestExpandXGoOverloadableFunc(t *testing.T) {
+	t.Run("IncompleteOverload", func(t *testing.T) {
+		pkg := gotypes.NewPackage("test", "test")
+		resolved := gotypes.NewFunc(token.NoPos, pkg, "Resolved", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		fun := gogen.NewOverloadFunc(token.NoPos, pkg, "Read", nil, (*gotypes.Func)(nil), resolved)
+		assert.Equal(t, []*gotypes.Func{resolved}, ExpandXGoOverloadableFunc(fun))
+	})
+
 	t.Run("RegularFunction", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 		sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)

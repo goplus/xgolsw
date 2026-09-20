@@ -3,6 +3,7 @@ package server
 import (
 	gotypes "go/types"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -29,6 +30,225 @@ func (i semanticTokenPositionImporter) Import(path string) (*gotypes.Package, er
 }
 
 func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
+	t.Run("IncompleteImport", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+		}{
+			{name: "Keyword", source: "import"},
+			{name: "Newline", source: "import\n"},
+			{name: "Alias", source: "import alias\n"},
+			{name: "InvalidPath", source: "import 123\n"},
+			{name: "Group", source: "import (\nalias\n)\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				params := &SemanticTokensParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+				for version, source := range []string{tt.source, "import _ \"fmt\"\n", tt.source} {
+					s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: version + 1}})
+					_, parseErr := s.requestProject().ASTFile("main.xgo")
+					if version == 1 {
+						require.NoError(t, parseErr)
+					} else {
+						require.Error(t, parseErr)
+					}
+					tokens, err := s.textDocumentSemanticTokensFull(params)
+					require.NoError(t, err)
+					require.NotNil(t, tokens)
+					decoded := decodeSemanticTokens(tokens.Data)
+					assert.Contains(t, decoded, decodedSemanticToken{length: 6, tokenType: KeywordType})
+					var literals []decodedSemanticToken
+					for _, token := range decoded {
+						assert.Positive(t, token.length)
+						if token.tokenType == StringType {
+							literals = append(literals, token)
+						}
+					}
+					if version == 1 {
+						assert.Equal(t, []decodedSemanticToken{{character: 9, length: 5, tokenType: StringType}}, literals)
+					} else {
+						assert.Empty(t, literals)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("SourceSpans", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			source       string
+			want         []decodedSemanticToken
+			declarations []decodedSemanticToken
+		}{
+			{
+				name: "LocalTypeDeclaration", source: "func run() {\ntype Item int\nvar value Item\necho value\n}\n",
+				declarations: []decodedSemanticToken{{line: 1, character: 5, length: 4, tokenType: TypeType}},
+			},
+			{
+				name: "FloatingComments", source: "func run() {\n// Note.\nprintln 1 // Tail.\n}\n",
+				want: []decodedSemanticToken{{line: 1, length: 8, tokenType: CommentType}, {line: 2, character: 10, length: 8, tokenType: CommentType}},
+			},
+			{
+				name: "CRLFComment", source: "/* First\r\nSecond */\r\npackage main\r\nvar value = 1\r\n",
+				want: []decodedSemanticToken{{length: 8, tokenType: CommentType}, {line: 1, length: 9, tokenType: CommentType}},
+			},
+			{
+				name: "HashComment", source: "println 1 # Note.\nprintln 2\n",
+				want: []decodedSemanticToken{{character: 10, length: 7, tokenType: CommentType}, {line: 1, character: 8, length: 1, tokenType: NumberType}},
+			},
+			{
+				name: "RawSelector", source: "println `a\r\nb`.len\n",
+				want: []decodedSemanticToken{{line: 1, character: 2, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "ErrorDefault", source: "func read() (int, error) { return 1, nil }\nprintln read()? /* : */ : 0\n",
+				want: []decodedSemanticToken{{line: 1, character: 24, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "RangeAssignment", source: "var values [1]int\nfor values[func() int {\nfor range 1 {}\nreturn 0\n}()] = range []int{1} {}\n",
+				want: []decodedSemanticToken{{line: 4, character: 7, length: 5, tokenType: KeywordType}},
+			},
+			{
+				name: "Interpolation", source: "println \"${1 + 2} ${len(make(chan int))}\"\n",
+				want: []decodedSemanticToken{{character: 13, length: 1, tokenType: OperatorType}, {character: 29, length: 4, tokenType: KeywordType}},
+			},
+			{
+				name: "InterpolationComment", source: "println `${len(\"x\") /* + */ + 1}`\n",
+				want: []decodedSemanticToken{{character: 20, length: 7, tokenType: CommentType}, {character: 28, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "LineDirective", source: "//line virtual.xgo:100:20\nvar value = 1\n",
+				want: []decodedSemanticToken{{line: 1, length: 3, tokenType: KeywordType}, {line: 1, character: 10, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "OperatorDeclaration", source: "type Item int\nfunc (value Item) + (other Item) Item { return value }\n",
+				want:         []decodedSemanticToken{{line: 1, character: 18, length: 1, tokenType: OperatorType}},
+				declarations: []decodedSemanticToken{{line: 1, character: 18, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "Import", source: "import _ \"fmt\"\n",
+				want: []decodedSemanticToken{{character: 9, length: 5, tokenType: StringType}},
+			},
+			{
+				name: "RawStringCRLF", source: "var text = `\U0001f600\r\nb`\n",
+				want: []decodedSemanticToken{{character: 11, length: 3, tokenType: StringType}, {line: 1, length: 2, tokenType: StringType}},
+			},
+			{
+				name: "ShadowEntry", source: "println 1\n",
+				want: []decodedSemanticToken{{character: 8, length: 1, tokenType: NumberType}},
+			},
+			{
+				name: "RangeVariables", source: "for _, value := range []int{1} {\nprintln value\n}\n",
+				want: []decodedSemanticToken{{character: 16, length: 5, tokenType: KeywordType}},
+			},
+			{
+				name: "RangeSpaces", source: "for     range []int{1} {}\n",
+				want: []decodedSemanticToken{{character: 8, length: 5, tokenType: KeywordType}},
+			},
+			{
+				name: "RangeComment", source: "for /* range */ range []int{1} {}\n",
+				want: []decodedSemanticToken{{character: 16, length: 5, tokenType: KeywordType}},
+			},
+			{
+				name: "LambdaSpaces", source: "func run(callback func(int)) {}\nrun (value)   =>   { println value }\n",
+				want: []decodedSemanticToken{{line: 1, character: 10, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "ArrowComments", source: "func run(callback func(int) int) {}\nrun (value) /* ) */ => /* ( */ (value + 1)\n",
+				want: []decodedSemanticToken{{line: 1, character: 10, length: 1, tokenType: OperatorType}, {line: 1, character: 31, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "SelectorSpaces", source: "type Item struct { Value int }\nvar item Item\nprintln item. /* . */ Value\n",
+				want: []decodedSemanticToken{{line: 2, character: 12, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "FunctionLiteral", source: "var run = func() {}\n",
+				want: []decodedSemanticToken{{character: 10, length: 4, tokenType: KeywordType}},
+			},
+			{
+				name: "ForPhrase", source: "for value <- [1, 2] { println value }\n",
+				want: []decodedSemanticToken{{length: 3, tokenType: KeywordType}},
+			},
+			{
+				name: "TypeAssertionSpaces", source: "var value any = 1\nprintln value. /* . */ ( int )\n",
+				want: []decodedSemanticToken{{line: 1, character: 13, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "TypeSwitchSpaces", source: "var value any = 1\nswitch value.( /* type */ type ) { case int: }\n",
+				want: []decodedSemanticToken{{line: 1, character: 26, length: 4, tokenType: KeywordType}},
+			},
+			{
+				name: "ReceiveChannel", source: "var values <-chan int\n",
+				want: []decodedSemanticToken{{character: 13, length: 4, tokenType: KeywordType}},
+			},
+			{
+				name: "SliceSpaces", source: "var values [ /* ] */ ]int\n",
+				want: []decodedSemanticToken{{character: 21, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "ExplicitReceiver", source: "type Item struct{}\nfunc (item *Item) run() {}\n",
+				want: []decodedSemanticToken{{line: 1, character: 5, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "Label", source: "start:\nfor {\nbreak start\n}\n",
+				want: []decodedSemanticToken{{length: 5, tokenType: LabelType}},
+			},
+			{
+				name: "Comprehension", source: "var values = {value: value for value <- [1, 2]}\n",
+				want: []decodedSemanticToken{{character: 19, length: 1, tokenType: OperatorType}},
+			},
+			{
+				name: "Overload", source: "func consumeInt(int) {}\nfunc consumeString(string) {}\nfunc consume = (consumeInt, consumeString)\n",
+				want: []decodedSemanticToken{{line: 2, character: 5, length: 7, tokenType: FunctionType}},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				params := &SemanticTokensParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+				tokens, err := s.textDocumentSemanticTokensFull(params)
+				require.NoError(t, err)
+				require.NotNil(t, tokens)
+				_, err = s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				decoded := decodeSemanticTokens(tokens.Data)
+				for _, want := range tt.want {
+					assert.Contains(t, decoded, want)
+				}
+				for _, declaration := range tt.declarations {
+					assertSemanticTokenModifierMask(t, tokens.Data, declaration, getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModDeclaration}))
+				}
+				lines := strings.Split(tt.source, "\n")
+				for i, current := range decoded {
+					require.Less(t, int(current.line), len(lines))
+					assert.LessOrEqual(t, current.character+current.length, uint32(UTF16Len(strings.TrimSuffix(lines[current.line], "\r"))))
+					if i > 0 && decoded[i-1].line == current.line {
+						assert.GreaterOrEqual(t, current.character, decoded[i-1].character+decoded[i-1].length, "overlapping tokens: %v", decoded)
+					}
+				}
+				cached, err := s.textDocumentSemanticTokensFull(params)
+				require.NoError(t, err)
+				assert.Equal(t, tokens, cached)
+			})
+		}
+	})
+
+	t.Run("UnterminatedComment", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte("var value = 1\n/* unfinished\r\ncomment"),
+		})
+		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tokens)
+		decoded := decodeSemanticTokens(tokens.Data)
+		assert.Contains(t, decoded, decodedSemanticToken{line: 1, length: 13, tokenType: CommentType})
+		assert.Contains(t, decoded, decodedSemanticToken{line: 2, length: 7, tokenType: CommentType})
+		_, err = s.requestProject().ASTPackage()
+		assert.ErrorContains(t, err, "comment not terminated")
+	})
+
 	t.Run("ImplicitReceiver", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
@@ -102,10 +322,8 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, tokens)
 			assert.Equal(t, []uint32{
-				0, 0, 1, 13, 0, // {
 				0, 0, 7, 7, 0, // consume
 				0, 8, 1, 12, 0, // 1
-				0, 1, 1, 13, 0, // }
 			}, tokens.Data)
 			_, err = s.workspaceRootFS.TypeInfo()
 			assert.NoError(t, err)
@@ -121,20 +339,17 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 			name:     "ProjectMethod",
 			filename: "main_fixture.gox",
 			want: []uint32{
-				1, 0, 1, 13, 0, // {
-				0, 0, 6, 6, 0, // Worker
+				1, 0, 6, 6, 0, // Worker
 				0, 6, 1, 13, 0, // .
 				0, 1, 5, 8, 0, // apply
 				0, 6, 3, 5, 6, // Low
-				0, 3, 1, 13, 0, // }
 			},
 		},
 		{
 			name:     "WorkCallback",
 			filename: "Worker_fixture.gox",
 			want: []uint32{
-				1, 0, 1, 13, 0, // {
-				0, 0, 7, 8, 0, // onValue
+				1, 0, 7, 8, 0, // onValue
 				0, 8, 6, 4, 1, // amount
 				0, 7, 2, 13, 0, // =>
 				0, 3, 1, 13, 0, // {
@@ -143,7 +358,6 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				0, 1, 5, 8, 0, // apply
 				0, 6, 6, 5, 0, // amount
 				1, 0, 1, 13, 0, // }
-				0, 1, 1, 13, 0, // }
 			},
 		},
 	} {
@@ -889,12 +1103,11 @@ var (
 
 func TestSemanticTokenSegments(t *testing.T) {
 	for _, tt := range []struct {
-		name           string
-		start          Position
-		end            Position
-		lineLengths    []uint32
-		fallbackLength uint32
-		want           []semanticTokenSegment
+		name        string
+		start       Position
+		end         Position
+		lineLengths []uint32
+		want        []semanticTokenSegment
 	}{
 		{
 			name:        "SingleLine",
@@ -936,28 +1149,21 @@ func TestSemanticTokenSegments(t *testing.T) {
 			},
 		},
 		{
-			name:           "SyntheticSpan",
-			start:          Position{Line: 0, Character: 5},
-			end:            Position{Line: 0, Character: 5},
-			lineLengths:    []uint32{10},
-			fallbackLength: 1,
-			want: []semanticTokenSegment{
-				{line: 0, char: 5, length: 1},
-			},
+			name:        "EmptySpan",
+			start:       Position{Line: 0, Character: 5},
+			end:         Position{Line: 0, Character: 5},
+			lineLengths: []uint32{10},
 		},
 		{
-			name:           "AllSegmentsEmptyFallback",
-			start:          Position{Line: 1, Character: 10},
-			end:            Position{Line: 2, Character: 0},
-			lineLengths:    []uint32{0, 10, 0},
-			fallbackLength: 2,
-			want: []semanticTokenSegment{
-				{line: 1, char: 10, length: 2},
-			},
+			name:        "AllSegmentsEmpty",
+			start:       Position{Line: 1, Character: 10},
+			end:         Position{Line: 2, Character: 0},
+			lineLengths: []uint32{0, 10, 0},
+			want:        []semanticTokenSegment{},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, semanticTokenSegments(tt.start, tt.end, tt.lineLengths, tt.fallbackLength))
+			assert.Equal(t, tt.want, semanticTokenSegments(tt.start, tt.end, tt.lineLengths))
 		})
 	}
 }
@@ -986,41 +1192,6 @@ func TestSemanticTokenLineLengths(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, semanticTokenLineLengths(tt.content))
-		})
-	}
-}
-
-func TestSemanticTokenFallbackLength(t *testing.T) {
-	for _, tt := range []struct {
-		name        string
-		content     []byte
-		startOffset int
-		endOffset   int
-		want        uint32
-	}{
-		{
-			name:        "UTF16SourceSpan",
-			content:     []byte("\u4e2d\u6587"),
-			startOffset: 0,
-			endOffset:   len("\u4e2d\u6587"),
-			want:        2,
-		},
-		{
-			name:        "SyntheticSpanOutsideSource",
-			content:     nil,
-			startOffset: 0,
-			endOffset:   1,
-			want:        1,
-		},
-		{
-			name:        "InvalidRange",
-			content:     []byte("abc"),
-			startOffset: 2,
-			endOffset:   2,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, semanticTokenFallbackLength(tt.content, tt.startOffset, tt.endOffset))
 		})
 	}
 }

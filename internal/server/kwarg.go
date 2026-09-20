@@ -46,6 +46,16 @@ func objectAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File
 	return
 }
 
+// sourceObjectAtPosition resolves the named source symbol, retaining an
+// overload declaration instead of its selected implementation.
+func sourceObjectAtPosition(proj *xgo.Project, info *types.Info, file *ast.File, position token.Position) (ident *ast.Ident, obj gotypes.Object, kwargTarget *kwargNameTarget) {
+	ident, obj, kwargTarget = objectAtPosition(proj, info, file, position)
+	if ident != nil && kwargTarget == nil {
+		obj = info.SourceObjectOf(ident)
+	}
+	return
+}
+
 // kwargNameTargetAtPosition resolves the kwarg target under position if the
 // cursor is on a kwarg name.
 func kwargNameTargetAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) *kwargNameTarget {
@@ -371,7 +381,7 @@ func (s *Server) kwargReferenceLocations(proj *xgo.Project, obj gotypes.Object) 
 // kwargTargetMatchesObject reports whether target resolves to obj.
 func kwargTargetMatchesObject(target *xgoutil.ResolvedCallExprKwargTarget, obj gotypes.Object) bool {
 	targetObj := kwargTargetObject(target)
-	return targetObj != nil && targetObj == obj
+	return targetObj != nil && types.ObjectOrigin(targetObj) == types.ObjectOrigin(obj)
 }
 
 // kwargTargetObject returns the field or method resolved by target.
@@ -394,7 +404,7 @@ func kwargRenameText(obj gotypes.Object, newName string) string {
 		return ""
 	}
 	if _, ok := obj.(*gotypes.Func); ok {
-		return lowerFirstASCII(newName)
+		return xgoutil.ToLowerCamelCase(newName)
 	}
 	r, size := utf8.DecodeRuneInString(newName)
 	return string(unicode.ToLower(r)) + newName[size:]
@@ -426,16 +436,4 @@ func upperFirstASCII(name string) string {
 		return name
 	}
 	return string(first-('a'-'A')) + name[1:]
-}
-
-// lowerFirstASCII lowercases the first ASCII letter in name.
-func lowerFirstASCII(name string) string {
-	if name == "" {
-		return ""
-	}
-	first := name[0]
-	if first < 'A' || first > 'Z' {
-		return name
-	}
-	return string(first+('a'-'A')) + name[1:]
 }

@@ -57,14 +57,14 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -99,14 +99,14 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -135,14 +135,14 @@ onStart => {
 			"assets/index.json": []byte(`{"backdrops":[{"name":"backdrop1","path":"backdrop1.png"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -186,14 +186,14 @@ onStart => {
 			"assets/sounds/Sound1/index.json":    []byte(`{"path":"sound1.wav"}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -247,14 +247,14 @@ onStart => {
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -293,7 +293,7 @@ func invalidFunc() {
 			"assets/sprites/Sprite1/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		diagnostics, err := s.diagnosticsAt(s.getProj())
 		require.NoError(t, err)
@@ -302,7 +302,7 @@ func invalidFunc() {
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -331,14 +331,14 @@ onStart => {
 			"assets/sprites/MySprite/index.json": []byte(`{"costumes":[{"name":"costume1"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -375,14 +375,14 @@ onStart => {
 			"assets/sprites/MySprite/index.json": []byte(`{"fAnimations":{"anim1":{}}}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -417,14 +417,14 @@ onStart => {
 			"assets/index.json": []byte(`{"zorder":[{"name":"widget1"}]}`),
 		}
 		s := newSpxTestServer(t, m)
-		result, err := analyzeSpx(s.getProjWithFile())
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
 		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
 		require.NoError(t, err)
 
-		changes, err := s.renameSpxResource(result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
+		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 

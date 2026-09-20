@@ -74,7 +74,7 @@ func newResourceRenamePlan(proj *xgo.Project, result *resourceAnalysis, info *ty
 	}
 	shared := make(map[ast.Expr]bool)
 	for ident, obj := range info.Uses {
-		if c, ok := obj.(*gotypes.Const); !ok || c.Val().Kind() != constant.String {
+		if c, ok := obj.(*gotypes.Const); !ok || c.Pkg() != info.Pkg || c.Val().Kind() != constant.String {
 			continue
 		}
 		expr := declarations[constantKey{obj.Pos(), obj.Name()}]
@@ -256,7 +256,7 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 
 // renameResources dispatches resource edits to the current framework.
 func (s *Server) renameResources(params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	result, err := analyzeFramework(proj)
 	if err != nil {
 		return nil, err

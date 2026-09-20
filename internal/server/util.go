@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"cmp"
+	"strings"
 	"unicode/utf16"
 
 	"github.com/goplus/xgo/ast"
@@ -250,7 +251,7 @@ func sourceASTFile(proj *xgo.Project, pos token.Pos) *ast.File {
 // basicLitEnd returns the source end of a literal in astFile,
 // including carriage returns omitted from raw string values by the parser.
 func basicLitEnd(fset *token.FileSet, astFile *ast.File, lit *ast.BasicLit) token.Pos {
-	if lit.Kind != token.STRING || lit.Value[0] != '`' {
+	if lit.Kind != token.STRING || !strings.HasPrefix(lit.Value, "`") {
 		return lit.End()
 	}
 	file := fset.File(lit.Pos())
