@@ -2,10 +2,8 @@ package server
 
 import (
 	"fmt"
-	"slices"
 
-	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_documentHighlight
@@ -33,129 +31,23 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		return nil, nil
 	}
 	targetObj = typeInfo.ObjectDeclaration(targetObj)
-	file := xgoutil.NodeTokenFile(proj.Fset, astFile)
-
-	var highlights []DocumentHighlight
-	appendHighlight := func(highlight DocumentHighlight) {
-		if slices.Contains(highlights, highlight) {
-			return
-		}
-		highlights = append(highlights, highlight)
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil, err
 	}
-	ast.Inspect(astFile, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		if !xgoutil.IsSourceIdent(file, astFile.Code, ident) {
-			return false
-		}
-		obj := typeInfo.SourceObjectOf(ident)
-		if typeInfo.ObjectDeclaration(obj) != targetObj {
-			return true
-		}
-		path, _ := xgoutil.PathEnclosingInterval(astFile, ident.Pos(), ident.End())
-		if len(path) < 2 {
-			return true
-		}
-
-		kind := Text
-
-		for _, parent := range path[1:] {
-			switch p := parent.(type) {
-			case *ast.KwargExpr:
-				if p.Name == ident {
-					kind = Read
-				}
-			case *ast.ValueSpec:
-				if slices.Contains(p.Names, ident) {
-					kind = Write
-				} else if slices.Contains(p.Values, ast.Expr(ident)) {
-					kind = Read
-				}
-			case *ast.Field:
-				if slices.Contains(p.Names, ident) {
-					kind = Write
-				}
-			case *ast.FuncDecl:
-				if p.Name == ident {
-					kind = Write
-				}
-			case *ast.OverloadFuncDecl:
-				if p.Name == ident {
-					kind = Write
-				} else {
-					kind = Read
-				}
-			case *ast.TypeSpec:
-				if p.Name == ident {
-					kind = Write
-				}
-			case *ast.LabeledStmt:
-				if p.Label == ident {
-					kind = Write
-				}
-			case *ast.AssignStmt:
-				if slices.Contains(p.Lhs, ast.Expr(ident)) {
-					kind = Write
-				} else if slices.Contains(p.Rhs, ast.Expr(ident)) {
-					kind = Read
-				}
-			case *ast.IncDecStmt:
-				if p.X == ident {
-					kind = Write
-				}
-			case *ast.RangeStmt:
-				if p.X == ident {
-					kind = Read
-				} else if p.Key == ident || p.Value == ident {
-					kind = Write
-				}
-			case *ast.ForPhrase:
-				if p.Key == ident || p.Value == ident {
-					kind = Write
-				} else if p.X == ident || p.Cond == ident {
-					kind = Read
-				}
-			case *ast.BinaryExpr,
-				*ast.UnaryExpr,
-				*ast.CallExpr,
-				*ast.FuncDecorator,
-				*ast.CompositeLit,
-				*ast.IndexExpr,
-				*ast.RangeExpr,
-				*ast.ComprehensionExpr,
-				*ast.ReturnStmt,
-				*ast.SendStmt:
-				kind = Read
-			case *ast.KeyValueExpr:
-				if p.Key == ident || p.Value == ident {
-					kind = Read
-				}
-			case *ast.SelectorExpr:
-				if p.X == ident {
-					kind = Read
-				}
+	var highlights []DocumentHighlight
+	seen := make(map[DocumentHighlight]bool)
+	for _, refs := range [][]sourceIdent{source.highlights[targetObj], source.kwargs[types.ObjectOrigin(targetObj)]} {
+		for _, ref := range refs {
+			if ref.file != astFile {
+				continue
 			}
-			if kind != Text {
-				break
+			highlight := DocumentHighlight{Range: RangeForNode(proj, ref.ident), Kind: ref.kind}
+			if !seen[highlight] {
+				seen[highlight] = true
+				highlights = append(highlights, highlight)
 			}
 		}
-
-		appendHighlight(DocumentHighlight{
-			Range: RangeForNode(proj, ident),
-			Kind:  kind,
-		})
-		return true
-	})
-	for _, loc := range s.kwargReferenceLocations(proj, targetObj) {
-		if loc.URI != params.TextDocument.URI {
-			continue
-		}
-		appendHighlight(DocumentHighlight{
-			Range: loc.Range,
-			Kind:  Read,
-		})
 	}
 	return &highlights, nil
 }

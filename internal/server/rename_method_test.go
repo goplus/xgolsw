@@ -165,6 +165,8 @@ func TestServerTextDocumentRenameImportedMethodContract(t *testing.T) {
 		{name: "Callback", contract: `func Callback() func(interface { Read() int }) { return nil }`, localType: "struct{}", use: "contract.Callback()(RecordValue{})"},
 		{name: "Field", contract: `type Options struct { Value interface { Read() int } }; func Accept(value Options) {}`, localType: "struct{}", use: "contract.Accept(contract.Options{Value: RecordValue{}})"},
 		{name: "Slice", contract: `func Accept(value []interface { Read() int }) {}`, localType: "struct{}", use: "contract.Accept([]interface { Read() int }{RecordValue{}})"},
+		{name: "MapKey", contract: `func Accept(value map[interface { Read() int }]int) {}`, localType: "struct{}", use: "contract.Accept(nil)"},
+		{name: "MapValue", contract: `func Accept(value map[string]interface { Read() int }) {}`, localType: "struct{}", use: "contract.Accept(nil)"},
 		{name: "Constraint", contract: `func Accept[T interface { ~int; Read() int }](value T) {}`, localType: "int", use: "contract.Accept(RecordValue(1))"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

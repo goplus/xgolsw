@@ -30,6 +30,8 @@ func TestServerTextDocumentDocumentHighlight(t *testing.T) {
 					{name: "ShortAssignment", source: "|value := 1\ncopy := |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "ValueInitializer", source: "var |value int\nvar copy = |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "CompoundAssignment", source: "|value := 1\n|value += |value", kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
+					{name: "VariableWithLoopLabel", source: "value:\nfor {\n|value := 1\necho |value\nbreak value\n}", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "VariableWithGotoLabel", source: "var |value int\ngoto value\nvalue:\necho |value", kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "ForPhrase", source: "for |value <- [1, 2] {\necho |value\n}", kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "ForPhraseSource", source: "|value := [1, 2]\nfor item <- |value { echo item }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "Comprehension", source: "echo [|value * 2 for |value <- [1, 2]]", kinds: []protocol.DocumentHighlightKind{Read, Write}},

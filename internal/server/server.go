@@ -79,6 +79,8 @@ func New(
 	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
 	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
 	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
+	proj.RegisterCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
+	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,

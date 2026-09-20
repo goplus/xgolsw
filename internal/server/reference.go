@@ -4,7 +4,6 @@ import (
 	"fmt"
 	gotypes "go/types"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -59,34 +58,14 @@ func (s *Server) findReferenceLocations(proj *xgo.Project, obj gotypes.Object) [
 	if typeInfo == nil {
 		return nil
 	}
-	refIdents := typeInfo.RefIdentsFor(obj)
-	if len(refIdents) == 0 {
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
 		return nil
 	}
-	astPkg, _ := proj.ASTPackage()
-	refs := make(map[*ast.Ident]bool, len(refIdents))
-	for _, ident := range refIdents {
-		refs[ident] = true
-	}
-	locations := make([]Location, 0, len(refIdents))
-	for _, astFile := range astPkg.Files {
-		file := xgoutil.NodeTokenFile(proj.Fset, astFile)
-		if file == nil {
-			continue
-		}
-		// Recorder-only identifiers, such as implicit kwarg factories, are not
-		// source references even when their names match the text at that position.
-		ast.Inspect(astFile, func(node ast.Node) bool {
-			ident, ok := node.(*ast.Ident)
-			if !ok || !refs[ident] {
-				return true
-			}
-			delete(refs, ident)
-			if xgoutil.IsSourceIdent(file, astFile.Code, ident) {
-				locations = append(locations, s.locationForNode(proj, ident))
-			}
-			return false
-		})
+	refs := source.references[typeInfo.ObjectDeclaration(obj)]
+	locations := make([]Location, 0, len(refs))
+	for _, ref := range refs {
+		locations = append(locations, s.locationForNode(proj, ref.ident))
 	}
 	return locations
 }
@@ -94,12 +73,12 @@ func (s *Server) findReferenceLocations(proj *xgo.Project, obj gotypes.Object) [
 // findRelatedMethodReferences finds uses of other methods in the same interface
 // implementation relationships, including keyword argument references.
 func (s *Server) findRelatedMethodReferences(proj *xgo.Project, target *gotypes.Func) []Location {
-	info, _ := proj.TypeInfo()
-	if info == nil {
+	info, err := methodInfoForProject(proj)
+	if err != nil {
 		return nil
 	}
 	var locations []Location
-	for _, method := range relatedMethodDeclarations(info, target) {
+	for _, method := range info.relatedMethods(target) {
 		if method == target.Origin() {
 			continue
 		}

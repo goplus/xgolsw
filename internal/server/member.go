@@ -3,7 +3,6 @@ package server
 import (
 	gotypes "go/types"
 	"iter"
-	"maps"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
@@ -12,41 +11,6 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
-
-// projectReceiverTypes returns method set candidates from project type information,
-// including anonymous structs, generated classes, local types, and imported types.
-func projectReceiverTypes(info *types.Info) iter.Seq[gotypes.Type] {
-	candidates := make(map[gotypes.Type]struct{})
-	addType := func(typ gotypes.Type) {
-		for {
-			typ = gotypes.Unalias(typ)
-			pointer, ok := typ.(*gotypes.Pointer)
-			if !ok {
-				break
-			}
-			typ = pointer.Elem()
-		}
-		switch typ.(type) {
-		case *gotypes.Named, *gotypes.Struct:
-			if typ.Underlying() != nil {
-				candidates[typ] = struct{}{}
-			}
-		}
-	}
-	addScope := func(scope *gotypes.Scope) {
-		for _, name := range scope.Names() {
-			addType(scope.Lookup(name).Type())
-		}
-	}
-	addScope(info.Pkg.Scope())
-	for _, scope := range info.Scopes {
-		addScope(scope)
-	}
-	for _, value := range info.Types {
-		addType(value.Type)
-	}
-	return maps.Keys(candidates)
-}
 
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.
