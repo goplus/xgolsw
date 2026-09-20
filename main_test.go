@@ -162,3 +162,50 @@ func callTestServer(t *testing.T, handle js.Value, responses <-chan js.Value, me
 		return js.Undefined()
 	}
 }
+
+func TestXGoLanguageServerSymbolRequests(t *testing.T) {
+	const source = "type Reader interface { Read() int }\ntype Item struct{}\nfunc (Item) Read() int { return 1 }\nfunc use(reader Reader) { println reader.Read(), Item{}.Read() }\n"
+	archive := testframework.NewPkgDataZip(t)
+	data := js.Global().Get("Uint8Array").New(len(archive))
+	js.CopyBytesToJS(data, archive)
+	handle, replies := newTestServer(t, "main.xgo", source, map[string]any{"pkgDataZip": data})
+	callTestServer(t, handle, replies, "initialize", map[string]any{"capabilities": map[string]any{}})
+	const uri = "file:///main.xgo"
+	position := map[string]any{"line": 0, "character": 24}
+	document := map[string]any{"uri": uri}
+	check := func(implementations int) {
+		t.Helper()
+		for range 2 {
+			refs := callTestServer(t, handle, replies, "textDocument/references", map[string]any{
+				"textDocument": document, "position": position, "context": map[string]any{"includeDeclaration": false},
+			})
+			assert.Equal(t, implementations+1, refs.Length())
+			edit := callTestServer(t, handle, replies, "textDocument/rename", map[string]any{
+				"textDocument": document, "position": position, "newName": "Fetch",
+			})
+			assert.Equal(t, (implementations+1)*2, edit.Get("changes").Get(uri).Length())
+			impl := callTestServer(t, handle, replies, "textDocument/implementation", map[string]any{
+				"textDocument": document, "position": position,
+			})
+			assert.Equal(t, implementations, impl.Length())
+			highlights := callTestServer(t, handle, replies, "textDocument/documentHighlight", map[string]any{
+				"textDocument": document, "position": position,
+			})
+			assert.Equal(t, 2, highlights.Length())
+		}
+	}
+	check(1)
+	for _, notification := range []map[string]any{
+		{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": map[string]any{
+			"textDocument": map[string]any{"uri": uri, "languageId": "xgo", "version": 1, "text": source},
+		}},
+		{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": map[string]any{
+			"textDocument":   map[string]any{"uri": uri, "version": 2},
+			"contentChanges": []any{map[string]any{"text": "type Reader interface { Read() int }\nfunc use(reader Reader) { println reader.Read() }\n"}},
+		}},
+	} {
+		result := handle.Invoke(js.ValueOf(notification))
+		require.True(t, result.IsNull() || result.IsUndefined())
+	}
+	check(0)
+}

@@ -347,41 +347,16 @@ func (s *Server) objectDefinitionLocation(proj *xgo.Project, typeInfo *types.Inf
 
 // kwargReferenceLocations returns all kwarg-name locations that resolve to obj.
 func (s *Server) kwargReferenceLocations(proj *xgo.Project, obj gotypes.Object) []Location {
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
 		return nil
 	}
-	astPkg, _ := proj.ASTPackage()
-	if astPkg == nil {
-		return nil
-	}
-
-	var locations []Location
-	for _, astFile := range astPkg.Files {
-		ast.Inspect(astFile, func(node ast.Node) bool {
-			callExpr, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			for _, kwarg := range callExpr.Kwargs {
-				for _, target := range lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name) {
-					if !kwargTargetMatchesObject(target.target, obj) {
-						continue
-					}
-					locations = append(locations, s.locationForNode(proj, kwarg.Name))
-				}
-			}
-			return true
-		})
+	refs := source.kwargs[types.ObjectOrigin(obj)]
+	locations := make([]Location, 0, len(refs))
+	for _, ref := range refs {
+		locations = append(locations, s.locationForNode(proj, ref.ident))
 	}
 	return locations
-}
-
-// kwargTargetMatchesObject reports whether target resolves to obj.
-func kwargTargetMatchesObject(target *xgoutil.ResolvedCallExprKwargTarget, obj gotypes.Object) bool {
-	targetObj := kwargTargetObject(target)
-	return targetObj != nil && types.ObjectOrigin(targetObj) == types.ObjectOrigin(obj)
 }
 
 // kwargTargetObject returns the field or method resolved by target.

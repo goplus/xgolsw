@@ -5,7 +5,6 @@ import (
 	gotypes "go/types"
 	"strings"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
@@ -110,14 +109,22 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 // renameMethod renames related interface and implementation declarations
 // together so the resulting edits preserve their implementation relationships.
 func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *types.Info, target *gotypes.Func) (*WorkspaceEdit, error) {
-	methods := relatedMethodDeclarations(info, target)
+	methodInfo, err := methodInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	methods := methodInfo.relatedMethods(target)
 	for _, method := range methods {
 		ident := info.ObjToDef[method]
 		if method.Pkg() != info.Pkg || ident == nil || ident.Implicit() {
 			return nil, fmt.Errorf("cannot rename %s: related method %s has no editable project declaration", target.Name(), method.FullName())
 		}
 	}
-	if err := checkMethodRenameConflicts(info, methods, params.NewName); err != nil {
+	if err := checkMethodRenameConflicts(info, source, methodInfo, methods, params.NewName); err != nil {
 		return nil, err
 	}
 	result := &WorkspaceEdit{Changes: make(map[DocumentURI][]TextEdit)}
@@ -140,7 +147,7 @@ func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *typ
 
 // checkMethodRenameConflicts rejects names that collide with existing members,
 // including members that would hide a renamed method on an embedding receiver.
-func checkMethodRenameConflicts(info *types.Info, methods []*gotypes.Func, name string) error {
+func checkMethodRenameConflicts(info *types.Info, source *sourceInfo, methodInfo *methodInfo, methods []*gotypes.Func, name string) error {
 	if name == methods[0].Name() {
 		return nil
 	}
@@ -150,7 +157,8 @@ func checkMethodRenameConflicts(info *types.Info, methods []*gotypes.Func, name 
 		if alias == name || !token.IsIdentifier(alias) {
 			break
 		}
-		for _, ident := range info.RefIdentsFor(method) {
+		for _, ref := range source.references[info.ObjectDeclaration(method)] {
+			ident := ref.ident
 			if ident.Name != method.Name() && functionNameForAlias(ident.Name) == method.Name() {
 				names = []string{name, alias}
 				break
@@ -173,7 +181,8 @@ func checkMethodRenameConflicts(info *types.Info, methods []*gotypes.Func, name 
 			return err
 		}
 	}
-	for receiver := range projectReceiverTypes(info) {
+	for _, candidate := range methodInfo.receivers {
+		receiver := candidate.typ
 		obj, _, _ := gotypes.LookupFieldOrMethod(receiver, true, info.Pkg, methods[0].Name())
 		method, ok := obj.(*gotypes.Func)
 		if ok && renamed[method.Origin()] {
@@ -305,38 +314,19 @@ func (s *Server) functionAliasRenames(proj *xgo.Project, info *types.Info, obj g
 	newAlias := functionAliasName(newName)
 	useAlias := newAlias != newName && token.IsIdentifier(newAlias)
 	renamed := make(map[Location]string)
-	parentsByFile := make(map[*ast.File]map[ast.Node]ast.Node)
-	for _, ident := range info.RefIdentsFor(obj) {
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil
+	}
+	for _, ref := range source.references[info.ObjectDeclaration(obj)] {
+		ident := ref.ident
 		if ident.Name == obj.Name() || functionNameForAlias(ident.Name) != obj.Name() {
 			continue
 		}
-		file := sourceASTFile(proj, ident.Pos())
-		if file == nil {
-			continue
-		}
-		if useAlias {
-			renamed[s.locationForNode(proj, ident)] = newAlias
-			continue
-		}
-
-		parents := parentsByFile[file]
-		if parents == nil {
-			parents = nodeParents(file)
-			parentsByFile[file] = parents
-		}
-		var expr ast.Node = ident
-		if sel, ok := parents[expr].(*ast.SelectorExpr); ok && sel.Sel == ident {
-			expr = sel
-		}
-		for {
-			paren, ok := parents[expr].(*ast.ParenExpr)
-			if !ok {
-				break
-			}
-			expr = paren
-		}
 		text := newName
-		if call, ok := parents[expr].(*ast.CallExpr); !ok || call.Fun != expr {
+		if useAlias {
+			text = newAlias
+		} else if !ref.called {
 			text += "()"
 		}
 		renamed[s.locationForNode(proj, ident)] = text
