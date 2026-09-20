@@ -1,13 +1,77 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentDocumentHighlight(t *testing.T) {
+	t.Run("ReadWriteContexts", func(t *testing.T) {
+		for _, kind := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+		} {
+			t.Run(kind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name   string
+					source string
+					kinds  []protocol.DocumentHighlightKind
+				}{
+					{name: "ShortAssignment", source: "|value := 1\ncopy := |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ValueInitializer", source: "var |value int\nvar copy = |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "CompoundAssignment", source: "|value := 1\n|value += |value", kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
+					{name: "ForPhrase", source: "for |value <- [1, 2] {\necho |value\n}", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ForPhraseSource", source: "|value := [1, 2]\nfor item <- |value { echo item }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "Comprehension", source: "echo [|value * 2 for |value <- [1, 2]]", kinds: []protocol.DocumentHighlightKind{Read, Write}},
+					{name: "ComprehensionFilter", source: "echo [|value for |value <- [true] if |value]", kinds: []protocol.DocumentHighlightKind{Read, Write, Read}},
+					{name: "RangeExpression", source: "for |value <- 1:3 { echo |value }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "RangeBound", source: "|value := 3\nfor item <- 1:|value { echo item }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "NestedClosure", source: "callbacks := [func() {\n|value := 1\n|value++\necho |value\n}]\ncallbacks[0]()", kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
+					{name: "LambdaCapture", source: "|value := 1\nvar apply func(int) int = item => |value + item\necho apply(2)", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						parts := strings.Split("func run() {\n"+tt.source+"\n}\n", "|")
+						source := strings.Join(parts, "")
+						var want []DocumentHighlight
+						prefix := ""
+						for i, part := range parts[:len(parts)-1] {
+							prefix += part
+							start := Position{Line: uint32(strings.Count(prefix, "\n")), Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:]))}
+							end := start
+							end.Character += 5
+							want = append(want, DocumentHighlight{Range: Range{Start: start, End: end}, Kind: tt.kinds[i]})
+						}
+						files := map[string][]byte{kind.filename: []byte(source)}
+						if kind.filename == "Worker_fixture.gox" {
+							files["main_fixture.gox"] = nil
+						}
+						s := kind.newServer(t, files)
+						_, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						for _, target := range want {
+							got, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{TextDocumentPositionParams: TextDocumentPositionParams{
+								TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)}, Position: target.Range.Start,
+							}})
+							require.NoError(t, err)
+							require.NotNil(t, got)
+							assert.ElementsMatch(t, want, *got)
+						}
+					})
+				}
+			})
+		}
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string

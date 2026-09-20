@@ -17,10 +17,13 @@
 package types
 
 import (
+	goast "go/ast"
+	goparser "go/parser"
 	gotypes "go/types"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,5 +90,108 @@ func TestInfoRefIdentsFor(t *testing.T) {
 
 		refs := info.RefIdentsFor(unknownObj)
 		assert.Empty(t, refs)
+	})
+
+	t.Run("DeclarationRecordedAsUse", func(t *testing.T) {
+		obj := gotypes.NewVar(1, nil, "value", gotypes.Typ[gotypes.Int])
+		def := &ast.Ident{NamePos: 1, Name: "value"}
+		use := &ast.Ident{NamePos: 10, Name: "value"}
+		info := &Info{
+			Info: typesutil.Info{
+				Defs: map[*ast.Ident]gotypes.Object{def: obj},
+				Uses: map[*ast.Ident]gotypes.Object{def: obj, use: obj},
+			},
+			ObjToDef: map[gotypes.Object]*ast.Ident{obj: def},
+		}
+		assert.Equal(t, []*ast.Ident{use}, info.RefIdentsFor(obj))
+	})
+
+	t.Run("GenericMembers", func(t *testing.T) {
+		fset := token.NewFileSet()
+		file, err := goparser.ParseFile(fset, "fixture.go", `package fixture
+type Box[T any] struct { Value T }
+func (b Box[T]) Get() T { return b.Value }
+type Other[T any] struct { Value T }
+func (b Other[T]) Get() T { return b.Value }
+`, 0)
+		require.NoError(t, err)
+		pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+		require.NoError(t, err)
+		box := pkg.Scope().Lookup("Box").Type()
+		intBox, err := gotypes.Instantiate(nil, box, []gotypes.Type{gotypes.Typ[gotypes.Int]}, true)
+		require.NoError(t, err)
+		stringBox, err := gotypes.Instantiate(nil, box, []gotypes.Type{gotypes.Typ[gotypes.String]}, true)
+		require.NoError(t, err)
+		other, err := gotypes.Instantiate(nil, pkg.Scope().Lookup("Other").Type(), []gotypes.Type{gotypes.Typ[gotypes.Int]}, true)
+		require.NoError(t, err)
+
+		for _, name := range []string{"Value", "Get"} {
+			t.Run(name, func(t *testing.T) {
+				origin, _, _ := gotypes.LookupFieldOrMethod(box, true, pkg, name)
+				intMember, _, _ := gotypes.LookupFieldOrMethod(intBox, true, pkg, name)
+				stringMember, _, _ := gotypes.LookupFieldOrMethod(stringBox, true, pkg, name)
+				otherMember, _, _ := gotypes.LookupFieldOrMethod(other, true, pkg, name)
+				require.NotNil(t, origin)
+				require.NotNil(t, intMember)
+				require.NotNil(t, stringMember)
+				require.NotNil(t, otherMember)
+				intUse := &ast.Ident{NamePos: 1, Name: name}
+				stringUse := &ast.Ident{NamePos: 2, Name: name}
+				otherUse := &ast.Ident{NamePos: 3, Name: name}
+				info := &Info{Info: typesutil.Info{Uses: map[*ast.Ident]gotypes.Object{
+					intUse: intMember, stringUse: stringMember, otherUse: otherMember,
+				}}}
+				for _, target := range []gotypes.Object{origin, intMember, stringMember} {
+					assert.ElementsMatch(t, []*ast.Ident{intUse, stringUse}, info.RefIdentsFor(target))
+				}
+				assert.Equal(t, []*ast.Ident{otherUse}, info.RefIdentsFor(otherMember))
+			})
+		}
+	})
+}
+
+func TestInfoSourceObjectOf(t *testing.T) {
+	t.Run("Overload", func(t *testing.T) {
+		signature := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+		wrapper := gotypes.NewFunc(1, nil, "Read", signature)
+		candidate := gotypes.NewFunc(10, nil, "readInt", signature)
+		wrapperDef := &ast.Ident{NamePos: 1, Name: "Read"}
+		candidateDef := &ast.Ident{NamePos: 10, Name: "readInt"}
+		wrapperUse := &ast.Ident{NamePos: 20, Name: "Read"}
+		candidateUse := &ast.Ident{NamePos: 30, Name: "readInt"}
+		info := &Info{
+			Info: typesutil.Info{
+				Defs:      map[*ast.Ident]gotypes.Object{wrapperDef: wrapper, candidateDef: candidate},
+				Uses:      map[*ast.Ident]gotypes.Object{wrapperUse: candidate, candidateUse: candidate},
+				Overloads: map[*ast.Ident]gotypes.Object{wrapperUse: wrapper},
+			},
+			ObjToDef: map[gotypes.Object]*ast.Ident{wrapper: wrapperDef, candidate: candidateDef},
+		}
+		assert.Same(t, wrapper, info.SourceObjectOf(wrapperUse))
+		assert.Same(t, candidate, info.ObjectOf(wrapperUse))
+		assert.Same(t, wrapper, info.SourceObjectOf(wrapperDef))
+		assert.Same(t, candidate, info.SourceObjectOf(candidateUse))
+		assert.Equal(t, []*ast.Ident{wrapperUse}, info.RefIdentsFor(wrapper))
+		assert.Equal(t, []*ast.Ident{candidateUse}, info.RefIdentsFor(candidate))
+		assert.Nil(t, info.SourceObjectOf(&ast.Ident{Name: "missing"}))
+	})
+	t.Run("EmbeddedField", func(t *testing.T) {
+		named := gotypes.NewNamed(gotypes.NewTypeName(1, nil, "Record", nil), gotypes.NewStruct(nil, nil), nil)
+		field := gotypes.NewField(10, nil, "Record", named, true)
+		typeDef := &ast.Ident{NamePos: 1, Name: "Record"}
+		embedded := &ast.Ident{NamePos: 10, Name: "Record"}
+		selection := &ast.Ident{NamePos: 20, Name: "Record"}
+		info := &Info{
+			Info: typesutil.Info{
+				Defs: map[*ast.Ident]gotypes.Object{typeDef: named.Obj(), embedded: field},
+				Uses: map[*ast.Ident]gotypes.Object{embedded: named.Obj(), selection: field},
+			},
+			ObjToDef: map[gotypes.Object]*ast.Ident{named.Obj(): typeDef, field: embedded},
+		}
+		assert.Same(t, field, info.SourceObjectOf(embedded))
+		assert.Same(t, field, info.SourceObjectOf(selection))
+		assert.Same(t, named.Obj(), info.SourceObjectOf(typeDef))
+		assert.Equal(t, []*ast.Ident{embedded}, info.RefIdentsFor(named.Obj()))
+		assert.Equal(t, []*ast.Ident{selection}, info.RefIdentsFor(field))
 	})
 }

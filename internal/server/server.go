@@ -5,9 +5,11 @@ import (
 	"fmt"
 	gotypes "go/types"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/goplus/xgo/ast"
@@ -55,19 +57,14 @@ type Server struct {
 	clientCapabilities ClientCapabilities
 	initializeCalled   bool
 	initialized        bool
-	diagnosticsMu      sync.Mutex
+	projectMu          sync.Mutex
+	providerSequence   atomic.Uint64
+	providerSnapshot   providerSnapshot
+	openFiles          map[string]*xgo.File
+	analysisSnapshot   *xgo.Project
+	analysisRevision   uint64
 	pendingDiagnostics map[DocumentURI]*diagnosticRequest
 	diagnosticsRunning bool
-}
-
-func (s *Server) getProj() *xgo.Project {
-	return s.workspaceRootFS
-}
-
-func (s *Server) getProjWithFile() *xgo.Project {
-	proj := s.workspaceRootFS
-	proj.UpdateFiles(s.fileMapGetter())
-	return proj
 }
 
 // New creates a server from a configured project and package data providers.
@@ -421,8 +418,8 @@ func (s *Server) hoverClientCapabilities() (HoverClientCapabilities, bool) {
 
 // notifyPropertyRenamed sends a notification to the client when a property is renamed.
 // This allows clients to update any monitoring or tracking of the property.
-func (s *Server) notifyPropertyRenamed(obj gotypes.Object, params *RenameParams) error {
-	typeName := memberTypeName(s.getProj(), obj)
+func (s *Server) notifyPropertyRenamed(proj *xgo.Project, obj gotypes.Object, params *RenameParams) error {
+	typeName := memberTypeName(proj, obj)
 	if typeName == "" {
 		return fmt.Errorf("failed to find enclosing type for object: %s", obj.Name())
 	}
@@ -432,7 +429,7 @@ func (s *Server) notifyPropertyRenamed(obj gotypes.Object, params *RenameParams)
 		OldName: obj.Name(),
 		NewName: params.NewName,
 		TextDocument: TextDocumentIdentifier{
-			URI: s.posDocumentURI(s.getProj(), obj.Pos()),
+			URI: s.posDocumentURI(proj, obj.Pos()),
 		},
 	}
 
@@ -614,12 +611,16 @@ func (s *Server) fromDocumentURI(documentURI DocumentURI) (string, error) {
 	if !strings.HasPrefix(uri, rootURI) {
 		return "", fmt.Errorf("document URI %q does not have workspace root URI %q as prefix", uri, rootURI)
 	}
-	return strings.TrimPrefix(uri, rootURI), nil
+	path, err := url.PathUnescape(strings.TrimPrefix(uri, rootURI))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode document URI %q: %w", uri, err)
+	}
+	return path, nil
 }
 
 // toDocumentURI returns the [DocumentURI] for a relative path.
 func (s *Server) toDocumentURI(path string) DocumentURI {
-	return DocumentURI(string(s.workspaceRootURI) + path)
+	return DocumentURI(string(s.workspaceRootURI) + (&url.URL{Path: path}).EscapedPath())
 }
 
 // posDocumentURI returns the physical document URI for pos, ignoring line directives.

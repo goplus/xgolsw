@@ -18,14 +18,14 @@ func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error)
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
 	astFile, _ := proj.ASTFile(filename)
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -51,14 +51,14 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_typeDefinition
 func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, error) {
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
 	astFile, _ := proj.ASTFile(filename)
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -81,8 +81,9 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		return nil, nil
 	}
 
-	if typeName.Pkg() != typeInfo.Pkg || xgoutil.PosTokenFile(proj.Fset, typeName.Pos()) == nil {
+	file, pos := objectSource(proj, typeName)
+	if file == nil {
 		return nil, nil
 	}
-	return s.locationForPos(proj, typeName.Pos()), nil
+	return s.locationForPos(proj, pos), nil
 }

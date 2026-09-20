@@ -8,6 +8,7 @@ import (
 	"iter"
 	"slices"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -69,7 +70,7 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 //  2. Methods with no parameters (excluding receiver) and exactly one output parameter,
 //     including unexported methods
 func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty, error) {
-	proj := s.getProj()
+	proj := s.requestProject()
 	typeInfo, _ := proj.TypeInfo()
 	if typeInfo == nil {
 		return nil, fmt.Errorf("no type information available")
@@ -309,7 +310,8 @@ func (r *definitionContext) isPropertyMethod(method *gotypes.Func) bool {
 		return false
 	}
 	// Check if the method name starts with a lowercase letter
-	if method.Name() != "" && unicode.IsLower(rune(method.Name()[0])) {
+	first, _ := utf8.DecodeRuneInString(method.Name())
+	if unicode.IsLower(first) {
 		return false
 	}
 	sig := method.Signature()

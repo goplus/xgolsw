@@ -41,6 +41,40 @@ func requirePublishedDiagnostics(t *testing.T, replier *mockReplier, uri Documen
 	return params.Diagnostics
 }
 
+func requirePublishedDiagnosticReports(t *testing.T, replier *mockReplier, count int) map[DocumentURI][]Diagnostic {
+	t.Helper()
+	messages := replier.waitForMessages(count, 5*time.Second)
+	require.Len(t, messages, count)
+	reports := make(map[DocumentURI][]Diagnostic, count)
+	for _, message := range messages {
+		notification := requireValueAs[*jsonrpc2.Notification](t, message)
+		require.Equal(t, "textDocument/publishDiagnostics", notification.Method())
+		var params PublishDiagnosticsParams
+		require.NoError(t, json.Unmarshal(notification.Params(), &params))
+		require.NotNil(t, params.Diagnostics)
+		require.NotContains(t, reports, params.URI)
+		reports[params.URI] = params.Diagnostics
+	}
+	replier.clearMessages()
+	return reports
+}
+
+// publishFileDiagnostics schedules analysis without blocking document changes.
+func (s *Server) publishFileDiagnostics(path string) {
+	s.projectMu.Lock()
+	defer s.projectMu.Unlock()
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+}
+
+// getDiagnostics collects syntax and type errors for a modified document.
+// Analyzers and framework-specific checks run through pull diagnostics.
+func (s *Server) getDiagnostics(path string) []Diagnostic {
+	s.projectMu.Lock()
+	proj := s.projectSnapshotLocked()
+	s.projectMu.Unlock()
+	return s.diagnosticsForFile(proj, path)
+}
+
 func TestServerModifyFiles(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -175,7 +209,7 @@ func TestServerDocumentSynchronization(t *testing.T) {
 			}},
 		}))
 		assert.Empty(t, requirePublishedDiagnostics(t, replier, uri))
-		current, ok := s.getProjWithFile().File("main.xgo")
+		current, ok := s.syncProject().File("main.xgo")
 		require.True(t, ok)
 		assert.Equal(t, "// repaired\nvar value = 1\n", string(current.Content))
 		assert.Equal(t, 1, current.Version)
@@ -212,7 +246,7 @@ func TestServerDocumentSynchronization(t *testing.T) {
 				}
 				return provided
 			}
-			s.getProjWithFile()
+			s.syncProject()
 			replier := newMockReplier()
 			s.replier = replier
 			uri := s.toDocumentURI(tt.filename)
@@ -375,7 +409,7 @@ func TestServerPublishFileDiagnostics(t *testing.T) {
 				files := maps.Collect(s.getProj().Files())
 				files["values.xgo"] = &xgo.File{Content: []byte("const replacement = 1\n"), ModTime: time.Unix(1, 0)}
 				s.fileMapGetter = func() map[string]*xgo.File { return files }
-				s.getProjWithFile()
+				s.syncProject()
 			}, 1},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -597,6 +631,9 @@ func TestServerDocumentSynchronizationErrors(t *testing.T) {
 		}, want: "outside"},
 		{name: "SaveOutsideWorkspace", run: func(s *Server) error {
 			return s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}, Text: ToPtr("println 1")})
+		}, want: "outside"},
+		{name: "CloseOutsideWorkspace", run: func(s *Server) error {
+			return s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}})
 		}, want: "outside"},
 		{name: "EmptyChanges", run: func(s *Server) error {
 			return s.didChange(&DidChangeTextDocumentParams{TextDocument: protocol.VersionedTextDocumentIdentifier{TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///workspace/main.xgo"}}})

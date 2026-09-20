@@ -16,6 +16,7 @@ import (
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gomodfile "golang.org/x/mod/modfile"
@@ -402,7 +403,7 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 				case "Literal":
 					source += "var value = Record{|" + typ.field + ": 1}\n"
 				case "Kwarg":
-					label = lowerFirstASCII(typ.field)
+					label = xgoutil.ToLowerCamelCase(typ.field)
 					source += "func configure(opts Record?) {}\nconfigure |" + label + " = 1\n"
 				}
 				source, position := typeDisplayTestSource(t, source)

@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -15,13 +14,13 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
 	}
 	astFile := astPkg.Files[filename]
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -29,10 +28,12 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 	if typeInfo == nil {
 		return nil, nil
 	}
-	_, targetObj, _ := objectAtPosition(proj, typeInfo, astFile, position)
+	_, targetObj, _ := sourceObjectAtPosition(proj, typeInfo, astFile, position)
 	if targetObj == nil {
 		return nil, nil
 	}
+	targetObj = typeInfo.ObjectDeclaration(targetObj)
+	file := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
 	var highlights []DocumentHighlight
 	appendHighlight := func(highlight DocumentHighlight) {
@@ -46,8 +47,11 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 		if !ok {
 			return true
 		}
-		obj := typeInfo.ObjectOf(ident)
-		if obj != targetObj {
+		if !xgoutil.IsSourceIdent(file, astFile.Code, ident) {
+			return false
+		}
+		obj := typeInfo.SourceObjectOf(ident)
+		if typeInfo.ObjectDeclaration(obj) != targetObj {
 			return true
 		}
 		path, _ := xgoutil.PathEnclosingInterval(astFile, ident.Pos(), ident.End())
@@ -57,7 +61,7 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 
 		kind := Text
 
-		for _, parent := range slices.Backward(path[:len(path)-1]) {
+		for _, parent := range path[1:] {
 			switch p := parent.(type) {
 			case *ast.KwargExpr:
 				if p.Name == ident {
@@ -66,6 +70,8 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 			case *ast.ValueSpec:
 				if slices.Contains(p.Names, ident) {
 					kind = Write
+				} else if slices.Contains(p.Values, ast.Expr(ident)) {
+					kind = Read
 				}
 			case *ast.Field:
 				if slices.Contains(p.Names, ident) {
@@ -74,6 +80,12 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 			case *ast.FuncDecl:
 				if p.Name == ident {
 					kind = Write
+				}
+			case *ast.OverloadFuncDecl:
+				if p.Name == ident {
+					kind = Write
+				} else {
+					kind = Read
 				}
 			case *ast.TypeSpec:
 				if p.Name == ident {
@@ -84,19 +96,10 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 					kind = Write
 				}
 			case *ast.AssignStmt:
-				switch p.Tok {
-				case token.ASSIGN:
-					if slices.Contains(p.Lhs, ast.Expr(ident)) {
-						kind = Write
-					} else if slices.Contains(p.Rhs, ast.Expr(ident)) {
-						kind = Read
-					}
-				case token.DEFINE:
-					if slices.Contains(p.Lhs, ast.Expr(ident)) {
-						kind = Write
-					}
-				default:
+				if slices.Contains(p.Lhs, ast.Expr(ident)) {
 					kind = Write
+				} else if slices.Contains(p.Rhs, ast.Expr(ident)) {
+					kind = Read
 				}
 			case *ast.IncDecStmt:
 				if p.X == ident {
@@ -108,9 +111,11 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 				} else if p.Key == ident || p.Value == ident {
 					kind = Write
 				}
-			case *ast.TypeSwitchStmt:
-				if assign, ok := p.Assign.(*ast.AssignStmt); ok && slices.Contains(assign.Lhs, ast.Expr(ident)) {
+			case *ast.ForPhrase:
+				if p.Key == ident || p.Value == ident {
 					kind = Write
+				} else if p.X == ident || p.Cond == ident {
+					kind = Read
 				}
 			case *ast.BinaryExpr,
 				*ast.UnaryExpr,
@@ -118,6 +123,8 @@ func (s *Server) textDocumentDocumentHighlight(params *DocumentHighlightParams) 
 				*ast.FuncDecorator,
 				*ast.CompositeLit,
 				*ast.IndexExpr,
+				*ast.RangeExpr,
+				*ast.ComprehensionExpr,
 				*ast.ReturnStmt,
 				*ast.SendStmt:
 				kind = Read

@@ -89,7 +89,7 @@ func TestNew(t *testing.T) {
 
 				// Rebuild types so cached results cannot mask shared configuration.
 				files[filename] = append(files[filename], '\n')
-				typeInfo, err := s.getProjWithFile().TypeInfo()
+				typeInfo, err := s.syncProject().TypeInfo()
 				require.NoError(t, err)
 				assert.Equal(t, "main", typeInfo.Pkg.Path())
 				var method gotypes.Object

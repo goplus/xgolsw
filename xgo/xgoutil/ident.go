@@ -22,6 +22,18 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
+// IsSourceIdent reports whether ident matches the source text in file. Compiler
+// generated identifiers can reuse real positions without being marked implicit.
+// The file and code must describe the same source.
+func IsSourceIdent(file *token.File, code []byte, ident *ast.Ident) bool {
+	if ident.Implicit() {
+		return false
+	}
+	start := int(ident.Pos()) - file.Base()
+	end := start + len(ident.Name)
+	return start >= 0 && end <= len(code) && string(code[start:end]) == ident.Name
+}
+
 // IdentAtPosition returns the identifier at a physical source position in astFile,
 // ignoring line directives.
 func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.File, position token.Position) *ast.Ident {
@@ -57,17 +69,8 @@ func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.Fil
 		bestNodeSpan int
 	)
 	checkIdent := func(ident *ast.Ident) (isBestPossibleMatch bool) {
-		if ident.Implicit() {
+		if !IsSourceIdent(tokenFile, astFile.Code, ident) {
 			return
-		}
-
-		// Skip synthetic receiver "this" at classfile start so a later
-		// iteration can resolve the user-visible symbol at the same position.
-		if ident.Name == "this" {
-			defIdent := identToDef(typeInfo, ident)
-			if defIdent != nil && defIdent.Pos() == astFile.Pos() && ident.Pos() == astFile.Pos() {
-				return
-			}
 		}
 
 		identPos := ident.Pos()
@@ -116,23 +119,16 @@ func IsSyntheticThisIdent(fset *token.FileSet, typeInfo *types.Info, astPkg *ast
 		return false
 	}
 
-	ident = identToDef(typeInfo, ident)
-	astFile := NodeASTFile(fset, astPkg, ident)
+	pos := ident.Pos()
+	if obj := typeInfo.ObjectOf(ident); obj != nil {
+		pos = obj.Pos()
+		if declaration := typeInfo.ObjToDef[obj]; declaration != nil {
+			pos = declaration.Pos()
+		}
+	}
+	astFile := PosASTFile(fset, astPkg, pos)
 	if astFile == nil {
 		return false
 	}
-	return ident.Pos() == astFile.Pos()
-}
-
-// identToDef returns the defining identifier for ident if available.
-func identToDef(typeInfo *types.Info, ident *ast.Ident) *ast.Ident {
-	if typeInfo == nil || ident == nil {
-		return nil
-	}
-	if obj := typeInfo.ObjectOf(ident); obj != nil {
-		if defIdent := typeInfo.ObjToDef[obj]; defIdent != nil {
-			return defIdent
-		}
-	}
-	return ident
+	return astFile.IsClass && pos == astFile.Pos()
 }

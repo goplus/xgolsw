@@ -12,6 +12,23 @@ import (
 )
 
 func TestNewXGo(t *testing.T) {
+	t.Run("PackageCommentOrder", func(t *testing.T) {
+		fset := token.NewFileSet()
+		pkg := &ast.Package{Name: "main", Files: make(map[string]*ast.File)}
+		for name, source := range map[string]string{
+			"a.xgo": "package main\n",
+			"b.xgo": "// Package main provides the first description.\npackage main\nfunc First() {}\n",
+			"c.xgo": "// Package main provides the second description.\npackage main\nfunc Second() {}\n",
+		} {
+			file, err := parser.ParseFile(fset, name, source, parser.ParseComments)
+			require.NoError(t, err)
+			pkg.Files[name] = file
+		}
+		for range 100 {
+			assert.Equal(t, "Package main provides the first description.\n", NewXGo("main", pkg, nil).Doc)
+		}
+	})
+
 	t.Run("UnclassifiedClass", func(t *testing.T) {
 		astFile, err := parser.ParseFile(token.NewFileSet(), "Worker.gox", `var (
 	// Value belongs to the unresolved class.

@@ -556,6 +556,40 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("UneditableConstants", func(t *testing.T) {
+		t.Run("ImportedPositionCollision", func(t *testing.T) {
+			const source = "import . \"example.com/assets\"\nfunc local() { const Name = \"Local\" }\necho Name\n"
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			proj := s.getProj()
+			file, err := proj.ASTFile("main.xgo")
+			require.NoError(t, err)
+			var declaration token.Pos
+			ast.Inspect(file, func(node ast.Node) bool {
+				if spec, ok := node.(*ast.ValueSpec); ok && spec.Names[0].Name == "Name" {
+					declaration = spec.Pos()
+				}
+				return true
+			})
+			require.True(t, declaration.IsValid())
+			pkg := gotypes.NewPackage("example.com/assets", "assets")
+			pkg.Scope().Insert(gotypes.NewConst(declaration, pkg, "Name", gotypes.Typ[gotypes.UntypedString], constant.MakeString("Remote")))
+			pkg.MarkComplete()
+			fallback := proj.Importer
+			proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+				if path == pkg.Path() {
+					return pkg, nil
+				}
+				return fallback.Import(path)
+			})
+			_, err = proj.TypeInfo()
+			require.NoError(t, err)
+			call := resourceTestCall(t, proj, "main.xgo")
+			require.Len(t, call.Args, 1)
+			id := testResourceID{"files", "Remote"}
+			result := newTestResourceAnalysis()
+			result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindConstantReference, Node: call.Args[0]})
+			assert.Empty(t, s.renameResourceAtRefs(t, result, id, "Changed"))
+		})
+
 		for _, tt := range []struct {
 			name    string
 			source  string

@@ -118,6 +118,10 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 		}{
 			{name: "BlankIdent", filename: "main.xgo", source: "const _ = 1\n", position: Position{Line: 0, Character: 6}, newServer: newTestServer},
 			{name: "BuiltinType", filename: "main.xgo", source: "var value int\n", position: Position{Line: 0, Character: 10}, newServer: newTestServer},
+			{name: "BuiltinEmbeddedField", filename: "main.xgo", source: "type Holder struct { int }\nvar holder Holder\necho holder.int\n", position: Position{Line: 2, Character: 12}, newServer: newTestServer},
+			{name: "ImportedEmbeddedField", filename: "main.xgo", source: "import f \"example.com/first\"\ntype Holder struct { f.App }\nvar holder Holder\necho holder.App\n", position: Position{Line: 3, Character: 12}, newServer: newClassfileTestServer},
+			{name: "ImportedPromotedEmbeddedField", filename: "main.xgo", source: "import f \"example.com/first\"\nvar holder f.Wrapper[int]\necho holder.App\n", position: Position{Line: 2, Character: 12}, newServer: newClassfileTestServer},
+			{name: "GeneratedEmbeddedField", filename: "main_fixture.gox", source: "type Holder struct { Worker }\nvar holder Holder\necho holder.Worker\n", position: Position{Line: 2, Character: 12}, needsWorker: true, newServer: newFrameworkTestServer},
 			{name: "BuiltinFunc", filename: "main.xgo", source: "println 1\n", newServer: newTestServer},
 			{name: "ImportedPackage", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1}, newServer: newTestServer},
 			{name: "ImportedMember", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1, Character: 4}, newServer: newTestServer},
@@ -245,6 +249,192 @@ func main() {
 }
 
 func TestServerTextDocumentRename(t *testing.T) {
+	t.Run("RangeVariables", func(t *testing.T) {
+		for _, kind := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{name: "XGo", filename: "main.xgo", newServer: newTestServer},
+			{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
+			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+			{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+		} {
+			t.Run(kind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name        string
+					source      string
+					declaration int
+				}{
+					{name: "RangeValue", source: "for _, |value := range [1, 2] {\necho |value\n}"},
+					{name: "RangeKey", source: "for |value := range [1, 2] {\necho |value\n}"},
+					{name: "ForPhraseValue", source: "for |value <- [1, 2] {\necho |value\n}"},
+					{name: "ForPhraseKey", source: "for |value, item <- [1, 2] {\necho |value, item\n}"},
+					{name: "RangeExpression", source: "for |value <- 1:3 {\necho |value\n}"},
+					{name: "ListComprehension", source: "echo [|value * 2 for |value <- [1, 2]]", declaration: 1},
+					{name: "MapComprehension", source: "echo {|value: |value * 2 for |value <- [1, 2]}", declaration: 2},
+					{name: "FilteredComprehension", source: "echo [|value for |value <- [1, 2] if |value > 1]", declaration: 1},
+					{name: "NestedScope", source: "for |value <- [1, 2] {\nfor value <- [3, 4] { echo value }\necho |value\n}"},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						marked := "func run() {\nvalue := \"outer\"\necho value\n{\n" + tt.source + "\n}\necho value\n}\n"
+						parts := strings.Split(marked, "|")
+						source := strings.Join(parts, "")
+						var want []TextEdit
+						prefix := ""
+						for _, part := range parts[:len(parts)-1] {
+							prefix += part
+							start := Position{Line: uint32(strings.Count(prefix, "\n")), Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:]))}
+							end := start
+							end.Character += 5
+							want = append(want, TextEdit{Range: Range{Start: start, End: end}, NewText: "entry"})
+						}
+						files := map[string][]byte{kind.filename: []byte(source)}
+						if kind.name == "WorkClass" {
+							files["main_fixture.gox"] = nil
+						}
+						s := kind.newServer(t, files)
+						_, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						uri := s.toDocumentURI(kind.filename)
+						var edit *WorkspaceEdit
+						for _, target := range want {
+							params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: target.Range.Start}
+							for _, includeDeclaration := range []bool{false, true} {
+								var wantLocations []Location
+								for i, edit := range want {
+									if includeDeclaration || i != tt.declaration {
+										wantLocations = append(wantLocations, Location{URI: uri, Range: edit.Range})
+									}
+								}
+								locations, err := s.textDocumentReferences(&ReferenceParams{
+									TextDocumentPositionParams: params,
+									Context:                    ReferenceContext{IncludeDeclaration: includeDeclaration},
+								})
+								require.NoError(t, err)
+								assert.ElementsMatch(t, wantLocations, locations)
+							}
+							prepared, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: params})
+							require.NoError(t, err)
+							assert.Equal(t, &target.Range, prepared)
+							edit, err = s.textDocumentRename(&RenameParams{TextDocument: params.TextDocument, Position: params.Position, NewName: "entry"})
+							require.NoError(t, err)
+							assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{uri: want})
+						}
+						updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
+						s.ModifyFiles([]FileChange{{Path: kind.filename, Content: []byte(updated), Version: 1}})
+						_, err = s.requestProject().TypeInfo()
+						assert.NoError(t, err)
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("EmbeddedTypes", func(t *testing.T) {
+		for _, kind := range []struct {
+			name     string
+			filename string
+		}{
+			{name: "XGo", filename: "main.xgo"},
+			{name: "NormalClass", filename: "Record.gox"},
+		} {
+			t.Run(kind.name, func(t *testing.T) {
+				filename := kind.filename
+				for _, target := range []struct {
+					name     string
+					inTypes  bool
+					position Position
+					kwarg    bool
+				}{
+					{name: "TypeDeclaration", inTypes: true, position: Position{Line: 0, Character: 5}},
+					{name: "EmbeddedDeclaration", inTypes: true, position: Position{Line: 1, Character: 21}},
+					{name: "PointerDeclaration", inTypes: true, position: Position{Line: 2, Character: 29}},
+					{name: "Field", position: Position{Line: 5, Character: 11}},
+					{name: "PointerField", position: Position{Line: 5, Character: 24}},
+					{name: "PromotedField", position: Position{Line: 5, Character: 39}},
+					{name: "Kwarg", position: Position{Line: 6, Character: 10}, kwarg: true},
+				} {
+					t.Run(target.name, func(t *testing.T) {
+						files := map[string][]byte{
+							"types.xgo": []byte("type Item struct{}\ntype Holder struct { Item }\ntype PointerHolder struct { *Item }\n" +
+								"type Wrapper struct { Holder }\ntype Other struct { Item int }\nfunc configure(opts Holder?) {}\n"),
+							filename: []byte("func use() {\nvar first Holder\nvar second PointerHolder\nvar promoted Wrapper\nvar other Other\n" +
+								"echo first.Item, second.Item, promoted.Item, other.Item\nconfigure item = Item{}\n}\n"),
+						}
+						s := newTestServer(t, files)
+						_, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						uri := s.toDocumentURI(filename)
+						if target.inTypes {
+							uri = "file:///types.xgo"
+						}
+						rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: uri}, Position: target.position,
+						}})
+						require.NoError(t, err)
+						end := target.position
+						end.Character += 4
+						assert.Equal(t, &Range{Start: target.position, End: end}, rng)
+						newName := "Node"
+						if target.kwarg {
+							newName = "node"
+						}
+						edit, err := s.textDocumentRename(&RenameParams{
+							TextDocument: TextDocumentIdentifier{URI: uri}, Position: target.position, NewName: newName,
+						})
+						require.NoError(t, err)
+						assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+							"file:///types.xgo": {
+								{Range: Range{Start: Position{Line: 0, Character: 5}, End: Position{Line: 0, Character: 9}}, NewText: "Node"},
+								{Range: Range{Start: Position{Line: 1, Character: 21}, End: Position{Line: 1, Character: 25}}, NewText: "Node"},
+								{Range: Range{Start: Position{Line: 2, Character: 29}, End: Position{Line: 2, Character: 33}}, NewText: "Node"},
+							},
+							s.toDocumentURI(filename): {
+								{Range: Range{Start: Position{Line: 5, Character: 11}, End: Position{Line: 5, Character: 15}}, NewText: "Node"},
+								{Range: Range{Start: Position{Line: 5, Character: 24}, End: Position{Line: 5, Character: 28}}, NewText: "Node"},
+								{Range: Range{Start: Position{Line: 5, Character: 39}, End: Position{Line: 5, Character: 43}}, NewText: "Node"},
+								{Range: Range{Start: Position{Line: 6, Character: 10}, End: Position{Line: 6, Character: 14}}, NewText: "node"},
+								{Range: Range{Start: Position{Line: 6, Character: 17}, End: Position{Line: 6, Character: 21}}, NewText: "Node"},
+							},
+						})
+						var changes []FileChange
+						for filename, source := range files {
+							updated := applyResourceRenameTestEdits(t, string(source), edit.Changes[s.toDocumentURI(filename)])
+							changes = append(changes, FileChange{Path: filename, Content: []byte(updated), Version: 1})
+						}
+						s.ModifyFiles(changes)
+						_, err = s.requestProject().TypeInfo()
+						assert.NoError(t, err)
+					})
+				}
+			})
+		}
+		t.Run("LocalTypes", func(t *testing.T) {
+			for _, position := range []Position{{Line: 1, Character: 5}, {Line: 2, Character: 21}, {Line: 4, Character: 12}} {
+				source := "func use() {\ntype Item struct{}\ntype Holder struct { Item }\nvar holder Holder\necho holder.Item\n}\n"
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				_, err := s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				edit, err := s.textDocumentRename(&RenameParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position, NewName: "Node",
+				})
+				require.NoError(t, err)
+				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{
+					"file:///main.xgo": {
+						{Range: Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 9}}, NewText: "Node"},
+						{Range: Range{Start: Position{Line: 2, Character: 21}, End: Position{Line: 2, Character: 25}}, NewText: "Node"},
+						{Range: Range{Start: Position{Line: 4, Character: 12}, End: Position{Line: 4, Character: 16}}, NewText: "Node"},
+					},
+				})
+				updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.xgo"])
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
+				_, err = s.requestProject().TypeInfo()
+				assert.NoError(t, err)
+			}
+		})
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string
@@ -709,5 +899,75 @@ func assertRenameChanges(t *testing.T, edit *WorkspaceEdit, want map[DocumentURI
 	require.Len(t, edit.Changes, len(want))
 	for uri, changes := range want {
 		assert.ElementsMatch(t, changes, edit.Changes[uri], "edits for %s", uri)
+	}
+}
+
+func TestServerTextDocumentRenameIdentifier(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		newName string
+		valid   bool
+	}{
+		{name: "Empty"},
+		{name: "Blank", newName: "_"},
+		{name: "Keyword", newName: "for"},
+		{name: "LeadingDigit", newName: "1value"},
+		{name: "Whitespace", newName: "new value"},
+		{name: "Selector", newName: "value.Count"},
+		{name: "Emoji", newName: "\U0001F600"},
+		{name: "Identifier", newName: "renamed", valid: true},
+		{name: "LeadingUnderscore", newName: "_value", valid: true},
+		{name: "UnicodeLetter", newName: "\u503c", valid: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, source := range []string{
+				"var |value int\nprintln value\n",
+				"type Record struct{}\nfunc (Record) |Value() int { return 1 }\nprintln Record{}.Value()\n",
+			} {
+				source, position := typeDisplayTestSource(t, source)
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				replier := newMockReplier()
+				s.replier = replier
+				_, err := s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				edit, err := s.textDocumentRename(&RenameParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position, NewName: tt.newName})
+				if !tt.valid {
+					assert.ErrorIs(t, err, jsonrpc2.ErrInvalidParams)
+					assert.Nil(t, edit)
+					assert.Empty(t, replier.messages)
+					continue
+				}
+				require.NoError(t, err)
+				require.NotNil(t, edit)
+				updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.xgo"])
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
+				_, err = s.requestProject().TypeInfo()
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestServerTextDocumentRenameKeywordKwarg(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		source  string
+		newName string
+	}{
+		{name: "KeywordAtCall", source: "type Options struct { Count int }\nfunc configure(opts Options?) {}\nconfigure |count=1\n", newName: "for"},
+		{name: "KeywordAtDeclaration", source: "type Options struct { |Count int }\nfunc configure(opts Options?) {}\nconfigure count=1\n", newName: "For"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			replier := newMockReplier()
+			s.replier = replier
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			edit, err := s.textDocumentRename(&RenameParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position, NewName: tt.newName})
+			assert.ErrorIs(t, err, jsonrpc2.ErrInvalidParams)
+			assert.Nil(t, edit)
+			assert.Empty(t, replier.messages)
+		})
 	}
 }

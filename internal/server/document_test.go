@@ -11,6 +11,28 @@ import (
 )
 
 func TestServerTextDocumentDocumentLink(t *testing.T) {
+	t.Run("RangeDeclarations", func(t *testing.T) {
+		for _, name := range []string{"value", "_xgo_k"} {
+			source := "for " + name + " <- 0:3 { echo " + name + " }\n"
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
+			require.NoError(t, err)
+			var variableLinks []DocumentLink
+			for _, link := range links {
+				if link.Target != nil && *link.Target == URI("xgo:main?"+name) {
+					variableLinks = append(variableLinks, link)
+				}
+			}
+			use := uint32(strings.LastIndex(source, name))
+			assert.ElementsMatch(t, []DocumentLink{
+				{Range: Range{Start: Position{Character: 4}, End: Position{Character: uint32(4 + len(name))}}, Target: toURI("xgo:main?" + name)},
+				{Range: Range{Start: Position{Character: use}, End: Position{Character: use + uint32(len(name))}}, Target: toURI("xgo:main?" + name)},
+			}, variableLinks)
+			_, err = s.requestProject().TypeInfo()
+			assert.NoError(t, err)
+		}
+	})
+
 	t.Run("LargeList", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string

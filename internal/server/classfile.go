@@ -74,7 +74,7 @@ func classBaseTypes(proj *xgo.Project) map[*gotypes.Named]struct{} {
 		}
 	}
 	for pkgPath := range implicitPackages {
-		if pkg, err := proj.Importer.Import(pkgPath); err == nil {
+		if pkg, err := proj.Import(pkgPath); err == nil {
 			visitPackage(pkg)
 		}
 	}

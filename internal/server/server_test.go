@@ -443,9 +443,9 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 	t.Cleanup(func() {
 		// Wait for the latest background diagnostics before the test ends.
 		require.Eventually(t, func() bool {
-			server.diagnosticsMu.Lock()
+			server.projectMu.Lock()
 			running := server.diagnosticsRunning
-			server.diagnosticsMu.Unlock()
+			server.projectMu.Unlock()
 			var diagnosticCount int
 			for _, message := range replier.getMessages() {
 				if notification, ok := message.(*jsonrpc2.Notification); ok && notification.Method() == "textDocument/publishDiagnostics" {

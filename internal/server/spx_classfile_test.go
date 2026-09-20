@@ -53,7 +53,7 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				require.NotEmpty(t, slots)
 				assert.Equal(t, ToPtr(FormatSpxSpriteCostumeResourceContextURI(tt.className)), slots[0].Accept.ResourceContext)
 			}
-			changes, err := s.renameSpxResource(result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
+			changes, err := s.renameSpxResource(s.getProj(), result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
 			require.NoError(t, err)
 			assert.Contains(t, changes[s.toDocumentURI(tt.project)], TextEdit{
 				Range:   Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: uint32(12 + len(tt.className))}},

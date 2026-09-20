@@ -4,6 +4,9 @@ import (
 	"bytes"
 	gotypes "go/types"
 	"io/fs"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -16,6 +19,46 @@ import (
 )
 
 func TestServerTextDocumentFormatting(t *testing.T) {
+	t.Run("ConcurrentRequests", func(t *testing.T) {
+		const source = "var value int\nfunc Work() { value = measure(1) }\n"
+		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
+		proj := s.getProj()
+		fallback := proj.Importer
+		var activeImports, concurrentImports atomic.Int32
+		proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+			if activeImports.Add(1) > 1 {
+				concurrentImports.Add(1)
+			}
+			defer activeImports.Add(-1)
+			runtime.Gosched()
+			return fallback.Import(path)
+		})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		errs := make([]error, 16)
+		for i := range errs {
+			wg.Go(func() {
+				<-start
+				if i%2 == 0 {
+					_, errs[i] = formatSource(proj, "main_fixture.gox", []byte(source))
+				} else {
+					_, errs[i] = s.textDocumentDocumentHighlight(&DocumentHighlightParams{
+						TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+							Position:     Position{Character: 5},
+						},
+					})
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		assert.Zero(t, concurrentImports.Load())
+	})
+
 	t.Run("CallbackOverloads", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string
@@ -217,7 +260,8 @@ func handle = (
 
 	t.Run("FileUpdates", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("onStart => {\n\techo \"old\"\n}\n"),
+			"main_fixture.gox":   []byte("onStart => {\n\techo \"old\"\n}\n"),
+			"Worker_fixture.gox": nil,
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)

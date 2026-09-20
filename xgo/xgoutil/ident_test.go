@@ -26,6 +26,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsSourceIdent(t *testing.T) {
+	code := []byte("for _xgo_k := range [1] {}\n")
+	file := token.NewFileSet().AddFile("main.xgo", 100, len(code))
+	for _, tt := range []struct {
+		name  string
+		ident *ast.Ident
+		want  bool
+	}{
+		{name: "Source", ident: &ast.Ident{NamePos: file.Pos(4), Name: "_xgo_k"}, want: true},
+		{name: "GeneratedAtKeyword", ident: &ast.Ident{NamePos: file.Pos(0), Name: "_xgo_k"}},
+		{name: "Implicit", ident: &ast.Ident{NamePos: file.Pos(4), Name: "_xgo_k", Obj: &ast.Object{Kind: ast.ImplicitFun}}},
+		{name: "NoPosition", ident: &ast.Ident{Name: "_xgo_k"}},
+		{name: "PastEOF", ident: &ast.Ident{NamePos: file.Pos(len(code)), Name: "_xgo_k"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsSourceIdent(file, code, tt.ident))
+		})
+	}
+}
+
 func TestIdentAtPosition(t *testing.T) {
 	t.Run("LineDirective", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "//line virtual.xgo:100:20\nvar value = 1\n")
@@ -332,6 +352,7 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 	newBase := func(t *testing.T) (*token.FileSet, *ast.File, *ast.Package, *gotypes.Package) {
 		fset, astFile, err := newTestFile("main.xgo", "package main")
 		require.NoError(t, err)
+		astFile.IsClass = true
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 		pkg := gotypes.NewPackage("main", "main")
 		return fset, astFile, astPkg, pkg
@@ -397,41 +418,5 @@ func TestIsSyntheticThisIdent(t *testing.T) {
 		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
 
 		assert.False(t, IsSyntheticThisIdent(fset, typeInfo, astPkg, defIdent))
-	})
-}
-
-func TestIdentToDef(t *testing.T) {
-	t.Run("NilTypeInfo", func(t *testing.T) {
-		ident := &ast.Ident{Name: "x"}
-		assert.Nil(t, identToDef(nil, ident))
-	})
-
-	t.Run("NilIdent", func(t *testing.T) {
-		typeInfo := newTestTypeInfo(nil, nil)
-		assert.Nil(t, identToDef(typeInfo, nil))
-	})
-
-	t.Run("NoObject", func(t *testing.T) {
-		typeInfo := newTestTypeInfo(nil, nil)
-		ident := &ast.Ident{Name: "x"}
-		assert.Equal(t, ident, identToDef(typeInfo, ident))
-	})
-
-	t.Run("ObjectWithoutDefinition", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "x"}
-		obj := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
-		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: obj})
-		assert.Equal(t, ident, identToDef(typeInfo, ident))
-	})
-
-	t.Run("ResolveDefinition", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		defIdent := &ast.Ident{Name: "x"}
-		useIdent := &ast.Ident{Name: "x"}
-		obj := gotypes.NewVar(token.NoPos, pkg, "x", gotypes.Typ[gotypes.Int])
-		typeInfo := newTestTypeInfo(map[*ast.Ident]gotypes.Object{defIdent: obj}, map[*ast.Ident]gotypes.Object{useIdent: obj})
-		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{obj: defIdent}
-		assert.Equal(t, defIdent, identToDef(typeInfo, useIdent))
 	})
 }

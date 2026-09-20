@@ -17,7 +17,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		result := newTestResourceAnalysis()
-		for ref := range resourceReferences(s.getProj(), testResourceResolver(t, s.getProj())) {
+		for ref := range resourceReferences(ctx.proj, testResourceResolver(t, ctx.proj)) {
 			result.addResourceRef(ref)
 		}
 		literal := inputSlotLiteral(t, ctx, `"Item"`)

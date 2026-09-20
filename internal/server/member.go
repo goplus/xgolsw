@@ -3,13 +3,50 @@ package server
 import (
 	gotypes "go/types"
 	"iter"
+	"maps"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
+
+// projectReceiverTypes returns method set candidates from project type information,
+// including anonymous structs, generated classes, local types, and imported types.
+func projectReceiverTypes(info *types.Info) iter.Seq[gotypes.Type] {
+	candidates := make(map[gotypes.Type]struct{})
+	addType := func(typ gotypes.Type) {
+		for {
+			typ = gotypes.Unalias(typ)
+			pointer, ok := typ.(*gotypes.Pointer)
+			if !ok {
+				break
+			}
+			typ = pointer.Elem()
+		}
+		switch typ.(type) {
+		case *gotypes.Named, *gotypes.Struct:
+			if typ.Underlying() != nil {
+				candidates[typ] = struct{}{}
+			}
+		}
+	}
+	addScope := func(scope *gotypes.Scope) {
+		for _, name := range scope.Names() {
+			addType(scope.Lookup(name).Type())
+		}
+	}
+	addScope(info.Pkg.Scope())
+	for _, scope := range info.Scopes {
+		addScope(scope)
+	}
+	for _, value := range info.Types {
+		addType(value.Type)
+	}
+	return maps.Keys(candidates)
+}
 
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.
@@ -88,7 +125,7 @@ func (r *definitionContext) memberForObject(receiver gotypes.Type, obj gotypes.O
 	if receiver == nil {
 		return nil
 	}
-	if selector, ok := r.memberSelectorsFor(receiver)[memberOrigin(obj)]; ok {
+	if selector, ok := r.memberSelectorsFor(receiver)[types.ObjectOrigin(obj)]; ok {
 		return &xgoutil.StructMember{Member: obj, Selector: selector}
 	}
 	return nil
@@ -102,7 +139,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 	}
 	selectors := make(map[gotypes.Object]*gotypes.Named)
 	add := func(obj gotypes.Object, selector *gotypes.Named) {
-		origin := memberOrigin(obj)
+		origin := types.ObjectOrigin(obj)
 		if _, ok := selectors[origin]; !ok {
 			selectors[origin] = selector
 		}
@@ -160,18 +197,6 @@ func importedInterfaceMembers(receiver gotypes.Type) iter.Seq[xgoutil.StructMemb
 			return true
 		}
 		walk(receiver)
-	}
-}
-
-// memberOrigin identifies a field or method before generic instantiation.
-func memberOrigin(obj gotypes.Object) gotypes.Object {
-	switch obj := obj.(type) {
-	case *gotypes.Var:
-		return obj.Origin()
-	case *gotypes.Func:
-		return obj.Origin()
-	default:
-		return obj
 	}
 }
 
