@@ -5,7 +5,6 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -26,57 +25,30 @@ type typeDisplay struct {
 func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDisplay {
 	info, _ := proj.TypeInfo()
 	scope := info.Pkg.Scope()
-	var lookups []*gotypes.Package
+	bindings := importsForFile(proj, file)
+	lookups := bindings.members
 	imports := make(map[*gotypes.Package][]*gotypes.PkgName)
+	for _, name := range bindings.names {
+		imports[name.Imported()] = append(imports[name.Imported()], name)
+	}
 	if file != nil {
 		astPkg, _ := proj.ASTPackage()
 		if inner := xgoutil.InnermostScopeAt(proj.Fset, info, astPkg, pos); inner != nil {
 			scope = inner
 		}
-		if file.IsClass {
-			filename := proj.Fset.PositionFor(file.Pos(), false).Filename
-			if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
-				for _, pkgPath := range class.PkgPaths {
-					if pkg, err := proj.Import(pkgPath); err == nil {
-						lookups = append(lookups, pkg)
-					}
-				}
-			}
-		}
-		for _, spec := range file.Imports {
-			var obj gotypes.Object
-			if spec.Name != nil {
-				obj = info.Defs[spec.Name]
-			} else {
-				obj = info.Implicits[spec]
-			}
-			name, ok := obj.(*gotypes.PkgName)
-			if !ok {
-				continue
-			}
-			switch name.Name() {
-			case ".":
-				lookups = append(lookups, name.Imported())
-			case "_":
-			default:
-				imports[name.Imported()] = append(imports[name.Imported()], name)
-			}
-		}
 	}
 
-	// XGo records imports in a file scope that is not necessarily a parent
-	// of function scopes. Consult it after local and package declarations.
+	// Named imports only resolve package qualifiers. They do not hide bare
+	// names from classfile lookup packages or dot imports.
 	lookup := func(name string) gotypes.Object {
-		at, obj := scope.LookupParent(name, pos)
-		if obj != nil && at != gotypes.Universe {
-			return obj
-		}
-		if fileScope := info.Scopes[file]; fileScope != nil {
-			if imported := fileScope.Lookup(name); imported != nil {
-				return imported
+		for current := scope; current != nil; {
+			at, obj := current.LookupParent(name, pos)
+			if _, imported := obj.(*gotypes.PkgName); !imported {
+				return obj
 			}
+			current = at.Parent()
 		}
-		return obj
+		return nil
 	}
 
 	unqualified := func(obj *gotypes.TypeName) bool {
@@ -90,7 +62,7 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 		var found gotypes.Object
 		for _, pkg := range lookups {
 			if candidate := pkg.Scope().Lookup(obj.Name()); candidate != nil && candidate.Exported() {
-				if found != nil && found != candidate {
+				if found != nil {
 					return false
 				}
 				found = candidate
@@ -118,7 +90,7 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			}
 			if alias != "" {
 				member, _, _ := gotypes.LookupFieldOrMethod(class, true, info.Pkg, alias)
-				if fun, ok := member.(*gotypes.Func); ok {
+				if fun, ok := member.(*gotypes.Func); ok && methodHasAutoProperty(fun.Type(), 0) {
 					return fun
 				}
 			}
@@ -127,13 +99,13 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 	}
 	return typeDisplay{qualifier: func(pkg *gotypes.Package) string {
 		for _, name := range imports[pkg] {
-			if lookup(name.Name()) == name {
+			if obj := lookup(name.Name()); obj == nil || obj.Parent() == gotypes.Universe {
 				return name.Name()
 			}
 		}
 		// Keep inaccessible packages identifiable, including shadowed import
 		// names and types from packages absent from this file's imports.
-		if lookup(pkg.Name()) != nil {
+		if lookup(pkg.Name()) != nil || bindings.named[pkg.Name()] != nil {
 			return pkg.Path()
 		}
 		for imported := range imports {
@@ -157,7 +129,7 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			return "", false
 		}
 		for _, name := range imports[obj.Pkg()] {
-			if sourceLookup(name.Name()) == name {
+			if visible := sourceLookup(name.Name()); visible == nil || visible.Parent() == gotypes.Universe {
 				return name.Name() + "." + obj.Name(), true
 			}
 		}

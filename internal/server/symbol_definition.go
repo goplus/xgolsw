@@ -18,6 +18,10 @@ type symbolDefinition struct {
 	TypeHint gotypes.Type
 	Function *gotypes.Func
 
+	// AutoPropertyType is the inferred result of an implicit member call.
+	// It distinguishes a property returning a function from a method value.
+	AutoPropertyType gotypes.Type
+
 	ID       XGoDefinitionIdentifier
 	Overview string
 	Detail   string
@@ -76,6 +80,11 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 		case *gotypes.TypeName:
 			defs = append(defs, d.definitionForType(obj, pkgDoc))
 		case *gotypes.Func:
+			// Template methods are selected through their receiver. Their
+			// display names do not resolve as package-level functions.
+			if xgoutil.IsMarkedAsXGoPackage(pkg) && xgoutil.IsXGotMethodName(obj.Name()) {
+				continue
+			}
 			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 				for _, funcOverload := range funcOverloads {
 					defs = append(defs, d.definitionForFunc(funcOverload, "", pkgDoc))
