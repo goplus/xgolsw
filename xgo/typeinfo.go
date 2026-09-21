@@ -59,7 +59,8 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			Implicits:  make(map[ast.Node]gotypes.Object),
 			Scopes:     make(map[ast.Node]*gotypes.Scope),
 		},
-		Pkg: gotypes.NewPackage(proj.PkgPath, astPkg.Name),
+		Pkg:            gotypes.NewPackage(proj.PkgPath, astPkg.Name),
+		FuncDecorators: make(map[*ast.CallExpr]bool),
 	}
 
 	var checkerErrs errors.List
@@ -88,10 +89,14 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			typeInfo.ObjToDef[obj] = ident
 		}
 	}
-	// Recover declarations omitted by the compiler so all consumers share the
-	// same source mapping for local types and type switch variables.
+	// Record decorator syntax and recover declarations omitted by the compiler
+	// so all consumers share the same source and argument mappings.
 	for _, file := range astPkg.Files {
 		ast.Inspect(file, func(node ast.Node) bool {
+			if decorator, ok := node.(*ast.FuncDecorator); ok {
+				typeInfo.FuncDecorators[&decorator.CallExpr] = true
+				return true
+			}
 			if stmt, ok := node.(*ast.TypeSwitchStmt); ok {
 				recordTypeSwitchDeclaration(typeInfo, stmt)
 				return true

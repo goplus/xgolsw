@@ -334,69 +334,22 @@ func findInputSlots(ctx *inputSlotContext) []XGoInputSlot {
 
 		switch node := node.(type) {
 		case *ast.BranchStmt:
-			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
+			if callExpr := callExprFromNode(typeInfo, node); callExpr != nil {
 				inputSlots = append(inputSlots, findInputSlotsFromCallExpr(ctx, callExpr)...)
 			}
 		case *ast.CallExpr, *ast.FuncDecorator:
-			inputSlots = append(inputSlots, findInputSlotsFromCallExpr(ctx, callExprFromNode(node))...)
-		case *ast.BinaryExpr:
-			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
-			addInputSlot(checkValueInputSlot(ctx, node.Y, nil))
-		case *ast.UnaryExpr:
-			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
+			inputSlots = append(inputSlots, findInputSlotsFromCallExpr(ctx, callExprFromNode(typeInfo, node))...)
 		case *ast.AssignStmt:
 			for _, lhs := range node.Lhs {
 				addInputSlot(checkAddressInputSlot(ctx, lhs))
-			}
-
-			for i, rhs := range node.Rhs {
-				var declaredType gotypes.Type
-				if len(node.Lhs) == len(node.Rhs) {
-					declaredType = typeInfo.TypeOf(node.Lhs[i])
-				}
-
-				addInputSlot(checkValueInputSlot(ctx, rhs, declaredType))
 			}
 		case *ast.ForStmt:
 			if expr, ok := node.Init.(*ast.ExprStmt); ok {
 				addInputSlot(checkValueInputSlot(ctx, expr.X, nil))
 			}
 
-			if node.Cond != nil {
-				addInputSlot(checkValueInputSlot(ctx, node.Cond, gotypes.Typ[gotypes.Bool]))
-			}
-
 			if expr, ok := node.Post.(*ast.ExprStmt); ok {
 				addInputSlot(checkValueInputSlot(ctx, expr.X, nil))
-			}
-		case *ast.ValueSpec:
-			for i, value := range node.Values {
-				var declaredType gotypes.Type
-				if len(node.Names) == len(node.Values) {
-					nameIdent := node.Names[i]
-					if nameIdent != nil && nameIdent.Name != "_" {
-						obj := typeInfo.ObjectOf(nameIdent)
-						if obj != nil {
-							declaredType = obj.Type()
-						}
-					}
-				}
-
-				addInputSlot(checkValueInputSlot(ctx, value, declaredType))
-			}
-		case *ast.ReturnStmt:
-			for _, res := range node.Results {
-				addInputSlot(checkValueInputSlot(ctx, res, nil))
-			}
-		case *ast.IfStmt:
-			addInputSlot(checkValueInputSlot(ctx, node.Cond, gotypes.Typ[gotypes.Bool]))
-		case *ast.SwitchStmt:
-			if node.Tag != nil {
-				addInputSlot(checkValueInputSlot(ctx, node.Tag, nil))
-			}
-		case *ast.CaseClause:
-			for _, expr := range node.List {
-				addInputSlot(checkValueInputSlot(ctx, expr, nil))
 			}
 		case *ast.RangeStmt:
 			if node.Key != nil && !isBlank(node.Key) {
@@ -406,11 +359,31 @@ func findInputSlots(ctx *inputSlotContext) []XGoInputSlot {
 			if node.Value != nil && !isBlank(node.Value) {
 				addInputSlot(checkAddressInputSlot(ctx, node.Value))
 			}
-
-			addInputSlot(checkValueInputSlot(ctx, node.X, nil))
 		case *ast.IncDecStmt:
 			addInputSlot(checkAddressInputSlot(ctx, node.X))
 		}
+
+		switch node.(type) {
+		case *ast.CompositeLit, *ast.TupleLit, *ast.SliceLit, *ast.MatrixLit:
+		default:
+			if len(valueOperands(typeInfo, node)) == 0 {
+				return true
+			}
+		}
+		var path []ast.Node
+		for parent := node; parent != nil; parent = ctx.parents[parent] {
+			path = append(path, parent)
+		}
+		for expr, typ := range contextualValueTypes(typeInfo, path) {
+			if _, multipleResults := typ.(*gotypes.Tuple); multipleResults {
+				continue
+			}
+			if !xgoutil.IsValidType(typ) {
+				typ = nil
+			}
+			addInputSlot(checkValueInputSlot(ctx, expr, typ))
+		}
+
 		return true
 	})
 	return normalizeInputSlots(inputSlots)
@@ -431,6 +404,11 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 	}
 
 	var inputSlots []XGoInputSlot
+	for expr, typ := range builtinArgValueTypes(ctx.typeInfo, callExpr) {
+		if slot := checkValueInputSlot(ctx, expr, typ); slot != nil {
+			inputSlots = append(inputSlots, *slot)
+		}
+	}
 	for resolvedArg := range resolvedCallExprArgs(ctx.typeInfo, callExpr) {
 		if resolvedArg.ExpectedType == nil || resolvedArg.IsTypeArg() {
 			continue
@@ -442,24 +420,24 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 				expectedType = actualType
 			}
 		}
-		declaredType := xgoutil.DerefType(expectedType)
-		if sliceType, ok := declaredType.(*gotypes.Slice); ok {
-			declaredType = xgoutil.DerefType(sliceType.Elem())
-		}
-
-		var slot *XGoInputSlot
-		if lit, ok := resolvedArg.Arg.(*ast.NumberUnitLit); ok {
-			unitExpectedType := xgoUnitExpectedTypeForResolvedArg(resolvedArg)
-			if len(xgoUnitSpecsForType(unitExpectedType)) == 0 {
-				continue
+		for expr, declaredType := range valueElementTypes(ctx.typeInfo, resolvedArg.Arg, expectedType) {
+			var slot *XGoInputSlot
+			if lit, ok := astutil.Unparen(expr).(*ast.NumberUnitLit); ok {
+				unitExpectedType := xgoUnitExpectedTypeForResolvedArg(resolvedArg)
+				if astutil.Unparen(expr) != astutil.Unparen(resolvedArg.Arg) {
+					unitExpectedType = declaredType
+				}
+				if len(xgoUnitSpecsForType(unitExpectedType)) == 0 {
+					continue
+				}
+				declaredType = xgoutil.DerefType(unitExpectedType)
+				slot = createValueInputSlotFromNumberUnitLit(ctx, lit, declaredType)
+			} else {
+				slot = checkValueInputSlot(ctx, expr, declaredType)
 			}
-			declaredType = xgoutil.DerefType(unitExpectedType)
-			slot = createValueInputSlotFromNumberUnitLit(ctx, lit, declaredType)
-		} else {
-			slot = checkValueInputSlot(ctx, resolvedArg.Arg, declaredType)
-		}
-		if slot != nil {
-			inputSlots = append(inputSlots, *slot)
+			if slot != nil {
+				inputSlots = append(inputSlots, *slot)
+			}
 		}
 	}
 	return inputSlots

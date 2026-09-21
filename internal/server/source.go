@@ -54,6 +54,27 @@ func buildSourceInfoCache(proj *xgo.Project) (any, error) {
 		if file == nil {
 			continue
 		}
+		indexIdent := func(ref sourceIdent) {
+			ident := ref.ident
+			if seen[ident] || !xgoutil.IsSourceIdent(file, astFile.Code, ident) {
+				return
+			}
+			seen[ident] = true
+			// An embedded field has both a field definition and a type
+			// use. References follow Uses, while highlights follow the
+			// object selected at the source identifier.
+			if used, ok := info.Uses[ident]; ok {
+				if overload := info.Overloads[ident]; overload != nil {
+					used = overload
+				}
+				if obj := info.ObjectDeclaration(used); obj != nil && ident != info.ObjToDef[obj] {
+					result.references[obj] = append(result.references[obj], ref)
+				}
+			}
+			if obj := info.ObjectDeclaration(info.SourceObjectOf(ident)); obj != nil {
+				result.highlights[obj] = append(result.highlights[obj], ref)
+			}
+		}
 		var stack []ast.Node
 		ast.Inspect(astFile, func(node ast.Node) bool {
 			if node == nil {
@@ -72,22 +93,12 @@ func buildSourceInfoCache(proj *xgo.Project) (any, error) {
 					}
 				}
 			}
-			if ident, ok := node.(*ast.Ident); ok && !seen[ident] && xgoutil.IsSourceIdent(file, astFile.Code, ident) {
-				seen[ident] = true
-				ref := sourceIdent{ident: ident, file: astFile, kind: sourceHighlightKind(ident, stack), called: sourceIdentCalled(ident, stack)}
-				// An embedded field has both a field definition and a type
-				// use. References follow Uses, while highlights follow the
-				// object selected at the source identifier.
-				if used, ok := info.Uses[ident]; ok {
-					if overload := info.Overloads[ident]; overload != nil {
-						used = overload
-					}
-					if obj := info.ObjectDeclaration(used); obj != nil && ident != info.ObjToDef[obj] {
-						result.references[obj] = append(result.references[obj], ref)
-					}
-				}
-				if obj := info.ObjectDeclaration(info.SourceObjectOf(ident)); obj != nil {
-					result.highlights[obj] = append(result.highlights[obj], ref)
+			if ident, ok := node.(*ast.Ident); ok {
+				indexIdent(sourceIdent{ident: ident, file: astFile, kind: sourceHighlightKind(ident, stack), called: sourceIdentCalled(ident, stack)})
+			}
+			if branch, ok := node.(*ast.BranchStmt); ok {
+				if call := callExprFromNode(info, branch); call != nil {
+					indexIdent(sourceIdent{ident: xgoutil.CallExprFunIdent(call), file: astFile, kind: Read, called: true})
 				}
 			}
 			stack = append(stack, node)
@@ -120,6 +131,8 @@ func sourceIdentCalled(ident *ast.Ident, parents []ast.Node) bool {
 		case *ast.ParenExpr:
 			expr = parent
 		case *ast.CallExpr:
+			return parent.Fun == expr
+		case *ast.FuncDecorator:
 			return parent.Fun == expr
 		default:
 			return false

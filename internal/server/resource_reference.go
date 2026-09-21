@@ -62,11 +62,7 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 			}
 			return yield(resourceRef{ID: id, Kind: kind, Node: value.Expr})
 		}
-		for expr, typ := range valueExprTypes(astPkg, info) {
-			if !inspect(resourceValue{Expr: expr, Type: xgoutil.DerefType(typ)}) {
-				return
-			}
-		}
+		var conversions []*ast.CallExpr
 		// Invalid calls may be absent from info.Types, so inspect the source AST.
 		if astPkg != nil {
 			for _, file := range astPkg.Files {
@@ -75,15 +71,12 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 					if stopped {
 						return false
 					}
-					call := callExprFromNode(node)
+					call := callExprFromNode(info, node)
 					if call == nil {
 						return true
 					}
 					if literal, _ := resourceStringLiteral(call, info); literal != nil {
-						if _, seen := contextual[call]; !seen && !inspect(resourceValue{Expr: call, Type: info.TypeOf(call), Intrinsic: true}) {
-							stopped = true
-							return false
-						}
+						conversions = append(conversions, call)
 						return true
 					}
 					for expr, typ := range callArgValueTypes(info, call) {
@@ -97,6 +90,22 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 				if stopped {
 					return
 				}
+			}
+		}
+
+		// Literal elements can also be call arguments. Keep the call's resource
+		// scope, including recognized types whose resource is unavailable.
+		for expr, typ := range valueExprTypes(astPkg, info) {
+			if _, seen := contextual[astutil.Unparen(expr)]; seen {
+				continue
+			}
+			if !inspect(resourceValue{Expr: expr, Type: xgoutil.DerefType(typ)}) {
+				return
+			}
+		}
+		for _, call := range conversions {
+			if _, seen := contextual[call]; !seen && !inspect(resourceValue{Expr: call, Type: info.TypeOf(call), Intrinsic: true}) {
+				return
 			}
 		}
 

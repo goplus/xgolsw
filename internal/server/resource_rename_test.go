@@ -49,7 +49,11 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 					testResourceID{"files", "Studio"}: "Park",
 					testResourceID{"files", "Other"}:  "Changed",
 				})
-				require.ErrorContains(t, err, "cannot preserve a derived constant")
+				if tt.name == "Comparison" {
+					require.ErrorContains(t, err, "cannot rename a resource within a derived constant")
+				} else {
+					require.ErrorContains(t, err, "cannot preserve a derived constant")
+				}
 				assert.Nil(t, changes)
 			})
 		}

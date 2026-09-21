@@ -126,76 +126,10 @@ func resolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr) iter.Seq
 			if !overloadMatchesCallExpr(typeInfo, callExpr, overload, -1) {
 				continue
 			}
-			for resolvedArg := range resolvedOverloadCallExprArgs(typeInfo, callExpr, overload) {
+			for resolvedArg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, callExpr, overload) {
 				if !yield(resolvedArg) {
 					return
 				}
-			}
-		}
-	}
-}
-
-// resolvedOverloadCallExprArgs returns call arguments resolved against one
-// matching overload.
-func resolvedOverloadCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overload *gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
-	return func(yield func(xgoutil.ResolvedCallExprArg) bool) {
-		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
-			return
-		}
-		var kwarg *xgoutil.ResolvedCallExprKwarg
-		if len(callExpr.Kwargs) > 0 {
-			kwarg = resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
-			if kwarg == nil {
-				return
-			}
-		}
-
-		for i, arg := range callExpr.Args {
-			paramIndex := i
-			if kwarg != nil && i >= kwarg.ParamIndex {
-				paramIndex++
-			}
-			param, paramIndex := callExprParam(sig, params, paramIndex)
-			if param == nil {
-				return
-			}
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Fun:          overload,
-				Params:       params,
-				Param:        param,
-				ParamIndex:   paramIndex,
-				Arg:          arg,
-				ArgIndex:     i,
-				Kind:         xgoutil.ResolvedCallExprArgPositional,
-				ExpectedType: callExprArgType(sig, params, paramIndex),
-			}) {
-				return
-			}
-		}
-
-		if kwarg == nil {
-			return
-		}
-		for i, kwargExpr := range callExpr.Kwargs {
-			target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, kwargExpr.Name.Name)
-			var expectedType gotypes.Type
-			if target != nil {
-				expectedType = target.ValueType
-			}
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Fun:          overload,
-				Params:       params,
-				Param:        kwarg.Param,
-				ParamIndex:   kwarg.ParamIndex,
-				Arg:          kwargExpr.Value,
-				ArgIndex:     len(callExpr.Args) + i,
-				Kind:         xgoutil.ResolvedCallExprArgKeyword,
-				Kwarg:        kwargExpr,
-				ExpectedType: expectedType,
-				KwargTarget:  target,
-			}) {
-				return
 			}
 		}
 	}
@@ -213,7 +147,7 @@ func resolveCallExprKwargsAtArgCount(typeInfo *types.Info, callExpr *ast.CallExp
 	overloads := callExprFuncOverloads(typeInfo, callExpr)
 	if len(overloads) == 0 {
 		_, sig, params := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-		if sig == nil || params == nil {
+		if sig == nil {
 			return nil
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, argCount)
@@ -226,7 +160,7 @@ func resolveCallExprKwargsAtArgCount(typeInfo *types.Info, callExpr *ast.CallExp
 	var kwargs []*xgoutil.ResolvedCallExprKwarg
 	for _, overload := range overloads {
 		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
+		if sig == nil {
 			continue
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, argCount)
@@ -290,7 +224,7 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 	var targets []callExprKwargTarget
 	for _, overload := range callExprFuncOverloads(typeInfo, callExpr) {
 		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
+		if sig == nil {
 			continue
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
@@ -309,7 +243,7 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 // callExprFuncOverloads returns overloads available at callExpr. The recorded
 // declaration preserves all candidates after type checking selects one member.
 func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*gotypes.Func {
-	funIdent := callExprFunIdent(callExpr)
+	funIdent := xgoutil.CallExprFunIdent(callExpr)
 	if funIdent == nil {
 		return nil
 	}

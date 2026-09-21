@@ -848,6 +848,18 @@ func loadSecond() (Second, error) { return Unknown, nil }
 			unwantedDoc string
 		}{
 			{
+				name:       "TupleValueElement",
+				body:       "func use(pair (First, Second)) {}\nfunc run() { use((Unknown, Un)) }\n",
+				cursorText: "Un))", label: "Unknown",
+				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
+			},
+			{
+				name:       "NestedTupleValueElement",
+				body:       "func use(pair (int, (First, Second))) {}\nfunc run() { use((1, (Unknown, Un))) }\n",
+				cursorText: "Un)))", label: "Unknown",
+				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
+			},
+			{
 				name: "TupleFirstElement",
 				body: `func use(First, Second) {}
 
@@ -859,6 +871,24 @@ func run() {
 				label:       "Unknown",
 				wantDoc:     "First member documentation.",
 				unwantedDoc: "Second member documentation.",
+			},
+			{
+				name:       "FunctionValueTuple",
+				body:       "var use func(First, Second)\nfunc run() { use((Unknown, Un)) }\n",
+				cursorText: "Un))", label: "Unknown",
+				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
+			},
+			{
+				name:       "NamedFunctionValue",
+				body:       "type Consumer func(Second)\nvar use Consumer\nfunc run() { use(Un) }\n",
+				cursorText: "Un)", label: "Unknown",
+				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
+			},
+			{
+				name:       "MethodExpression",
+				body:       "type Handler struct{}\nvar handler Handler\nfunc (h Handler) use(Second) {}\nfunc run() { Handler.use(handler, Un) }\n",
+				cursorText: "Un)", label: "Unknown",
+				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
 			},
 			{
 				name: "TupleSecondElement",

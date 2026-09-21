@@ -48,7 +48,7 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		}
 	}
 
-	callExpr, funcDecorator := enclosingCallExprAtPosition(astFile, pos)
+	callExpr, funcDecorator := enclosingCallExprAtPosition(typeInfo, astFile, pos)
 	if callExpr != nil && !callExprCoversSignaturePosition(callExpr, pos) {
 		callExpr = nil
 		funcDecorator = false
@@ -59,10 +59,11 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		sig             *gotypes.Signature
 		resolvedParams  *gotypes.Tuple
 		activeParameter int
+		displayedName   string
 	)
 	if callExpr != nil {
 		fun, sig, resolvedParams = xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-		if fun == nil || sig == nil || resolvedParams == nil {
+		if sig == nil {
 			return ctx.overloadSignatureHelp(typeInfo, callExpr, pos, documentationKind), nil
 		}
 		activeParameter = signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
@@ -79,22 +80,28 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	} else {
 		ident := signatureHelpIdentAtPosition(typeInfo, astFile, pos)
 		obj := typeInfo.ObjectOf(ident)
-		if obj == nil {
+		switch obj.(type) {
+		case *gotypes.Func, *gotypes.Var:
+		default:
 			return nil, nil
 		}
-		var ok bool
-		fun, ok = obj.(*gotypes.Func)
-		if !ok {
+		fun, _ = obj.(*gotypes.Func)
+		sig = signatureType(obj.Type())
+		if sig == nil {
 			return nil, nil
 		}
-		sig = fun.Signature()
 		resolvedParams = sig.Params()
 		activeParameter = 0
+		if fun == nil {
+			displayedName = ident.Name
+		}
 	}
 
-	displayedName := ""
 	if callExpr != nil {
 		displayedName = signatureHelpResolvedCallName(typeInfo, callExpr, fun)
+		if fun == nil {
+			displayedName = cmp.Or(signatureHelpCallName(callExpr), "func")
+		}
 	}
 	help := &SignatureHelp{
 		Signatures: []SignatureInformation{ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, documentationKind)},
@@ -147,12 +154,12 @@ func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr
 			continue
 		}
 		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
+		if sig == nil {
 			continue
 		}
 		signature := r.signatureHelpInformation(overload, sig, params, displayedName, documentationKind)
 		if activeParameter < 0 {
-			activeParameter = overloadSignatureHelpActiveParameter(callExpr, pos, sig, params, resolvedArg, hasResolvedArg)
+			activeParameter = overloadSignatureHelpActiveParameter(typeInfo, callExpr, pos, sig, params, resolvedArg, hasResolvedArg)
 		}
 		signatures = append(signatures, signature)
 	}
@@ -189,10 +196,12 @@ func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *got
 		Label:      labelName + "(" + strings.Join(paramLabels, ", ") + ")" + r.displayedFuncResults(sig.Results()),
 		Parameters: paramInfos,
 	}
-	if doc := strings.TrimSpace(r.functionDocumentation(fun)); doc != "" {
-		info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
-		if documentationKind == Markdown {
-			info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
+	if fun != nil {
+		if doc := strings.TrimSpace(r.functionDocumentation(fun)); doc != "" {
+			info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
+			if documentationKind == Markdown {
+				info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
+			}
 		}
 	}
 	return info
@@ -216,7 +225,7 @@ func signatureHelpResolvedArgAtPosition(typeInfo *types.Info, callExpr *ast.Call
 
 // signatureHelpCallName returns the source-facing call name.
 func signatureHelpCallName(callExpr *ast.CallExpr) string {
-	funIdent := callExprFunIdent(callExpr)
+	funIdent := xgoutil.CallExprFunIdent(callExpr)
 	if funIdent == nil {
 		return ""
 	}
@@ -236,11 +245,11 @@ func signatureHelpResolvedCallName(typeInfo *types.Info, callExpr *ast.CallExpr,
 
 // enclosingCallExprAtPosition returns the innermost call expression at pos and
 // reports whether it represents a function decorator.
-func enclosingCallExprAtPosition(astFile *ast.File, pos token.Pos) (*ast.CallExpr, bool) {
+func enclosingCallExprAtPosition(typeInfo *types.Info, astFile *ast.File, pos token.Pos) (*ast.CallExpr, bool) {
 	var best *ast.CallExpr
 	var bestIsFuncDecorator bool
 	ast.Inspect(astFile, func(node ast.Node) bool {
-		callExpr := callExprFromNode(node)
+		callExpr := callExprFromNode(typeInfo, node)
 		if callExpr == nil {
 			return true
 		}
@@ -307,7 +316,7 @@ func (d typeDisplay) signatureHelpParameterLabel(fun *gotypes.Func, sig *gotypes
 
 // overloadSignatureHelpActiveParameter resolves the active parameter for one
 // overload signature.
-func overloadSignatureHelpActiveParameter(callExpr *ast.CallExpr, pos token.Pos, sig *gotypes.Signature, params *gotypes.Tuple, resolvedArg xgoutil.ResolvedCallExprArg, hasResolvedArg bool) int {
+func overloadSignatureHelpActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos, sig *gotypes.Signature, params *gotypes.Tuple, resolvedArg xgoutil.ResolvedCallExprArg, hasResolvedArg bool) int {
 	if params.Len() == 0 {
 		return -1
 	}
@@ -336,7 +345,7 @@ func overloadSignatureHelpActiveParameter(callExpr *ast.CallExpr, pos token.Pos,
 			return paramIndex
 		}
 	}
-	return signatureHelpPositionalActiveParameter(callExpr, pos, sig, params)
+	return signatureHelpPositionalActiveParameter(typeInfo, callExpr, pos, sig, params)
 }
 
 // signatureHelpActiveParameter resolves the active top-level parameter for pos.
@@ -364,7 +373,7 @@ func signatureHelpActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, 
 		}
 		lastParamIndex = resolvedArg.ParamIndex
 		lastArgEnd = resolvedArg.Arg.End()
-		if pos >= resolvedArg.Arg.Pos() && pos <= resolvedArg.Arg.End() {
+		if pos <= resolvedArg.Arg.End() {
 			return resolvedArg.ParamIndex
 		}
 	}
@@ -378,17 +387,18 @@ func signatureHelpActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, 
 
 // signatureHelpPositionalActiveParameter resolves the active parameter for
 // positional arguments.
-func signatureHelpPositionalActiveParameter(callExpr *ast.CallExpr, pos token.Pos, sig *gotypes.Signature, params *gotypes.Tuple) int {
+func signatureHelpPositionalActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos, sig *gotypes.Signature, params *gotypes.Tuple) int {
 	lastParamIndex := -1
 	lastArgEnd := cmp.Or(callExpr.Lparen, callExpr.Fun.End())
-	for i, arg := range callExpr.Args {
+	args, _ := xgoutil.CallExprArgs(typeInfo, callExpr, params)
+	for i, arg := range args {
 		paramIndex := i
 		if sig.Variadic() && paramIndex >= params.Len()-1 {
 			paramIndex = params.Len() - 1
 		}
 		lastParamIndex = paramIndex
 		lastArgEnd = arg.End()
-		if pos >= arg.Pos() && pos <= arg.End() {
+		if pos <= arg.End() {
 			return paramIndex
 		}
 	}

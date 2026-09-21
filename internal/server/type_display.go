@@ -323,7 +323,10 @@ func (d typeDisplay) sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tu
 			typeName = "..." + d.typeString(slice.Elem())
 		}
 	}
-	return xgoutil.SourceParamName(param) + " " + typeName
+	if name := xgoutil.SourceParamName(param); name != "" {
+		return name + " " + typeName
+	}
+	return typeName
 }
 
 // displayedFuncName resolves the source-facing function display name used by

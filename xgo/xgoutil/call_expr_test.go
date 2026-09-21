@@ -628,6 +628,14 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		assert.Equal(t, arg2, resolved[1].Arg)
 		assert.Equal(t, 1, resolved[1].ArgIndex)
 		assert.Equal(t, gotypes.Typ[gotypes.String], resolved[1].ExpectedType)
+
+		single, ok := ResolveCallExprArg(typeInfo, expr, arg2)
+		require.True(t, ok)
+		assert.Equal(t, param2, single.Param)
+		assert.Equal(t, 1, single.ArgIndex)
+		assert.Equal(t, gotypes.Typ[gotypes.String], single.ExpectedType)
+		_, ok = ResolveCallExprArg(typeInfo, expr, &ast.Ident{Name: "missing"})
+		assert.False(t, ok)
 	})
 
 	t.Run("Autoclosure", func(t *testing.T) {
@@ -1768,4 +1776,30 @@ func TestListResolvedCallExprKwargTargets(t *testing.T) {
 		assert.Equal(t, method, targets[0].Method)
 		assert.Nil(t, LookupResolvedCallExprKwargTarget(kwarg, "\u00e4ge"))
 	})
+}
+
+func TestSourceExprIndex(t *testing.T) {
+	first := &ast.Ident{NamePos: 10, Name: "first"}
+	second := &ast.Ident{NamePos: 20, Name: "second"}
+	shared := &ast.Ident{NamePos: 20, Name: "shared"}
+	last := &ast.Ident{NamePos: 30, Name: "last"}
+	for _, tt := range []struct {
+		name   string
+		target ast.Expr
+		want   int
+	}{
+		{"First", first, 0},
+		{"Middle", second, 1},
+		{"SharedPosition", shared, 2},
+		{"Last", last, 3},
+		{"SamePositionDifferentNode", &ast.Ident{NamePos: 20}, -1},
+		{"Before", &ast.Ident{NamePos: 5}, -1},
+		{"Between", &ast.Ident{NamePos: 25}, -1},
+		{"After", &ast.Ident{NamePos: 40}, -1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, SourceExprIndex([]ast.Expr{first, second, shared, last}, tt.target))
+		})
+	}
+	assert.Equal(t, -1, SourceExprIndex(nil, first))
 }

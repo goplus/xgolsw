@@ -24,14 +24,21 @@ func TestGenerate(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		pkgName string
+		pkgArg  string
+		goFlags string
+		mode    string
 	}{
-		{name: "VersionedPackage", pkgName: "fixture"},
-		{name: "DifferentPackageName", pkgName: "sample"},
+		{name: "VersionedPackage", pkgName: "fixture", mode: "default"},
+		{name: "DifferentPackageName", pkgName: "sample", mode: "default"},
+		{name: "CustomBuildTags", pkgName: "fixture", goFlags: "-tags=custom_backend", mode: "custom"},
+		{name: "RelativePackage", pkgName: "fixture", pkgArg: ".", mode: "default"},
+		{name: "SinglePackagePattern", pkgName: "fixture", pkgArg: "./...", mode: "default"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			const pkgPath = "example.com/fixture/v2"
 			t.Chdir(t.TempDir())
 			t.Setenv("CGO_ENABLED", "1")
+			t.Setenv("GOFLAGS", tt.goFlags)
 			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
 			for name, source := range map[string]string{
 				"fixture.go": "// Package " + tt.pkgName + " provides fixture values.\npackage " + tt.pkgName + `
@@ -58,11 +65,31 @@ func Add(left, right int) int { return left + right }
 				"platform_linux.go": "package " + tt.pkgName + "\n\n// NativeOnly belongs to the native build.\nconst NativeOnly = true\n",
 				"platform_cgo.go":   "//go:build cgo\n\npackage " + tt.pkgName + "\n\nconst CgoOnly = true\n",
 				"fixture_test.go":   "package " + tt.pkgName + "\n\n// TestOnly belongs to the tests.\nconst TestOnly = true\n",
+				"backend_default.go": "//go:build !custom_backend\n\npackage " + tt.pkgName + `
+
+// Mode selects the default backend.
+const Mode = "default"
+
+// Backend describes the default backend.
+func (r Record) Backend() string { return Mode }
+`,
+				"backend_custom.go": "//go:build custom_backend\n\npackage " + tt.pkgName + `
+
+// Mode selects the custom backend.
+const Mode = "custom"
+
+// Backend describes the custom backend.
+func (r Record) Backend() string { return Mode }
+`,
 			} {
 				require.NoError(t, os.WriteFile(name, []byte(source), 0o644))
 			}
 			outputFile := "pkgdata.zip"
-			require.NoError(t, generate([]string{pkgPath}, outputFile))
+			pkgArg := tt.pkgArg
+			if pkgArg == "" {
+				pkgArg = pkgPath
+			}
+			require.NoError(t, generate([]string{pkgArg}, outputFile))
 			zr, err := zip.OpenReader(outputFile)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, zr.Close()) })
@@ -74,7 +101,10 @@ func Add(left, right int) int { return left + right }
 			assert.True(t, pkg.Complete())
 			assert.Equal(t, tt.pkgName, pkg.Name())
 			assert.Equal(t, pkgPath, pkg.Path())
-			assert.Equal(t, []string{"Add", "Current", "Limit", "Record", "WasmOnly"}, pkg.Scope().Names())
+			assert.Equal(t, []string{"Add", "Current", "Limit", "Mode", "Record", "WasmOnly"}, pkg.Scope().Names())
+			mode, ok := pkg.Scope().Lookup("Mode").(*gotypes.Const)
+			require.True(t, ok)
+			assert.Equal(t, `"`+tt.mode+`"`, mode.Val().ExactString())
 			limit, ok := pkg.Scope().Lookup("Limit").(*gotypes.Const)
 			require.True(t, ok)
 			assert.Equal(t, "7", limit.Val().ExactString())
@@ -91,13 +121,17 @@ func Add(left, right int) int { return left + right }
 				Vars: map[string]string{"Current": "Current holds the active record.\n"},
 				Consts: map[string]string{
 					"Limit":    "Limit bounds the number of records.\n",
+					"Mode":     "Mode selects the " + tt.mode + " backend.\n",
 					"WasmOnly": "WasmOnly belongs to the browser build.\n",
 				},
 				Funcs: map[string]string{"Add": "Add returns the sum of its arguments.\n"},
 				Types: map[string]*pkgdoc.TypeDoc{"Record": {
-					Doc:     "Record holds a number.\n",
-					Fields:  map[string]string{"Number": "Number is the stored number.\n"},
-					Methods: map[string]string{"Double": "Double returns twice the stored number.\n"},
+					Doc:    "Record holds a number.\n",
+					Fields: map[string]string{"Number": "Number is the stored number.\n"},
+					Methods: map[string]string{
+						"Double":  "Double returns twice the stored number.\n",
+						"Backend": "Backend describes the " + tt.mode + " backend.\n",
+					},
 				}},
 			}, doc)
 		})
@@ -266,6 +300,21 @@ func Add(left, right int) int { return left + right }
 		require.ErrorContains(t, err, "failed to execute go command")
 		assert.ErrorContains(t, err, "cannot use")
 		assert.NoFileExists(t, "pkgdata.zip")
+	})
+
+	t.Run("PackagePattern", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/fixture\n\ngo 1.25.0\n"), 0o644))
+		require.NoError(t, os.WriteFile("fixture.go", []byte("package fixture\nconst Value = 1\n"), 0o644))
+		require.NoError(t, os.Mkdir("child", 0o755))
+		require.NoError(t, os.WriteFile("child/child.go", []byte("package child\nconst Value = 2\n"), 0o644))
+		const original = "previous package data"
+		require.NoError(t, os.WriteFile("pkgdata.zip", []byte(original), 0o644))
+		err := generate([]string{"./..."}, "pkgdata.zip")
+		require.EqualError(t, err, "package \"./...\" matches multiple packages: specify each package separately")
+		data, err := os.ReadFile("pkgdata.zip")
+		require.NoError(t, err)
+		assert.Equal(t, original, string(data))
 	})
 }
 

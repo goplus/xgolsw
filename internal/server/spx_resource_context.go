@@ -73,8 +73,9 @@ func inferSpxSpriteResourceEnclosingNode(proj *xgo.Project, result *spxAnalysis,
 	if astFile == nil {
 		return nil
 	}
+	typeInfo, _ := proj.TypeInfo()
 	for pathNode := range xgoutil.PathEnclosingIntervalNodes(astFile, node.Pos(), node.End(), false) {
-		if call := callExprFromNode(pathNode); call != nil {
+		if call := callExprFromNode(typeInfo, pathNode); call != nil {
 			return spxSpriteResourceForCall(proj, result, call)
 		}
 	}

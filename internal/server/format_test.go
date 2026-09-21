@@ -13,7 +13,7 @@ import (
 	"github.com/goplus/xgo/format"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/testframework"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,6 +67,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 			call         string
 			newServer    testServerFactory
 			wantUnused   int
+			tuple        bool
 		}{
 			{
 				name: "Function", filename: "main.xgo", call: "handle", newServer: newTestServer,
@@ -77,6 +78,14 @@ func handle = (
 	handleValue
 )
 `,
+			},
+			{
+				name: "TupleOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true,
+				declarations: "func handleEmpty(name string, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
+			},
+			{
+				name: "TupleOtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true, wantUnused: 1,
+				declarations: "func handleEmpty(name int, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
 			},
 			{
 				name: "OtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
@@ -91,6 +100,10 @@ func handle = (
 			{
 				name: "NoOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
 				declarations: "func handle(name string, callback func(int)) {}\n",
+			},
+			{
+				name: "FunctionValue", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
+				declarations: "var handle = func(name string, callback func(int)) {}\n",
 			},
 			{name: "ProjectMethod", filename: "main_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
 			{name: "WorkMethod", filename: "Worker_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
@@ -107,8 +120,14 @@ func handle = (
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := tt.declarations + "func run() {\n\t" + tt.call + " \"event\", (value) => { println \"unused\" }\n\t" +
-					tt.call + " \"event\", (value) => { println value }\n}\n"
+				call := func(body string) string {
+					args := "\"event\", (value) => { println " + body + " }"
+					if tt.tuple {
+						return tt.call + "((" + args + "))"
+					}
+					return tt.call + " " + args
+				}
+				source := tt.declarations + "func run() {\n\t" + call("\"unused\"") + "\n\t" + call("value") + "\n}\n"
 				files := map[string][]byte{tt.filename: []byte(source)}
 				if tt.name == "WorkMethod" {
 					files["main_fixture.gox"] = nil
@@ -1239,7 +1258,7 @@ func TestFormatClassDecls(t *testing.T) {
 	})
 }
 
-func TestOverloadResolvedCallExprArgType(t *testing.T) {
+func TestMatchOverloadCallExprArg(t *testing.T) {
 	pkg := gotypes.NewPackage("main", "main")
 	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
 	handlerField := gotypes.NewField(token.NoPos, pkg, "Handler", handlerType, false)
@@ -1270,11 +1289,8 @@ func TestOverloadResolvedCallExprArgType(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got := overloadResolvedCallExprArgType(nil, callExpr, overload, xgoutil.ResolvedCallExprArg{
-			Kind:       xgoutil.ResolvedCallExprArgKeyword,
-			Kwarg:      kwarg,
-			ParamIndex: 0,
-		})
+		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, overload, kwarg.Value, -1)
+		require.True(t, matches)
 		assert.True(t, gotypes.Identical(handlerType, got))
 	})
 
@@ -1295,11 +1311,8 @@ func TestOverloadResolvedCallExprArgType(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got := overloadResolvedCallExprArgType(nil, callExpr, variadicOverload, xgoutil.ResolvedCallExprArg{
-			Kind:       xgoutil.ResolvedCallExprArgPositional,
-			ArgIndex:   0,
-			ParamIndex: 0,
-		})
+		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, variadicOverload, callExpr.Args[0], -1)
+		require.True(t, matches)
 		assert.True(t, gotypes.Identical(gotypes.Typ[gotypes.Int], got))
 	})
 }

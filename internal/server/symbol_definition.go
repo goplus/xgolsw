@@ -16,6 +16,7 @@ type symbolDefinition struct {
 	// TypeHint represents a type hint for this definition. It may be nil if
 	// the definition has no associated type.
 	TypeHint gotypes.Type
+	Function *gotypes.Func
 
 	ID       XGoDefinitionIdentifier
 	Overview string
@@ -223,6 +224,7 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 	}
 	return symbolDefinition{
 		TypeHint: fun.Type(),
+		Function: fun,
 
 		ID: XGoDefinitionIdentifier{
 			Package:    ToPtr(xgoutil.PkgPath(fun.Pkg())),
@@ -237,6 +239,21 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		CompletionItemInsertText:       parsedName,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
+}
+
+// functionValueName preserves the declared spelling needed to refer to a
+// function value instead of invoking a lowercase XGo alias.
+func functionValueName(fun *gotypes.Func) string {
+	name := fun.Name()
+	if xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) {
+		if _, method, ok := xgoutil.SplitXGotMethodName(name, true); ok {
+			return method
+		}
+		if function, ok := xgoutil.SplitXGoxFuncName(name); ok {
+			return function
+		}
+	}
+	return name
 }
 
 // definitionForPkg describes the provided package import.
