@@ -35,6 +35,10 @@ type Info struct {
 	// For identifiers that do not denote objects, the object is nil and
 	// they are excluded from this mapping.
 	ObjToDef map[gotypes.Object]*ast.Ident
+
+	// FuncDecorators distinguishes decorator calls from ordinary calls, which
+	// have different argument expansion rules.
+	FuncDecorators map[*ast.CallExpr]bool
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced,

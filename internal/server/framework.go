@@ -111,7 +111,7 @@ func (r *definitionContext) isInFrameworkEventHandler(pos token.Pos) bool {
 	}
 
 	for node := range xgoutil.PathEnclosingIntervalNodes(astFile, pos-1, pos, false) {
-		call := callExprFromNode(node)
+		call := callExprFromNode(typeInfo, node)
 		if call == nil || !r.isFrameworkEventHandler(xgoutil.FuncFromCallExpr(typeInfo, call)) {
 			continue
 		}

@@ -40,7 +40,7 @@ func run() {
 				`"first"`: "main.Name", `"second"`: "main.Name", `"initial"`: "main.Name",
 				`"assigned"`: "main.Name", "First": "main.Name", `"left"`: "main.Name", `"right"`: "main.Name",
 				`"field"`: "main.Name", `"element"`: "main.Name",
-				"5": "int", `"mixed"`: "main.Name", "42": "int",
+				"0": "int", "1": "int", "5": "int", `"mixed"`: "main.Name", "42": "int",
 			},
 		},
 		{
@@ -75,7 +75,7 @@ func current() Name {
 	return "outer"
 }
 `,
-			want: map[string]string{`"local"`: "main.Name", `"outer"`: "main.Name"},
+			want: map[string]string{`"local"`: "main.Name", `"ordinary"`: "string", `"outer"`: "main.Name"},
 		},
 		{
 			name: "MultipleResults",

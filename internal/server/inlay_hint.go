@@ -61,14 +61,8 @@ func collectInlayHints(proj *xgo.Project, astFile *ast.File, rangeStart, rangeEn
 			return false
 		}
 
-		switch node := node.(type) {
-		case *ast.BranchStmt:
-			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
-				hints := collectInlayHintsFromCallExpr(proj, callExpr)
-				inlayHints = append(inlayHints, hints...)
-			}
-		case *ast.CallExpr, *ast.FuncDecorator:
-			hints := collectInlayHintsFromCallExpr(proj, callExprFromNode(node))
+		if callExpr := callExprFromNode(typeInfo, node); callExpr != nil {
+			hints := collectInlayHintsFromCallExpr(proj, callExpr)
 			inlayHints = append(inlayHints, hints...)
 		}
 		return true
@@ -92,8 +86,8 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 	if typeInfo == nil {
 		return nil
 	}
-	_, _, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-	hasResolvedSignature := resolvedParams != nil
+	_, sig, _ := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	hasResolvedSignature := sig != nil
 
 	var inlayHints []InlayHint
 	labelsByPosition := make(map[Position]string)
@@ -103,7 +97,7 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}
-		variadicArg := resolvedArg.Fun.Signature().Variadic() && resolvedArg.ParamIndex == resolvedArg.Params.Len()-1
+		variadicArg := resolvedArg.Signature.Variadic() && resolvedArg.ParamIndex == resolvedArg.Params.Len()-1
 		if variadicArg {
 			if seenVariadicParams[resolvedArg.Param] {
 				continue
@@ -123,6 +117,9 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 		// Create an inlay hint with the parameter name before the argument.
 		position := proj.Fset.PositionFor(resolvedArg.Arg.Pos(), false)
 		label := xgoutil.SourceParamName(resolvedArg.Param)
+		if label == "" || label == "_" {
+			continue
+		}
 		if variadicArg {
 			label += "..."
 		}

@@ -1888,3 +1888,29 @@ func BenchmarkServerGetInputSlotsWithMixedLargeList(b *testing.B) {
 		require.NoError(b, err)
 	}
 }
+
+func BenchmarkServerGetInputSlotsWithMixedLiteral(b *testing.B) {
+	const expressionCount = 8_000
+	for _, tt := range []struct{ name, open, close string }{
+		{"Slice", "[", "]"},
+		{"Composite", "[]any{", "}"},
+	} {
+		b.Run(tt.name, func(b *testing.B) {
+			source := "func list(values []any) {}\nlist(" + tt.open + strings.Repeat("1 + 2, ", expressionCount) +
+				`"value"` + strings.Repeat(`, "value"`, expressionCount-1) + tt.close + ")\n"
+			server := newTestServer(b, map[string][]byte{"main.xgo": []byte(source)})
+			_, err := server.getProj().TypeInfo()
+			require.NoError(b, err)
+			params := []XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}}
+			slots, err := server.xgoGetInputSlots(params)
+			require.NoError(b, err)
+			require.Len(b, slots, expressionCount*3)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				_, err := server.xgoGetInputSlots(params)
+				require.NoError(b, err)
+			}
+		})
+	}
+}
