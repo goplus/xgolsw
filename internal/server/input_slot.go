@@ -10,7 +10,6 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
@@ -56,6 +55,8 @@ type inputSlotContext struct {
 	proj                     *xgo.Project
 	frameworkResult          *frameworkAnalysis
 	predefinedScopes         []*gotypes.Scope
+	imports                  *fileImports
+	autoProperties           *autoPropertyResolver
 	astFile                  *ast.File
 	astPkg                   *ast.Package
 	typeInfo                 *types.Info
@@ -78,20 +79,14 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 	typeInfo, _ := proj.TypeInfo()
 	astPkg, _ := proj.ASTPackage()
 	var predefinedScopes []*gotypes.Scope
-	if astFile.IsClass {
-		filename := proj.Fset.PositionFor(astFile.Pos(), false).Filename
-		if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
-			for _, pkgPath := range class.PkgPaths {
-				pkg, err := proj.Import(pkgPath)
-				if err == nil {
-					predefinedScopes = append(predefinedScopes, pkg.Scope())
-				}
-			}
-		}
+	imports := importsForFile(proj, astFile)
+	for _, pkg := range imports.members {
+		predefinedScopes = append(predefinedScopes, pkg.Scope())
 	}
 	return &inputSlotContext{
 		proj:                     proj,
 		predefinedScopes:         append(predefinedScopes, gotypes.Universe),
+		imports:                  imports,
 		astFile:                  astFile,
 		astPkg:                   astPkg,
 		typeInfo:                 typeInfo,
@@ -461,37 +456,16 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 			return
 		}
 		name := obj.Name()
-		if _, ok := obj.(*gotypes.Func); ok {
-			name = xgoutil.ToLowerCamelCase(name)
-		}
 		if _, ok := seenNames[name]; ok {
 			return
 		}
 		// A visible declaration shadows outer names even when its type
 		// cannot be used in this slot.
 		seenNames[name] = struct{}{}
-		switch obj := obj.(type) {
-		case *gotypes.Var, *gotypes.Const:
-			if typ := obj.Type(); typ != nil && declaredType != nil && !gotypes.AssignableTo(typ, declaredType) {
-				return
-			}
-
-			if name == "this" || xgoutil.IsXGoInternalName(name) {
-				return
-			}
-		case *gotypes.Func:
-			// Only property expressions can supply a value without arguments.
-			funcSig := obj.Signature()
-			if funcSig.Params().Len() != 0 || funcSig.Results().Len() != 1 {
-				return
-			}
-			if declaredType != nil {
-				funcReturnType := funcSig.Results().At(0).Type()
-				if !gotypes.AssignableTo(funcReturnType, declaredType) {
-					return
-				}
-			}
-		default:
+		if typ := obj.Type(); typ != nil && declaredType != nil && !gotypes.AssignableTo(typ, declaredType) {
+			return
+		}
+		if name == "this" || xgoutil.IsXGoInternalName(name) {
 			return
 		}
 		names = append(names, name)
@@ -501,20 +475,45 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 	for scope := innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
 		// All locals, including parameters ordered after "this", hide members.
 		if scope == ctx.typeInfo.Pkg.Scope() && xgoutil.IsNamedStructType(classType) {
+			if ctx.autoProperties == nil {
+				ctx.autoProperties = &autoPropertyResolver{proj: ctx.proj, receiver: gotypes.NewPointer(classType)}
+			}
 			for structMember := range xgoutil.StructMembers(classType, nil) {
 				switch member := structMember.Member.(type) {
 				case *gotypes.Var:
 					if !member.Origin().Embedded() {
 						addObjectName(member)
+					} else {
+						seenNames[member.Name()] = struct{}{}
 					}
 				case *gotypes.Func:
-					addObjectName(member)
+					// The declared method name hides imported values even when
+					// its alias cannot supply a value for this slot.
+					seenNames[member.Name()] = struct{}{}
+					name := xgoutil.ToLowerCamelCase(member.Name())
+					if _, seen := seenNames[name]; seen || !methodHasAutoProperty(member.Type(), 0) {
+						continue
+					}
+					seenNames[name] = struct{}{}
+					// Offer the overload declaration rather than its generated
+					// implementation methods, retaining their shadowing above.
+					if xgoutil.IsMarkedAsXGoPackage(member.Pkg()) && xgoutil.IsXGoOverloadedFuncName(member.Name()) {
+						continue
+					}
+					result := ctx.autoProperties.resolve(name).typ
+					_, tuple := result.(*gotypes.Tuple)
+					if result != nil && !tuple && (declaredType == nil || gotypes.AssignableTo(result, declaredType)) {
+						names = append(names, name)
+					}
 				}
 			}
 		}
 		objects := ctx.objectsInScope(scope)
 		names = slices.Grow(names, len(objects))
 		for _, obj := range objects {
+			if _, ok := obj.(*gotypes.PkgName); ok {
+				continue
+			}
 			start, end := objectUnavailableRange(ctx.typeInfo, ctx.astFile, obj, ctx.parents)
 			if expr.Pos() < start || expr.Pos() >= end {
 				switch obj.(type) {
@@ -532,6 +531,9 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 		}
 	}
 
+	for name := range ctx.imports.ambiguous {
+		seenNames[name] = struct{}{}
+	}
 	for _, scope := range ctx.predefinedScopes {
 		objects := ctx.objectsInScope(scope)
 		names = slices.Grow(names, len(objects))

@@ -4,6 +4,7 @@ import (
 	gotypes "go/types"
 	"iter"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
@@ -11,6 +12,29 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
+
+// methodHasAutoProperty reports whether a method can be called through a bare
+// alias. Template receiver functions consume an explicit receiver parameter.
+func methodHasAutoProperty(typ gotypes.Type, receiverParams int) bool {
+	sig, ok := typ.(*gotypes.Signature)
+	if !ok {
+		return false
+	}
+	kind, objects := gogen.CheckSigFuncExObjects(sig)
+	switch kind := kind.(type) {
+	case *gogen.TyTemplateRecvMethod:
+		return methodHasAutoProperty(kind.Func.Type(), 1)
+	case *gogen.TyOverloadMethod, *gogen.TyOverloadFunc:
+		for _, obj := range objects {
+			if methodHasAutoProperty(obj.Type(), receiverParams) {
+				return true
+			}
+		}
+		return false
+	default:
+		return sig.Params().Len() == receiverParams
+	}
+}
 
 // resolvedNamedType resolves aliases and pointer indirections until it reaches
 // a named type. It returns nil if typ does not resolve to a named type.

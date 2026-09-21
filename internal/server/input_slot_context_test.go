@@ -2,6 +2,7 @@ package server
 
 import (
 	gotypes "go/types"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -240,7 +241,7 @@ func TestServerClassfileCandidateShadowing(t *testing.T) {
 				{name: "Initializer", signature: "()", body: "zebra := label(11)\nprintln zebra\nnumber(22)\n", visible: true},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					source := "func zebra() int { return 1 }\nfunc number(n int) {}\nfunc label(n int) string { return \"\" }\nfunc run" + tt.signature + " {\n" + tt.body + "}\n"
+					source := "func Zebra() int { return 1 }\nfunc number(n int) {}\nfunc label(n int) string { return \"\" }\nfunc run" + tt.signature + " {\n" + tt.body + "}\n"
 					files := map[string][]byte{filename: []byte(source)}
 					if filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
@@ -261,6 +262,13 @@ func TestServerClassfileCandidateShadowing(t *testing.T) {
 					if tt.name == "Initializer" {
 						literal = inputSlotLiteral(t, ctx, "22")
 						assert.NotContains(t, collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int]), "zebra")
+					}
+					s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(strings.Replace(source, "11", "zebra", 1)), Version: 1}})
+					_, err = s.requestProject().TypeInfo()
+					if tt.visible {
+						require.NoError(t, err)
+					} else {
+						require.Error(t, err)
 					}
 				})
 			}

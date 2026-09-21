@@ -1077,7 +1077,7 @@ func TestServerTextDocumentCompletionShadowing(t *testing.T) {
 				{name: "BuiltinAlias", label: "echo", kind: FunctionCompletion, count: 1},
 				{name: "Import", prefix: "import \"fmt\"\n", label: "fmt", kind: ModuleCompletion, count: 1},
 				{name: "ImportAlias", prefix: "import f \"fmt\"\n", label: "f", kind: ModuleCompletion, count: 1},
-				{name: "DotImport", prefix: "import . \"example.com/framework\"\n", label: "Limit", kind: ConstantCompletion, count: 1},
+				{name: "DotImport", prefix: "import . \"math\"\n", label: "Pi", kind: ConstantCompletion, count: 1},
 				{name: "FrameworkConstant", label: "Limit", kind: ConstantCompletion, count: 1, registered: true},
 				{name: "FrameworkFunction", label: "runWhen", kind: FunctionCompletion, count: 1, registered: true},
 				{name: "MethodOverloads", label: "measure", kind: FunctionCompletion, count: 2, registered: true},
