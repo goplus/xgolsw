@@ -33,16 +33,16 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				Ext: tt.projectExt, FullExt: fullExt, Class: "Game", PkgPaths: []string{SpxPkgPath},
 				Works: []*modfile.Class{{Ext: tt.workExt, Class: "SpriteImpl", Prefix: tt.prefix, Embedded: true}},
 			}}}}))
-			result, err := s.compileAt(s.getProj())
+			result, err := analyzeSpx(s.getProj())
 			require.NoError(t, err)
 			requireNoDiagnostics(t, s)
 			assert.Equal(t, tt.project, result.mainSpxFile)
-			named := spxSpriteTypeForFile(result.proj, tt.sprite)
+			named := spxSpriteTypeForFile(s.getProj(), tt.sprite)
 			require.NotNil(t, named)
 			assert.Equal(t, tt.className, named.Obj().Name())
 			assert.True(t, result.hasSpxSpriteType(named))
-			assert.Same(t, result.spxResourceSet.Sprite(tt.className), spxSpriteResourceForFile(result, tt.sprite))
-			assert.Nil(t, spxSpriteResourceForFile(result, tt.project))
+			assert.Same(t, result.spxResourceSet.Sprite(tt.className), spxSpriteResourceForFile(s.getProj(), result, tt.sprite))
+			assert.Nil(t, spxSpriteResourceForFile(s.getProj(), result, tt.project))
 			for _, filename := range []string{tt.project, tt.sprite} {
 				uri := s.toDocumentURI(filename)
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: uri}})
@@ -53,7 +53,7 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				require.NotEmpty(t, slots)
 				assert.Equal(t, ToPtr(FormatSpxSpriteCostumeResourceContextURI(tt.className)), slots[0].Accept.ResourceContext)
 			}
-			changes, err := s.spxRenameSpriteResource(result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
+			changes, err := s.renameSpxResource(s.getProj(), result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
 			require.NoError(t, err)
 			assert.Contains(t, changes[s.toDocumentURI(tt.project)], TextEdit{
 				Range:   Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: uint32(12 + len(tt.className))}},
@@ -84,7 +84,7 @@ func TestSpxClassForFile(t *testing.T) {
 	t.Run("OtherFrameworkUsingSpxExtension", func(t *testing.T) {
 		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte("echo 1\n")})
 		assert.Nil(t, spxClassForFile(s.getProj(), "main.spx"))
-		result, err := s.compileAt(s.getProj())
+		result, err := analyzeSpx(s.getProj())
 		require.NoError(t, err)
 		assert.Nil(t, result)
 	})
@@ -95,7 +95,7 @@ func TestSpxClassForFile(t *testing.T) {
 			Ext: ".spx", Class: "App", PkgPaths: []string{"example.com/framework", SpxPkgPath},
 		}}}}))
 		assert.Nil(t, spxClassForFile(proj, "main.spx"))
-		ctx := &definitionContext{proj: proj}
+		ctx := newSpxSymbols(proj)
 		assert.Empty(t, ctx.spxTypeName(spxTestType(t, s, "SpriteImpl")))
 	})
 }

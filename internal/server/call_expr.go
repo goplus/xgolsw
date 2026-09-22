@@ -19,7 +19,6 @@ package server
 import (
 	gotypes "go/types"
 	"iter"
-	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
@@ -28,12 +27,14 @@ import (
 )
 
 // callExprFromNode returns the call expression represented by node.
-func callExprFromNode(node ast.Node) *ast.CallExpr {
+func callExprFromNode(typeInfo *types.Info, node ast.Node) *ast.CallExpr {
 	switch node := node.(type) {
 	case *ast.CallExpr:
 		return node
 	case *ast.FuncDecorator:
 		return &node.CallExpr
+	case *ast.BranchStmt:
+		return xgoutil.CreateCallExprFromBranchStmt(typeInfo, node)
 	default:
 		return nil
 	}
@@ -69,40 +70,49 @@ func funcDecoratorParams(sig *gotypes.Signature) (*gotypes.Tuple, bool) {
 	return gotypes.NewTuple(visible...), true
 }
 
-// callArgValueTypes yields call argument values and their resolved target
-// types. For XGo slice and matrix literals, it yields elements with the target
-// slice's element type. Parentheses do not change the value or its target type.
+// callArgValueTypes yields call argument values and their resolved target types,
+// including elements of XGo collection and tuple literals.
 func callArgValueTypes(typeInfo *types.Info, call *ast.CallExpr) iter.Seq2[ast.Expr, gotypes.Type] {
 	return func(yield func(ast.Expr, gotypes.Type) bool) {
+		for expr, typ := range builtinArgValueTypes(typeInfo, call) {
+			if !yield(astutil.Unparen(expr), typ) {
+				return
+			}
+		}
 		for arg := range resolvedCallExprArgs(typeInfo, call) {
-			if arg.ExpectedType == nil {
-				continue
-			}
-			expr := astutil.Unparen(arg.Arg)
-			typ := xgoutil.DerefType(arg.ExpectedType)
-			var elts []ast.Expr
-			switch expr := expr.(type) {
-			case *ast.SliceLit:
-				elts = expr.Elts
-			case *ast.MatrixLit:
-				elts = slices.Concat(expr.Elts...)
-			default:
-				if !yield(expr, typ) {
-					return
-				}
-				continue
-			}
-
-			slice, ok := typ.Underlying().(*gotypes.Slice)
-			if !ok {
-				continue
-			}
-			elemType := xgoutil.DerefType(slice.Elem())
-			for _, elt := range elts {
-				if !yield(astutil.Unparen(elt), elemType) {
+			for expr, typ := range valueElementTypes(typeInfo, arg.Arg, arg.ExpectedType) {
+				if !yield(astutil.Unparen(expr), typ) {
 					return
 				}
 			}
 		}
 	}
+}
+
+// expectedTypesForCallArg returns expected types when target is a direct
+// call argument.
+func expectedTypesForCallArg(
+	typeInfo *types.Info,
+	call *ast.CallExpr,
+	target ast.Expr,
+) ([]gotypes.Type, bool) {
+	expected := builtinArgTypes(typeInfo, call, xgoutil.SourceExprIndex(call.Args, target))
+
+	if arg, ok := xgoutil.ResolveCallExprArg(typeInfo, call, target); ok {
+		expected = append(expected, validExpectedType(arg.ExpectedType)...)
+	} else if _, sig, _ := xgoutil.ResolveCallExprSignature(typeInfo, call); sig == nil {
+		for _, overload := range callExprFuncOverloads(typeInfo, call) {
+			if typ, matches := matchOverloadCallExprArg(typeInfo, call, overload, target, -1); matches {
+				expected = append(expected, validExpectedType(typ)...)
+			}
+		}
+	}
+	allowConversion := false
+	if len(call.Args) == 1 && call.Args[0] == target {
+		if tv, ok := typeInfo.Types[call.Fun]; ok && tv.IsType() && xgoutil.IsValidType(tv.Type) {
+			expected = append(expected, gotypes.Unalias(tv.Type))
+			allowConversion = true
+		}
+	}
+	return deduplicateTypes(expected), allowConversion
 }

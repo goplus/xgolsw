@@ -99,6 +99,7 @@ func TestIsXGoInternalName(t *testing.T) {
 		{name: GopPackage, want: true},
 		{name: "XGo_Init", want: true},
 		{name: "Gop_Init", want: true},
+		{name: "XGoo_Game_Label", want: true},
 		{name: "__xgo_optional_arg", want: true},
 		{name: "__gop_optional_arg", want: true},
 		{name: "XGot_Game_Main", want: false},
@@ -135,7 +136,7 @@ func TestPkgPath(t *testing.T) {
 		assert.Equal(t, "fmt", PkgPath(pkg))
 	})
 
-	t.Run("NestedPackagePath", func(t *testing.T) {
+	t.Run("NestedPkgPath", func(t *testing.T) {
 		pkg := gotypes.NewPackage("example.com/deep/nested/pkg", "pkg")
 		assert.Equal(t, "example.com/deep/nested/pkg", PkgPath(pkg))
 	})

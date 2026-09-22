@@ -6,7 +6,6 @@ import (
 	gotypes "go/types"
 	"io/fs"
 	"iter"
-	"maps"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -23,7 +22,7 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document uri %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProj()
+	proj := s.syncProject()
 	if !proj.IsSourceFile(filename) {
 		return nil, nil
 	}
@@ -71,12 +70,8 @@ func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, 
 	// Type checking can modify other classfiles too. Use fresh caches for all
 	// files and a fresh file set so temporary source positions are not retained
 	// by the project after formatting.
-	files := maps.Collect(proj.Files())
-	files[filename] = &xgo.File{Content: original}
-	snapshot := xgo.NewProject(nil, files, xgo.FeatASTCache|xgo.FeatTypeInfoCache)
-	snapshot.PkgPath = proj.PkgPath
-	snapshot.SetModule(proj.Module())
-	snapshot.Importer = proj.Importer
+	snapshot := proj.Fork()
+	snapshot.PutFile(filename, &xgo.File{Content: original})
 	formatted := original
 	for _, formatter := range []sourceFormatter{
 		formatXGo,
@@ -227,13 +222,13 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 		if doc := getDeclDoc(decl); doc != nil {
 			processedComments[doc] = struct{}{}
 		}
-		startLine := fset.Position(decl.Pos()).Line
-		endLine := fset.Position(decl.End()).Line
+		startLine := fset.PositionFor(decl.Pos(), false).Line
+		endLine := fset.PositionFor(decl.End(), false).Line
 		for _, cg := range astFile.Comments {
 			if _, ok := processedComments[cg]; ok {
 				continue
 			}
-			cgStartLine := fset.Position(cg.Pos()).Line
+			cgStartLine := fset.PositionFor(cg.Pos(), false).Line
 			if cgStartLine >= startLine && cgStartLine <= endLine {
 				processedComments[cg] = struct{}{}
 			}
@@ -271,9 +266,9 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 
 	// Find comments that appears on the same line after the given position.
 	findInlineComments := func(pos token.Pos) *ast.CommentGroup {
-		line := fset.Position(pos).Line
+		line := fset.PositionFor(pos, false).Line
 		for _, cg := range astFile.Comments {
-			if fset.Position(cg.Pos()).Line != line {
+			if fset.PositionFor(cg.Pos(), false).Line != line {
 				continue
 			}
 			if cg.Pos() > pos {
@@ -454,12 +449,12 @@ func getDeclDoc(decl ast.Decl) *ast.CommentGroup {
 //
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return
 	}
 	ast.Inspect(astFile, func(n ast.Node) bool {
-		callExpr := callExprFromNode(n)
+		callExpr := callExprFromNode(typeInfo, n)
 		if callExpr == nil {
 			return true
 		}
@@ -499,10 +494,11 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 			)
 			hasMatchedOverload := false
 			for _, overloadType := range funcOverloads {
-				if !overloadMatchesCallExpr(typeInfo, callExpr, overloadType, resolvedArg.ArgIndex) {
+				expectedType, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, resolvedArg.Arg, resolvedArg.ArgIndex)
+				if !matches {
 					continue
 				}
-				overloadLambdaSig := signatureType(overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, resolvedArg))
+				overloadLambdaSig := signatureType(expectedType)
 				if overloadLambdaSig == nil {
 					continue
 				}
@@ -523,18 +519,6 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 	})
 }
 
-// callExprFunIdent returns the identifier that names the called function.
-func callExprFunIdent(callExpr *ast.CallExpr) *ast.Ident {
-	switch fun := callExpr.Fun.(type) {
-	case *ast.Ident:
-		return fun
-	case *ast.SelectorExpr:
-		return fun.Sel
-	default:
-		return nil
-	}
-}
-
 // formatResolvedCallExprArgs returns call arguments with a fallback path for
 // overload pseudo-functions that do not expose a normal callable signature.
 func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
@@ -550,23 +534,16 @@ func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, ov
 			return
 		}
 
-		for i, argExpr := range callExpr.Args {
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Arg:      argExpr,
-				ArgIndex: i,
-				Kind:     xgoutil.ResolvedCallExprArgPositional,
-			}) {
-				return
-			}
-		}
-		for i, kwarg := range callExpr.Kwargs {
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Arg:      kwarg.Value,
-				ArgIndex: len(callExpr.Args) + i,
-				Kind:     xgoutil.ResolvedCallExprArgKeyword,
-				Kwarg:    kwarg,
-			}) {
-				return
+		seen := make(map[ast.Expr]bool)
+		for _, overload := range overloads {
+			for arg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, callExpr, overload) {
+				if seen[arg.Arg] {
+					continue
+				}
+				seen[arg.Arg] = true
+				if !yield(xgoutil.ResolvedCallExprArg{Arg: arg.Arg, ArgIndex: arg.ArgIndex, Kind: arg.Kind, Kwarg: arg.Kwarg}) {
+					return
+				}
 			}
 		}
 	}
@@ -612,55 +589,34 @@ func callKwargParamIndex(sig *gotypes.Signature, params *gotypes.Tuple, argCount
 // overloadMatchesCallExpr reports whether overloadType is still viable for
 // callExpr after checking every argument except the one at skipArgIndex.
 func overloadMatchesCallExpr(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, skipArgIndex int) bool {
+	_, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, nil, skipArgIndex)
+	return matches
+}
+
+// matchOverloadCallExprArg checks an overload and returns target's expected type
+// using the same signature and argument mapping. A nil target only checks the
+// match. skipArgIndex excludes an argument from compatibility checks.
+func matchOverloadCallExprArg(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, target ast.Expr, skipArgIndex int) (gotypes.Type, bool) {
 	sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
-	if sig == nil || params == nil {
-		return false
+	if sig == nil {
+		return nil, false
 	}
-	kwargParamIndex, hasKwargParam := 0, false
-	if len(callExpr.Kwargs) > 0 {
-		var ok bool
-		kwargParamIndex, ok = callKwargParamIndex(sig, params, len(callExpr.Args))
-		if !ok {
-			return false
+	args, _ := xgoutil.CallExprArgs(typeInfo, callExpr, params)
+	argCount := 0
+	var expectedType gotypes.Type
+	for arg := range xgoutil.ResolvedCallExprArgsForSignature(typeInfo, callExpr, overloadType, sig, params) {
+		argCount++
+		if arg.Arg == target {
+			expectedType = arg.ExpectedType
 		}
-		hasKwargParam = true
-	}
-
-	for i, argExpr := range callExpr.Args {
-		paramIndex := i
-		if hasKwargParam && i >= kwargParamIndex {
-			paramIndex++
-		}
-		expectedType := callExprArgType(sig, params, paramIndex)
-		if expectedType == nil {
-			return false
-		}
-		if i == skipArgIndex {
+		if arg.ArgIndex == skipArgIndex {
 			continue
 		}
-		if !formatArgMatchesType(typeInfo, argExpr, expectedType) {
-			return false
+		if arg.ExpectedType == nil || !formatArgMatchesType(typeInfo, arg.Arg, arg.ExpectedType) {
+			return nil, false
 		}
 	}
-
-	for i, kwarg := range callExpr.Kwargs {
-		globalIndex := len(callExpr.Args) + i
-		if globalIndex == skipArgIndex {
-			continue
-		}
-		expectedType := overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, xgoutil.ResolvedCallExprArg{
-			Kind:       xgoutil.ResolvedCallExprArgKeyword,
-			Kwarg:      kwarg,
-			ParamIndex: kwargParamIndex,
-		})
-		if expectedType == nil {
-			return false
-		}
-		if !formatArgMatchesType(typeInfo, kwarg.Value, expectedType) {
-			return false
-		}
-	}
-	return true
+	return expectedType, argCount == len(args)+len(callExpr.Kwargs)
 }
 
 // formatArgMatchesType reports whether argExpr is compatible with expectedType
@@ -690,49 +646,17 @@ func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overl
 	}
 
 	for _, overloadType := range overloads {
-		if !overloadMatchesCallExpr(typeInfo, callExpr, overloadType, resolvedArg.ArgIndex) {
+		expectedType, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, resolvedArg.Arg, resolvedArg.ArgIndex)
+		if !matches {
 			continue
 		}
-		lambdaSig := signatureType(overloadResolvedCallExprArgType(typeInfo, callExpr, overloadType, resolvedArg))
+		lambdaSig := signatureType(expectedType)
 		if lambdaSig == nil || lambdaSig.Params().Len() != paramCount {
 			continue
 		}
 		return lambdaSig
 	}
 	return nil
-}
-
-// overloadResolvedCallExprArgType returns the expected argument type for
-// resolvedArg when the same call is matched against overloadType.
-func overloadResolvedCallExprArgType(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, resolvedArg xgoutil.ResolvedCallExprArg) gotypes.Type {
-	overloadSig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
-	if overloadSig == nil || params == nil {
-		return nil
-	}
-	if resolvedArg.Kind == xgoutil.ResolvedCallExprArgKeyword {
-		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, overloadSig, params, len(callExpr.Args))
-		if kwarg == nil {
-			return nil
-		}
-
-		target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, resolvedArg.Kwarg.Name.Name)
-		if target == nil {
-			return nil
-		}
-		return target.ValueType
-	}
-
-	paramIndex := resolvedArg.ArgIndex
-	if len(callExpr.Kwargs) > 0 {
-		kwargParamIndex, ok := callKwargParamIndex(overloadSig, params, len(callExpr.Args))
-		if !ok {
-			return nil
-		}
-		if paramIndex >= kwargParamIndex {
-			paramIndex++
-		}
-	}
-	return callExprArgType(overloadSig, params, paramIndex)
 }
 
 // callExprArgType returns the positional expected argument type at paramIndex
@@ -767,10 +691,12 @@ func callExprParam(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int
 	return params.At(paramIndex), paramIndex
 }
 
-// signatureType returns typ as a function signature after unaliasing.
+// signatureType returns the underlying function signature of typ.
 func signatureType(typ gotypes.Type) *gotypes.Signature {
-	typ = gotypes.Unalias(typ)
-	sig, _ := typ.(*gotypes.Signature)
+	if typ == nil {
+		return nil
+	}
+	sig, _ := typ.Underlying().(*gotypes.Signature)
 	return sig
 }
 

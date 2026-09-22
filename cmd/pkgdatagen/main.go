@@ -23,7 +23,6 @@ import (
 	"flag"
 	"fmt"
 	goast "go/ast"
-	"go/build"
 	goparser "go/parser"
 	gotoken "go/token"
 	gotypes "go/types"
@@ -36,12 +35,11 @@ import (
 	"github.com/goplus/xgolsw/pkgdoc"
 	"golang.org/x/tools/go/gcexportdata"
 
-	_ "github.com/goplus/spx/v3"
 	_ "github.com/qiniu/x"
 )
 
-// stdPkgPaths is the list of standard package paths to generate the exported symbols for.
-var stdPkgPaths = []string{
+// defaultPkgPaths lists the standard and XGo builtin packages included by default.
+var defaultPkgPaths = []string{
 	"builtin",
 
 	"archive/tar",
@@ -148,32 +146,41 @@ var stdPkgPaths = []string{
 	"github.com/qiniu/x/stringslice",
 	// Required for XGo's ? error handling operator
 	"github.com/qiniu/x/errors",
-
-	"github.com/goplus/spx/v3",
-	"github.com/goplus/spx/v3/pkg/spx/pkg/engine",
 }
 
 // generate generates the package data file containing the exported symbols of
-// the given packages.
+// the given packages. Each argument must identify exactly one package.
 func generate(pkgPaths []string, outputFile string) error {
-	buildCtx := build.Default
-	buildCtx.GOOS = "js"
-	buildCtx.GOARCH = "wasm"
-	buildCtx.CgoEnabled = false
-
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
 	for _, pkgPath := range pkgPaths {
-		buildPkg, err := buildCtx.Import(pkgPath, "", build.ImportComment)
+		// Use one build configuration for both exports and documentation,
+		// including build tags supplied through GOFLAGS.
+		data, err := execGo("list", "-trimpath", "-export", "-json", pkgPath)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to load package %q: %w", pkgPath, err)
 		}
+		var pkgInfo struct {
+			Dir        string
+			ImportPath string
+			Name       string
+			GoFiles    []string
+			Export     string
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		if err := decoder.Decode(&pkgInfo); err != nil {
+			return fmt.Errorf("failed to decode package %q: %w", pkgPath, err)
+		}
+		if len(bytes.TrimSpace(data[decoder.InputOffset():])) > 0 {
+			return fmt.Errorf("package %q matches multiple packages: specify each package separately", pkgPath)
+		}
+		pkgPath = pkgInfo.ImportPath
 
-		pkgName := buildPkg.Name
+		pkgName := pkgInfo.Name
 
 		var pkgDoc *pkgdoc.PkgDoc
 		if pkgPath == "builtin" {
-			astFile, err := goparser.ParseFile(gotoken.NewFileSet(), path.Join(buildPkg.Dir, "builtin.go"), nil, goparser.ParseComments)
+			astFile, err := goparser.ParseFile(gotoken.NewFileSet(), path.Join(pkgInfo.Dir, "builtin.go"), nil, goparser.ParseComments)
 			if err != nil {
 				return fmt.Errorf("failed to parse builtin.go: %w", err)
 			}
@@ -246,16 +253,11 @@ func generate(pkgPaths []string, outputFile string) error {
 				}
 			}
 		} else {
-			exportFile, err := execGo("list", "-trimpath", "-export", "-f", "{{.Export}}", pkgPath)
-			if err != nil {
-				return err
-			}
-			exportFile = bytes.TrimSpace(exportFile)
-			if len(exportFile) == 0 {
+			if pkgInfo.Export == "" {
 				continue
 			}
 
-			f, err := os.Open(string(exportFile))
+			f, err := os.Open(pkgInfo.Export)
 			if err != nil {
 				return err
 			}
@@ -278,20 +280,14 @@ func generate(pkgPaths []string, outputFile string) error {
 			}
 
 			parseFSet := gotoken.NewFileSet()
-			astFiles := make(map[string]*goast.File, len(buildPkg.GoFiles)+len(buildPkg.CgoFiles))
-			for _, fileName := range slices.Concat(buildPkg.GoFiles, buildPkg.CgoFiles) {
-				fullPath := filepath.Join(buildPkg.Dir, fileName)
+			astFiles := make(map[string]*goast.File, len(pkgInfo.GoFiles))
+			for _, fileName := range pkgInfo.GoFiles {
+				fullPath := filepath.Join(pkgInfo.Dir, fileName)
 				astFile, err := goparser.ParseFile(parseFSet, fullPath, nil, goparser.ParseComments)
 				if err != nil {
 					return fmt.Errorf("failed to parse %q: %w", fileName, err)
 				}
-				if astFile.Name == nil || astFile.Name.Name != pkgName {
-					continue
-				}
 				astFiles[fullPath] = astFile
-			}
-			if len(astFiles) == 0 {
-				continue
 			}
 
 			astPkg := &goast.Package{
@@ -316,7 +312,7 @@ func generate(pkgPaths []string, outputFile string) error {
 // execGo executes the given go command.
 func execGo(args ...string) ([]byte, error) {
 	cmd := exec.Command("go", args...)
-	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0")
 	output, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -329,12 +325,12 @@ func execGo(args ...string) ([]byte, error) {
 
 func main() {
 	outputFile := flag.String("o", "pkgdata.zip", "output file")
-	noStd := flag.Bool("no-std", false, "do not generate standard packages")
+	noDefaults := flag.Bool("no-defaults", false, "do not generate default packages")
 	flag.Parse()
 
 	var pkgPaths []string
-	if !*noStd {
-		pkgPaths = stdPkgPaths
+	if !*noDefaults {
+		pkgPaths = defaultPkgPaths
 	}
 	for _, pkgPath := range flag.Args() {
 		if !slices.Contains(pkgPaths, pkgPath) {

@@ -92,36 +92,36 @@ onStart => {
 					{Range: Range{Start: Position{Line: 1, Character: 16}, End: Position{Line: 1, Character: 28}},
 						Target: toURI("xgo:github.com/goplus/spx/v3?BackdropName")},
 					{Range: Range{Start: Position{Line: 1, Character: 31}, End: Position{Line: 1, Character: 42}},
-						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 16}},
 						Target: toURI("xgo:main?Backdrop1a")},
 					{Range: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 28}},
 						Target: toURI("xgo:main?Backdrop1")},
 					{Range: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 28}},
-						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindConstantReference}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindConstantReference}},
 				},
 			},
 			{
 				filename: "MySprite.spx", wantCount: 21,
 				want: []DocumentLink{
 					{Range: Range{Start: Position{Line: 3, Character: 12}, End: Position{Line: 3, Character: 23}},
-						Target: toURI("spx://resources/backdrops/backdrop1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/backdrops/backdrop1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 15}},
-						Target: toURI("spx://resources/sounds/MySound"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/sounds/MySound"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 4, Character: 1}, End: Position{Line: 4, Character: 9}},
-						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindAutoBindingReference}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindAutoBindingReference}},
 					{Range: Range{Start: Position{Line: 5, Character: 1}, End: Position{Line: 5, Character: 9}},
-						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindAutoBindingReference}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindAutoBindingReference}},
 					{Range: Range{Start: Position{Line: 5, Character: 18}, End: Position{Line: 5, Character: 25}},
-						Target: toURI("spx://resources/sprites/MySprite/animations/anim1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/sprites/MySprite/animations/anim1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 4, Character: 21}, End: Position{Line: 4, Character: 31}},
-						Target: toURI("spx://resources/sprites/MySprite/costumes/costume1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/sprites/MySprite/costumes/costume1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 6, Character: 20}, End: Position{Line: 6, Character: 29}},
-						Target: toURI("spx://resources/widgets/widget1"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/widgets/widget1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 7, Character: 29}, End: Position{Line: 7, Character: 39}},
-						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 8, Character: 14}, End: Position{Line: 8, Character: 24}},
-						Target: toURI("spx://resources/sprites/MySprite"), Data: SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral}},
+						Target: toURI("spx://resources/sprites/MySprite"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 				},
 			},
 		} {
@@ -173,8 +173,8 @@ const (
 				End:   Position{Line: 3, Character: 30},
 			},
 			Target: toURI("spx://resources/sounds/MySound"),
-			Data: SpxResourceRefDocumentLinkData{
-				Kind: SpxResourceRefKindStringLiteral,
+			Data: XGoResourceRefDocumentLinkData{
+				Kind: XGoResourceRefKindStringLiteral,
 			},
 		})
 	})
@@ -184,10 +184,10 @@ const (
 			"main.spx":          []byte("play \"MissingSound\"\n"),
 			"assets/index.json": []byte(`{}`),
 		})
-		result, err := s.compile()
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
-		require.Len(t, result.spxResourceRefs, 1)
-		assert.Equal(t, SpxSoundResourceID{"MissingSound"}, result.spxResourceRefs[0].ID)
+		require.Len(t, result.resourceRefs, 1)
+		assert.Equal(t, SpxSoundResourceID{"MissingSound"}, result.resourceRefs[0].ID)
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
 		})

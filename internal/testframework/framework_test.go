@@ -133,7 +133,7 @@ func TestImporterImport(t *testing.T) {
 			assert.Contains(t, recorder.messages[0], "unexpected spx import: "+tt.path)
 		})
 	}
-	t.Run("SimilarPackagePath", func(t *testing.T) {
+	t.Run("SimilarPkgPath", func(t *testing.T) {
 		const pkgPath = "github.com/goplus/spxutils"
 		want := gotypes.NewPackage(pkgPath, "spxutils")
 		i := &importer{t: t, fallback: importerFunc(func(path string) (*gotypes.Package, error) {
@@ -144,6 +144,56 @@ func TestImporterImport(t *testing.T) {
 		require.NoError(t, err)
 		assert.Same(t, want, pkg)
 	})
+}
+
+func TestNewFallbackImporter(t *testing.T) {
+	for _, factory := range []struct {
+		name string
+		new  func(testing.TB, *token.FileSet) gotypes.Importer
+	}{
+		{"Base", NewBaseImporter},
+		{"Framework", NewImporter},
+	} {
+		t.Run(factory.name, func(t *testing.T) {
+			for _, tt := range []struct {
+				name     string
+				pkgPath  string
+				typeName string
+			}{
+				{"Standard", "strings", "Builder"},
+				{"XGoBuiltin", "github.com/qiniu/x/osx", "LineIter"},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					firstFset := token.NewFileSet()
+					firstFset.AddFile("padding.go", -1, 1<<20)
+					first := factory.new(t, firstFset)
+					firstPkg, err := first.Import(tt.pkgPath)
+					require.NoError(t, err)
+					listTimes := exportCache.ListTimes()
+					secondFset := token.NewFileSet()
+					second := factory.new(t, secondFset)
+					secondPkg, err := second.Import(tt.pkgPath)
+					require.NoError(t, err)
+					assert.Equal(t, listTimes, exportCache.ListTimes(), "reuse export files without another go list")
+					assert.NotSame(t, firstPkg, secondPkg)
+					firstType := firstPkg.Scope().Lookup(tt.typeName)
+					secondType := secondPkg.Scope().Lookup(tt.typeName)
+					require.NotNil(t, firstType)
+					require.NotNil(t, secondType)
+					assert.NotSame(t, firstType.Type(), secondType.Type())
+					require.NotNil(t, firstFset.File(firstType.Pos()))
+					require.NotNil(t, secondFset.File(secondType.Pos()))
+					assert.NotEqual(t, firstType.Pos(), secondType.Pos())
+					assert.Equal(t, firstFset.Position(firstType.Pos()), secondFset.Position(secondType.Pos()))
+					firstPkg.Scope().Insert(gotypes.NewVar(token.NoPos, firstPkg, "OnlyFirst", gotypes.Typ[gotypes.Int]))
+					assert.Nil(t, secondPkg.Scope().Lookup("OnlyFirst"))
+					again, err := second.Import(tt.pkgPath)
+					require.NoError(t, err)
+					assert.Same(t, secondPkg, again)
+				})
+			}
+		})
+	}
 }
 
 func TestNewPkgDoc(t *testing.T) {

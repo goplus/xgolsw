@@ -1,11 +1,16 @@
 package server
 
 import (
+	"fmt"
+	gotypes "go/types"
 	"io/fs"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/x/typesutil"
+	analysisprotocol "github.com/goplus/xgolsw/internal/analysis/protocol"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/protocol"
 	"github.com/goplus/xgolsw/xgo"
@@ -30,7 +35,159 @@ func requireWorkspaceFullDocumentDiagnosticReport(t *testing.T, item WorkspaceDo
 	return fullReport
 }
 
+func TestServerCollectTypeDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		change      func(*xgo.Project) error
+		currentFile string
+		message     string
+		line        uint32
+	}{
+		{"Deleted", func(p *xgo.Project) error { return p.DeleteFile("main.xgo") }, "", "", 0},
+		{"Renamed", func(p *xgo.Project) error { return p.RenameFile("main.xgo", "renamed.xgo") }, "renamed.xgo", "undefined: missing", 1},
+		{"Replaced", func(p *xgo.Project) error {
+			p.PutFile("main.xgo", file("println current\n"))
+			return nil
+		}, "main.xgo", "undefined: current", 0},
+		{"ModuleChanged", func(p *xgo.Project) error {
+			p.SetModule(p.Module())
+			return nil
+		}, "main.xgo", "undefined: missing", 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 1\n")})
+			proj := s.getProj()
+			_, err := proj.TypeInfo()
+			require.NoError(t, err)
+			entered, resume := make(chan struct{}), make(chan struct{})
+			release := sync.OnceFunc(func() { close(resume) })
+			t.Cleanup(release)
+			pause := sync.OnceFunc(func() {
+				close(entered)
+				<-resume
+			})
+			fallback := proj.Importer
+			dependency := gotypes.NewPackage("example.com/paused", "paused")
+			dependency.MarkComplete()
+			proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+				if path == dependency.Path() {
+					pause()
+					return dependency, nil
+				}
+				return fallback.Import(path)
+			})
+			proj.PutFile("main.xgo", file("import _ \"example.com/paused\"\nprintln missing\n"))
+			result := newDiagnosticResult()
+			var wg sync.WaitGroup
+			wg.Go(func() { s.collectTypeDiagnostics(proj, &result) })
+			<-entered
+			require.NoError(t, tt.change(proj))
+			release()
+			wg.Wait()
+			assert.Empty(t, result.diagnostics)
+
+			current := newDiagnosticResult()
+			s.collectTypeDiagnostics(proj, &current)
+			if tt.currentFile == "" {
+				assert.Empty(t, current.diagnostics)
+				return
+			}
+			assert.Equal(t, map[DocumentURI][]Diagnostic{
+				s.toDocumentURI(tt.currentFile): {{
+					Severity: SeverityError, Message: tt.message,
+					Range: Range{Start: Position{Line: tt.line, Character: 8}, End: Position{Line: tt.line, Character: 15}},
+				}},
+			}, current.diagnostics)
+		})
+	}
+}
+
+func TestServerInspectDiagnosticsAnalyzers(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(*xgo.Project) error
+	}{
+		{"Deleted", func(p *xgo.Project) error { return p.DeleteFile("main.xgo") }},
+		{"Renamed", func(p *xgo.Project) error { return p.RenameFile("main.xgo", "renamed.xgo") }},
+		{"Replaced", func(p *xgo.Project) error {
+			p.PutFile("main.xgo", file("println 1\n"))
+			return nil
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("values := [1, 2]\nvalues = append(values)\n")})
+			proj := s.getProj()
+			original := newDiagnosticResult()
+			s.inspectDiagnosticsAnalyzers(proj, &original, nil)
+			require.Len(t, original.diagnostics["file:///main.xgo"], 1)
+			assert.Equal(t, "append with no values", original.diagnostics["file:///main.xgo"][0].Message)
+			current := newDiagnosticResult()
+			s.inspectDiagnosticsAnalyzers(proj, &current, func(string, *analysisprotocol.Pass) {
+				require.NoError(t, tt.change(proj))
+			})
+			assert.Empty(t, current.diagnostics)
+		})
+	}
+}
+
 func TestServerTextDocumentDiagnostic(t *testing.T) {
+	t.Run("IncompleteSelector", func(t *testing.T) {
+		for _, project := range []struct {
+			name      string
+			filename  string
+			newServer testServerFactory
+		}{
+			{"PlainXGo", "main.xgo", newTestServer},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
+		} {
+			t.Run(project.name, func(t *testing.T) {
+				for _, source := range []struct {
+					name string
+					code string
+					want Range
+				}{
+					{"EOF", "var value = 1\nvalue.", Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 6}}},
+					{"UTF16CRLF", "var value = 1\r\nprintln \"\U0001f600\"; value.", Range{Start: Position{Line: 1, Character: 14}, End: Position{Line: 1, Character: 20}}},
+				} {
+					t.Run(source.name, func(t *testing.T) {
+						files := map[string][]byte{
+							project.filename: []byte(source.code),
+							"helper.xgo":     []byte("func helper() {}\n"),
+						}
+						if project.name == "WorkClass" {
+							files["main_fixture.gox"] = nil
+						}
+						s := project.newServer(t, files)
+						// Parse the adjacent file second so a recovery endpoint past EOF
+						// would otherwise resolve to the next file in the shared file set.
+						proj := s.syncProject()
+						astFile, err := proj.ASTFile(project.filename)
+						require.Error(t, err)
+						require.NotNil(t, astFile)
+						helper, err := proj.ASTFile("helper.xgo")
+						require.NoError(t, err)
+						file := proj.Fset.File(astFile.Pos())
+						require.Same(t, proj.Fset.File(helper.Pos()), proj.Fset.File(file.Pos(file.Size())+1))
+						params := &DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(project.filename)}}
+						for range 2 {
+							report, err := s.textDocumentDiagnostic(params)
+							require.NoError(t, err)
+							diagnostics := requireRelatedFullDocumentDiagnosticReport(t, report).Items
+							var found bool
+							for _, diagnostic := range diagnostics {
+								if strings.Contains(diagnostic.Message, "undefined") {
+									found = true
+									assert.Equal(t, source.want, diagnostic.Range)
+								}
+							}
+							assert.True(t, found, "missing selector diagnostic: %v", diagnostics)
+						}
+					})
+				}
+			})
+		}
+	})
+
 	t.Run("Normal", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"main.xgo":   []byte(`println "hello"`),
@@ -341,6 +498,14 @@ func TestServerGetDiagnostics(t *testing.T) {
 			Severity: SeverityError, Message: "undefined: missing",
 			Range: Range{Start: Position{Character: 14}, End: Position{Character: 21}},
 		}}},
+		{name: "LineDirectiveTypeError", content: "//line virtual.xgo:100:20\nprintln \"\U0001f600\", missing\n", want: []Diagnostic{{
+			Severity: SeverityError, Message: "undefined: missing",
+			Range: Range{Start: Position{Line: 1, Character: 14}, End: Position{Line: 1, Character: 21}},
+		}}},
+		{name: "LineDirectiveSyntaxError", content: "//line virtual.xgo:100:20\nvar (\n    x int // \U0001f600\n", want: []Diagnostic{
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2, Character: 15}, End: Position{Line: 2, Character: 15}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2, Character: 15}, End: Position{Line: 2, Character: 15}}},
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.content)})
@@ -349,6 +514,12 @@ func TestServerGetDiagnostics(t *testing.T) {
 			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.want, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
+			workspace, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+			require.NoError(t, err)
+			require.Len(t, workspace.Items, 1)
+			full := requireWorkspaceFullDocumentDiagnosticReport(t, workspace.Items[0])
+			assert.Equal(t, DocumentURI("file:///main.xgo"), full.URI)
+			assert.ElementsMatch(t, tt.want, full.Items)
 		})
 	}
 }
@@ -358,6 +529,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 		files := map[string][]byte{
 			"main_fixture.gox": []byte("println 1\n"),
 			"broken.xgo":       []byte("var (\n    x int\n"),
+			"assets.json":      []byte("{}"),
 		}
 		s := newFrameworkTestServer(t, files)
 		proj := s.getProj()
@@ -367,13 +539,15 @@ func TestServerDiagnosticsAt(t *testing.T) {
 		var typeErr typesutil.Error
 		require.ErrorAs(t, err, &typeErr)
 		require.False(t, typeErr.Pos.IsValid())
-		require.Equal(t, fs.ErrNotExist.Error(), typeErr.Msg)
+		importFailure := fmt.Sprintf("failed to import package %q: %v", testframework.PkgPath, fs.ErrNotExist)
+		require.Equal(t, importFailure, typeErr.Msg)
 
 		want := map[DocumentURI][]Diagnostic{
-			"file:///main_fixture.gox": {},
+			"file:///main_fixture.gox": {{Severity: SeverityError, Message: importFailure}},
 			"file:///broken.xgo": {
 				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
 				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+				{Severity: SeverityError, Message: importFailure},
 			},
 		}
 		for filename := range files {
@@ -386,7 +560,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 				URI: "file:///main_fixture.gox", Version: 1, Text: string(files["main_fixture.gox"]),
 			},
 		}))
-		assert.Equal(t, []Diagnostic{}, requirePublishedDiagnostics(t, replier, "file:///main_fixture.gox"))
+		assert.Equal(t, want["file:///main_fixture.gox"], requirePublishedDiagnostics(t, replier, "file:///main_fixture.gox"))
 		for uri, diagnostics := range want {
 			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 			require.NoError(t, err)
@@ -414,7 +588,10 @@ func TestServerDiagnosticsAt(t *testing.T) {
 			Severity: SeverityError, Message: "cannot use \"bad\" (type untyped string) as type int in assignment",
 			Range: Range{Start: Position{Character: 16}, End: Position{Character: 21}},
 		}}
-		assert.Equal(t, wantTypeError, requirePublishedDiagnostics(t, replier, "file:///broken.xgo"))
+		assert.Equal(t, map[DocumentURI][]Diagnostic{
+			"file:///main_fixture.gox": {},
+			"file:///broken.xgo":       wantTypeError,
+		}, requirePublishedDiagnosticReports(t, replier, 2))
 		documentReport, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///broken.xgo"}})
 		require.NoError(t, err)
 		assert.Equal(t, wantTypeError, requireRelatedFullDocumentDiagnosticReport(t, documentReport).Items)

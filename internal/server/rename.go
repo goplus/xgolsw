@@ -3,11 +3,10 @@ package server
 import (
 	"fmt"
 	gotypes "go/types"
-	"slices"
-	"strconv"
 	"strings"
 
-	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -15,14 +14,14 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_prepareRename
 func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range, error) {
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
 
 	astFile, _ := proj.ASTFile(filename)
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -33,11 +32,12 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 	}
 	astPkg, _ := proj.ASTPackage()
 
-	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
+	ident, obj, kwargTarget := sourceObjectAtPosition(proj, typeInfo, astFile, position)
 	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-	if !xgoutil.IsRenameable(obj) {
+	obj = renameTarget(typeInfo, obj)
+	if !isRenameableObject(proj, obj) {
 		return nil, nil
 	}
 	if kwargTarget != nil {
@@ -57,13 +57,13 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
 	}
 	astFile := astPkg.Files[filename]
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -73,19 +73,151 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		return nil, nil
 	}
 
-	ident, obj, kwargTarget := objectAtPosition(proj, typeInfo, astFile, position)
+	ident, obj, kwargTarget := sourceObjectAtPosition(proj, typeInfo, astFile, position)
 	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-	if !xgoutil.IsRenameable(obj) {
+	obj = renameTarget(typeInfo, obj)
+	if !isRenameableObject(proj, obj) {
 		return nil, nil
+	}
+	if params.NewName == "_" || !token.IsIdentifier(params.NewName) {
+		return nil, fmt.Errorf("%w: invalid identifier %q", jsonrpc2.ErrInvalidParams, params.NewName)
 	}
 	if kwargTarget != nil {
 		kwargParams := *params
 		kwargParams.NewName = kwargDefinitionRenameText(obj, params.NewName)
 		params = &kwargParams
+	} else if isAliasCallable(obj) && ident.Name != obj.Name() && functionNameForAlias(ident.Name) == obj.Name() {
+		aliasParams := *params
+		aliasParams.NewName = functionNameForAlias(params.NewName)
+		params = &aliasParams
 	}
-	return s.renameObject(proj, params, typeInfo, obj)
+	if method, ok := obj.(*gotypes.Func); ok && method.Signature().Recv() != nil {
+		return s.renameMethod(proj, params, typeInfo, method)
+	}
+	edit, err := s.renameObject(proj, params, typeInfo, obj)
+	if err != nil {
+		return nil, err
+	}
+	// Property notifications are best effort. Delivery failure must not
+	// invalidate the rename edit, especially after partial delivery.
+	s.notifyPropertiesRenamed(proj, params, edit, obj)
+	return edit, nil
+}
+
+// renameMethod renames related interface and implementation declarations
+// together so the resulting edits preserve their implementation relationships.
+func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *types.Info, target *gotypes.Func) (*WorkspaceEdit, error) {
+	methodInfo, err := methodInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	methods := methodInfo.relatedMethods(target)
+	for _, method := range methods {
+		ident := info.ObjToDef[method]
+		if method.Pkg() != info.Pkg || ident == nil || ident.Implicit() {
+			return nil, fmt.Errorf("cannot rename %s: related method %s has no editable project declaration", target.Name(), method.FullName())
+		}
+	}
+	if err := checkMethodRenameConflicts(info, source, methodInfo, methods, params.NewName); err != nil {
+		return nil, err
+	}
+	result := &WorkspaceEdit{Changes: make(map[DocumentURI][]TextEdit)}
+	for _, method := range methods {
+		edit, err := s.renameObject(proj, params, info, method)
+		if err != nil {
+			return nil, err
+		}
+		for uri, edits := range edit.Changes {
+			result.Changes[uri] = append(result.Changes[uri], edits...)
+		}
+	}
+	objects := make([]gotypes.Object, len(methods))
+	for i, method := range methods {
+		objects[i] = method
+	}
+	// Keep the complete method edit even if property notifications fail.
+	s.notifyPropertiesRenamed(proj, params, result, objects...)
+	return result, nil
+}
+
+// checkMethodRenameConflicts rejects names that collide with existing members,
+// including members that would hide a renamed method on an embedding receiver.
+func checkMethodRenameConflicts(info *types.Info, source *sourceInfo, methodInfo *methodInfo, methods []*gotypes.Func, name string) error {
+	if name == methods[0].Name() {
+		return nil
+	}
+	names := []string{name}
+	alias := functionAliasName(name)
+	for _, method := range methods {
+		if alias == name || !token.IsIdentifier(alias) {
+			break
+		}
+		for _, ref := range source.references[info.ObjectDeclaration(method)] {
+			ident := ref.ident
+			if ident.Name != method.Name() && functionNameForAlias(ident.Name) == method.Name() {
+				names = []string{name, alias}
+				break
+			}
+		}
+	}
+	checkReceiver := func(receiver gotypes.Type) error {
+		for _, name := range names {
+			obj, index, _ := gotypes.LookupFieldOrMethod(receiver, true, info.Pkg, name)
+			if obj != nil || index != nil {
+				return fmt.Errorf("cannot rename %s to %s: conflicts with an existing member of %s", methods[0].Name(), name, receiver)
+			}
+		}
+		return nil
+	}
+	renamed := make(map[*gotypes.Func]bool, len(methods))
+	for _, method := range methods {
+		renamed[method] = true
+		if err := checkReceiver(method.Signature().Recv().Type()); err != nil {
+			return err
+		}
+	}
+	for _, candidate := range methodInfo.receivers {
+		receiver := candidate.typ
+		obj, _, _ := gotypes.LookupFieldOrMethod(receiver, true, info.Pkg, methods[0].Name())
+		method, ok := obj.(*gotypes.Func)
+		if ok && renamed[method.Origin()] {
+			if err := checkReceiver(receiver); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// renameTarget returns the shared declaration to rename. Embedded fields use
+// the recorded type use that determines their name.
+func renameTarget(info *types.Info, obj gotypes.Object) gotypes.Object {
+	obj = info.ObjectDeclaration(obj)
+	if field, ok := obj.(*gotypes.Var); ok && field.Embedded() {
+		return info.Uses[info.ObjToDef[field.Origin()]]
+	}
+	return obj
+}
+
+// isRenameableObject includes local types and range variables whose declaration
+// is recorded in the project without an object position from the compiler.
+func isRenameableObject(proj *xgo.Project, obj gotypes.Object) bool {
+	if xgoutil.IsRenameable(obj) {
+		return true
+	}
+	switch obj.(type) {
+	case *gotypes.Var, *gotypes.TypeName:
+		file, _ := objectSource(proj, obj)
+		return file != nil
+	default:
+		return false
+	}
 }
 
 // renameObject builds a workspace edit for renaming obj.
@@ -109,11 +241,23 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 	}
 	refLocs := s.findReferenceLocations(proj, obj)
 	kwargRefLocs := s.kwargReferenceLocations(proj, obj)
+	if _, ok := obj.(*gotypes.TypeName); ok {
+		for _, field := range typeInfo.Defs {
+			if field != obj && renameTarget(typeInfo, field) == obj {
+				refLocs = append(refLocs, s.findReferenceLocations(proj, field)...)
+				kwargRefLocs = append(kwargRefLocs, s.kwargReferenceLocations(proj, field)...)
+			}
+		}
+	}
 	kwargNewName := kwargRenameText(obj, params.NewName)
+	if len(kwargRefLocs) != 0 && !token.IsIdentifier(kwargNewName) {
+		return nil, fmt.Errorf("%w: invalid keyword argument name %q", jsonrpc2.ErrInvalidParams, kwargNewName)
+	}
 	kwargRefSet := make(map[Location]struct{}, len(kwargRefLocs))
 	for _, refLoc := range kwargRefLocs {
 		kwargRefSet[refLoc] = struct{}{}
 	}
+	aliasRenames := s.functionAliasRenames(proj, typeInfo, obj, params.NewName)
 
 	seenRefLocs := make(map[Location]struct{}, len(refLocs)+len(kwargRefLocs))
 	appendRefEdit := func(refLoc Location, newText string) {
@@ -129,6 +273,9 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 
 	for _, refLoc := range refLocs {
 		newText := params.NewName
+		if aliasText, ok := aliasRenames[refLoc]; ok {
+			newText = aliasText
+		}
 		if _, ok := kwargRefSet[refLoc]; ok {
 			newText = kwargNewName
 		}
@@ -138,191 +285,52 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 		appendRefEdit(refLoc, kwargNewName)
 	}
 
-	// Check if the renamed object is a property and send notification if needed
-	if (&definitionContext{proj: proj}).isPropertyOfEnclosingType(obj) {
-		s.notifyPropertyRenamed(obj, params)
-	}
 	return &workspaceEdit, nil
 }
 
-// spxRenameResourceAtRefs updates spx resource names at reference locations by
-// matching the spx resource ID.
-func (s *Server) spxRenameResourceAtRefs(result *compileResult, id SpxResourceID, newName string) map[DocumentURI][]TextEdit {
-	changes := make(map[DocumentURI][]TextEdit)
-	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
-	fset := result.proj.Fset
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return changes
+// functionNameForAlias resolves the compiler's ASCII lowercase and underscore
+// alias spellings to their declaration names.
+func functionNameForAlias(name string) string {
+	if strings.HasPrefix(name, "_") {
+		return "XGo" + name
 	}
-	for _, ref := range result.spxResourceRefs {
-		if ref.ID != id {
-			continue
-		}
-
-		node := ref.Node
-		astFile := sourceASTFile(result.proj, node.Pos())
-		if astFile == nil {
-			continue
-		}
-		if ref.Kind == SpxResourceRefKindConstantReference {
-			// Constant references are identifiers recorded by the collector.
-			// Resolve their initializers by source position because XGo can
-			// omit lazily loaded declarations from typeInfo.Defs.
-			obj := typeInfo.ObjectOf(node.(*ast.Ident))
-			if obj == nil {
-				continue
-			}
-			defFile := sourceASTFile(result.proj, obj.Pos())
-			if defFile == nil {
-				continue
-			}
-			var spec *ast.ValueSpec
-			for parent := range xgoutil.PathEnclosingIntervalNodes(defFile, obj.Pos(), obj.Pos(), false) {
-				if valueSpec, ok := parent.(*ast.ValueSpec); ok {
-					spec = valueSpec
-					break
-				}
-			}
-			if spec == nil {
-				continue
-			}
-			idx := slices.IndexFunc(spec.Names, func(name *ast.Ident) bool { return name.Name == obj.Name() })
-			if idx < 0 || idx >= len(spec.Values) {
-				continue
-			}
-			node = spec.Values[idx]
-			astFile = defFile
-		}
-
-		textEdit := TextEdit{Range: resourceRange(result.proj, astFile, node), NewText: newName}
-		switch ref.Kind {
-		case SpxResourceRefKindStringLiteral, SpxResourceRefKindConstantReference:
-			// Escape dollar signs to prevent XGo interpolation and dollar escapes.
-			textEdit.NewText = strings.ReplaceAll(strconv.Quote(newName), "$", `\x24`)
-			lit, ok := node.(*ast.BasicLit)
-			if !ok {
-				break
-			}
-			raw := lit.Value[0] == '`'
-			if raw && (!strconv.CanBackquote(newName) || strings.ContainsRune(newName, '$')) {
-				break
-			}
-			// Preserve the quotes when they can represent the new name.
-			textEdit.Range.Start.Character++
-			textEdit.Range.End.Character--
-			if raw {
-				textEdit.NewText = newName
-			} else {
-				textEdit.NewText = textEdit.NewText[1 : len(textEdit.NewText)-1]
-			}
-		}
-
-		documentURI := s.toDocumentURI(fset.File(node.Pos()).Name())
-		if _, ok := seenTextEdits[documentURI]; !ok {
-			seenTextEdits[documentURI] = make(map[TextEdit]struct{})
-		}
-		if _, ok := seenTextEdits[documentURI][textEdit]; ok {
-			continue
-		}
-		seenTextEdits[documentURI][textEdit] = struct{}{}
-
-		changes[documentURI] = append(changes[documentURI], textEdit)
-	}
-	return changes
+	return upperFirstASCII(name)
 }
 
-// spxRenameBackdropResource renames an spx backdrop resource.
-func (s *Server) spxRenameBackdropResource(result *compileResult, id SpxBackdropResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	if result.spxResourceSet.Backdrop(newName) != nil {
-		return nil, fmt.Errorf("backdrop resource %q already exists", newName)
+// functionAliasName returns the source alias for a function declaration, or its
+// unchanged name when the compiler does not supply an alias.
+func functionAliasName(name string) string {
+	if strings.HasPrefix(name, "XGo_") {
+		return strings.TrimPrefix(name, "XGo")
 	}
-	return s.spxRenameResourceAtRefs(result, id, newName), nil
+	return xgoutil.ToLowerCamelCase(name)
 }
 
-// spxRenameSoundResource renames an spx sound resource.
-func (s *Server) spxRenameSoundResource(result *compileResult, id SpxSoundResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	if result.spxResourceSet.Sound(newName) != nil {
-		return nil, fmt.Errorf("sound resource %q already exists", newName)
+// functionAliasRenames preserves alias calls and automatic property reads.
+// If newName has no usable alias, property reads become explicit calls.
+func (s *Server) functionAliasRenames(proj *xgo.Project, info *types.Info, obj gotypes.Object, newName string) map[Location]string {
+	if !isAliasCallable(obj) {
+		return nil
 	}
-	return s.spxRenameResourceAtRefs(result, id, newName), nil
-}
-
-// spxRenameSpriteResource renames an spx sprite resource.
-func (s *Server) spxRenameSpriteResource(result *compileResult, id SpxSpriteResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	if result.spxResourceSet.Sprite(newName) != nil {
-		return nil, fmt.Errorf("sprite resource %q already exists", newName)
+	newAlias := functionAliasName(newName)
+	useAlias := newAlias != newName && token.IsIdentifier(newAlias)
+	renamed := make(map[Location]string)
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil
 	}
-	changes := s.spxRenameResourceAtRefs(result, id, newName)
-	seenTextEdits := make(map[DocumentURI]map[TextEdit]struct{})
-	typeInfo, _ := result.proj.TypeInfo()
-	if typeInfo == nil {
-		return changes, nil
-	}
-	for expr, tv := range typeInfo.Types {
-		if expr == nil || !expr.Pos().IsValid() || !tv.IsType() || tv.Type == nil {
+	for _, ref := range source.references[info.ObjectDeclaration(obj)] {
+		ident := ref.ident
+		if ident.Name == obj.Name() || functionNameForAlias(ident.Name) != obj.Name() {
 			continue
 		}
-		named, ok := tv.Type.(*gotypes.Named)
-		if !ok || !result.hasSpxSpriteType(named) || named.Obj().Name() != id.SpriteName {
-			continue
+		text := newName
+		if useAlias {
+			text = newAlias
+		} else if !ref.called {
+			text += "()"
 		}
-		rng := RangeForNode(result.proj, expr)
-		if rng.Start == rng.End {
-			continue
-		}
-
-		documentURI := s.nodeDocumentURI(result.proj, expr)
-		textEdit := TextEdit{
-			Range:   rng,
-			NewText: newName,
-		}
-
-		if _, ok := seenTextEdits[documentURI]; !ok {
-			seenTextEdits[documentURI] = make(map[TextEdit]struct{})
-		}
-		if _, ok := seenTextEdits[documentURI][textEdit]; ok {
-			continue
-		}
-		seenTextEdits[documentURI][textEdit] = struct{}{}
-
-		changes[documentURI] = append(changes[documentURI], textEdit)
+		renamed[s.locationForNode(proj, ident)] = text
 	}
-	return changes, nil
-}
-
-// spxRenameSpriteCostumeResource renames an spx sprite costume resource.
-func (s *Server) spxRenameSpriteCostumeResource(result *compileResult, id SpxSpriteCostumeResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	spxSpriteResource := result.spxResourceSet.Sprite(id.SpriteName)
-	if spxSpriteResource == nil {
-		return nil, fmt.Errorf("sprite resource %q not found", id.SpriteName)
-	}
-	for _, costume := range spxSpriteResource.Costumes {
-		if costume.Name == newName {
-			return nil, fmt.Errorf("sprite costume resource %q already exists", newName)
-		}
-	}
-	return s.spxRenameResourceAtRefs(result, id, newName), nil
-}
-
-// spxRenameSpriteAnimationResource renames an spx sprite animation resource.
-func (s *Server) spxRenameSpriteAnimationResource(result *compileResult, id SpxSpriteAnimationResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	spxSpriteResource := result.spxResourceSet.Sprite(id.SpriteName)
-	if spxSpriteResource == nil {
-		return nil, fmt.Errorf("sprite resource %q not found", id.SpriteName)
-	}
-	for _, animation := range spxSpriteResource.Animations {
-		if animation.Name == newName {
-			return nil, fmt.Errorf("sprite animation resource %q already exists", newName)
-		}
-	}
-	return s.spxRenameResourceAtRefs(result, id, newName), nil
-}
-
-// spxRenameWidgetResource renames an spx widget resource.
-func (s *Server) spxRenameWidgetResource(result *compileResult, id SpxWidgetResourceID, newName string) (map[DocumentURI][]TextEdit, error) {
-	if result.spxResourceSet.Widget(newName) != nil {
-		return nil, fmt.Errorf("widget resource %q already exists", newName)
-	}
-	return s.spxRenameResourceAtRefs(result, id, newName), nil
+	return renamed
 }

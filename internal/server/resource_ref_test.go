@@ -10,29 +10,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompileResultAddSpxResourceRef(t *testing.T) {
+func TestResourceAnalysisAddResourceRef(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo \"Studio\", \"Studio\"\n")})
 	proj := s.getProj()
-	call := spxResourceTestCall(t, proj, "main.xgo")
+	call := resourceTestCall(t, proj, "main.xgo")
 	require.Len(t, call.Args, 2)
-	result := newCompileResult(proj, s.lookupPkgDoc)
-	first := SpxResourceRef{ID: SpxBackdropResourceID{BackdropName: "Studio"}, Kind: SpxResourceRefKindStringLiteral, Node: call.Args[0]}
+	result := newTestResourceAnalysis()
+	first := resourceRef{ID: testResourceID{"scenes", "Studio"}, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[0]}
 	second := first
 	second.Node = call.Args[1]
 	otherID := first
-	otherID.ID = SpxSoundResourceID{SoundName: "Studio"}
+	otherID.ID = testResourceID{"clips", "Studio"}
 	otherKind := first
-	otherKind.Kind = SpxResourceRefKindConstantReference
-	for _, ref := range []SpxResourceRef{first, first, second, otherID, otherKind, second} {
-		result.addSpxResourceRef(ref)
+	otherKind.Kind = XGoResourceRefKindConstantReference
+	for _, ref := range []resourceRef{first, first, second, otherID, otherKind, second} {
+		result.addResourceRef(ref)
 	}
-	assert.Equal(t, []SpxResourceRef{first, second, otherID, otherKind}, result.spxResourceRefs)
-	other := newCompileResult(proj, s.lookupPkgDoc)
-	other.addSpxResourceRef(first)
-	assert.Equal(t, []SpxResourceRef{first}, other.spxResourceRefs)
+	assert.Equal(t, []resourceRef{first, second, otherID, otherKind}, result.resourceRefs)
+	other := newTestResourceAnalysis()
+	other.addResourceRef(first)
+	assert.Equal(t, []resourceRef{first}, other.resourceRefs)
 }
 
-func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
+func TestResourceAnalysisResourceRefAtPosition(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		filename string
@@ -53,18 +53,18 @@ func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo (\"Studio\"), \"Beep\"\n")})
 			proj := s.getProj()
-			call := spxResourceTestCall(t, proj, "main.xgo")
+			call := resourceTestCall(t, proj, "main.xgo")
 			require.Len(t, call.Args, 2)
 			paren := requireValueAs[*ast.ParenExpr](t, call.Args[0])
-			refs := []SpxResourceRef{
-				{ID: SpxSpriteResourceID{SpriteName: "Runner"}, Node: paren},
-				{ID: SpxBackdropResourceID{BackdropName: "Studio"}, Node: paren.X},
-				{ID: SpxSoundResourceID{SoundName: "Beep"}, Node: call.Args[1]},
+			refs := []resourceRef{
+				{ID: testResourceID{"actors", "Runner"}, Node: paren},
+				{ID: testResourceID{"scenes", "Studio"}, Node: paren.X},
+				{ID: testResourceID{"clips", "Beep"}, Node: call.Args[1]},
 			}
-			for _, orderedRefs := range [][]SpxResourceRef{refs, {refs[2], refs[1], refs[0]}} {
-				result := newCompileResult(proj, s.lookupPkgDoc)
-				result.spxResourceRefs = orderedRefs
-				ref, _ := result.spxResourceRefAtPosition(token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
+			for _, orderedRefs := range [][]resourceRef{refs, {refs[2], refs[1], refs[0]}} {
+				result := newTestResourceAnalysis()
+				result.resourceRefs = orderedRefs
+				ref, _ := result.resourceRefAtPosition(s.getProj(), token.Position{Filename: tt.filename, Line: tt.line, Column: tt.column})
 				if tt.want < 0 {
 					assert.Nil(t, ref)
 				} else {
@@ -126,21 +126,21 @@ func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
 				proj := s.getProj()
-				call := spxResourceTestCall(t, proj, "main.xgo")
+				call := resourceTestCall(t, proj, "main.xgo")
 				require.Len(t, call.Args, 2)
 				paren := requireValueAs[*ast.ParenExpr](t, call.Args[0])
-				refs := []SpxResourceRef{
-					{ID: SpxSpriteResourceID{SpriteName: "Runner"}, Node: paren},
-					{ID: SpxBackdropResourceID{BackdropName: "Studio"}, Node: paren.X},
-					{ID: SpxSoundResourceID{SoundName: "Beep"}, Node: call.Args[1]},
+				refs := []resourceRef{
+					{ID: testResourceID{"actors", "Runner"}, Node: paren},
+					{ID: testResourceID{"scenes", "Studio"}, Node: paren.X},
+					{ID: testResourceID{"clips", "Beep"}, Node: call.Args[1]},
 				}
 				file, err := proj.ASTFile("main.xgo")
 				require.NoError(t, err)
-				for _, order := range [][]SpxResourceRef{refs, {refs[2], refs[1], refs[0]}} {
-					result := newCompileResult(proj, s.lookupPkgDoc)
-					result.spxResourceRefs = order
+				for _, order := range [][]resourceRef{refs, {refs[2], refs[1], refs[0]}} {
+					result := newTestResourceAnalysis()
+					result.resourceRefs = order
 					for _, check := range tt.checks {
-						ref, _ := result.spxResourceRefAtPosition(ToPosition(proj, file, check.position))
+						ref, _ := result.resourceRefAtPosition(s.getProj(), ToPosition(proj, file, check.position))
 						if check.want < 0 {
 							assert.Nil(t, ref, "at %v", check.position)
 						} else {
@@ -153,7 +153,7 @@ func TestCompileResultSpxResourceRefAtPosition(t *testing.T) {
 	})
 }
 
-func spxResourceTestCall(t *testing.T, proj *xgo.Project, filename string) *ast.CallExpr {
+func resourceTestCall(t *testing.T, proj *xgo.Project, filename string) *ast.CallExpr {
 	t.Helper()
 
 	file, err := proj.ASTFile(filename)

@@ -18,8 +18,11 @@ package xgo
 
 import (
 	"fmt"
+	gotypes "go/types"
 	"io/fs"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,7 +123,199 @@ func TestNewProject(t *testing.T) {
 	})
 }
 
+func TestProjectFork(t *testing.T) {
+	t.Run("IsolatedAnalysis", func(t *testing.T) {
+		proj := newFrameworkTestProject(t, map[string]*File{
+			"main_fixture.gox": file("var value int\nfunc Work() { value = measure(1) }\n"),
+		}, FeatAll)
+		original, err := proj.TypeInfo()
+		require.NoError(t, err)
+		astFile, err := proj.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		base := proj.Fset.Base()
+		fork := proj.Fork()
+		assert.Same(t, proj.Module(), fork.Module())
+		assert.Equal(t, proj.PkgPath, fork.PkgPath)
+		assert.NotSame(t, proj.Fset, fork.Fset)
+		info, err := fork.TypeInfo()
+		require.NoError(t, err)
+		assert.NotSame(t, original, info)
+		forkAST, err := fork.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		assert.NotSame(t, astFile, forkAST)
+		_, err = fork.PkgDoc()
+		require.NoError(t, err)
+		fork.PutFile("main_fixture.gox", file("var other string\n"))
+		_, err = fork.TypeInfo()
+		require.NoError(t, err)
+		unchanged, err := proj.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, original, unchanged)
+		assert.Equal(t, base, proj.Fset.Base())
+		require.NoError(t, proj.DeleteFile("main_fixture.gox"))
+		current, ok := fork.File("main_fixture.gox")
+		require.True(t, ok)
+		assert.Equal(t, "var other string\n", string(current.Content))
+	})
+
+	t.Run("CacheBuilders", func(t *testing.T) {
+		proj := NewProject(nil, map[string]*File{"data": file("original")}, 0)
+		proj.RegisterCacheBuilder("data", func(proj *Project) (any, error) {
+			data, _ := proj.File("data")
+			return string(data.Content), nil
+		})
+		value, err := proj.Cache("data")
+		require.NoError(t, err)
+		assert.Equal(t, "original", value)
+		fork := proj.Fork()
+		fork.PutFile("data", file("changed"))
+		value, err = fork.Cache("data")
+		require.NoError(t, err)
+		assert.Equal(t, "changed", value)
+		_, err = fork.ASTPackage()
+		assert.ErrorIs(t, err, ErrUnknownCacheKind)
+	})
+}
+
 func TestProjectSnapshot(t *testing.T) {
+	t.Run("SharedImporterTypeChecking", func(t *testing.T) {
+		proj := newFrameworkTestProject(t, map[string]*File{
+			"main_fixture.gox": file("var value int\nfunc Work() { value = measure(1) }\n"),
+		}, FeatAll)
+		var activeImports, concurrentImports atomic.Int32
+		fallback := proj.Importer
+		proj.Importer = pkgDocTestImporter(func(path string) (*gotypes.Package, error) {
+			if activeImports.Add(1) > 1 {
+				concurrentImports.Add(1)
+			}
+			defer activeImports.Add(-1)
+			runtime.Gosched()
+			return fallback.Import(path)
+		})
+		_, err := proj.ASTPackage()
+		require.NoError(t, err)
+		projects := []*Project{proj}
+		for range 15 {
+			projects = append(projects, proj.Snapshot(), proj.Fork())
+		}
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make([]error, len(projects))
+		for i, project := range projects {
+			wg.Go(func() {
+				<-start
+				_, errs[i] = project.TypeInfo()
+			})
+		}
+		close(start)
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		assert.Zero(t, concurrentImports.Load(), "projects must serialize checking with their shared importer")
+	})
+
+	t.Run("ConcurrentTypeChecking", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			filename   string
+			newProject testProjectFactory
+		}{
+			{"NormalClass", "Record.gox", newTestProject},
+			{"ProjectClass", "main_fixture.gox", newFrameworkTestProject},
+			{"WorkClass", "Worker_fixture.gox", newFrameworkTestProject},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const source = "var value int\nfunc Work() { value = 1 }\nfunc Reset() { value = 0 }\n"
+				files := map[string]*File{tt.filename: file(source)}
+				if tt.filename == "Worker_fixture.gox" {
+					files["main_fixture.gox"] = file("")
+				}
+				proj := tt.newProject(t, files, FeatAll)
+				_, err := proj.TypeInfo()
+				require.NoError(t, err)
+				proj.PutFile(tt.filename, file(source))
+				original, err := proj.ASTFile(tt.filename)
+				require.NoError(t, err)
+				snapshot := proj.Snapshot()
+				copied, err := snapshot.ASTFile(tt.filename)
+				require.NoError(t, err)
+				assert.NotSame(t, original, copied)
+				var wg sync.WaitGroup
+				start := make(chan struct{})
+				errs := make([]error, 2)
+				for i, project := range []*Project{proj, snapshot} {
+					wg.Go(func() {
+						<-start
+						_, errs[i] = project.TypeInfo()
+					})
+				}
+				close(start)
+				wg.Wait()
+				for _, err := range errs {
+					require.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("SharedAnalysisAfterEdit", func(t *testing.T) {
+		for _, editSnapshot := range []bool{false, true} {
+			name := "Original"
+			if editSnapshot {
+				name = "Snapshot"
+			}
+			t.Run(name, func(t *testing.T) {
+				proj := newTestProject(t, map[string]*File{
+					"Record.gox": file("// Amount returns the scale.\nfunc Amount() int { return scale }\n"),
+					"values.xgo": file("const scale = 1\n"),
+				}, FeatAll)
+				originalTypes, err := proj.TypeInfo()
+				require.NoError(t, err)
+				originalAST, err := proj.ASTFile("Record.gox")
+				require.NoError(t, err)
+				originalDoc, err := proj.PkgDoc()
+				require.NoError(t, err)
+				snapshot := proj.Snapshot()
+				copiedTypes, err := snapshot.TypeInfo()
+				require.NoError(t, err)
+				assert.Same(t, originalTypes, copiedTypes)
+				changed, preserved := proj, snapshot
+				if editSnapshot {
+					changed, preserved = snapshot, proj
+				}
+				changed.PutFile("values.xgo", file("const scale = 2\n"))
+				changedAST, err := changed.ASTFile("Record.gox")
+				require.NoError(t, err)
+				assert.NotSame(t, originalAST, changedAST)
+				unchangedAST, err := preserved.ASTFile("Record.gox")
+				require.NoError(t, err)
+				assert.Same(t, originalAST, unchangedAST)
+				updatedTypes, err := changed.TypeInfo()
+				require.NoError(t, err)
+				for _, tt := range []struct {
+					object gotypes.Object
+					want   string
+				}{
+					{originalTypes.Pkg.Scope().Lookup("scale"), "1"},
+					{updatedTypes.Pkg.Scope().Lookup("scale"), "2"},
+				} {
+					constant, ok := tt.object.(*gotypes.Const)
+					require.True(t, ok)
+					assert.Equal(t, tt.want, constant.Val().ExactString())
+				}
+				unchangedDoc, err := preserved.PkgDoc()
+				require.NoError(t, err)
+				assert.Same(t, originalDoc, unchangedDoc)
+				updatedDoc, err := changed.PkgDoc()
+				require.NoError(t, err)
+				require.NotNil(t, originalDoc.Types["Record"])
+				require.NotNil(t, updatedDoc.Types["Record"])
+				assert.Equal(t, originalDoc.Types["Record"].Methods, updatedDoc.Types["Record"].Methods)
+			})
+		}
+	})
+
 	t.Run("BasicSnapshot", func(t *testing.T) {
 		files := map[string]*File{
 			"main.go": file("package main"),
@@ -922,6 +1117,24 @@ func TestProjectRenameFile(t *testing.T) {
 }
 
 func TestProjectUpdateFiles(t *testing.T) {
+	t.Run("PreservesDocumentVersion", func(t *testing.T) {
+		original := &File{Content: []byte("println 1"), ModTime: time.Unix(1, 0), Version: 7}
+		proj := NewProject(nil, map[string]*File{"main.xgo": original}, 0)
+		snapshot := proj.Snapshot()
+		provided := &File{Content: []byte("println 2"), ModTime: time.Unix(2, 0)}
+		proj.UpdateFiles(map[string]*File{"main.xgo": provided})
+		current, ok := proj.File("main.xgo")
+		require.True(t, ok)
+		assert.Equal(t, provided.Content, current.Content)
+		assert.Equal(t, provided.ModTime, current.ModTime)
+		assert.Equal(t, original.Version, current.Version)
+		assert.Zero(t, provided.Version)
+		old, ok := snapshot.File("main.xgo")
+		require.True(t, ok)
+		assert.Same(t, original, old)
+		assert.Equal(t, "println 1", string(old.Content))
+	})
+
 	t.Run("UpdateFilesWithNewFiles", func(t *testing.T) {
 		proj := NewProject(nil, nil, 0)
 
@@ -961,7 +1174,9 @@ func TestProjectUpdateFiles(t *testing.T) {
 			"main.go": {Content: []byte("package main\n\nfunc main() {}"), ModTime: newTime},
 		}
 
+		revision := proj.Revision()
 		proj.UpdateFiles(newFiles)
+		assert.Greater(t, proj.Revision(), revision)
 
 		// Verify file was updated due to different ModTime.
 		mainFile, ok := proj.File("main.go")
@@ -982,7 +1197,9 @@ func TestProjectUpdateFiles(t *testing.T) {
 			"main.go": {Content: []byte("package main\n\nfunc main() {}"), ModTime: sameTime},
 		}
 
+		revision := proj.Revision()
 		proj.UpdateFiles(newFiles)
+		assert.Equal(t, revision, proj.Revision())
 
 		// Verify file was not updated due to same ModTime.
 		mainFile, ok := proj.File("main.go")

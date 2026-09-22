@@ -8,6 +8,7 @@ import (
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -50,7 +51,7 @@ func (r *definitionContext) memberForIdent(ident *ast.Ident, obj gotypes.Object)
 		return nil
 	}
 	proj := r.proj
-	info, _ := proj.TypeInfo()
+	info, _ := expressionTypeInfo(proj)
 	astPkg, _ := proj.ASTPackage()
 	file := xgoutil.NodeASTFile(proj.Fset, astPkg, ident)
 	if file == nil {
@@ -88,7 +89,7 @@ func (r *definitionContext) memberForObject(receiver gotypes.Type, obj gotypes.O
 	if receiver == nil {
 		return nil
 	}
-	if selector, ok := r.memberSelectorsFor(receiver)[memberOrigin(obj)]; ok {
+	if selector, ok := r.memberSelectorsFor(receiver)[types.ObjectOrigin(obj)]; ok {
 		return &xgoutil.StructMember{Member: obj, Selector: selector}
 	}
 	return nil
@@ -102,7 +103,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 	}
 	selectors := make(map[gotypes.Object]*gotypes.Named)
 	add := func(obj gotypes.Object, selector *gotypes.Named) {
-		origin := memberOrigin(obj)
+		origin := types.ObjectOrigin(obj)
 		if _, ok := selectors[origin]; !ok {
 			selectors[origin] = selector
 		}
@@ -163,18 +164,6 @@ func importedInterfaceMembers(receiver gotypes.Type) iter.Seq[xgoutil.StructMemb
 	}
 }
 
-// memberOrigin identifies a field or method before generic instantiation.
-func memberOrigin(obj gotypes.Object) gotypes.Object {
-	switch obj := obj.(type) {
-	case *gotypes.Var:
-		return obj.Origin()
-	case *gotypes.Func:
-		return obj.Origin()
-	default:
-		return obj
-	}
-}
-
 // memberTypeName returns the declaring type name of a field or method.
 func memberTypeName(proj *xgo.Project, obj gotypes.Object) string {
 	switch obj := obj.(type) {
@@ -229,7 +218,7 @@ func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
 				return ""
 			case *ast.GenDecl:
 				if structType == nil && node == astFile.ClassFields {
-					name, _ := cl.GetFileClassType(astFile, xgoutil.NodeFilename(proj.Fset, astFile), proj.Module().LookupClass)
+					name, _ := cl.GetFileClassType(astFile, proj.Fset.PositionFor(astFile.Pos(), false).Filename, proj.Module().LookupClass)
 					return name
 				}
 				return ""
@@ -317,7 +306,7 @@ func interfaceMethodDeclaration(proj *xgo.Project, method *gotypes.Func) (string
 // not fall back to the classfile's type.
 func propertyTargetForCall(proj *xgo.Project, file *ast.File, call *ast.CallExpr) *gotypes.Named {
 	if sel, ok := astutil.Unparen(call.Fun).(*ast.SelectorExpr); ok {
-		info, _ := proj.TypeInfo()
+		info, _ := expressionTypeInfo(proj)
 		if info == nil {
 			return nil
 		}

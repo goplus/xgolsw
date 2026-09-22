@@ -268,3 +268,86 @@ func TestInnermostScopeAt(t *testing.T) {
 		assert.Nil(t, scope)
 	})
 }
+
+func TestScopeAtNode(t *testing.T) {
+	t.Run("FilterInitializer", func(t *testing.T) {
+		fset, file, err := newTestFile("main.xgo", "println [11 for value <- [44], limit := 22; limit > 33]")
+		require.NoError(t, err)
+		outer := gotypes.NewScope(gotypes.Universe, file.Pos(), file.End(), "outer")
+		rangeScope := gotypes.NewScope(outer, file.Pos(), file.End(), "range")
+		filterScope := gotypes.NewScope(rangeScope, file.Pos(), file.End(), "filter")
+		info := newTestTypeInfo(nil, nil)
+		info.Scopes[file] = outer
+		positions := make(map[string]token.Pos)
+		var clause *ast.ForPhrase
+		ast.Inspect(file, func(node ast.Node) bool {
+			switch node := node.(type) {
+			case *ast.ForPhrase:
+				clause = node
+				info.Scopes[node] = rangeScope
+				init, ok := node.Init.(*ast.AssignStmt)
+				require.True(t, ok)
+				ident, ok := init.Lhs[0].(*ast.Ident)
+				require.True(t, ok)
+				variable := gotypes.NewVar(ident.Pos(), nil, ident.Name, gotypes.Typ[gotypes.Int])
+				filterScope.Insert(variable)
+				info.Defs[ident] = variable
+			case *ast.BasicLit:
+				positions[node.Value] = node.Pos()
+			}
+			return true
+		})
+		require.NotNil(t, clause)
+		pkg := newTestPackage(map[string]*ast.File{"main.xgo": file})
+		for _, value := range []string{"11", "22", "33"} {
+			assert.Same(t, filterScope, InnermostScopeAt(fset, info, pkg, positions[value]))
+		}
+		assert.Same(t, outer, InnermostScopeAt(fset, info, pkg, positions["44"]))
+		// Incomplete type information must retain the known range scope.
+		clear(info.Defs)
+		assert.Same(t, rangeScope, InnermostScopeAt(fset, info, pkg, positions["11"]))
+		assert.Same(t, rangeScope, InnermostScopeAt(fset, info, pkg, positions["33"]))
+	})
+
+	for _, tt := range []struct {
+		name   string
+		source string
+	}{
+		{name: "Range", source: "for _, value := range [11] { println 22 }"},
+		{name: "ForPhrase", source: "for value <- [11] { println 22 }"},
+		{name: "Comprehension", source: "println [22 for value <- [11]]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset, file, err := newTestFile("main.xgo", tt.source)
+			require.NoError(t, err)
+			outer := gotypes.NewScope(gotypes.Universe, file.Pos(), file.End(), "outer")
+			inner := gotypes.NewScope(outer, file.Pos(), file.End(), "inner")
+			info := newTestTypeInfo(nil, nil)
+			info.Scopes = map[ast.Node]*gotypes.Scope{file: outer}
+			var input, result token.Pos
+			ast.Inspect(file, func(node ast.Node) bool {
+				switch node := node.(type) {
+				case *ast.RangeStmt, *ast.ForPhraseStmt:
+					info.Scopes[node] = inner
+				case *ast.ComprehensionExpr:
+					for _, phrase := range node.Fors {
+						info.Scopes[phrase] = inner
+					}
+				case *ast.BasicLit:
+					switch node.Value {
+					case "11":
+						input = node.Pos()
+					case "22":
+						result = node.Pos()
+					}
+				}
+				return true
+			})
+			require.True(t, input.IsValid())
+			require.True(t, result.IsValid())
+			pkg := newTestPackage(map[string]*ast.File{"main.xgo": file})
+			assert.Same(t, outer, InnermostScopeAt(fset, info, pkg, input))
+			assert.Same(t, inner, InnermostScopeAt(fset, info, pkg, result))
+		})
+	}
+}

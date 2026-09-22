@@ -56,6 +56,7 @@ func IsXGoInternalName(name string) bool {
 		return true
 	}
 	return strings.HasPrefix(name, "XGo_") ||
+		strings.HasPrefix(name, XGooPrefix) ||
 		strings.HasPrefix(name, "Gop_") ||
 		strings.HasPrefix(name, "__xgo_") ||
 		strings.HasPrefix(name, "__gop_")

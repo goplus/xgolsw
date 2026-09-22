@@ -8,7 +8,6 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/xgo"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // classBaseTypes resolves registered framework base types from packages used by
@@ -75,7 +74,7 @@ func classBaseTypes(proj *xgo.Project) map[*gotypes.Named]struct{} {
 		}
 	}
 	for pkgPath := range implicitPackages {
-		if pkg, err := proj.Importer.Import(pkgPath); err == nil {
+		if pkg, err := proj.Import(pkgPath); err == nil {
 			visitPackage(pkg)
 		}
 	}
@@ -103,7 +102,7 @@ func classTypeForFile(proj *xgo.Project, file *ast.File) *gotypes.Named {
 	if info == nil {
 		return nil
 	}
-	name, _ := cl.GetFileClassType(file, xgoutil.NodeFilename(proj.Fset, file), proj.Module().LookupClass)
+	name, _ := cl.GetFileClassType(file, proj.Fset.PositionFor(file.Pos(), false).Filename, proj.Module().LookupClass)
 	obj, ok := info.Pkg.Scope().Lookup(name).(*gotypes.TypeName)
 	if !ok {
 		return nil

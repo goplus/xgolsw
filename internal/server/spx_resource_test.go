@@ -70,7 +70,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 		assert.Nil(t, other.Costume("step"))
 		assert.Nil(t, other.Animation("walk"))
 
-		for _, id := range []SpxResourceID{
+		for _, id := range []resourceID{
 			SpxBackdropResourceID{BackdropName: "Studio"},
 			SpxSoundResourceID{SoundName: "Beep"},
 			SpxSpriteResourceID{SpriteName: "Runner"},
@@ -80,7 +80,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 		} {
 			assert.True(t, set.Contains(id), "%s", id.URI())
 		}
-		for _, id := range []SpxResourceID{
+		for _, id := range []resourceID{
 			SpxBackdropResourceID{BackdropName: "Beep"},
 			SpxSoundResourceID{SoundName: "Studio"},
 			SpxSpriteResourceID{SpriteName: "missing"},
@@ -261,7 +261,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 func TestSpxResourceSetContains(t *testing.T) {
 	t.Run("ZeroValue", func(t *testing.T) {
 		var set SpxResourceSet
-		for _, id := range []SpxResourceID{
+		for _, id := range []resourceID{
 			SpxBackdropResourceID{BackdropName: "Studio"},
 			SpxSoundResourceID{SoundName: "Beep"},
 			SpxSpriteResourceID{SpriteName: "Runner"},
@@ -416,6 +416,55 @@ func TestFormatSpxSpriteAnimationResourceContextURI(t *testing.T) {
 }
 
 func TestParseSpxResourceURI(t *testing.T) {
+	t.Run("ResourceNames", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			id   resourceID
+		}{
+			{"Backdrop", SpxBackdropResourceID{"day/night"}},
+			{"Sound", SpxSoundResourceID{"group/beep"}},
+			{"Sprite", SpxSpriteResourceID{"group/Runner"}},
+			{"Costume", SpxSpriteCostumeResourceID{"Runner", "idle/front"}},
+			{"Animation", SpxSpriteAnimationResourceID{"Runner", "walk/left"}},
+			{"SpriteContext", SpxSpriteCostumeResourceID{"group/Runner", "idle/front"}},
+			{"Widget", SpxWidgetResourceID{"group/Score"}},
+			{"ReservedCharacters", SpxBackdropResourceID{"100%/?#"}},
+			{"Dot", SpxBackdropResourceID{"."}},
+			{"DotDot", SpxSpriteCostumeResourceID{"Runner", ".."}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				got, err := ParseSpxResourceURI(tt.id.URI())
+				require.NoError(t, err)
+				assert.Equal(t, tt.id, got)
+			})
+		}
+	})
+
+	t.Run("EmptyPathSegments", func(t *testing.T) {
+		for _, uri := range []SpxResourceURI{
+			"spx://resources/backdrops/",
+			"spx://resources//Studio",
+			"spx://resources/sprites//costumes/idle",
+			"spx://resources/sprites/Runner/costumes/",
+		} {
+			_, err := ParseSpxResourceURI(uri)
+			assert.Error(t, err, "%s", uri)
+		}
+	})
+
+	t.Run("ExtraPathSegments", func(t *testing.T) {
+		for _, uri := range []SpxResourceURI{
+			"spx://resources/backdrops/Studio/extra",
+			"spx://resources/sounds/Beep/extra",
+			"spx://resources/widgets/Score/extra",
+			"spx://resources/sprites/Runner/costumes/idle/extra",
+			"spx://resources/sprites/Runner/animations/walk/extra",
+		} {
+			_, err := ParseSpxResourceURI(uri)
+			assert.Error(t, err, "%s", uri)
+		}
+	})
+
 	t.Run("BackdropASCII", func(t *testing.T) {
 		id, err := ParseSpxResourceURI("spx://resources/backdrops/backdrop1")
 		require.NoError(t, err)

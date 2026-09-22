@@ -34,10 +34,10 @@ func TestCollectInlayHintsSpx(t *testing.T) {
 			}
 			s := newSpxIntegrationTestServer(t, files)
 
-			result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+			_, astFile := analyzeSpxTestFile(t, s, "MySprite.spx")
 			require.NotNil(t, astFile)
 
-			inlayHints := collectInlayHints(result.proj, astFile, 0, 0)
+			inlayHints := collectInlayHints(s.getProj(), astFile, 0, 0)
 			require.Len(t, inlayHints, len(tt.want))
 			for i, want := range tt.want {
 				assert.Equal(t, want, inlayHints[i])

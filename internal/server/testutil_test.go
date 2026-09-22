@@ -26,7 +26,7 @@ type testServerFactory func(testing.TB, map[string][]byte) *Server
 func requireNoDiagnostics(t testing.TB, s *Server) {
 	t.Helper()
 
-	result, err := s.diagnosticsAt(s.getProjWithFile())
+	result, err := s.diagnosticsAt(s.syncProject())
 	require.NoError(t, err)
 	for uri, diagnostics := range result.diagnostics {
 		require.Empty(t, diagnostics, "%s", uri)
@@ -40,7 +40,7 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 	proj.PkgPath = "main"
 	proj.SetModule(newTestModule(t, testframework.NewBaseModule(t).Module))
 	proj.Importer = testframework.NewBaseImporter(t, proj.Fset)
-	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{},
+	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{},
 		func() ([]string, error) { return nil, nil },
 		func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 			t.Helper()
@@ -91,7 +91,7 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 		}
 		return nil, fs.ErrNotExist
 	}
-	return newServer(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
 }
 
 func newTestModule(t testing.TB, config modload.Module) *xgo.Module {

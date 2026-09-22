@@ -207,7 +207,7 @@ func xgoUnitLiteralExpectedTypes(typeInfo *types.Info, path []ast.Node, lit ast.
 	}
 
 	for _, node := range path {
-		call := callExprFromNode(node)
+		call := callExprFromNode(typeInfo, node)
 		if call == nil {
 			continue
 		}
@@ -220,7 +220,7 @@ func xgoUnitLiteralExpectedTypes(typeInfo *types.Info, path []ast.Node, lit ast.
 			if !overloadMatchesCallExpr(typeInfo, call, overload, -1) {
 				continue
 			}
-			for resolvedArg := range resolvedOverloadCallExprArgs(typeInfo, call, overload) {
+			for resolvedArg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, call, overload) {
 				if resolvedArg.Arg == lit {
 					appendType(xgoUnitExpectedTypeForResolvedArg(resolvedArg))
 				}

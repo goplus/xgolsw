@@ -36,28 +36,65 @@ func InnermostScopeAt(fset *token.FileSet, typeInfo *types.Info, astPkg *ast.Pac
 		return nil
 	}
 
-	var scope *gotypes.Scope
 	for node := range PathEnclosingIntervalNodes(astFile, pos, pos, false) {
-		scope = typeInfo.Scopes[node]
+		if scope := ScopeAtNode(typeInfo, node, pos); scope != nil {
+			return scope
+		}
+	}
+	return nil
+}
+
+// ScopeAtNode returns the scope associated with node at pos, or nil when node
+// has no recorded scope. Range inputs precede iteration variables in evaluation
+// order. Comprehension elements run inside their clauses despite appearing first.
+func ScopeAtNode(typeInfo *types.Info, node ast.Node, pos token.Pos) *gotypes.Scope {
+	scope := typeInfo.Scopes[node]
+	var input ast.Expr
+	switch node := node.(type) {
+	case *ast.RangeStmt:
+		input = node.X
+	case *ast.ForPhrase:
+		input = node.X
+		if input.End() < pos {
+			scope = forPhraseBodyScope(typeInfo, node)
+		}
+	case *ast.ForPhraseStmt:
+		input = node.X
+	case *ast.ComprehensionExpr:
+		if node.Elt != nil && node.Elt.Pos() <= pos && pos <= node.Elt.End() && len(node.Fors) > 0 {
+			// The compiler evaluates for clauses from last to first.
+			return forPhraseBodyScope(typeInfo, node.Fors[0])
+		}
+	case *ast.FuncDecl:
 		if scope == nil {
-			// NOTE: For function declarations and literals without
-			// a direct scope, try to get the scope from their type
-			// or body.
-			switch n := node.(type) {
-			case *ast.FuncDecl:
-				// Try FuncType for function parameter/local variable scope.
-				scope = typeInfo.Scopes[n.Type]
-			case *ast.FuncLit:
-				// Try FuncType first, then Body for anonymous functions.
-				scope = typeInfo.Scopes[n.Type]
-				if scope == nil {
-					scope = typeInfo.Scopes[n.Body]
+			scope = typeInfo.Scopes[node.Type]
+		}
+	case *ast.FuncLit:
+		if scope == nil {
+			scope = typeInfo.Scopes[node.Type]
+			if scope == nil {
+				scope = typeInfo.Scopes[node.Body]
+			}
+		}
+	}
+	if scope != nil && input != nil && input.Pos() <= pos && pos <= input.End() {
+		return scope.Parent()
+	}
+	return scope
+}
+
+// forPhraseBodyScope includes variables declared by a comprehension filter's
+// initializer. The compiler records the range scope on the clause and the
+// filter scope on its declared objects, without recording the generated if node.
+func forPhraseBodyScope(info *types.Info, clause *ast.ForPhrase) *gotypes.Scope {
+	if init, ok := clause.Init.(*ast.AssignStmt); ok {
+		for _, expr := range init.Lhs {
+			if ident, ok := expr.(*ast.Ident); ok {
+				if obj := info.Defs[ident]; obj != nil && obj.Parent() != nil {
+					return obj.Parent()
 				}
 			}
 		}
-		if scope != nil {
-			break
-		}
 	}
-	return scope
+	return info.Scopes[clause]
 }

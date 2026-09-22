@@ -31,7 +31,7 @@ type callExprKwargTarget struct {
 // position. Kwarg names take precedence over generated identifiers at the same
 // source position.
 func objectAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) (ident *ast.Ident, obj gotypes.Object, kwargTarget *kwargNameTarget) {
-	kwargTarget = kwargNameTargetAtPosition(proj, typeInfo, astFile, position)
+	kwargTarget = kwargNameTargetAtPosition(proj, astFile, position)
 	if kwargTarget != nil {
 		return kwargTarget.ident, kwargTarget.obj, kwargTarget
 	}
@@ -46,9 +46,19 @@ func objectAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File
 	return
 }
 
+// sourceObjectAtPosition resolves the named source symbol, retaining an
+// overload declaration instead of its selected implementation.
+func sourceObjectAtPosition(proj *xgo.Project, info *types.Info, file *ast.File, position token.Position) (ident *ast.Ident, obj gotypes.Object, kwargTarget *kwargNameTarget) {
+	ident, obj, kwargTarget = objectAtPosition(proj, info, file, position)
+	if ident != nil && kwargTarget == nil {
+		obj = info.SourceObjectOf(ident)
+	}
+	return
+}
+
 // kwargNameTargetAtPosition resolves the kwarg target under position if the
 // cursor is on a kwarg name.
-func kwargNameTargetAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) *kwargNameTarget {
+func kwargNameTargetAtPosition(proj *xgo.Project, astFile *ast.File, position token.Position) *kwargNameTarget {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	pos := tokenFile.Pos(position.Offset)
 
@@ -59,6 +69,10 @@ func kwargNameTargetAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile 
 			continue
 		}
 		if pos < kwargExpr.Name.Pos() || pos > kwargExpr.Name.End() {
+			return nil
+		}
+		typeInfo, _ := expressionTypeInfo(proj)
+		if typeInfo == nil {
 			return nil
 		}
 		return kwargNameTargetForPath(typeInfo, path, kwargExpr)
@@ -116,76 +130,10 @@ func resolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr) iter.Seq
 			if !overloadMatchesCallExpr(typeInfo, callExpr, overload, -1) {
 				continue
 			}
-			for resolvedArg := range resolvedOverloadCallExprArgs(typeInfo, callExpr, overload) {
+			for resolvedArg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, callExpr, overload) {
 				if !yield(resolvedArg) {
 					return
 				}
-			}
-		}
-	}
-}
-
-// resolvedOverloadCallExprArgs returns call arguments resolved against one
-// matching overload.
-func resolvedOverloadCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overload *gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
-	return func(yield func(xgoutil.ResolvedCallExprArg) bool) {
-		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
-			return
-		}
-		var kwarg *xgoutil.ResolvedCallExprKwarg
-		if len(callExpr.Kwargs) > 0 {
-			kwarg = resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
-			if kwarg == nil {
-				return
-			}
-		}
-
-		for i, arg := range callExpr.Args {
-			paramIndex := i
-			if kwarg != nil && i >= kwarg.ParamIndex {
-				paramIndex++
-			}
-			param, paramIndex := callExprParam(sig, params, paramIndex)
-			if param == nil {
-				return
-			}
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Fun:          overload,
-				Params:       params,
-				Param:        param,
-				ParamIndex:   paramIndex,
-				Arg:          arg,
-				ArgIndex:     i,
-				Kind:         xgoutil.ResolvedCallExprArgPositional,
-				ExpectedType: callExprArgType(sig, params, paramIndex),
-			}) {
-				return
-			}
-		}
-
-		if kwarg == nil {
-			return
-		}
-		for i, kwargExpr := range callExpr.Kwargs {
-			target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, kwargExpr.Name.Name)
-			var expectedType gotypes.Type
-			if target != nil {
-				expectedType = target.ValueType
-			}
-			if !yield(xgoutil.ResolvedCallExprArg{
-				Fun:          overload,
-				Params:       params,
-				Param:        kwarg.Param,
-				ParamIndex:   kwarg.ParamIndex,
-				Arg:          kwargExpr.Value,
-				ArgIndex:     len(callExpr.Args) + i,
-				Kind:         xgoutil.ResolvedCallExprArgKeyword,
-				Kwarg:        kwargExpr,
-				ExpectedType: expectedType,
-				KwargTarget:  target,
-			}) {
-				return
 			}
 		}
 	}
@@ -203,7 +151,7 @@ func resolveCallExprKwargsAtArgCount(typeInfo *types.Info, callExpr *ast.CallExp
 	overloads := callExprFuncOverloads(typeInfo, callExpr)
 	if len(overloads) == 0 {
 		_, sig, params := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-		if sig == nil || params == nil {
+		if sig == nil {
 			return nil
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, argCount)
@@ -216,7 +164,7 @@ func resolveCallExprKwargsAtArgCount(typeInfo *types.Info, callExpr *ast.CallExp
 	var kwargs []*xgoutil.ResolvedCallExprKwarg
 	for _, overload := range overloads {
 		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
+		if sig == nil {
 			continue
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, argCount)
@@ -280,7 +228,7 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 	var targets []callExprKwargTarget
 	for _, overload := range callExprFuncOverloads(typeInfo, callExpr) {
 		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil || params == nil {
+		if sig == nil {
 			continue
 		}
 		kwarg := resolvedCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args))
@@ -299,7 +247,7 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 // callExprFuncOverloads returns overloads available at callExpr. The recorded
 // declaration preserves all candidates after type checking selects one member.
 func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*gotypes.Func {
-	funIdent := callExprFunIdent(callExpr)
+	funIdent := xgoutil.CallExprFunIdent(callExpr)
 	if funIdent == nil {
 		return nil
 	}
@@ -337,41 +285,16 @@ func (s *Server) objectDefinitionLocation(proj *xgo.Project, typeInfo *types.Inf
 
 // kwargReferenceLocations returns all kwarg-name locations that resolve to obj.
 func (s *Server) kwargReferenceLocations(proj *xgo.Project, obj gotypes.Object) []Location {
-	typeInfo, _ := proj.TypeInfo()
-	if typeInfo == nil {
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
 		return nil
 	}
-	astPkg, _ := proj.ASTPackage()
-	if astPkg == nil {
-		return nil
-	}
-
-	var locations []Location
-	for _, astFile := range astPkg.Files {
-		ast.Inspect(astFile, func(node ast.Node) bool {
-			callExpr, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			for _, kwarg := range callExpr.Kwargs {
-				for _, target := range lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name) {
-					if !kwargTargetMatchesObject(target.target, obj) {
-						continue
-					}
-					locations = append(locations, s.locationForNode(proj, kwarg.Name))
-				}
-			}
-			return true
-		})
+	refs := source.kwargs[types.ObjectOrigin(obj)]
+	locations := make([]Location, 0, len(refs))
+	for _, ref := range refs {
+		locations = append(locations, s.locationForNode(proj, ref.ident))
 	}
 	return locations
-}
-
-// kwargTargetMatchesObject reports whether target resolves to obj.
-func kwargTargetMatchesObject(target *xgoutil.ResolvedCallExprKwargTarget, obj gotypes.Object) bool {
-	targetObj := kwargTargetObject(target)
-	return targetObj != nil && targetObj == obj
 }
 
 // kwargTargetObject returns the field or method resolved by target.
@@ -394,7 +317,7 @@ func kwargRenameText(obj gotypes.Object, newName string) string {
 		return ""
 	}
 	if _, ok := obj.(*gotypes.Func); ok {
-		return lowerFirstASCII(newName)
+		return xgoutil.ToLowerCamelCase(newName)
 	}
 	r, size := utf8.DecodeRuneInString(newName)
 	return string(unicode.ToLower(r)) + newName[size:]
@@ -426,16 +349,4 @@ func upperFirstASCII(name string) string {
 		return name
 	}
 	return string(first-('a'-'A')) + name[1:]
-}
-
-// lowerFirstASCII lowercases the first ASCII letter in name.
-func lowerFirstASCII(name string) string {
-	if name == "" {
-		return ""
-	}
-	first := name[0]
-	if first < 'A' || first > 'Z' {
-		return name
-	}
-	return string(first+('a'-'A')) + name[1:]
 }

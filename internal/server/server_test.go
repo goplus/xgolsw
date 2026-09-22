@@ -440,17 +440,19 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 	replier := newMockReplier()
 	server.replier = replier
 	initializeServerForTest(t, server, replier)
-	var changeCount int
 	t.Cleanup(func() {
-		// Wait for every background diagnostic notification before the test ends.
+		// Wait for the latest background diagnostics before the test ends.
 		require.Eventually(t, func() bool {
+			server.projectMu.Lock()
+			running := server.diagnosticsRunning
+			server.projectMu.Unlock()
 			var diagnosticCount int
 			for _, message := range replier.getMessages() {
 				if notification, ok := message.(*jsonrpc2.Notification); ok && notification.Method() == "textDocument/publishDiagnostics" {
 					diagnosticCount++
 				}
 			}
-			return diagnosticCount == changeCount
+			return !running && diagnosticCount > 0
 		}, 5*time.Second, time.Millisecond)
 	})
 
@@ -485,7 +487,6 @@ func TestHandleMessageNotificationOrdering(t *testing.T) {
 		notification, err := jsonrpc2.NewNotification("textDocument/didChange", params)
 		require.NoError(t, err)
 		require.NoError(t, server.HandleMessage(notification))
-		changeCount++
 	}
 
 	file, ok := project.File("main.xgo")

@@ -4,18 +4,61 @@ import (
 	"bytes"
 	gotypes "go/types"
 	"io/fs"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/format"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/testframework"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentFormatting(t *testing.T) {
+	t.Run("ConcurrentRequests", func(t *testing.T) {
+		const source = "var value int\nfunc Work() { value = measure(1) }\n"
+		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
+		proj := s.getProj()
+		fallback := proj.Importer
+		var activeImports, concurrentImports atomic.Int32
+		proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+			if activeImports.Add(1) > 1 {
+				concurrentImports.Add(1)
+			}
+			defer activeImports.Add(-1)
+			runtime.Gosched()
+			return fallback.Import(path)
+		})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		errs := make([]error, 16)
+		for i := range errs {
+			wg.Go(func() {
+				<-start
+				if i%2 == 0 {
+					_, errs[i] = formatSource(proj, "main_fixture.gox", []byte(source))
+				} else {
+					_, errs[i] = s.textDocumentDocumentHighlight(&DocumentHighlightParams{
+						TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+							Position:     Position{Character: 5},
+						},
+					})
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		assert.Zero(t, concurrentImports.Load())
+	})
+
 	t.Run("CallbackOverloads", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string
@@ -24,6 +67,7 @@ func TestServerTextDocumentFormatting(t *testing.T) {
 			call         string
 			newServer    testServerFactory
 			wantUnused   int
+			tuple        bool
 		}{
 			{
 				name: "Function", filename: "main.xgo", call: "handle", newServer: newTestServer,
@@ -34,6 +78,14 @@ func handle = (
 	handleValue
 )
 `,
+			},
+			{
+				name: "TupleOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true,
+				declarations: "func handleEmpty(name string, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
+			},
+			{
+				name: "TupleOtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true, wantUnused: 1,
+				declarations: "func handleEmpty(name int, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
 			},
 			{
 				name: "OtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
@@ -48,6 +100,10 @@ func handle = (
 			{
 				name: "NoOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
 				declarations: "func handle(name string, callback func(int)) {}\n",
+			},
+			{
+				name: "FunctionValue", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
+				declarations: "var handle = func(name string, callback func(int)) {}\n",
 			},
 			{name: "ProjectMethod", filename: "main_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
 			{name: "WorkMethod", filename: "Worker_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
@@ -64,8 +120,14 @@ func handle = (
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := tt.declarations + "func run() {\n\t" + tt.call + " \"event\", (value) => { println \"unused\" }\n\t" +
-					tt.call + " \"event\", (value) => { println value }\n}\n"
+				call := func(body string) string {
+					args := "\"event\", (value) => { println " + body + " }"
+					if tt.tuple {
+						return tt.call + "((" + args + "))"
+					}
+					return tt.call + " " + args
+				}
+				source := tt.declarations + "func run() {\n\t" + call("\"unused\"") + "\n\t" + call("value") + "\n}\n"
 				files := map[string][]byte{tt.filename: []byte(source)}
 				if tt.name == "WorkMethod" {
 					files["main_fixture.gox"] = nil
@@ -217,7 +279,8 @@ func handle = (
 
 	t.Run("FileUpdates", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("onStart => {\n\techo \"old\"\n}\n"),
+			"main_fixture.gox":   []byte("onStart => {\n\techo \"old\"\n}\n"),
+			"Worker_fixture.gox": nil,
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -1184,7 +1247,18 @@ onStart => {
 	})
 }
 
-func TestOverloadResolvedCallExprArgType(t *testing.T) {
+func TestFormatClassDecls(t *testing.T) {
+	t.Run("LineDirectives", func(t *testing.T) {
+		s := newFrameworkTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte("func run() {\n// Inside.\n_ = 1\n//line virtual.xgo:1\n}\n"),
+		})
+		formatted, err := formatClassDecls(s.getProj(), "main_fixture.gox")
+		require.NoError(t, err)
+		assert.Equal(t, "func run() {\n\t// Inside.\n\t_ = 1\n//line virtual.xgo:1\n}\n", string(formatted))
+	})
+}
+
+func TestMatchOverloadCallExprArg(t *testing.T) {
 	pkg := gotypes.NewPackage("main", "main")
 	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
 	handlerField := gotypes.NewField(token.NoPos, pkg, "Handler", handlerType, false)
@@ -1215,11 +1289,8 @@ func TestOverloadResolvedCallExprArgType(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got := overloadResolvedCallExprArgType(nil, callExpr, overload, xgoutil.ResolvedCallExprArg{
-			Kind:       xgoutil.ResolvedCallExprArgKeyword,
-			Kwarg:      kwarg,
-			ParamIndex: 0,
-		})
+		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, overload, kwarg.Value, -1)
+		require.True(t, matches)
 		assert.True(t, gotypes.Identical(handlerType, got))
 	})
 
@@ -1240,11 +1311,8 @@ func TestOverloadResolvedCallExprArgType(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got := overloadResolvedCallExprArgType(nil, callExpr, variadicOverload, xgoutil.ResolvedCallExprArg{
-			Kind:       xgoutil.ResolvedCallExprArgPositional,
-			ArgIndex:   0,
-			ParamIndex: 0,
-		})
+		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, variadicOverload, callExpr.Args[0], -1)
+		require.True(t, matches)
 		assert.True(t, gotypes.Identical(gotypes.Typ[gotypes.Int], got))
 	})
 }

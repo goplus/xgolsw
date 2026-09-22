@@ -5,7 +5,6 @@ import (
 	"iter"
 	"strings"
 
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -17,6 +16,7 @@ import (
 type typeDisplay struct {
 	qualifier   gotypes.Qualifier
 	unqualified func(*gotypes.TypeName) bool
+	sourceName  func(*gotypes.TypeName) (string, bool)
 }
 
 // newTypeDisplay resolves package qualifiers at pos in file. The result belongs
@@ -25,68 +25,79 @@ type typeDisplay struct {
 func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDisplay {
 	info, _ := proj.TypeInfo()
 	scope := info.Pkg.Scope()
-	var lookups []*gotypes.Package
+	bindings := importsForFile(proj, file)
+	lookups := bindings.members
 	imports := make(map[*gotypes.Package][]*gotypes.PkgName)
+	for _, name := range bindings.names {
+		imports[name.Imported()] = append(imports[name.Imported()], name)
+	}
 	if file != nil {
 		astPkg, _ := proj.ASTPackage()
 		if inner := xgoutil.InnermostScopeAt(proj.Fset, info, astPkg, pos); inner != nil {
 			scope = inner
 		}
-		if file.IsClass {
-			filename := xgoutil.NodeFilename(proj.Fset, file)
-			if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
-				for _, pkgPath := range class.PkgPaths {
-					if pkg, err := proj.Importer.Import(pkgPath); err == nil {
-						lookups = append(lookups, pkg)
-					}
-				}
-			}
-		}
-		for _, spec := range file.Imports {
-			var obj gotypes.Object
-			if spec.Name != nil {
-				obj = info.Defs[spec.Name]
-			} else {
-				obj = info.Implicits[spec]
-			}
-			name, ok := obj.(*gotypes.PkgName)
-			if !ok {
-				continue
-			}
-			switch name.Name() {
-			case ".":
-				lookups = append(lookups, name.Imported())
-			case "_":
-			default:
-				imports[name.Imported()] = append(imports[name.Imported()], name)
-			}
-		}
 	}
 
-	// XGo records imports in a file scope that is not necessarily a parent
-	// of function scopes. Consult it after local and package declarations.
+	// Named imports only resolve package qualifiers. They do not hide bare
+	// names from classfile lookup packages or dot imports.
 	lookup := func(name string) gotypes.Object {
+		for current := scope; current != nil; {
+			at, obj := current.LookupParent(name, pos)
+			if _, imported := obj.(*gotypes.PkgName); !imported {
+				return obj
+			}
+			current = at.Parent()
+		}
+		return nil
+	}
+
+	unqualified := func(obj *gotypes.TypeName) bool {
+		if obj.Pkg() == info.Pkg {
+			visible := lookup(obj.Name())
+			return visible == nil || visible == obj
+		}
+		if visible := lookup(obj.Name()); visible != nil {
+			return visible == obj
+		}
+		var found gotypes.Object
+		for _, pkg := range lookups {
+			if candidate := pkg.Scope().Lookup(obj.Name()); candidate != nil && candidate.Exported() {
+				if found != nil {
+					return false
+				}
+				found = candidate
+			}
+		}
+		return found == obj
+	}
+	// A class member can shadow a type in expression context, including the
+	// function position of a conversion. Type annotations have no such conflict.
+	class := classTypeForFile(proj, file)
+	var resolver autoPropertyResolver
+	if class != nil {
+		resolver = autoPropertyResolver{proj: proj, receiver: gotypes.NewPointer(class)}
+	}
+	sourceLookup := func(name string) gotypes.Object {
 		at, obj := scope.LookupParent(name, pos)
-		if obj != nil && at != gotypes.Universe {
+		if obj != nil && at != info.Pkg.Scope() && at != gotypes.Universe && at != info.Scopes[file] {
 			return obj
 		}
-		if fileScope := info.Scopes[file]; fileScope != nil {
-			if imported := fileScope.Lookup(name); imported != nil {
-				return imported
+		if class != nil {
+			if member := resolver.resolve(name).object; member != nil {
+				return member
 			}
 		}
-		return obj
+		return lookup(name)
 	}
-
 	return typeDisplay{qualifier: func(pkg *gotypes.Package) string {
 		for _, name := range imports[pkg] {
-			if lookup(name.Name()) == name {
+			if obj := lookup(name.Name()); obj == nil || obj.Parent() == gotypes.Universe {
 				return name.Name()
 			}
 		}
 		// Keep inaccessible packages identifiable, including shadowed import
 		// names and types from packages absent from this file's imports.
-		if lookup(pkg.Name()) != nil {
+		if lookup(pkg.Name()) != nil || bindings.named[pkg.Name()] != nil {
 			return pkg.Path()
 		}
 		for imported := range imports {
@@ -100,25 +111,43 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			}
 		}
 		return pkg.Name()
-	}, unqualified: func(obj *gotypes.TypeName) bool {
-		if obj.Pkg() == info.Pkg {
-			visible := lookup(obj.Name())
-			return visible == nil || visible == obj
-		}
-		if visible := lookup(obj.Name()); visible != nil {
-			return visible == obj
-		}
-		var found gotypes.Object
-		for _, pkg := range lookups {
-			if candidate := pkg.Scope().Lookup(obj.Name()); candidate != nil && candidate.Exported() {
-				if found != nil && found != candidate {
-					return false
-				}
-				found = candidate
+	}, unqualified: unqualified, sourceName: func(obj *gotypes.TypeName) (string, bool) {
+		if unqualified(obj) {
+			if visible := sourceLookup(obj.Name()); visible == nil || visible == obj {
+				return obj.Name(), true
 			}
 		}
-		return found == obj
+		if !obj.Exported() {
+			return "", false
+		}
+		for _, name := range imports[obj.Pkg()] {
+			if visible := sourceLookup(name.Name()); visible == nil || visible.Parent() == gotypes.Universe {
+				return name.Name() + "." + obj.Name(), true
+			}
+		}
+		return "", false
 	}}
+}
+
+// sourceTypeString formats a type only when every name resolves in the source
+// context. Display-only package qualifiers cannot be used in generated edits.
+func (d typeDisplay) sourceTypeString(typ gotypes.Type) (string, bool) {
+	unqualified := make(map[*gotypes.TypeName]bool)
+	qualifiers := make(map[*gotypes.Package]string)
+	for obj := range displayedTypeNames(typ) {
+		name, ok := d.sourceName(obj)
+		if !ok {
+			return "", false
+		}
+		if qualifier, _, qualified := strings.Cut(name, "."); qualified {
+			qualifiers[obj.Pkg()] = qualifier
+		} else {
+			unqualified[obj] = true
+		}
+	}
+	d.unqualified = func(obj *gotypes.TypeName) bool { return unqualified[obj] }
+	d.qualifier = func(pkg *gotypes.Package) string { return qualifiers[pkg] }
+	return d.typeString(typ), true
 }
 
 // typeString formats a type using the source context's package qualifiers.
@@ -145,6 +174,9 @@ func (d typeDisplay) typeString(typ gotypes.Type) string {
 	// throughout that type to avoid confusing it with the visible name.
 	short := make(map[*gotypes.Package]bool)
 	for obj := range displayedTypeNames(typ) {
+		if _, parameter := obj.Type().(*gotypes.TypeParam); parameter {
+			continue
+		}
 		pkg := obj.Pkg()
 		if value, seen := short[pkg]; !seen || value {
 			short[pkg] = d.unqualified(obj)
@@ -203,6 +235,14 @@ func displayedTypeNames(typ gotypes.Type) iter.Seq[*gotypes.TypeName] {
 					if !yield(gotypes.Unsafe.Scope().Lookup("Pointer").(*gotypes.TypeName)) {
 						return
 					}
+				} else if obj, ok := gotypes.Universe.Lookup(typ.Name()).(*gotypes.TypeName); ok {
+					if !yield(obj) {
+						return
+					}
+				}
+			case *gotypes.TypeParam:
+				if !yield(typ.Obj()) {
+					return
 				}
 			case *gotypes.Map:
 				pending = append(pending, typ.Key(), typ.Elem())
@@ -247,7 +287,10 @@ func (d typeDisplay) sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tu
 			typeName = "..." + d.typeString(slice.Elem())
 		}
 	}
-	return xgoutil.SourceParamName(param) + " " + typeName
+	if name := xgoutil.SourceParamName(param); name != "" {
+		return name + " " + typeName
+	}
+	return typeName
 }
 
 // displayedFuncName resolves the source-facing function display name used by

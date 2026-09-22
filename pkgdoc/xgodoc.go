@@ -17,6 +17,9 @@
 package pkgdoc
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
@@ -39,14 +42,18 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 		Funcs:  make(map[string]string),
 	}
 
-	for _, astFile := range pkg.Files {
+	filenames := slices.Sorted(maps.Keys(pkg.Files))
+	// Select the first documented file in source filename order.
+	for _, filename := range filenames {
+		astFile := pkg.Files[filename]
 		if astFile.Doc != nil {
 			pkgDoc.Doc = astFile.Doc.Text()
 			break
 		}
 	}
 
-	for filename, astFile := range pkg.Files {
+	for _, filename := range filenames {
+		astFile := pkg.Files[filename]
 		var classTypeDoc *TypeDoc
 		if astFile.IsClass {
 			className, _ := cl.GetFileClassType(astFile, filename, lookupClass)

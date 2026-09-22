@@ -33,6 +33,8 @@ func buildPkgDocCache(proj *Project) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	proj.astMu.Lock()
+	defer proj.astMu.Unlock()
 	return &pkgDocCache{pkgdoc.NewXGo(proj.PkgPath, pkg, proj.Module().LookupClass)}, nil
 }
 

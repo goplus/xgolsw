@@ -3,8 +3,8 @@ package server
 import (
 	"bytes"
 	"cmp"
+	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
@@ -56,16 +56,15 @@ func UTF16PosToUTF8Offset(s string, utf16Pos int) int {
 		return 0
 	}
 
-	var utf16Units, utf8Bytes int
-	for _, r := range s {
+	var utf16Units int
+	for offset, r := range s {
 		nextUTF16Units := utf16Units + utf16.RuneLen(r)
 		if nextUTF16Units > utf16Pos {
-			break
+			return offset
 		}
 		utf16Units = nextUTF16Units
-		utf8Bytes += utf8.RuneLen(r)
 	}
-	return utf8Bytes
+	return len(s)
 }
 
 // trimLineEnding returns content without a trailing line ending.
@@ -163,7 +162,11 @@ func FromPosition(proj *xgo.Project, astFile *ast.File, position token.Position)
 func ToPosition(proj *xgo.Project, astFile *ast.File, position Position) token.Position {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 
-	line := min(int(position.Line)+1, tokenFile.LineCount())
+	// Go's line table omits the empty line after a trailing newline.
+	if int(position.Line) >= tokenFile.LineCount() {
+		return tokenFile.PositionFor(tokenFile.Pos(tokenFile.Size()), false)
+	}
+	line := int(position.Line) + 1
 	lineStart := int(tokenFile.LineStart(line))
 	relLineStart := lineStart - tokenFile.Base()
 	lineContent := astFile.Code[relLineStart:]
@@ -198,28 +201,30 @@ func RangeForASTFilePosition(proj *xgo.Project, astFile *ast.File, position toke
 	return Range{Start: p, End: p}
 }
 
-// RangeForASTFileNode returns the [Range] for the given node in the given AST file.
+// RangeForASTFileNode returns the physical source [Range] for the given node,
+// ignoring line directives.
 func RangeForASTFileNode(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
 	fset := proj.Fset
 	return Range{
-		Start: FromPosition(proj, astFile, fset.Position(node.Pos())),
-		End:   FromPosition(proj, astFile, fset.Position(node.End())),
+		Start: FromPosition(proj, astFile, fset.PositionFor(node.Pos(), false)),
+		End:   FromPosition(proj, astFile, fset.PositionFor(node.End(), false)),
 	}
 }
 
-// RangeForPos returns the [Range] for the given position.
+// RangeForPos returns the physical source [Range] for pos, ignoring line directives.
 func RangeForPos(proj *xgo.Project, pos token.Pos) Range {
 	astPkg, _ := proj.ASTPackage()
-	return RangeForASTFilePosition(proj, xgoutil.PosASTFile(proj.Fset, astPkg, pos), proj.Fset.Position(pos))
+	return RangeForASTFilePosition(proj, xgoutil.PosASTFile(proj.Fset, astPkg, pos), proj.Fset.PositionFor(pos, false))
 }
 
-// RangeForPosEnd returns the [Range] for the given pos and end positions.
+// RangeForPosEnd returns the physical source [Range] between pos and end,
+// ignoring line directives.
 func RangeForPosEnd(proj *xgo.Project, pos, end token.Pos) Range {
 	astPkg, _ := proj.ASTPackage()
 	astFile := xgoutil.PosASTFile(proj.Fset, astPkg, pos)
 	return Range{
-		Start: FromPosition(proj, astFile, proj.Fset.Position(pos)),
-		End:   FromPosition(proj, astFile, proj.Fset.Position(end)),
+		Start: FromPosition(proj, astFile, proj.Fset.PositionFor(pos, false)),
+		End:   FromPosition(proj, astFile, proj.Fset.PositionFor(end, false)),
 	}
 }
 
@@ -246,7 +251,7 @@ func sourceASTFile(proj *xgo.Project, pos token.Pos) *ast.File {
 // basicLitEnd returns the source end of a literal in astFile,
 // including carriage returns omitted from raw string values by the parser.
 func basicLitEnd(fset *token.FileSet, astFile *ast.File, lit *ast.BasicLit) token.Pos {
-	if lit.Kind != token.STRING || lit.Value[0] != '`' {
+	if lit.Kind != token.STRING || !strings.HasPrefix(lit.Value, "`") {
 		return lit.End()
 	}
 	file := fset.File(lit.Pos())

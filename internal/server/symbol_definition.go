@@ -16,6 +16,15 @@ type symbolDefinition struct {
 	// TypeHint represents a type hint for this definition. It may be nil if
 	// the definition has no associated type.
 	TypeHint gotypes.Type
+	Function *gotypes.Func
+
+	// SourceObject is the source declaration before overload expansion.
+	// Function supplies the implementation signature and documentation.
+	SourceObject gotypes.Object
+
+	// AutoPropertyType is the inferred result of an implicit call.
+	// It distinguishes a property returning a function from a method value.
+	AutoPropertyType gotypes.Type
 
 	ID       XGoDefinitionIdentifier
 	Overview string
@@ -75,9 +84,16 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 		case *gotypes.TypeName:
 			defs = append(defs, d.definitionForType(obj, pkgDoc))
 		case *gotypes.Func:
+			// Template methods are selected through their receiver. Their
+			// display names do not resolve as package-level functions.
+			if xgoutil.IsMarkedAsXGoPackage(pkg) && xgoutil.IsXGotMethodName(obj.Name()) {
+				continue
+			}
 			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 				for _, funcOverload := range funcOverloads {
-					defs = append(defs, d.definitionForFunc(funcOverload, "", pkgDoc))
+					def := d.definitionForFunc(funcOverload, "", pkgDoc)
+					def.SourceObject = obj
+					defs = append(defs, def)
 				}
 			} else {
 				defs = append(defs, d.definitionForFunc(obj, "", pkgDoc))
@@ -117,7 +133,8 @@ func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, f
 		idName = selectorTypeName + "." + idName
 	}
 	return symbolDefinition{
-		TypeHint: v.Type(),
+		TypeHint:     v.Type(),
+		SourceObject: v,
 
 		ID: XGoDefinitionIdentifier{
 			Package: ToPtr(xgoutil.PkgPath(v.Pkg())),
@@ -222,7 +239,9 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		idName = recvTypeName + "." + idName
 	}
 	return symbolDefinition{
-		TypeHint: fun.Type(),
+		TypeHint:     fun.Type(),
+		Function:     fun,
+		SourceObject: fun,
 
 		ID: XGoDefinitionIdentifier{
 			Package:    ToPtr(xgoutil.PkgPath(fun.Pkg())),
@@ -237,6 +256,21 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		CompletionItemInsertText:       parsedName,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
+}
+
+// functionValueName preserves the declared spelling needed to refer to a
+// function value instead of invoking a lowercase XGo alias.
+func functionValueName(fun *gotypes.Func) string {
+	name := fun.Name()
+	if xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) {
+		if _, method, ok := xgoutil.SplitXGotMethodName(name, true); ok {
+			return method
+		}
+		if function, ok := xgoutil.SplitXGoxFuncName(name); ok {
+			return function
+		}
+	}
+	return name
 }
 
 // definitionForPkg describes the provided package import.

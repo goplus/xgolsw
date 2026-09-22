@@ -16,7 +16,7 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -25,28 +25,37 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	links, err := s.documentLinksForSpxResources(proj, filename)
+	links, err := documentLinksForResources(proj, filename)
 	if err != nil {
 		return nil, err
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil, nil
 	}
+	enums, err := enumInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
 	ctx := &definitionContext{
 		proj:         proj,
-		enumInfo:     newEnumInfo(astPkg, typeInfo),
+		enumInfo:     enums,
 		lookupPkgDoc: s.lookupPkgDoc,
 	}
 
 	// Resolve kwarg names from their call context. The compiler can record
 	// generated field, method, and factory identifiers at these positions.
 	kwargNames := make(map[token.Pos]struct{})
+	seenCalls := make(map[*ast.CallExpr]bool)
 	ast.Inspect(astFile, func(node ast.Node) bool {
 		callExpr, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
+		if seenCalls[callExpr] {
+			return false
+		}
+		seenCalls[callExpr] = true
 		for _, kwarg := range callExpr.Kwargs {
 			kwargNames[kwarg.Name.Pos()] = struct{}{}
 			linkRange := RangeForNode(proj, kwarg.Name)
@@ -70,10 +79,13 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	})
 
 	// Add links for symbol definitions and uses in this file.
+	file := xgoutil.NodeTokenFile(proj.Fset, astFile)
+	seenIdents := make(map[*ast.Ident]bool)
 	addLinksForIdent := func(ident *ast.Ident) {
-		if ident.Implicit() || xgoutil.NodeFilename(proj.Fset, ident) != filename {
+		if seenIdents[ident] || !xgoutil.IsSourceIdent(file, astFile.Code, ident) {
 			return
 		}
+		seenIdents[ident] = true
 		if _, ok := kwargNames[ident.Pos()]; ok {
 			return
 		}

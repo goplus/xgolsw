@@ -27,6 +27,29 @@ type enumInfo struct {
 	regularConstsByObject map[*gotypes.Const]struct{}
 }
 
+// enumInfoCacheKind identifies the source-level enum index for a project state.
+type enumInfoCacheKind struct{}
+
+// buildEnumInfoCache indexes enums and ordinary constants in the project.
+func buildEnumInfoCache(proj *xgo.Project) (any, error) {
+	// Share completed types and syntax, then pin them against concurrent edits.
+	// If an edit invalidates the types first, Snapshot rebuilds its own syntax.
+	proj.TypeInfo()
+	proj = proj.Snapshot()
+	astPkg, _ := proj.ASTPackage()
+	typeInfo, _ := proj.TypeInfo()
+	return newEnumInfo(astPkg, typeInfo), nil
+}
+
+// enumInfoForProject retrieves the cached enum index, including partial type information.
+func enumInfoForProject(proj *xgo.Project) (*enumInfo, error) {
+	data, err := proj.Cache(enumInfoCacheKind{})
+	if err != nil {
+		return nil, err
+	}
+	return data.(*enumInfo), nil
+}
+
 // enumTypeInfo describes one source-level enum type.
 type enumTypeInfo struct {
 	name    string
@@ -343,7 +366,7 @@ func (i *enumInfo) membersForIdent(proj *xgo.Project, typeInfo *types.Info, iden
 	if len(members) == 0 {
 		return nil
 	}
-	context := enumContextAtIdent(proj, typeInfo, ident)
+	context := enumContextAtIdent(proj, ident)
 	if selected := i.membersForExpectedTypes(members, context.expectedTypes); len(selected) > 0 {
 		return selected
 	}
@@ -355,7 +378,11 @@ func (i *enumInfo) membersForIdent(proj *xgo.Project, typeInfo *types.Info, iden
 
 // enumContextAtIdent returns the enum context provided by ident's surrounding
 // expression.
-func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Ident) enumIdentContext {
+func enumContextAtIdent(proj *xgo.Project, ident *ast.Ident) enumIdentContext {
+	typeInfo, _ := expressionTypeInfo(proj)
+	if typeInfo == nil {
+		return enumIdentContext{}
+	}
 	astPkg, _ := proj.ASTPackage()
 	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, ident)
 	if astFile == nil {
@@ -436,6 +463,11 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 				pendingLambdaResultIndex = -1
 			}
 			continue
+		case *ast.TupleLit:
+			if slices.Contains(node.Elts, target) {
+				return contextForTypes(expectedExprTypes(typeInfo, path[pathIndex-1:]))
+			}
+			continue
 		case *ast.SliceLit:
 			if slices.Contains(node.Elts, target) {
 				typePath = append(typePath, enumTypePathPart{kind: enumTypePathElement})
@@ -478,7 +510,7 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 			continue
 		case *ast.ErrWrapExpr:
 			if node.Default == target {
-				if typ := enumErrWrapDefaultType(typeInfo, node); typ != nil {
+				if typ := errorWrapResultType(typeInfo, node); typ != nil {
 					return contextForType(typ)
 				}
 				target = node
@@ -491,7 +523,7 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 			continue
 		}
 
-		if call := callExprFromNode(node); call != nil {
+		if call := callExprFromNode(typeInfo, node); call != nil {
 			if builtinContext, ok := enumBuiltinCallContext(typeInfo, call, target, len(typePath) > 0); ok {
 				if builtinContext.status == enumContextDisallowed {
 					return builtinContext
@@ -501,7 +533,7 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 				}
 				return contextForTypes(builtinContext.expectedTypes)
 			}
-			expected, allowConversion := enumExpectedTypesForCallArg(typeInfo, call, target)
+			expected, allowConversion := expectedTypesForCallArg(typeInfo, call, target)
 			if len(expected) > 0 {
 				context := contextForTypes(expected)
 				context.allowConversion = allowConversion && len(typePath) == 0
@@ -577,7 +609,7 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 			addBasicTypeConstraint(gotypes.IsBoolean)
 			return contextForTypes(nil)
 		case *ast.CompositeLit:
-			context := enumCompositeElementContext(typeInfo, node, target)
+			context := enumCompositeElementContext(typeInfo, node, target, path[pathIndex:])
 			if context.status == enumContextUnknown {
 				continue
 			}
@@ -606,6 +638,13 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 			if node.X == target {
 				addBasicTypeConstraint(gotypes.IsInteger | gotypes.IsString)
 				return contextForTypes(nil)
+			}
+		case *ast.CondExpr:
+			if node.Cond == target {
+				if _, selector := node.Cond.(*ast.Ident); !selector {
+					addBasicTypeConstraint(gotypes.IsBoolean)
+					return contextForTypes(nil)
+				}
 			}
 		case *ast.RangeStmt:
 			if node.X == target {
@@ -719,21 +758,21 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 			}
 			if slices.Contains(node.Values, target) {
 				if typ := typeInfo.TypeOf(node.Chan); xgoutil.IsValidType(typ) {
-					switch underlying := typ.Underlying().(type) {
+					switch typ.Underlying().(type) {
 					case *gotypes.Chan:
 						if len(node.Values) != 1 || node.Ellipsis.IsValid() {
 							return enumIdentContext{status: enumContextDisallowed}
 						}
-						return contextForType(underlying.Elem())
+						return contextForTypes(sendValueTypes(typeInfo, node))
 					case *gotypes.Slice:
 						if node.Ellipsis.IsValid() {
-							if enumIsByteSlice(typ) {
+							if isByteSlice(typ) {
 								addBasicTypeConstraint(gotypes.IsString)
 								return contextForTypes(nil)
 							}
 							return enumIdentContext{status: enumContextDisallowed}
 						}
-						return contextForType(underlying.Elem())
+						return contextForTypes(sendValueTypes(typeInfo, node))
 					}
 				}
 				return contextForTypes(nil)
@@ -741,16 +780,6 @@ func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Iden
 		}
 	}
 	return enumIdentContext{}
-}
-
-// enumErrWrapDefaultType returns the non-error result type replaced by the
-// default expression.
-func enumErrWrapDefaultType(typeInfo *types.Info, expr *ast.ErrWrapExpr) gotypes.Type {
-	tuple, ok := typeInfo.TypeOf(expr.X).(*gotypes.Tuple)
-	if !ok || tuple.Len() != 2 {
-		return nil
-	}
-	return tuple.At(0).Type()
 }
 
 // enumBuiltinCallContext returns the enum context for a Go built-in argument.
@@ -762,19 +791,14 @@ func enumBuiltinCallContext(
 	target ast.Expr,
 	wrapped bool,
 ) (enumIdentContext, bool) {
-	ident, ok := call.Fun.(*ast.Ident)
-	if !ok {
-		return enumIdentContext{}, false
-	}
-	obj := typeInfo.ObjectOf(ident)
-	if _, ok := obj.(*gotypes.Builtin); !ok && !xgoutil.IsInBuiltinPkg(obj) {
+	name := builtinCallName(typeInfo, call)
+	if name == "" {
 		return enumIdentContext{}, false
 	}
 	argIndex := slices.Index(call.Args, target)
 	if argIndex < 0 {
 		return enumIdentContext{}, false
 	}
-	name := obj.Name()
 	if wrapped && name != "append" && name != "copy" {
 		return enumIdentContext{}, false
 	}
@@ -811,11 +835,7 @@ func enumBuiltinCallContext(
 			context.status = enumContextDisallowed
 			break
 		}
-		if typ := typeInfo.TypeOf(call.Args[0]); xgoutil.IsValidType(typ) {
-			if mapType, ok := typ.Underlying().(*gotypes.Map); ok {
-				context.expectedTypes = []gotypes.Type{mapType.Key()}
-			}
-		}
+		context.expectedTypes = builtinArgTypes(typeInfo, call, argIndex)
 	case "copy":
 		if wrapped {
 			if len(call.Args) != 2 {
@@ -831,7 +851,7 @@ func enumBuiltinCallContext(
 			context.expectedTypes = []gotypes.Type{otherType}
 		} else if argIndex == 0 {
 			context.status = enumContextDisallowed
-		} else if enumIsByteSlice(typeInfo.TypeOf(call.Args[0])) {
+		} else if isByteSlice(typeInfo.TypeOf(call.Args[0])) {
 			context.basicTypeConstraints = []gotypes.BasicInfo{gotypes.IsString}
 		} else {
 			context.status = enumContextDisallowed
@@ -856,18 +876,14 @@ func enumAppendBuiltinCallContext(
 			switch {
 			case wrapped && xgoutil.IsValidType(containerType):
 				context.expectedTypes = []gotypes.Type{containerType}
-			case enumIsByteSlice(containerType):
+			case isByteSlice(containerType):
 				context.basicTypeConstraints = []gotypes.BasicInfo{gotypes.IsString}
 			default:
 				context.status = enumContextDisallowed
 			}
 			return context, true
 		}
-		if xgoutil.IsValidType(containerType) {
-			if sliceType, ok := containerType.Underlying().(*gotypes.Slice); ok {
-				context.expectedTypes = []gotypes.Type{sliceType.Elem()}
-			}
-		}
+		context.expectedTypes = builtinArgTypes(typeInfo, call, argIndex)
 		return context, true
 	}
 
@@ -913,16 +929,6 @@ func enumAppendBuiltinCallContext(
 	return context, true
 }
 
-// enumIsByteSlice reports whether typ is the []byte type accepted by the
-// append and copy string special cases.
-func enumIsByteSlice(typ gotypes.Type) bool {
-	if !xgoutil.IsValidType(typ) {
-		return false
-	}
-	sliceType, ok := typ.Underlying().(*gotypes.Slice)
-	return ok && gotypes.Identical(gotypes.Unalias(sliceType.Elem()), gotypes.Typ[gotypes.Uint8])
-}
-
 // enumTypePathTargetType returns the type selected by typePath.
 func enumTypePathTargetType(typ gotypes.Type, typePath []enumTypePathPart) gotypes.Type {
 	if !xgoutil.IsValidType(typ) {
@@ -962,163 +968,53 @@ func enumTypePathTargetType(typ gotypes.Type, typePath []enumTypePathPart) gotyp
 	return typ
 }
 
-// enumExpectedTypesForCallArg returns expected types when target is a direct
-// call argument.
-func enumExpectedTypesForCallArg(
-	typeInfo *types.Info,
-	call *ast.CallExpr,
-	target ast.Expr,
-) ([]gotypes.Type, bool) {
-	var expected []gotypes.Type
-	expected = append(expected, enumExpectedTypesForTupleElement(typeInfo, call, target)...)
-
-	for resolvedArg := range resolvedCallExprArgs(typeInfo, call) {
-		if resolvedArg.Arg == target && xgoutil.IsValidType(resolvedArg.ExpectedType) {
-			expected = append(expected, resolvedArg.ExpectedType)
-		}
-	}
-	allowConversion := false
-	if len(call.Args) == 1 && call.Args[0] == target {
-		if tv, ok := typeInfo.Types[call.Fun]; ok && tv.IsType() && xgoutil.IsValidType(tv.Type) {
-			expected = append(expected, gotypes.Unalias(tv.Type))
-			allowConversion = true
-		}
-	}
-	return deduplicateTypes(expected), allowConversion
-}
-
-// enumExpectedTypesForTupleElement returns expected types when target is an
-// element of an expanded tuple argument.
-func enumExpectedTypesForTupleElement(
-	typeInfo *types.Info,
-	call *ast.CallExpr,
-	target ast.Expr,
-) []gotypes.Type {
-	if len(call.Args) != 1 || len(call.Kwargs) > 0 || call.Ellipsis.IsValid() {
-		return nil
-	}
-	tuple, ok := call.Args[0].(*ast.TupleLit)
-	if !ok {
-		return nil
-	}
-	elementIndex := slices.Index(tuple.Elts, target)
-	if elementIndex < 0 {
-		return nil
-	}
-
-	funcs := callExprFuncOverloads(typeInfo, call)
-	if len(funcs) == 0 {
-		if fun := xgoutil.FuncFromCallExpr(typeInfo, call); fun != nil {
-			funcs = []*gotypes.Func{fun}
-		}
-	}
-	var expected []gotypes.Type
-	for _, fun := range funcs {
-		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, call, fun)
-		if sig == nil || params == nil || params.Len() == 1 && enumIsTupleType(params.At(0).Type()) {
-			continue
-		}
-		if typ := callExprArgType(sig, params, elementIndex); xgoutil.IsValidType(typ) {
-			expected = append(expected, typ)
-		}
-	}
-	return deduplicateTypes(expected)
-}
-
-// enumIsTupleType reports whether typ uses XGo's generated tuple structure.
-func enumIsTupleType(typ gotypes.Type) bool {
-	strct, ok := typ.Underlying().(*gotypes.Struct)
-	return ok && strct.NumFields() > 0 && strct.Field(0).Name() == "X_0"
-}
-
-// enumEnclosingFunctionContext returns the nearest enclosing ordinary
-// function signature, or reports that the nearest function is a lambda.
+// enumEnclosingFunctionContext returns the nearest enclosing function's
+// contextual signature and reports whether that function is a lambda.
 func enumEnclosingFunctionContext(typeInfo *types.Info, path []ast.Node) (*gotypes.Signature, bool) {
-	for _, node := range path {
-		switch node := node.(type) {
+	for index, node := range path {
+		switch node.(type) {
 		case *ast.LambdaExpr:
-			return nil, true
-		case *ast.FuncLit:
-			if sig, _ := typeInfo.TypeOf(node).(*gotypes.Signature); sig != nil {
-				return sig, false
-			}
-		case *ast.FuncDecl:
-			if fun, _ := typeInfo.ObjectOf(node.Name).(*gotypes.Func); fun != nil {
-				return fun.Signature(), false
-			}
+			return contextualFunctionSignature(typeInfo, path[index:]), true
+		case *ast.FuncLit, *ast.FuncDecl:
+			return enclosingFunctionSignature(typeInfo, path[index:]), false
 		}
 	}
 	return nil, false
 }
 
 // enumCompositeElementContext returns the enum context for target in literal.
-func enumCompositeElementContext(
-	typeInfo *types.Info,
-	literal *ast.CompositeLit,
-	target ast.Expr,
-) enumIdentContext {
-	typ := typeInfo.TypeOf(literal)
-	if !xgoutil.IsValidType(typ) && literal.Type != nil {
-		typ = typeInfo.TypeOf(literal.Type)
-	}
-	if !xgoutil.IsValidType(typ) {
+func enumCompositeElementContext(info *types.Info, literal *ast.CompositeLit, target ast.Expr, path []ast.Node) enumIdentContext {
+	containers := literalTypes(info, path)
+	if len(containers) == 0 {
 		return enumIdentContext{}
 	}
-	underlyingType := xgoutil.DerefType(typ).Underlying()
-	contextForType := func(typ gotypes.Type) enumIdentContext {
-		return enumIdentContext{status: enumContextAllowed, expectedTypes: []gotypes.Type{typ}}
-	}
-	for index, element := range literal.Elts {
-		if element == target {
-			switch compositeType := underlyingType.(type) {
-			case *gotypes.Array:
-				return contextForType(compositeType.Elem())
-			case *gotypes.Slice:
-				return contextForType(compositeType.Elem())
-			case *gotypes.Struct:
-				if index < compositeType.NumFields() {
-					return contextForType(compositeType.Field(index).Type())
+	var expected []gotypes.Type
+	for _, typ := range containers {
+		// Array indices accept integer constants of any named integer type.
+		switch xgoutil.DerefType(typ).Underlying().(type) {
+		case *gotypes.Array, *gotypes.Slice:
+			for _, element := range literal.Elts {
+				if kv, ok := element.(*ast.KeyValueExpr); ok && kv.Key == target {
+					return enumIdentContext{status: enumContextAllowed, basicTypeConstraints: []gotypes.BasicInfo{gotypes.IsInteger}}
 				}
 			}
+		}
+		for expr, typ := range literalElementTypes(literal, typ) {
+			if expr == target && xgoutil.IsValidType(typ) {
+				expected = append(expected, typ)
+			}
+		}
+	}
+	if len(expected) > 0 {
+		return enumIdentContext{status: enumContextAllowed, expectedTypes: deduplicateTypes(expected)}
+	}
+	for _, element := range literal.Elts {
+		if element == target {
 			return enumIdentContext{status: enumContextDisallowed}
 		}
-
-		keyValue, ok := element.(*ast.KeyValueExpr)
-		if !ok {
-			continue
+		if kv, ok := element.(*ast.KeyValueExpr); ok && (kv.Key == target || kv.Value == target) {
+			return enumIdentContext{status: enumContextDisallowed}
 		}
-		if keyValue.Key == target {
-			switch compositeType := underlyingType.(type) {
-			case *gotypes.Map:
-				return contextForType(compositeType.Key())
-			case *gotypes.Array, *gotypes.Slice:
-				return enumIdentContext{
-					status:               enumContextAllowed,
-					basicTypeConstraints: []gotypes.BasicInfo{gotypes.IsInteger},
-				}
-			default:
-				return enumIdentContext{status: enumContextDisallowed}
-			}
-		}
-		if keyValue.Value != target {
-			continue
-		}
-		switch compositeType := underlyingType.(type) {
-		case *gotypes.Map:
-			return contextForType(compositeType.Elem())
-		case *gotypes.Struct:
-			key, ok := keyValue.Key.(*ast.Ident)
-			if !ok {
-				return enumIdentContext{status: enumContextDisallowed}
-			}
-			for fieldIndex := range compositeType.NumFields() {
-				field := compositeType.Field(fieldIndex)
-				if field.Name() == key.Name {
-					return contextForType(field.Type())
-				}
-			}
-		}
-		return enumIdentContext{status: enumContextDisallowed}
 	}
 	return enumIdentContext{}
 }

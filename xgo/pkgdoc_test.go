@@ -17,13 +17,22 @@
 package xgo
 
 import (
+	gotypes "go/types"
+	"sync"
 	"testing"
 
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgolsw/internal/testframework"
+	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type pkgDocTestImporter func(string) (*gotypes.Package, error)
+
+func (f pkgDocTestImporter) Import(path string) (*gotypes.Package, error) {
+	return f(path)
+}
 
 func TestBuildPkgDocCache(t *testing.T) {
 	t.Run("ValidProject", func(t *testing.T) {
@@ -80,6 +89,86 @@ func Reset() {
 }
 
 func TestProjectPkgDoc(t *testing.T) {
+	t.Run("ConcurrentTypeChecking", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			filename   string
+			className  string
+			newProject testProjectFactory
+			typeError  bool
+		}{
+			{"NormalClass", "Record.gox", "Record", newTestProject, false},
+			{"ProjectClass", "main_fixture.gox", "App", newFrameworkTestProject, false},
+			{"WorkClass", "Worker_fixture.gox", "Worker", newFrameworkTestProject, false},
+			{"TypeError", "Record.gox", "Record", newTestProject, true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string]*File{tt.filename: file("var value int\n")}
+				if tt.filename == "Worker_fixture.gox" {
+					files["main_fixture.gox"] = file("")
+				}
+				proj := tt.newProject(t, files, FeatAll)
+				_, err := proj.TypeInfo()
+				require.NoError(t, err)
+				value := "1"
+				if tt.typeError {
+					value = "missing"
+				}
+				proj.PutFile(tt.filename, file(`import _ "example.com/paused"
+var (
+	// Value stores the count.
+	value int
+)
+// Set updates the count.
+func Set() { value = `+value+` }
+`))
+				dependency := gotypes.NewPackage("example.com/paused", "paused")
+				dependency.MarkComplete()
+				entered, resume := make(chan struct{}), make(chan struct{})
+				release := sync.OnceFunc(func() { close(resume) })
+				t.Cleanup(release)
+				fallback := proj.Importer
+				proj.Importer = pkgDocTestImporter(func(path string) (*gotypes.Package, error) {
+					if path == dependency.Path() {
+						close(entered)
+						<-resume
+						return dependency, nil
+					}
+					return fallback.Import(path)
+				})
+				var wg sync.WaitGroup
+				var typeErr, docErr error
+				var doc *pkgdoc.PkgDoc
+				wg.Go(func() { _, typeErr = proj.TypeInfo() })
+				<-entered
+				documenting := make(chan struct{})
+				proj.RegisterCacheBuilder(pkgDocCacheKind{}, func(p *Project) (any, error) {
+					close(documenting)
+					return buildPkgDocCache(p)
+				})
+				wg.Go(func() {
+					doc, docErr = proj.PkgDoc()
+				})
+				<-documenting
+				release()
+				wg.Wait()
+				if tt.typeError {
+					require.ErrorContains(t, typeErr, "undefined: missing")
+				} else {
+					require.NoError(t, typeErr)
+				}
+				require.NoError(t, docErr)
+				require.NotNil(t, doc)
+				require.NotNil(t, doc.Types[tt.className])
+				assert.Equal(t, "Value stores the count.\n", doc.Types[tt.className].Fields["value"])
+				assert.Equal(t, "Set updates the count.\n", doc.Types[tt.className].Methods["Set"])
+				cached, err := proj.PkgDoc()
+				require.NoError(t, err)
+				assert.Same(t, doc, cached)
+			})
+		}
+	})
+
 	t.Run("FileKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string

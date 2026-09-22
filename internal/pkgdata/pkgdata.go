@@ -18,27 +18,50 @@ import (
 
 //go:generate sh -c "GOTOOLCHAIN=\"go$(go list -m -f '{{.GoVersion}}')\" go tool pkgdatagen"
 
-var (
-	//go:embed pkgdata.zip
-	pkgdataZip []byte
+// pkgDataZip holds the bundled package archive.
+//
+//go:embed pkgdata.zip
+var pkgDataZip []byte
 
-	// pkgdataMu synchronizes package data replacement with reads and cache updates.
-	pkgdataMu sync.RWMutex
+// Data holds immutable package archives and their documentation cache.
+// Returned documentation must not be modified by callers.
+type Data struct {
+	base        *zip.Reader
+	custom      *zip.Reader
+	pkgs        []string
+	pkgDocCache sync.Map
+}
 
-	// customPkgdataZip holds the user-provided package data which has
-	// higher priority than the embedded one.
-	customPkgdataZip []byte
-)
+// New creates package data from a complete archive without embedded fallback.
+// It retains a private copy of the supplied bytes.
+func New(archive []byte) (*Data, error) {
+	return newData(bytes.Clone(archive), nil)
+}
 
-// SetCustomPkgdataZip replaces the custom package data and clears cached documentation.
-// It does not refresh types already loaded by importers. Set export data before
-// importing the affected packages. The caller must not modify data after this call.
-func SetCustomPkgdataZip(data []byte) {
-	pkgdataMu.Lock()
-	defer pkgdataMu.Unlock()
+// NewWithEmbedded creates package data with a private copy of custom and the
+// embedded archive as fallback. Empty custom data selects only embedded data.
+func NewWithEmbedded(custom []byte) (*Data, error) {
+	return newData(pkgDataZip, bytes.Clone(custom))
+}
 
-	customPkgdataZip = data
-	pkgDocCache.Clear()
+// newData parses owned archives and collects their packages once.
+func newData(base, custom []byte) (*Data, error) {
+	baseReader, err := zip.NewReader(bytes.NewReader(base), int64(len(base)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read base package archive: %w", err)
+	}
+	data := &Data{base: baseReader, pkgs: listPkgs(baseReader)}
+	if len(custom) == 0 {
+		return data, nil
+	}
+	data.custom, err = zip.NewReader(bytes.NewReader(custom), int64(len(custom)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read custom package archive: %w", err)
+	}
+	data.pkgs = append(data.pkgs, listPkgs(data.custom)...)
+	slices.Sort(data.pkgs)
+	data.pkgs = slices.Compact(data.pkgs)
+	return data, nil
 }
 
 const (
@@ -46,64 +69,39 @@ const (
 	pkgDocSuffix    = ".pkgdoc"
 )
 
-// ListPkgs lists all packages in the pkgdata.zip file.
-func ListPkgs() ([]string, error) {
-	pkgdataMu.RLock()
-	defer pkgdataMu.RUnlock()
-
-	pkgs, err := listPkgs(pkgdataZip)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list embed packages: %w", err)
-	}
-	if len(customPkgdataZip) > 0 {
-		customPkgs, err := listPkgs(customPkgdataZip)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list custom packages: %w", err)
-		}
-		pkgs = append(pkgs, customPkgs...)
-		slices.Sort(pkgs)
-		pkgs = slices.Compact(pkgs)
-	}
-	return pkgs, nil
+// ListPkgs lists packages with export data across the base and custom archives.
+// The returned slice can be modified by the caller.
+func (d *Data) ListPkgs() ([]string, error) {
+	return slices.Clone(d.pkgs), nil
 }
 
-// listPkgs lists all packages in the provided zip data.
-func listPkgs(zipData []byte) ([]string, error) {
-	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zip reader: %w", err)
-	}
+// listPkgs lists packages with export data in the archive's entry order.
+func listPkgs(zr *zip.Reader) []string {
 	pkgs := make([]string, 0, len(zr.File)/2)
 	for _, f := range zr.File {
 		if pkg, ok := strings.CutSuffix(f.Name, pkgExportSuffix); ok {
 			pkgs = append(pkgs, pkg)
 		}
 	}
-	return pkgs, nil
+	return pkgs
 }
 
 // OpenExport opens a package export file.
-func OpenExport(pkgPath string) (io.ReadCloser, error) {
-	pkgdataMu.RLock()
-	defer pkgdataMu.RUnlock()
-
-	if len(customPkgdataZip) > 0 {
-		rc, err := openExport(customPkgdataZip, pkgPath)
+func (d *Data) OpenExport(pkgPath string) (io.ReadCloser, error) {
+	if d.custom != nil {
+		rc, err := openExport(d.custom, pkgPath)
 		if err == nil {
 			return rc, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("failed to open custom package export file: %w", err)
 		}
 	}
-	return openExport(pkgdataZip, pkgPath)
+	return openExport(d.base, pkgPath)
 }
 
-// openExport opens a package export file from the provided zip data.
-func openExport(zipData []byte, pkgPath string) (io.ReadCloser, error) {
-	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zip reader: %w", err)
-	}
+// openExport opens a package export file from the parsed archive.
+func openExport(zr *zip.Reader, pkgPath string) (io.ReadCloser, error) {
 	pkgExportFile := pkgPath + pkgExportSuffix
 	for _, f := range zr.File {
 		if f.Name == pkgExportFile {
@@ -113,55 +111,47 @@ func openExport(zipData []byte, pkgPath string) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("failed to find export file for package %q: %w", pkgPath, fs.ErrNotExist)
 }
 
-// pkgDocCache is a cache for package documentation.
-var pkgDocCache sync.Map // map[string]*pkgdoc.PkgDoc
-
 // GetPkgDoc gets the documentation for a package.
-func GetPkgDoc(pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
-	pkgdataMu.RLock()
-	defer pkgdataMu.RUnlock()
-
-	if pkgDocIface, ok := pkgDocCache.Load(pkgPath); ok {
+func (d *Data) GetPkgDoc(pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
+	if pkgDocIface, ok := d.pkgDocCache.Load(pkgPath); ok {
 		return pkgDocIface.(*pkgdoc.PkgDoc), nil
 	}
 	defer func() {
 		if err == nil {
-			pkgDocCache.Store(pkgPath, pkgDoc)
+			d.pkgDocCache.Store(pkgPath, pkgDoc)
 		}
 	}()
 
-	if len(customPkgdataZip) > 0 {
-		pkgDoc, err = getPkgDoc(customPkgdataZip, pkgPath)
+	if d.custom != nil {
+		pkgDoc, err = getPkgDoc(d.custom, pkgPath)
 		if err == nil {
 			return pkgDoc, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("failed to get custom package doc: %w", err)
 		}
 	}
-	return getPkgDoc(pkgdataZip, pkgPath)
+	return getPkgDoc(d.base, pkgPath)
 }
 
-// getPkgDoc gets the documentation for a package from the provided zip data.
-func getPkgDoc(zipData []byte, pkgPath string) (pkgDoc *pkgdoc.PkgDoc, err error) {
-	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zip reader: %w", err)
-	}
+// getPkgDoc gets the documentation for a package from the parsed archive.
+func getPkgDoc(zr *zip.Reader, pkgPath string) (*pkgdoc.PkgDoc, error) {
 	pkgDocFile := pkgPath + pkgDocSuffix
 	for _, f := range zr.File {
-		if f.Name == pkgDocFile {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("failed to open doc file for package %q: %w", pkgPath, err)
-			}
-			defer rc.Close()
-
-			var pkgDoc pkgdoc.PkgDoc
-			if err := json.NewDecoder(rc).Decode(&pkgDoc); err != nil {
-				return nil, fmt.Errorf("failed to decode doc for package %q: %w", pkgPath, err)
-			}
-			return &pkgDoc, nil
+		if f.Name != pkgDocFile {
+			continue
 		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open doc file for package %q: %w", pkgPath, err)
+		}
+		defer rc.Close()
+
+		var pkgDoc pkgdoc.PkgDoc
+		if err := json.NewDecoder(rc).Decode(&pkgDoc); err != nil {
+			return nil, fmt.Errorf("failed to decode doc for package %q: %w", pkgPath, err)
+		}
+		return &pkgDoc, nil
 	}
 	return nil, fmt.Errorf("failed to find doc file for package %q: %w", pkgPath, fs.ErrNotExist)
 }

@@ -15,13 +15,13 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
 	}
 	astFile := astPkg.Files[filename]
-	if astFile == nil {
+	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
@@ -30,41 +30,36 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 		return nil, nil
 	}
 	_, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
-	if !xgoutil.IsInMainPkg(obj) {
+	if obj == nil {
 		return nil, nil
 	}
 
 	if method, ok := obj.(*gotypes.Func); ok {
 		if recv := method.Signature().Recv(); recv != nil && gotypes.IsInterface(recv.Type()) {
-			locations := s.findImplementingMethodDefinitions(proj, typeInfo, recv.Type().(*gotypes.Interface), method.Name())
+			locations := s.findImplementingMethodDefinitions(proj, typeInfo, recv.Type().Underlying().(*gotypes.Interface), method)
 			return DedupeLocations(locations), nil
 		}
 	}
 
-	if xgoutil.PosTokenFile(proj.Fset, obj.Pos()) == nil {
+	file, pos := objectSource(proj, obj)
+	if file == nil {
 		return nil, nil
 	}
-	return s.locationForPos(proj, obj.Pos()), nil
+	return s.locationForPos(proj, pos), nil
 }
 
 // findImplementingMethodDefinitions finds the definition locations of project
 // methods that implement the given interface method.
-func (s *Server) findImplementingMethodDefinitions(proj *xgo.Project, typeInfo *types.Info, iface *gotypes.Interface, methodName string) []Location {
-	var implementations []Location
-	for _, obj := range typeInfo.Defs {
-		if obj == nil {
-			continue
-		}
-		named, ok := obj.Type().(*gotypes.Named)
-		if !ok || named.Obj().Pkg() != typeInfo.Pkg || !gotypes.Implements(named, iface) {
-			continue
-		}
-
-		for method := range named.Methods() {
-			if method.Name() == methodName {
-				implementations = append(implementations, s.locationForPos(proj, method.Pos()))
-			}
+func (s *Server) findImplementingMethodDefinitions(proj *xgo.Project, typeInfo *types.Info, iface *gotypes.Interface, target *gotypes.Func) []Location {
+	info, err := methodInfoForProject(proj)
+	if err != nil {
+		return nil
+	}
+	var locations []Location
+	for _, method := range info.implementations[iface]()[target.Id()] {
+		if method.Pkg() == typeInfo.Pkg && xgoutil.PosTokenFile(proj.Fset, method.Pos()) != nil {
+			locations = append(locations, s.locationForPos(proj, method.Pos()))
 		}
 	}
-	return implementations
+	return locations
 }

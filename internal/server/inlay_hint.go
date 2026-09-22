@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"fmt"
+	gotypes "go/types"
 	"slices"
 
 	"github.com/goplus/xgo/ast"
@@ -17,7 +18,7 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.getProjWithFile()
+	proj := s.requestProject()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -32,18 +33,24 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 	return collectInlayHints(proj, astFile, rangeStart, rangeEnd), nil
 }
 
-// collectInlayHints collects inlay hints from the given AST file. If
-// rangeStart and rangeEnd positions are provided (non-zero), only hints within
-// the range are included.
+// collectInlayHints collects inlay hints from the given AST file. Valid bounds
+// restrict hint positions to [rangeStart, rangeEnd). A zero bound leaves that
+// end unrestricted.
 func collectInlayHints(proj *xgo.Project, astFile *ast.File, rangeStart, rangeEnd token.Pos) []InlayHint {
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil
 	}
 
 	var inlayHints []InlayHint
+	// The compiler can reuse source expressions in generated statements.
+	seenNodes := make(map[ast.Node]bool)
 	ast.Inspect(astFile, func(node ast.Node) bool {
-		if node == nil || !node.Pos().IsValid() || !node.End().IsValid() {
+		if node == nil || seenNodes[node] {
+			return false
+		}
+		seenNodes[node] = true
+		if !node.Pos().IsValid() || !node.End().IsValid() {
 			return true
 		}
 
@@ -54,17 +61,15 @@ func collectInlayHints(proj *xgo.Project, astFile *ast.File, rangeStart, rangeEn
 			return false
 		}
 
-		switch node := node.(type) {
-		case *ast.BranchStmt:
-			if callExpr := xgoutil.CreateCallExprFromBranchStmt(typeInfo, node); callExpr != nil {
-				hints := collectInlayHintsFromCallExpr(proj, callExpr)
-				inlayHints = append(inlayHints, hints...)
-			}
-		case *ast.CallExpr, *ast.FuncDecorator:
-			hints := collectInlayHintsFromCallExpr(proj, callExprFromNode(node))
+		if callExpr := callExprFromNode(typeInfo, node); callExpr != nil {
+			hints := collectInlayHintsFromCallExpr(proj, callExpr)
 			inlayHints = append(inlayHints, hints...)
 		}
 		return true
+	})
+	inlayHints = slices.DeleteFunc(inlayHints, func(hint InlayHint) bool {
+		pos := PosAt(proj, astFile, hint.Position)
+		return rangeStart.IsValid() && pos < rangeStart || rangeEnd.IsValid() && pos >= rangeEnd
 	})
 	sortInlayHints(inlayHints)
 	return inlayHints
@@ -77,27 +82,27 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 	if astFile == nil {
 		return nil
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil
 	}
-	_, _, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-	hasResolvedSignature := resolvedParams != nil
+	_, sig, _ := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	hasResolvedSignature := sig != nil
 
 	var inlayHints []InlayHint
 	labelsByPosition := make(map[Position]string)
 	ambiguousPositions := make(map[Position]struct{})
-	variadicParamSeen := false
+	seenVariadicParams := make(map[*gotypes.Var]bool)
 	for resolvedArg := range resolvedCallExprArgs(typeInfo, callExpr) {
 		if resolvedArg.Kind != xgoutil.ResolvedCallExprArgPositional {
 			continue
 		}
-		variadicArg := resolvedArg.Fun.Signature().Variadic() && resolvedArg.ParamIndex == resolvedArg.Params.Len()-1
+		variadicArg := resolvedArg.Signature.Variadic() && resolvedArg.ParamIndex == resolvedArg.Params.Len()-1
 		if variadicArg {
-			if variadicParamSeen {
-				break
+			if seenVariadicParams[resolvedArg.Param] {
+				continue
 			}
-			variadicParamSeen = true
+			seenVariadicParams[resolvedArg.Param] = true
 		}
 
 		switch resolvedArg.Arg.(type) {
@@ -110,8 +115,11 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 		}
 
 		// Create an inlay hint with the parameter name before the argument.
-		position := proj.Fset.Position(resolvedArg.Arg.Pos())
+		position := proj.Fset.PositionFor(resolvedArg.Arg.Pos(), false)
 		label := xgoutil.SourceParamName(resolvedArg.Param)
+		if label == "" || label == "_" {
+			continue
+		}
 		if variadicArg {
 			label += "..."
 		}

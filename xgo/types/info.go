@@ -35,18 +35,78 @@ type Info struct {
 	// For identifiers that do not denote objects, the object is nil and
 	// they are excluded from this mapping.
 	ObjToDef map[gotypes.Object]*ast.Ident
+
+	// FuncDecorators distinguishes decorator calls from ordinary calls, which
+	// have different argument expansion rules.
+	FuncDecorators map[*ast.CallExpr]bool
+
+	// ImplicitCallTypes supplies result types for source expressions that call
+	// a function through an alias. Types retains the compiler's original
+	// records, including the callable's operand mode.
+	ImplicitCallTypes map[ast.Expr]gotypes.Type
 }
 
-// RefIdentsFor returns all identifiers where the given object is referenced.
+// TypeOf returns the source expression's type, including an implicit call's
+// result when available. ObjectOf still returns the callable declaration.
+func (i *Info) TypeOf(expr ast.Expr) gotypes.Type {
+	if typ := i.ImplicitCallTypes[expr]; typ != nil {
+		return typ
+	}
+	return i.Info.TypeOf(expr)
+}
+
+// RefIdentsFor returns all identifiers where the given object is referenced,
+// including uses through different generic instantiations and type switch cases.
 func (i *Info) RefIdentsFor(obj gotypes.Object) []*ast.Ident {
 	if obj == nil {
 		return nil
 	}
+	obj = i.ObjectDeclaration(obj)
+	def := i.ObjToDef[obj]
 	var idents []*ast.Ident
-	for ident, o := range i.Uses {
-		if o == obj {
+	for ident, used := range i.Uses {
+		if overload := i.Overloads[ident]; overload != nil {
+			used = overload
+		}
+		// Range expressions reuse the declaration identifier in generated uses.
+		if ident != def && i.ObjectDeclaration(used) == obj {
 			idents = append(idents, ident)
 		}
 	}
 	return idents
+}
+
+// SourceObjectOf returns the object named by ident before overload selection.
+// ObjectOf still provides the selected implementation for typed navigation.
+func (i *Info) SourceObjectOf(ident *ast.Ident) gotypes.Object {
+	if overload := i.Overloads[ident]; overload != nil {
+		return overload
+	}
+	return i.ObjectOf(ident)
+}
+
+// ObjectDeclaration returns the object at the shared declaration of obj,
+// including generic members and the branch variables of a type switch.
+// Objects without a recorded declaration, including nil, retain their origin.
+func (i *Info) ObjectDeclaration(obj gotypes.Object) gotypes.Object {
+	obj = ObjectOrigin(obj)
+	if ident := i.ObjToDef[obj]; ident != nil {
+		if declaration := i.Defs[ident]; declaration != nil {
+			return declaration
+		}
+	}
+	return obj
+}
+
+// ObjectOrigin returns the declaration of a field or method before generic
+// instantiation. Other objects, including nil, are returned unchanged.
+func ObjectOrigin(obj gotypes.Object) gotypes.Object {
+	switch obj := obj.(type) {
+	case *gotypes.Var:
+		return obj.Origin()
+	case *gotypes.Func:
+		return obj.Origin()
+	default:
+		return obj
+	}
 }

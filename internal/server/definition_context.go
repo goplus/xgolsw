@@ -14,10 +14,11 @@ import (
 // definitionContext holds project data and documentation used to describe symbols.
 type definitionContext struct {
 	typeDisplay
-	proj       *xgo.Project
-	enumInfo   *enumInfo
-	classTypes map[*gotypes.Named]struct{}
-	spx        *spxSymbols
+	proj              *xgo.Project
+	enumInfo          *enumInfo
+	classTypes        map[*gotypes.Named]struct{}
+	framework         frameworkAdapter
+	frameworkResolved bool
 
 	// memberSelectors indexes receiver members for this request only.
 	memberSelectors map[gotypes.Type]map[gotypes.Object]*gotypes.Named
@@ -37,7 +38,7 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 		// Builtin interface methods, such as error.Error, retain their member
 		// declarations rather than using builtin symbol descriptions.
 		if fun, ok := obj.(*gotypes.Func); !ok || fun.Signature().Recv() == nil {
-			return []symbolDefinition{r.definitionForBuiltin(obj, r.proj.Importer, r.lookupPkgDoc)}
+			return []symbolDefinition{r.definitionForBuiltin(obj, r.proj, r.lookupPkgDoc)}
 		}
 	}
 
@@ -78,7 +79,9 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 		if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 			defs := make([]symbolDefinition, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				defs = append(defs, r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc))
+				def := r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc)
+				def.SourceObject = obj
+				defs = append(defs, def)
 			}
 			return defs
 		}
@@ -129,7 +132,7 @@ func (r *definitionContext) definitionsForMember(member xgoutil.StructMember) []
 	defs := r.definitionsFor(member.Member, owner)
 	if member.Selector != nil {
 		selector := member.Selector.Obj()
-		name := r.spxDisplayTypeName(selector, selector.Name())
+		name := r.frameworkDisplayTypeName(selector, selector.Name())
 		for i := range defs {
 			defs[i].ID.Package = ToPtr(xgoutil.PkgPath(selector.Pkg()))
 			defs[i].ID.Name = ToPtr(name + "." + defs[i].CompletionItemLabel)
@@ -152,8 +155,8 @@ func (r *definitionContext) definitionsForSelection(obj gotypes.Object, receiver
 func (r *definitionContext) importDocumentationAtPosition(astFile *ast.File, position token.Position) (*pkgdoc.PkgDoc, *ast.ImportSpec) {
 	fset := r.proj.Fset
 	for _, imp := range astFile.Imports {
-		nodePos := fset.Position(imp.Pos())
-		nodeEnd := fset.Position(imp.End())
+		nodePos := fset.PositionFor(imp.Pos(), false)
+		nodeEnd := fset.PositionFor(imp.End(), false)
 		if nodePos.Filename != position.Filename ||
 			position.Line != nodePos.Line ||
 			position.Column < nodePos.Column ||
@@ -190,7 +193,7 @@ func (r *definitionContext) pkgDocForObject(obj gotypes.Object) *pkgdoc.PkgDoc {
 
 // definitionForVar describes a variable with documentation from its declaration.
 func (r *definitionContext) definitionForVar(v *gotypes.Var, selectorTypeName string, forceVar bool, doc *pkgdoc.PkgDoc) symbolDefinition {
-	selectorTypeName = r.spxDisplayTypeName(v, selectorTypeName)
+	selectorTypeName = r.frameworkDisplayTypeName(v, selectorTypeName)
 	return r.withSourceDocumentation(v, r.typeDisplay.definitionForVar(v, selectorTypeName, forceVar, doc))
 }
 
@@ -213,9 +216,9 @@ func (r *definitionContext) definitionForFunc(fun *gotypes.Func, selectorTypeNam
 	if selectorTypeName == "" {
 		selectorTypeName, _, _, _ = displayedFuncName(fun)
 	}
-	selectorTypeName = r.spxDisplayTypeName(fun, selectorTypeName)
+	selectorTypeName = r.frameworkDisplayTypeName(fun, selectorTypeName)
 	def := r.typeDisplay.definitionForFunc(fun, selectorTypeName, doc)
-	if detail, ok := r.spxFunctionDocumentation(fun, doc); ok {
+	if detail, ok := r.frameworkFunctionDocumentation(fun, doc); ok {
 		def.Detail = detail
 	}
 	return r.withSourceDocumentation(fun, def)
@@ -237,7 +240,7 @@ func (r *definitionContext) functionDocumentation(fun *gotypes.Func) string {
 		return doc
 	}
 	doc := r.pkgDocForObject(fun)
-	if detail, ok := r.spxFunctionDocumentation(fun, doc); ok {
+	if detail, ok := r.frameworkFunctionDocumentation(fun, doc); ok {
 		return detail
 	}
 	return functionDocumentation(fun, doc)

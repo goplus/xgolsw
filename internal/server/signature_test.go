@@ -10,6 +10,30 @@ import (
 )
 
 func TestServerTextDocumentSignatureHelp(t *testing.T) {
+	t.Run("TupleArguments", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			declarations string
+			call         string
+			label        string
+		}{
+			{"BetweenArguments", "func use(first int, second string) {}\n", "use((1,| \"value\"))", "use(first int, second string)"},
+			{"FunctionValue", "var use = func(first int, second string) {}\n", "use((1, \"val|ue\"))", "use(first int, second string)"},
+			{"UnresolvedOverload", "func ints(first int, second int) {}\nfunc strings(first string, second string) {}\nfunc use = (ints, strings)\n", "use((1, mis|sing))", "use(first int, second int)"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.call+"\n")
+				s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(tt.declarations), "main.xgo": []byte(source)})
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position}})
+				require.NoError(t, err)
+				require.NotNil(t, help)
+				require.Len(t, help.Signatures, 1)
+				assert.Equal(t, tt.label, help.Signatures[0].Label)
+				assert.Equal(t, uint32(1), help.ActiveParameter)
+			})
+		}
+	})
+
 	t.Run("FunctionOverloadUpdates", func(t *testing.T) {
 		const declarations = `func handleInt(value int) {}
 func handleString(value string) {}

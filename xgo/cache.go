@@ -41,6 +41,12 @@ type fileCacheKey struct {
 	path string
 }
 
+// cacheBuildResult identifies the project revision used by a shared cache build.
+type cacheBuildResult struct {
+	revision uint64
+	data     any
+}
+
 // RegisterCacheBuilder registers a project level cache builder.
 //
 // The kind should be a comparable type to avoid conflicts between packages. It
@@ -73,30 +79,49 @@ func (p *Project) RegisterFileCacheBuilder(kind CacheKind, builder func(proj *Pr
 //
 // The kind must be the same comparable value that was used with [Project.RegisterCacheBuilder].
 func (p *Project) Cache(kind CacheKind) (any, error) {
-	p.mu.RLock()
-	v, ok := p.caches[kind]
-	p.mu.RUnlock()
-	if ok {
-		return decodeDataOrErr(v)
-	}
-
-	data, err, _ := p.cacheSFG.Do(fmt.Sprintf("%T-%v", kind, kind), func() (any, error) {
+	for {
 		p.mu.RLock()
-		builder, ok := p.cacheBuilders[kind]
+		v, ok := p.caches[kind]
+		revision := p.cacheRevision
 		p.mu.RUnlock()
-		if !ok {
-			return nil, ErrUnknownCacheKind
+		if ok {
+			return decodeDataOrErr(v)
 		}
 
-		data, err := builder(p)
+		data, err, _ := p.cacheSFG.Do(fmt.Sprintf("%T-%v", kind, kind), func() (any, error) {
+			p.mu.RLock()
+			v, cached := p.caches[kind]
+			builder, ok := p.cacheBuilders[kind]
+			build := cacheBuildResult{revision: p.cacheRevision}
+			p.mu.RUnlock()
+			// Another call may have completed between the first lookup and singleflight.
+			if cached {
+				var err error
+				build.data, err = decodeDataOrErr(v)
+				return build, err
+			}
+			if !ok {
+				return build, ErrUnknownCacheKind
+			}
 
-		p.mu.Lock()
-		p.caches[kind] = encodeDataOrErr(data, err)
-		p.mu.Unlock()
+			var err error
+			build.data, err = builder(p)
 
-		return data, err
-	})
-	return data, err
+			p.mu.Lock()
+			// An edit during the build must not restore an invalidated cache entry.
+			if p.cacheRevision == build.revision {
+				p.caches[kind] = encodeDataOrErr(build.data, err)
+			}
+			p.mu.Unlock()
+
+			return build, err
+		})
+		build := data.(cacheBuildResult)
+		if build.revision >= revision {
+			return build.data, err
+		}
+		// A caller that joined an older build must fetch its own revision.
+	}
 }
 
 // FileCache gets a file level cache. It builds the cache if it doesn't exist.
@@ -105,40 +130,64 @@ func (p *Project) Cache(kind CacheKind) (any, error) {
 func (p *Project) FileCache(kind CacheKind, path string) (any, error) {
 	key := fileCacheKey{kind, path}
 
-	p.mu.RLock()
-	v, ok := p.fileCaches[key]
-	p.mu.RUnlock()
-	if ok {
-		return decodeDataOrErr(v)
-	}
-
-	data, err, _ := p.fileCacheSFG.Do(fmt.Sprintf("%T-%v-%s", kind, kind, path), func() (any, error) {
+	for {
 		p.mu.RLock()
-		builder, ok := p.fileCacheBuilders[kind]
-		file, fileExists := p.files[path]
+		v, ok := p.fileCaches[key]
+		revision := p.cacheRevision
 		p.mu.RUnlock()
-		if !ok {
-			return nil, ErrUnknownCacheKind
-		}
-		if !fileExists {
-			return nil, fs.ErrNotExist
+		if ok {
+			return decodeDataOrErr(v)
 		}
 
-		data, err := builder(p, path, file)
+		data, err, _ := p.fileCacheSFG.Do(fmt.Sprintf("%T-%v-%s", kind, kind, path), func() (any, error) {
+			p.mu.RLock()
+			v, cached := p.fileCaches[key]
+			builder, ok := p.fileCacheBuilders[kind]
+			file, fileExists := p.files[path]
+			build := cacheBuildResult{revision: p.cacheRevision}
+			p.mu.RUnlock()
+			if cached {
+				var err error
+				build.data, err = decodeDataOrErr(v)
+				return build, err
+			}
+			if !ok {
+				return build, ErrUnknownCacheKind
+			}
+			if !fileExists {
+				return build, fs.ErrNotExist
+			}
 
-		p.mu.Lock()
-		p.fileCaches[key] = encodeDataOrErr(data, err)
-		p.mu.Unlock()
+			var err error
+			build.data, err = builder(p, path, file)
 
-		return data, err
-	})
-	return data, err
+			p.mu.Lock()
+			if p.cacheRevision == build.revision {
+				p.fileCaches[key] = encodeDataOrErr(build.data, err)
+			}
+			p.mu.Unlock()
+
+			return build, err
+		})
+		build := data.(cacheBuildResult)
+		if build.revision >= revision {
+			return build.data, err
+		}
+	}
 }
 
 // deleteFileCache deletes file-specific caches for the given path. It also
 // clears project-level caches implicitly if necessary.
 func (p *Project) deleteFileCache(path string) {
+	p.cacheRevision++
 	clear(p.caches)
+	if p.sharedAST {
+		// Discard this project's shared syntax so type checking rebuilds it
+		// instead of mutating ASTs still referenced by other snapshots.
+		clear(p.fileCaches)
+		p.sharedAST = false
+		return
+	}
 	for kind := range p.fileCacheBuilders {
 		delete(p.fileCaches, fileCacheKey{kind, path})
 	}

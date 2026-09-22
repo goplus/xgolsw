@@ -3,82 +3,75 @@ package server
 import (
 	gotypes "go/types"
 	"iter"
+	"slices"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// valueExprTypes yields the target types of values in declarations,
-// assignments, and returns. Nested expressions retain their own type context.
+// valueExprTypes yields contextual types for complete values throughout a
+// package. Arithmetic fragments are excluded from resource name matching.
 func valueExprTypes(astPkg *ast.Package, typeInfo *types.Info) iter.Seq2[ast.Expr, gotypes.Type] {
 	return func(yield func(ast.Expr, gotypes.Type) bool) {
 		if astPkg == nil || typeInfo == nil {
 			return
 		}
 		more := true
-		emit := func(expr ast.Expr, typ gotypes.Type) {
-			if !more || expr == nil || typ == nil {
-				return
+		for _, file := range astPkg.Files {
+			var stack []ast.Node
+			path := func() []ast.Node {
+				result := slices.Clone(stack)
+				slices.Reverse(result)
+				return result
 			}
-			// A multiple-result expression has no single target type.
-			if _, ok := typeInfo.TypeOf(expr).(*gotypes.Tuple); ok {
-				return
-			}
-			more = yield(expr, typ)
-		}
-		var inspect func(ast.Node, *gotypes.Signature)
-		inspect = func(root ast.Node, sig *gotypes.Signature) {
-			ast.Inspect(root, func(node ast.Node) bool {
+			ast.Inspect(file, func(node ast.Node) bool {
+				if node == nil {
+					stack = stack[:len(stack)-1]
+					return false
+				}
 				if !more {
 					return false
 				}
-				switch node := node.(type) {
-				case *ast.FuncDecl:
-					if node.Body != nil {
-						var funcSig *gotypes.Signature
-						if fun, _ := typeInfo.ObjectOf(node.Name).(*gotypes.Func); fun != nil {
-							funcSig = fun.Signature()
-						}
-						inspect(node.Body, funcSig)
-					}
-					return false
-				case *ast.LambdaExpr:
-					if node.Body != nil {
-						funcSig, _ := typeInfo.TypeOf(node).(*gotypes.Signature)
-						inspect(node.Body, funcSig)
-					}
-					return false
-				case *ast.FuncLit:
-					if node.Body != nil {
-						funcSig, _ := typeInfo.TypeOf(node).(*gotypes.Signature)
-						inspect(node.Body, funcSig)
-					}
-					return false
-				case *ast.ValueSpec:
-					for i := range min(len(node.Values), len(node.Names)) {
-						emit(node.Values[i], typeInfo.TypeOf(node.Names[i]))
-					}
-				case *ast.AssignStmt:
-					if node.Tok != token.ASSIGN && node.Tok != token.DEFINE {
+				stack = append(stack, node)
+				// A compound assignment changes part of a value rather than
+				// naming a resource of the destination type.
+				if assign, ok := node.(*ast.AssignStmt); ok && assign.Tok != token.ASSIGN && assign.Tok != token.DEFINE {
+					return true
+				}
+				// Comparisons name complete values. Arithmetic operands can be
+				// fragments of a resource name, such as a concatenated suffix.
+				if binary, ok := node.(*ast.BinaryExpr); ok && binary.Op != token.EQL && binary.Op != token.NEQ {
+					return true
+				}
+				switch node.(type) {
+				case *ast.CompositeLit, *ast.TupleLit, *ast.SliceLit, *ast.MatrixLit:
+				default:
+					if len(valueOperands(typeInfo, node)) == 0 {
 						return true
-					}
-					for i := range min(len(node.Rhs), len(node.Lhs)) {
-						emit(node.Rhs[i], typeInfo.TypeOf(node.Lhs[i]))
-					}
-				case *ast.ReturnStmt:
-					if sig == nil {
-						return true
-					}
-					for i := range min(len(node.Results), sig.Results().Len()) {
-						emit(node.Results[i], sig.Results().At(i).Type())
 					}
 				}
-				return more
+				for expr, typ := range contextualValueTypes(typeInfo, path()) {
+					if !xgoutil.IsValidType(typ) {
+						continue
+					}
+					// Literals supply their own element types when visited. A
+					// multiple-result expression has no single target type.
+					switch astutil.Unparen(expr).(type) {
+					case *ast.CompositeLit, *ast.TupleLit, *ast.SliceLit, *ast.MatrixLit:
+						continue
+					}
+					if _, ok := typ.(*gotypes.Tuple); ok {
+						continue
+					}
+					if more = yield(expr, typ); !more {
+						break
+					}
+				}
+				return true
 			})
-		}
-		for _, file := range astPkg.Files {
-			inspect(file, nil)
 			if !more {
 				return
 			}

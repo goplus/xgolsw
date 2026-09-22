@@ -9,6 +9,47 @@ import (
 )
 
 func TestServerTextDocumentCompletionContext(t *testing.T) {
+	t.Run("CallableExpressions", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			declarations string
+			call         string
+		}{
+			{"FunctionVariable", "var use = func(value int) {}\n", "use(candidate|Int())"},
+			{"NamedFunction", "type Consumer func(value int)\nvar use Consumer\n", "use(candidate|Int())"},
+			{"FunctionField", "type Handler struct { Use func(value int) }\nvar handler Handler\n", "handler.Use(candidate|Int())"},
+			{"FunctionResult", "func factory() func(value int) { return nil }\n", "factory()(candidate|Int())"},
+			{"ParenthesizedFunction", "func use(value int) {}\n", "(use)(candidate|Int())"},
+			{"MethodExpression", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\n", "Handler.Use(handler, candidate|Int())"},
+			{"Tuple", "func use(first string, value int) {}\n", "use((\"first\", candidate|Int()))"},
+			{"TupleFunctionValue", "var use = func(first string, value int) {}\n", "use((\"first\", candidate|Int()))"},
+			{"VariadicFunctionValue", "var use = func(values ...int) {}\n", "use(1, candidate|Int())"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.call+"\n")
+				s := newTestServer(t, map[string][]byte{
+					"main.xgo":      []byte(source),
+					"functions.xgo": []byte(tt.declarations + "func candidateInt() int { return 1 }\nfunc candidateString() string { return \"\" }\n"),
+				})
+				_, err := s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", position))
+				assert.Contains(t, labels, "candidateInt")
+				assert.NotContains(t, labels, "candidateString")
+			})
+		}
+	})
+
+	t.Run("StringConversionArguments", func(t *testing.T) {
+		for _, expression := range []string{`string("|")`, `Text("|")`, `Text(string("|"))`} {
+			source, position := typeDisplayTestSource(t, "type Text string\necho "+expression+"\n")
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			_, err := s.getProj().TypeInfo()
+			require.NoError(t, err)
+			assert.Empty(t, completionItemsAt(t, s, "main.xgo", position))
+		}
+	})
+
 	t.Run("CrossFileSourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string

@@ -17,6 +17,7 @@
 package xgoutil
 
 import (
+	"cmp"
 	gotypes "go/types"
 	"iter"
 	"slices"
@@ -27,6 +28,7 @@ import (
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
@@ -73,14 +75,16 @@ const (
 
 // ResolvedCallExprArg describes a call argument after XGo-specific mapping.
 type ResolvedCallExprArg struct {
+	// Fun is nil for calls through function values.
 	Fun        *gotypes.Func
+	Signature  *gotypes.Signature
 	Params     *gotypes.Tuple
 	Param      *gotypes.Var
 	ParamIndex int
 	Arg        ast.Expr
 	// ArgIndex is the index in the resolved source argument stream. For
-	// positional arguments, it is the index in expr.Args. For keyword
-	// arguments, it is len(expr.Args) plus the index in expr.Kwargs.
+	// positional arguments, it is the index after tuple expansion. Keyword
+	// arguments follow the positional arguments in source order.
 	ArgIndex int
 	Kind     ResolvedCallExprArgKind
 	Kwarg    *ast.KwargExpr
@@ -115,84 +119,112 @@ func (arg ResolvedCallExprArg) IsTypeArg() bool {
 	return arg.ParamIndex < NormalizedCallExprTypeArgCount(arg.Fun, arg.Params)
 }
 
-// CreateCallExprFromBranchStmt attempts to create a call expression from a
-// branch statement. This handles cases in spx where the `Sprite.Goto` method is
-// intended to precede the goto statement.
+// CreateCallExprFromBranchStmt returns the function call recorded by XGo for
+// a goto statement whose target is a value rather than a label.
 func CreateCallExprFromBranchStmt(typeInfo *types.Info, stmt *ast.BranchStmt) *ast.CallExpr {
 	if typeInfo == nil || stmt == nil {
 		return nil
 	}
-	if stmt.Tok != token.GOTO {
-		// Currently, we only need to handle goto statements.
+	if stmt.Tok != token.GOTO || stmt.Label == nil {
 		return nil
 	}
 
 	// Skip if this is a real branch statement with an actual label object.
-	if obj := typeInfo.ObjectOf(stmt.Label); obj == nil {
-		return nil
-	} else if _, ok := obj.(*gotypes.Label); ok {
+	if _, ok := typeInfo.ObjectOf(stmt.Label).(*gotypes.Label); ok {
 		return nil
 	}
 
-	// Performance note: This requires traversing the typeInfo.Uses map to locate
-	// the function object, which is unavoidable since the AST still treats this
-	// node as a branch statement rather than a call expression.
+	// The compiler records the callee separately from the source branch node.
 	stmtTokEnd := stmt.TokPos + token.Pos(len(stmt.Tok.String()))
 	for ident, obj := range typeInfo.Uses {
-		if ident.Pos() == stmt.TokPos && ident.End() == stmtTokEnd {
-			if _, ok := obj.(*gotypes.Func); ok {
-				return &ast.CallExpr{
-					Fun:  ident,
-					Args: []ast.Expr{stmt.Label},
-				}
-			}
-			break
+		if ident.Pos() != stmt.TokPos || ident.End() != stmtTokEnd {
+			continue
+		}
+		if _, ok := obj.(*gotypes.Func); !ok {
+			return nil
+		}
+		return &ast.CallExpr{
+			Fun:        ident,
+			Args:       []ast.Expr{stmt.Label},
+			NoParenEnd: stmt.Label.End(),
 		}
 	}
 	return nil
 }
 
-// FuncFromCallExpr returns the function object from a call expression.
+// CallExprFunIdent returns the identifier naming a callee, including through
+// parentheses and explicit type arguments. The identifier may name a function
+// value rather than a function declaration.
+func CallExprFunIdent(expr *ast.CallExpr) *ast.Ident {
+	for fun := expr.Fun; ; {
+		switch node := fun.(type) {
+		case *ast.Ident:
+			return node
+		case *ast.SelectorExpr:
+			return node.Sel
+		case *ast.ParenExpr:
+			fun = node.X
+		case *ast.IndexExpr:
+			fun = node.X
+		case *ast.IndexListExpr:
+			fun = node.X
+		default:
+			return nil
+		}
+	}
+}
+
+// FuncFromCallExpr returns the selected function object, or nil for
+// function values and other expressions without a function declaration.
 func FuncFromCallExpr(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Func {
 	if typeInfo == nil || expr == nil {
 		return nil
 	}
-
-	var ident *ast.Ident
-	switch fun := expr.Fun.(type) {
-	case *ast.Ident:
-		ident = fun
-	case *ast.SelectorExpr:
-		ident = fun.Sel
-	default:
-		return nil
-	}
-
-	obj := typeInfo.ObjectOf(ident)
-	if obj == nil {
-		return nil
-	}
-	fun, _ := obj.(*gotypes.Func)
+	fun, _ := typeInfo.ObjectOf(CallExprFunIdent(expr)).(*gotypes.Func)
 	return fun
 }
 
-// ResolveCallExprSignature resolves the callable function, its signature, and
-// the normalized parameter list for expr.
+// ResolveCallExprSignature resolves the call signature and source-visible
+// parameters for expr. The function declaration is nil for function values.
 func ResolveCallExprSignature(typeInfo *types.Info, expr *ast.CallExpr) (fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple) {
 	if typeInfo == nil || expr == nil {
 		return nil, nil, nil
 	}
 
 	fun = FuncFromCallExpr(typeInfo, expr)
-	if fun == nil {
-		return nil, nil, nil
+	if fun != nil {
+		sig, params = ResolveFuncSignatureForCall(typeInfo, expr, fun)
+	} else {
+		sig = callExprSignature(typeInfo, expr)
+		if sig != nil {
+			params = sig.Params()
+		}
 	}
-
-	sig, params = ResolveFuncSignatureForCall(typeInfo, expr, fun)
 	if sig == nil {
 		return nil, nil, nil
 	}
 	return fun, sig, params
+}
+
+// callExprSignature returns the callee's actual function type. Conversions and
+// builtins do not have ordinary function call semantics.
+func callExprSignature(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Signature {
+	isType, _ := IsTypeExpr(typeInfo, expr.Fun)
+	if isType || typeInfo.Types[expr.Fun].IsBuiltin() {
+		return nil
+	}
+	typ := typeInfo.TypeOf(expr.Fun)
+	if typ == nil {
+		return nil
+	}
+	sig, _ := typ.Underlying().(*gotypes.Signature)
+	if sig == nil {
+		return nil
+	}
+	if _, ok := gogen.CheckFuncEx(sig); ok {
+		return nil
+	}
+	return sig
 }
 
 // ResolveFuncSignatureForCall resolves fun's signature and normalized
@@ -206,6 +238,16 @@ func ResolveFuncSignatureForCall(typeInfo *types.Info, expr *ast.CallExpr, fun *
 	if _, ok := gogen.CheckFuncEx(sig); ok {
 		return nil, nil
 	}
+	// Ordinary calls may instantiate a generic function or expose the receiver
+	// as a method expression parameter. Only the selected declaration can use
+	// that expression type. Other overload candidates retain their own types.
+	// XGot and XGox declarations need source parameter normalization instead.
+	paramOffset, isXGox := xgoFuncParamLayout(fun)
+	if typeInfo != nil && paramOffset == 0 && !isXGox && FuncFromCallExpr(typeInfo, expr) == fun {
+		if actual := callExprSignature(typeInfo, expr); actual != nil {
+			sig = actual
+		}
+	}
 	typeArgCount := 0
 	if typeParams := sig.TypeParams(); typeParams != nil {
 		typeArgCount = typeParams.Len()
@@ -214,6 +256,17 @@ func ResolveFuncSignatureForCall(typeInfo *types.Info, expr *ast.CallExpr, fun *
 		typeArgCount = callExprXGoxTypeArgCount(typeInfo, expr, fun, sig)
 	}
 	params = normalizedCallExprParams(fun, sig, typeArgCount)
+	// XGo's member recorder can retain the method declaration signature for
+	// a method expression. Its explicit receiver has the selector's type,
+	// which may differ from the declaring receiver for promoted methods.
+	if typeInfo != nil && sig.Recv() != nil {
+		if selector, ok := astutil.Unparen(expr.Fun).(*ast.SelectorExpr); ok {
+			if isType, _ := IsTypeExpr(typeInfo, selector.X); isType {
+				recv := gotypes.NewParam(token.NoPos, fun.Pkg(), "", typeInfo.TypeOf(selector.X))
+				params = gotypes.NewTuple(slices.AppendSeq([]*gotypes.Var{recv}, params.Variables())...)
+			}
+		}
+	}
 	return sig, params
 }
 
@@ -298,8 +351,9 @@ func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, fun *got
 	}
 
 	typeArgCount := typeParams.Len()
-	for i := 0; i < min(typeArgCount, len(expr.Args)); i++ {
-		isType, known := callExprArgIsType(typeInfo, expr.Args[i])
+	args, _ := CallExprArgs(typeInfo, expr, sig.Params())
+	for i := 0; i < min(typeArgCount, len(args)); i++ {
+		isType, known := IsTypeExpr(typeInfo, args[i])
 		if !known {
 			return typeArgCount
 		}
@@ -311,30 +365,6 @@ func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, fun *got
 		}
 	}
 	return typeArgCount
-}
-
-// callExprArgIsType reports whether arg is known to be a type expression.
-func callExprArgIsType(typeInfo *types.Info, arg ast.Expr) (isType, known bool) {
-	if tv, ok := typeInfo.Types[arg]; ok {
-		return tv.IsType(), true
-	}
-
-	var ident *ast.Ident
-	switch arg := arg.(type) {
-	case *ast.Ident:
-		ident = arg
-	case *ast.SelectorExpr:
-		ident = arg.Sel
-	}
-	if ident == nil {
-		return false, false
-	}
-	obj := typeInfo.ObjectOf(ident)
-	if obj == nil {
-		return false, false
-	}
-	_, isType = obj.(*gotypes.TypeName)
-	return isType, true
 }
 
 // resolvedCallExprArgType returns the expected argument type at paramIndex.
@@ -634,7 +664,7 @@ func isAppendableKwargReceiver(receiver ast.Expr) bool {
 // arguments, if any.
 func ResolveCallExprKwarg(typeInfo *types.Info, expr *ast.CallExpr) *ResolvedCallExprKwarg {
 	_, sig, params := ResolveCallExprSignature(typeInfo, expr)
-	if sig == nil || params == nil {
+	if sig == nil {
 		return nil
 	}
 
@@ -792,12 +822,73 @@ func sameResolvedCallExprKwargTarget(resolved *ResolvedCallExprKwargTarget, targ
 	return resolved.Kind == target.Kind && resolved.Name == target.Name
 }
 
-// ResolvedCallExprArgs returns an iterator over both positional arguments and
-// keyword argument values for the given call expression.
+// CallExprArgs returns positional arguments after XGo tuple expansion and
+// reports whether the final argument uses ellipsis. Decorators and calls with
+// a single tuple parameter keep their tuple argument intact.
+func CallExprArgs(typeInfo *types.Info, expr *ast.CallExpr, params *gotypes.Tuple) ([]ast.Expr, bool) {
+	ellipsis := expr.Ellipsis.IsValid()
+	if typeInfo != nil && typeInfo.FuncDecorators[expr] {
+		return expr.Args, ellipsis
+	}
+	if len(expr.Args) != 1 || len(expr.Kwargs) != 0 || ellipsis {
+		return expr.Args, ellipsis
+	}
+	tuple, ok := expr.Args[0].(*ast.TupleLit)
+	if !ok {
+		return expr.Args, ellipsis
+	}
+	if tuple.Ellipsis.IsValid() || params.Len() != 1 || !new(gogen.CodeBuilder).IsTupleType(params.At(0).Type()) {
+		return tuple.Elts, tuple.Ellipsis.IsValid()
+	}
+	return expr.Args, ellipsis
+}
+
+// ResolvedCallExprArgs returns positional arguments and keyword argument values
+// mapped to the selected call signature.
 func ResolvedCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr) iter.Seq[ResolvedCallExprArg] {
+	fun, sig, params := ResolveCallExprSignature(typeInfo, expr)
+	return resolvedCallExprArgs(typeInfo, expr, fun, sig, params, nil)
+}
+
+// ResolvedCallExprArgsForFunc maps arguments to a specific overload candidate.
+func ResolvedCallExprArgsForFunc(typeInfo *types.Info, expr *ast.CallExpr, fun *gotypes.Func) iter.Seq[ResolvedCallExprArg] {
+	sig, params := ResolveFuncSignatureForCall(typeInfo, expr, fun)
+	return resolvedCallExprArgs(typeInfo, expr, fun, sig, params, nil)
+}
+
+// ResolvedCallExprArgsForSignature maps arguments using an already resolved
+// signature and its source-visible parameters.
+func ResolvedCallExprArgsForSignature(typeInfo *types.Info, expr *ast.CallExpr, fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple) iter.Seq[ResolvedCallExprArg] {
+	return resolvedCallExprArgs(typeInfo, expr, fun, sig, params, nil)
+}
+
+// SourceExprIndex finds target in expressions ordered by source position.
+// Nodes sharing a position are distinguished by identity.
+func SourceExprIndex(exprs []ast.Expr, target ast.Expr) int {
+	start, _ := slices.BinarySearchFunc(exprs, target.Pos(), func(expr ast.Expr, pos token.Pos) int {
+		return cmp.Compare(expr.Pos(), pos)
+	})
+	for i := start; i < len(exprs) && exprs[i].Pos() == target.Pos(); i++ {
+		if exprs[i] == target {
+			return i
+		}
+	}
+	return -1
+}
+
+// ResolveCallExprArg resolves one argument without visiting its siblings.
+func ResolveCallExprArg(typeInfo *types.Info, expr *ast.CallExpr, target ast.Expr) (ResolvedCallExprArg, bool) {
+	fun, sig, params := ResolveCallExprSignature(typeInfo, expr)
+	for arg := range resolvedCallExprArgs(typeInfo, expr, fun, sig, params, target) {
+		return arg, true
+	}
+	return ResolvedCallExprArg{}, false
+}
+
+// resolvedCallExprArgs maps source arguments to a resolved signature.
+func resolvedCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr, fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, target ast.Expr) iter.Seq[ResolvedCallExprArg] {
 	return func(yield func(ResolvedCallExprArg) bool) {
-		fun, sig, params := ResolveCallExprSignature(typeInfo, expr)
-		if fun == nil || sig == nil || params == nil {
+		if sig == nil {
 			return
 		}
 
@@ -805,9 +896,19 @@ func ResolvedCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr) iter.Seq[Res
 		if len(expr.Kwargs) > 0 {
 			kwarg = resolveCallExprKwarg(typeInfo, expr, sig, params)
 		}
+		args, ellipsis := CallExprArgs(typeInfo, expr, params)
 		totalParams := params.Len()
-		for i, arg := range expr.Args {
-			ellipsis := expr.Ellipsis.IsValid() && i == len(expr.Args)-1
+		start, end := 0, len(args)
+		if target != nil {
+			start = SourceExprIndex(args, target)
+			end = start
+			if start >= 0 {
+				end++
+			}
+		}
+		for i := start; i < end; i++ {
+			arg := args[i]
+			argEllipsis := ellipsis && i == len(args)-1
 			paramIndex := i
 			if kwarg != nil && i >= kwarg.ParamIndex {
 				paramIndex++
@@ -821,13 +922,14 @@ func ResolvedCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr) iter.Seq[Res
 
 			if !yield(ResolvedCallExprArg{
 				Fun:          fun,
+				Signature:    sig,
 				Params:       params,
 				Param:        params.At(paramIndex),
 				ParamIndex:   paramIndex,
 				Arg:          arg,
 				ArgIndex:     i,
 				Kind:         ResolvedCallExprArgPositional,
-				ExpectedType: resolvedCallExprArgType(sig, params, paramIndex, ellipsis),
+				ExpectedType: resolvedCallExprArgType(sig, params, paramIndex, argEllipsis),
 			}) {
 				return
 			}
@@ -838,22 +940,26 @@ func ResolvedCallExprArgs(typeInfo *types.Info, expr *ast.CallExpr) iter.Seq[Res
 		}
 
 		for i, arg := range expr.Kwargs {
-			target := LookupResolvedCallExprKwargTarget(kwarg, arg.Name.Name)
+			if target != nil && arg.Value != target {
+				continue
+			}
+			kwargTarget := LookupResolvedCallExprKwargTarget(kwarg, arg.Name.Name)
 			var expectedType gotypes.Type
-			if target != nil {
-				expectedType = target.ValueType
+			if kwargTarget != nil {
+				expectedType = kwargTarget.ValueType
 			}
 			if !yield(ResolvedCallExprArg{
 				Fun:          fun,
+				Signature:    sig,
 				Params:       params,
 				Param:        kwarg.Param,
 				ParamIndex:   kwarg.ParamIndex,
 				Arg:          arg.Value,
-				ArgIndex:     len(expr.Args) + i,
+				ArgIndex:     len(args) + i,
 				Kind:         ResolvedCallExprArgKeyword,
 				Kwarg:        arg,
 				ExpectedType: expectedType,
-				KwargTarget:  target,
+				KwargTarget:  kwargTarget,
 			}) {
 				return
 			}

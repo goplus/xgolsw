@@ -21,7 +21,8 @@ import (
 	"github.com/goplus/xgo/token"
 )
 
-// PosFilename returns the filename for the given position.
+// PosFilename returns the logical filename for pos, honoring line directives.
+// Use [PosTokenFile] for the physical file that contains the position.
 func PosFilename(fset *token.FileSet, pos token.Pos) string {
 	if fset == nil || !pos.IsValid() {
 		return ""
@@ -29,7 +30,8 @@ func PosFilename(fset *token.FileSet, pos token.Pos) string {
 	return fset.Position(pos).Filename
 }
 
-// NodeFilename returns the filename for the given node.
+// NodeFilename returns the logical filename for node, honoring line directives.
+// Use [NodeTokenFile] for the physical file that contains the node.
 func NodeFilename(fset *token.FileSet, node ast.Node) string {
 	if fset == nil || node == nil {
 		return ""

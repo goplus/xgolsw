@@ -2,14 +2,56 @@ package server
 
 import (
 	gotypes "go/types"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerSpxGetInputSlots(t *testing.T) {
+	t.Run("ResourceConversions", func(t *testing.T) {
+		for _, tt := range []struct {
+			name       string
+			source     string
+			collection string
+		}{
+			{"Intrinsic", "echo sdk.BackdropName(\"Shared\")\n", "backdrops"},
+			{"Nested", "echo sdk.BackdropName(string((\"Shared\")))\n", "backdrops"},
+			{"OuterString", "echo string(sdk.BackdropName(\"Shared\"))\n", "backdrops"},
+			{"Contextual", "play sdk.BackdropName(\"Shared\")\n", "sounds"},
+			{"NestedContextual", "play sdk.BackdropName(string((\"Shared\")))\n", "sounds"},
+			{"StringContextual", "play string(sdk.BackdropName(\"Shared\"))\n", "sounds"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := "import sdk \"github.com/goplus/spx/v3\"\n" + tt.source
+				files := map[string][]byte{
+					"main.spx":                        []byte(source),
+					"assets/index.json":               []byte(`{"backdrops":[{"name":"Shared"}]}`),
+					"assets/sounds/Shared/index.json": []byte(`{}`),
+				}
+				s := newSpxTestServer(t, files)
+				requireNoDiagnostics(t, s)
+				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
+				require.NoError(t, err)
+				require.Len(t, slots, 1)
+				slot := slots[0]
+				context := XGoResourceContextURI("spx://resources/" + tt.collection)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(context)}, slot.Accept)
+				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeSpxResourceName, Value: XGoResourceURI(string(context) + "/Shared")}, slot.Input)
+				start, end := PositionOffset([]byte(source), slot.Range.Start), PositionOffset([]byte(source), slot.Range.End)
+				assert.Equal(t, `"Shared"`, source[start:end])
+				updated := source[:start] + `"Other"` + source[end:]
+				assert.Equal(t, strings.ReplaceAll(source, "Shared", "Other"), updated)
+				files["main.spx"] = []byte(updated)
+				_, err = newSpxTestServer(t, files).getProj().TypeInfo()
+				require.NoError(t, err)
+			})
+		}
+	})
+
 	t.Run("ColorCalls", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string
@@ -436,11 +478,11 @@ onStart => {
 	}
 	s := newSpxTestServer(t, m)
 
-	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	result, astFile := analyzeSpxTestFile(t, s, "main.spx")
 	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
 
-	inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+	inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 	require.NotNil(t, inputSlots)
 	assert.NotEmpty(t, inputSlots)
 
@@ -525,11 +567,11 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteStepTo", func(t *testing.T) {
-		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		result, astFile := analyzeSpxTestFile(t, s, "MySprite.spx")
 		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
-		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+		inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 		require.NotNil(t, inputSlots)
 		assert.NotEmpty(t, inputSlots)
 
@@ -547,11 +589,11 @@ onStart => {
 	})
 
 	t.Run("SpxSpriteClone", func(t *testing.T) {
-		result, astFile := compileSpxTestFile(t, s, "MySprite.spx")
+		result, astFile := analyzeSpxTestFile(t, s, "MySprite.spx")
 		requireNoDiagnostics(t, s)
 		require.NotNil(t, astFile)
 
-		inputSlots := findInputSlots(newSpxInputSlotContext(t, result, astFile))
+		inputSlots := findInputSlots(newSpxInputSlotContext(t, s.getProj(), result, astFile))
 		require.NotNil(t, inputSlots)
 		assert.NotEmpty(t, inputSlots)
 
@@ -579,10 +621,10 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 		"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 	}
 	s := newSpxTestServer(t, files)
-	result, astFile := compileSpxTestFile(t, s, "main.spx")
+	result, astFile := analyzeSpxTestFile(t, s, "main.spx")
 	requireNoDiagnostics(t, s)
 	require.NotNil(t, astFile)
-	ctx := newSpxInputSlotContext(t, result, astFile)
+	ctx := newSpxInputSlotContext(t, s.getProj(), result, astFile)
 	literal := inputSlotLiteral(t, ctx, `"OtherSprite"`)
 	slot := createValueInputSlotFromBasicLit(ctx, literal, spxTestType(t, s, "SpriteName"))
 	require.NotNil(t, slot)
@@ -616,9 +658,9 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			source := tt.declaration + "println " + tt.expression + "\n"
 			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
-			result, file := compileSpxTestFile(t, s, "main.spx")
+			result, file := analyzeSpxTestFile(t, s, "main.spx")
 			requireNoDiagnostics(t, s)
-			ctx := newSpxInputSlotContext(t, result, file)
+			ctx := newSpxInputSlotContext(t, s.getProj(), result, file)
 			call := inputSlotCall(t, ctx, "println")
 			require.Len(t, call.Args, 1)
 			ident := requireValueAs[*ast.Ident](t, call.Args[0])
@@ -644,9 +686,9 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 			"assets/index.json":             []byte(`{}`),
 			"assets/sounds/Beep/index.json": []byte(`{}`),
 		})
-		result, file := compileSpxTestFile(t, s, "main.spx")
+		result, file := analyzeSpxTestFile(t, s, "main.spx")
 		requireNoDiagnostics(t, s)
-		ctx := newSpxInputSlotContext(t, result, file)
+		ctx := newSpxInputSlotContext(t, s.getProj(), result, file)
 		call := inputSlotCall(t, ctx, "play")
 		require.Len(t, call.Args, 1)
 		ident := requireValueAs[*ast.Ident](t, call.Args[0])
@@ -659,7 +701,7 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 	})
 }
 
-func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
+func TestSpxAnalysisCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		source string
@@ -681,9 +723,9 @@ func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(tt.source), "assets/index.json": []byte(`{}`)})
 			ctx := inputSlotTestContext(t, s, "main.spx")
-			ctx.spxResult = newCompileResult(s.getProj(), s.lookupPkgDoc)
+			result := newSpxAnalysis(s.getProj())
 			call := inputSlotCall(t, ctx, tt.callee)
-			slot := createValueInputSlotFromColorFuncCall(ctx, call, nil)
+			slot := result.createValueInputSlotFromColorFuncCall(ctx, call, nil)
 			if tt.want == nil {
 				assert.Nil(t, slot)
 				return
@@ -695,7 +737,7 @@ func TestCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 	}
 }
 
-func TestDefinitionContextInferSpxInputTypeFromType(t *testing.T) {
+func TestSpxSymbolsInferSpxInputTypeFromType(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		want XGoInputType
@@ -717,7 +759,7 @@ func TestDefinitionContextInferSpxInputTypeFromType(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newSpxTestServer(t, nil)
-			ctx := &definitionContext{proj: s.getProj()}
+			ctx := newSpxSymbols(s.getProj())
 			typ := spxTestType(t, s, tt.name)
 			assert.Equal(t, tt.want, ctx.inferSpxInputTypeFromType(typ))
 			pkg := gotypes.NewPackage("example.com/user", "user")
@@ -727,18 +769,18 @@ func TestDefinitionContextInferSpxInputTypeFromType(t *testing.T) {
 	}
 }
 
-func newSpxInputSlotContext(t *testing.T, result *compileResult, astFile *ast.File) *inputSlotContext {
+func newSpxInputSlotContext(t *testing.T, proj *xgo.Project, result *spxAnalysis, astFile *ast.File) *inputSlotContext {
 	t.Helper()
 
-	ctx := newInputSlotContext(result.proj, astFile)
-	ctx.spxResult = result
+	ctx := newInputSlotContext(proj, astFile)
+	ctx.frameworkResult = &frameworkAnalysis{inputType: result.inferInputType, adaptInputSlot: result.adaptInputSlot}
 	return ctx
 }
 
 func TestIsSpxSpriteInstanceType(t *testing.T) {
 	s := newSpxTestServer(t, nil)
 	other := newSpxTestServer(t, nil)
-	result := newCompileResult(s.getProj(), s.lookupPkgDoc)
+	result := newSpxAnalysis(s.getProj())
 	implementation := spxTestType(t, s, "SpriteImpl")
 	pointer := gotypes.NewPointer(implementation)
 	alias := gotypes.NewAlias(gotypes.NewTypeName(0, nil, "Pointer", nil), pointer)

@@ -62,8 +62,9 @@ var builtinCacheFeatures = []cacheFeature{
 // File represents a file in an XGo project.
 type File struct {
 	Content []byte
-	// Deprecated: ModTime is no longer supported due to lsp text sync specification. Use Version instead.
+	// ModTime tracks changes from the external file map used by [Project.UpdateFiles].
 	ModTime time.Time
+	// Version tracks LSP document updates independently of ModTime.
 	Version int
 }
 
@@ -78,16 +79,24 @@ type Project struct {
 	files         map[string]*File
 	filesSnapshot atomic.Pointer[map[string]*File] // Immutable snapshot for lock-free file reads.
 
+	// astMu serializes package initialization and type checking across snapshots
+	// sharing an importer. It also excludes documentation reads while the compiler
+	// mutates syntax.
+	astMu *sync.Mutex
+
 	cacheBuilders map[CacheKind]CacheBuilder
 	caches        map[CacheKind]dataOrErr
 	cacheSFG      singleflight.Group
+	cacheRevision uint64 // Changes whenever files or module configuration invalidate caches.
+	sharedAST     bool   // Cached syntax is shared with another project instance.
 
 	fileCacheBuilders map[CacheKind]FileCacheBuilder
 	fileCaches        map[fileCacheKey]dataOrErr
 	fileCacheSFG      singleflight.Group
 }
 
-// NewProject creates a new project with optional static files and features.
+// NewProject creates a project with XGo's builtin classfiles, optional static
+// files, and features. Use SetModule to configure additional frameworks.
 func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Project {
 	if fset == nil {
 		fset = token.NewFileSet()
@@ -96,6 +105,7 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 		module:            defaultModule,
 		Fset:              fset,
 		files:             make(map[string]*File),
+		astMu:             new(sync.Mutex),
 		cacheBuilders:     make(map[CacheKind]CacheBuilder),
 		caches:            make(map[CacheKind]dataOrErr),
 		fileCacheBuilders: make(map[CacheKind]FileCacheBuilder),
@@ -118,10 +128,12 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 	return proj
 }
 
-// Snapshot creates a snapshot of the project.
+// Snapshot creates a snapshot of the project. Completed analysis can be shared,
+// but syntax awaiting type checking must be rebuilt because the compiler mutates it.
+// Sharing checked syntax marks both projects so their next edits rebuild the ASTs.
 func (p *Project) Snapshot() *Project {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	proj := &Project{
 		PkgPath:           p.PkgPath,
@@ -129,10 +141,26 @@ func (p *Project) Snapshot() *Project {
 		Importer:          p.Importer,
 		Fset:              p.Fset,
 		files:             maps.Clone(p.files),
+		astMu:             p.astMu,
 		cacheBuilders:     maps.Clone(p.cacheBuilders),
 		caches:            maps.Clone(p.caches),
 		fileCacheBuilders: maps.Clone(p.fileCacheBuilders),
 		fileCaches:        maps.Clone(p.fileCaches),
+	}
+	if _, typeChecking := p.cacheBuilders[typeInfoCacheKind{}]; typeChecking {
+		for key := range p.fileCaches {
+			if key.kind != (astFileCacheKind{}) {
+				continue
+			}
+			if _, checked := p.caches[typeInfoCacheKind{}]; checked {
+				p.sharedAST = true
+				proj.sharedAST = true
+			} else {
+				clear(proj.caches)
+				clear(proj.fileCaches)
+			}
+			break
+		}
 	}
 	proj.updateFilesSnapshot()
 	return proj
@@ -145,6 +173,29 @@ func (p *Project) SnapshotWithOverlay(overlay map[string]*File) *Project {
 		snapshot.PutFile(path, file)
 	}
 	return snapshot
+}
+
+// Fork creates a project with the same files and configuration but a fresh file
+// set and empty analysis caches. Type checking remains serialized with the
+// original project and its snapshots because they share an importer.
+func (p *Project) Fork() *Project {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	proj := NewProject(nil, p.files, 0)
+	proj.PkgPath = p.PkgPath
+	proj.module = p.module
+	proj.Importer = p.Importer
+	proj.astMu = p.astMu
+	proj.cacheBuilders = maps.Clone(p.cacheBuilders)
+	proj.fileCacheBuilders = maps.Clone(p.fileCacheBuilders)
+	return proj
+}
+
+// Revision returns this project instance's file and module revision.
+func (p *Project) Revision() uint64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cacheRevision
 }
 
 // Files returns an iterator over all file path-content pairs in the project.
@@ -205,7 +256,7 @@ func (p *Project) RenameFile(oldPath, newPath string) error {
 
 // UpdateFiles updates all files in the project with the provided map of files.
 // It removes existing files not present in the new map and updates files from
-// the new map.
+// the new map. Existing files retain their LSP document versions.
 func (p *Project) UpdateFiles(newFiles map[string]*File) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -224,7 +275,9 @@ func (p *Project) UpdateFiles(newFiles map[string]*File) {
 		if oldFile, ok := p.files[path]; ok {
 			// Only update if ModTime changed.
 			if !oldFile.ModTime.Equal(newFile.ModTime) {
-				p.files[path] = newFile
+				updated := *newFile
+				updated.Version = oldFile.Version
+				p.files[path] = &updated
 				p.deleteFileCache(path)
 			}
 		} else {

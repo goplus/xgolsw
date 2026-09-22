@@ -111,7 +111,8 @@ func IsUnexpandableXGoOverloadableFunc(fun *gotypes.Func) bool {
 
 // ExpandXGoOverloadableFunc expands the given XGo function with a signature
 // like `func(__xgo_overload_args__ interface{_()})` to all its overloads. It
-// returns nil if the function is not qualified for overload expansion.
+// skips unresolved candidates left by incomplete declarations and returns nil
+// if the function is not qualified for overload expansion.
 func ExpandXGoOverloadableFunc(fun *gotypes.Func) []*gotypes.Func {
 	typ, objs := gogen.CheckSigFuncExObjects(fun.Type().(*gotypes.Signature))
 	if typ == nil {
@@ -119,7 +120,9 @@ func ExpandXGoOverloadableFunc(fun *gotypes.Func) []*gotypes.Func {
 	}
 	overloads := make([]*gotypes.Func, 0, len(objs))
 	for _, obj := range objs {
-		overloads = append(overloads, obj.(*gotypes.Func))
+		if overload, ok := obj.(*gotypes.Func); ok && overload != nil {
+			overloads = append(overloads, overload)
+		}
 	}
 	return overloads
 }

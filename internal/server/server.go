@@ -3,24 +3,21 @@ package server
 import (
 	"context"
 	"fmt"
-	gotypes "go/types"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/goplus/mod/modload"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/i18n"
-	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis"
-	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
-	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // MessageReplier is an interface for sending messages back to the client.
@@ -59,32 +56,18 @@ type Server struct {
 	clientCapabilities ClientCapabilities
 	initializeCalled   bool
 	initialized        bool
+	projectMu          sync.Mutex
+	providerSequence   atomic.Uint64
+	providerSnapshot   providerSnapshot
+	openFiles          map[string]*xgo.File
+	analysisSnapshot   *xgo.Project
+	analysisRevision   uint64
+	pendingDiagnostics map[DocumentURI]*diagnosticRequest
+	diagnosticsRunning bool
 }
 
-func (s *Server) getProj() *xgo.Project {
-	return s.workspaceRootFS
-}
-
-func (s *Server) getProjWithFile() *xgo.Project {
-	proj := s.workspaceRootFS
-	proj.UpdateFiles(s.fileMapGetter())
-	return proj
-}
-
-// New creates a new Server instance with the default module and package data.
-func New(proj *xgo.Project, replier MessageReplier, fileMapGetter FileMapGetter, scheduler Scheduler) *Server {
-	mod, err := xgo.NewModule(modload.Default)
-	if err != nil {
-		panic(fmt.Errorf("failed to import classes: %w", err))
-	}
-	proj.PkgPath = "main"
-	proj.SetModule(mod)
-	proj.Importer = internal.Importer
-	return newServer(proj, replier, fileMapGetter, scheduler, pkgdata.ListPkgs, pkgdata.GetPkgDoc)
-}
-
-// newServer creates a server from a configured project and package data providers.
-func newServer(
+// New creates a server from a configured project and package data providers.
+func New(
 	proj *xgo.Project,
 	replier MessageReplier,
 	fileMapGetter FileMapGetter,
@@ -92,6 +75,13 @@ func newServer(
 	listPkgs func() ([]string, error),
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
 ) *Server {
+	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
+	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
+	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
+	proj.RegisterCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
+	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
+	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)
+	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
@@ -429,37 +419,6 @@ func (s *Server) hoverClientCapabilities() (HoverClientCapabilities, bool) {
 	return *capabilities.TextDocument.Hover, true
 }
 
-// notifyPropertyRenamed sends a notification to the client when a property is renamed.
-// This allows clients to update any monitoring or tracking of the property.
-func (s *Server) notifyPropertyRenamed(obj gotypes.Object, params *RenameParams) error {
-	typeName := memberTypeName(s.getProj(), obj)
-	if typeName == "" {
-		return fmt.Errorf("failed to find enclosing type for object: %s", obj.Name())
-	}
-
-	notifParams := PropertyRenamedParams{
-		Target:  typeName,
-		OldName: obj.Name(),
-		NewName: params.NewName,
-		TextDocument: TextDocumentIdentifier{
-			URI: s.posDocumentURI(s.getProj(), obj.Pos()),
-		},
-	}
-
-	// Create notification
-	notification, err := jsonrpc2.NewNotification("textDocument/xgo.propertyRenamed", notifParams)
-	if err != nil {
-		return fmt.Errorf("failed to create property renamed notification: %w", err)
-	}
-
-	// Send notification to client
-	if err := s.replier.ReplyMessage(notification); err != nil {
-		return fmt.Errorf("failed to send property renamed notification: %w", err)
-	}
-
-	return nil
-}
-
 // sendTelemetryEvent sends a telemetry event to the client.
 func (s *Server) sendTelemetryEvent(data map[string]any) error {
 	n, err := jsonrpc2.NewNotification("telemetry/event", data)
@@ -624,17 +583,21 @@ func (s *Server) fromDocumentURI(documentURI DocumentURI) (string, error) {
 	if !strings.HasPrefix(uri, rootURI) {
 		return "", fmt.Errorf("document URI %q does not have workspace root URI %q as prefix", uri, rootURI)
 	}
-	return strings.TrimPrefix(uri, rootURI), nil
+	path, err := url.PathUnescape(strings.TrimPrefix(uri, rootURI))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode document URI %q: %w", uri, err)
+	}
+	return path, nil
 }
 
 // toDocumentURI returns the [DocumentURI] for a relative path.
 func (s *Server) toDocumentURI(path string) DocumentURI {
-	return DocumentURI(string(s.workspaceRootURI) + path)
+	return DocumentURI(string(s.workspaceRootURI) + (&url.URL{Path: path}).EscapedPath())
 }
 
-// posDocumentURI returns the [DocumentURI] for the given position in the project.
+// posDocumentURI returns the physical document URI for pos, ignoring line directives.
 func (s *Server) posDocumentURI(proj *xgo.Project, pos token.Pos) DocumentURI {
-	return s.toDocumentURI(xgoutil.PosFilename(proj.Fset, pos))
+	return s.toDocumentURI(proj.Fset.PositionFor(pos, false).Filename)
 }
 
 // nodeDocumentURI returns the [DocumentURI] for the given node in the project.

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerInspectSpxResourceRefsForCallExpr(t *testing.T) {
+func TestAnalyzeSpxCallResourceReferences(t *testing.T) {
 	for _, tt := range []struct {
 		name            string
 		source          string
@@ -85,15 +85,15 @@ worker.use names = (["Known", "Missing"])
 			}
 			_, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
-			result, err := s.compile()
+			result, err := analyzeSpx(s.syncProject())
 			require.NoError(t, err)
-			require.Len(t, result.spxResourceRefs, 2)
+			require.Len(t, result.resourceRefs, 2)
 			var wantLinks []DocumentLink
 			var wantDiagnostics []Diagnostic
 			for i, name := range []string{"Known", "Missing"} {
-				ref := result.spxResourceRefs[i]
+				ref := result.resourceRefs[i]
 				assert.Equal(t, SpxSoundResourceID{name}, ref.ID)
-				assert.Equal(t, SpxResourceRefKindStringLiteral, ref.Kind)
+				assert.Equal(t, XGoResourceRefKindStringLiteral, ref.Kind)
 				needle := `"` + name + `"`
 				offset := strings.Index(tt.source, needle)
 				require.NotEqual(t, -1, offset)
@@ -104,7 +104,7 @@ worker.use names = (["Known", "Missing"])
 					wantLinks = append(wantLinks, DocumentLink{
 						Range:  span,
 						Target: toURI("spx://resources/sounds/Known"),
-						Data:   SpxResourceRefDocumentLinkData{Kind: SpxResourceRefKindStringLiteral},
+						Data:   XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral},
 					})
 				} else {
 					wantDiagnostics = append(wantDiagnostics, Diagnostic{
@@ -141,51 +141,18 @@ configure target = "OtherSprite", unknown = 9
 			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, files)
-		result, err := s.compile()
+		result, err := analyzeSpx(s.syncProject())
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		require.Len(t, result.spxResourceRefs, 1)
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), result.spxResourceRefs[0].ID.URI())
+		require.Len(t, result.resourceRefs, 1)
+		assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), result.resourceRefs[0].ID.URI())
 	})
 }
 
-func TestCompileResultIsInSpxEventHandler(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		source string
-		want   bool
-	}{
-		{"OrdinaryCallback", "func invoke(fn func()) { fn() }\ninvoke => {\n    |println 1\n}\n", false},
-		{"UserHandler", "func onCustom(fn func()) { fn() }\nonCustom => {\n    |println 1\n}\n", false},
-		{"ShadowedHandler", "onStart := func(fn func()) { fn() }\nonStart => {\n    |println 1\n}\n", false},
-		{"Handler", "onStart => {\n    |println 1\n}\n", true},
-		{"NestedOrdinaryCallback", "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        |println 1\n    }\n}\n", true},
-		{"ExplicitReceiver", "this.onStart => {\n    |println 1\n}\n", true},
-		{"OverloadedHandler", "onKey KeySpace, => {\n    |println 1\n}\n", true},
-		{"FunctionLiteral", "onStart func() {\n    |println 1\n}\n", true},
-		{"Argument", "onKey |KeySpace, => {}\n", false},
-		{"CallbackParameters", "onKey [KeySpace], |key => { println key }\n", false},
-		{"Unresolved", "onMissing => {\n    |println 1\n}\n", false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			source, position := typeDisplayTestSource(t, tt.source)
-			s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
-			result, err := s.compile()
-			require.NoError(t, err)
-			if tt.name != "Unresolved" {
-				requireNoDiagnostics(t, s)
-			}
-			file, err := result.proj.ASTFile("main.spx")
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, result.isInSpxEventHandler(PosAt(result.proj, file, position)))
-		})
-	}
-}
-
-func TestServerInspectForSpxResourceRefs(t *testing.T) {
+func TestInspectForSpxResourceRefs(t *testing.T) {
 	for _, resource := range []struct {
 		name string
-		id   SpxResourceID
+		id   resourceID
 	}{
 		{"BackdropName", SpxBackdropResourceID{"Known"}},
 		{"SoundName", SpxSoundResourceID{"Known"}},
@@ -199,19 +166,19 @@ func TestServerInspectForSpxResourceRefs(t *testing.T) {
 				name   string
 				source string
 				needle string
-				kind   SpxResourceRefKind
+				kind   XGoResourceRefKind
 			}{
-				{"Declaration", `func run() { var value ResourceName = "Known"; println value }`, `"Known"`, SpxResourceRefKindStringLiteral},
-				{"Assignment", `func run() { var value ResourceName; value = "Known"; println value }`, `"Known"`, SpxResourceRefKindStringLiteral},
+				{"Declaration", `func run() { var value ResourceName = "Known"; println value }`, `"Known"`, XGoResourceRefKindStringLiteral},
+				{"Assignment", `func run() { var value ResourceName; value = "Known"; println value }`, `"Known"`, XGoResourceRefKindStringLiteral},
 				{"ConstantReturn", `const Value = "Known"
-func current() ResourceName { return Value }`, "Value", SpxResourceRefKindConstantReference},
-				{"ParenthesizedReturn", `func current() ResourceName { return (("Known")) }`, `"Known"`, SpxResourceRefKindStringLiteral},
+func current() ResourceName { return Value }`, "Value", XGoResourceRefKindConstantReference},
+				{"ParenthesizedReturn", `func current() ResourceName { return (("Known")) }`, `"Known"`, XGoResourceRefKindStringLiteral},
 				{"NestedReturn", `func current() (string, ResourceName) {
 	func() string { return "ordinary" }()
 	return "ordinary", func() ResourceName { return "Known" }()
-}`, `"Known"`, SpxResourceRefKindStringLiteral},
+}`, `"Known"`, XGoResourceRefKindStringLiteral},
 				{"CallInReturn", `func pick(ordinary string) ResourceName { return "Known" }
-func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResourceRefKindStringLiteral},
+func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResourceRefKindStringLiteral},
 			} {
 				t.Run(form.name, func(t *testing.T) {
 					source := "type ResourceName = " + resource.name + "\n" + form.source + "\n"
@@ -225,13 +192,13 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 					})
 					_, err := s.getProj().TypeInfo()
 					require.NoError(t, err)
-					result, err := s.compile()
+					result, err := analyzeSpx(s.syncProject())
 					require.NoError(t, err)
-					require.Len(t, result.spxResourceRefs, 1)
-					ref := result.spxResourceRefs[0]
+					require.Len(t, result.resourceRefs, 1)
+					ref := result.resourceRefs[0]
 					assert.Equal(t, resource.id, ref.ID)
 					assert.Equal(t, form.kind, ref.Kind)
-					for _, diagnostics := range result.diagnostics {
+					for _, diagnostics := range resourceDiagnostics(s, result.resourceAnalysis).diagnostics {
 						assert.Empty(t, diagnostics)
 					}
 					offset := strings.LastIndex(source, form.needle)
@@ -241,7 +208,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 					want := DocumentLink{
 						Range:  Range{Start: Position{Line: line, Character: column}, End: Position{Line: line, Character: column + uint32(len(form.needle))}},
 						Target: toURI(string(resource.id.URI())),
-						Data:   SpxResourceRefDocumentLinkData{Kind: form.kind},
+						Data:   XGoResourceRefDocumentLinkData{Kind: form.kind},
 					}
 					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///Runner.spx"}})
 					require.NoError(t, err)
@@ -275,18 +242,18 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.compile()
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
-				require.Len(t, result.spxResourceRefs, 2)
-				got := make(map[SpxResourceID]SpxResourceRefKind)
-				for _, ref := range result.spxResourceRefs {
+				require.Len(t, result.resourceRefs, 2)
+				got := make(map[resourceID]XGoResourceRefKind)
+				for _, ref := range result.resourceRefs {
 					got[ref.ID] = ref.Kind
 				}
-				assert.Equal(t, map[SpxResourceID]SpxResourceRefKind{
-					SpxSoundResourceID{"Known"}:    SpxResourceRefKindStringLiteral,
-					SpxBackdropResourceID{"Known"}: SpxResourceRefKindConstantReference,
+				assert.Equal(t, map[resourceID]XGoResourceRefKind{
+					SpxSoundResourceID{"Known"}:    XGoResourceRefKindStringLiteral,
+					SpxBackdropResourceID{"Known"}: XGoResourceRefKindConstantReference,
 				}, got)
-				assert.Empty(t, result.diagnostics["file:///main.spx"])
+				assert.Empty(t, resourceDiagnostics(s, result.resourceAnalysis).diagnostics["file:///main.spx"])
 			})
 		}
 	})
@@ -295,17 +262,26 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 		for _, tt := range []struct {
 			name   string
 			source string
-			want   []SpxResourceID
+			want   []resourceID
 		}{
+			{
+				name:   "ExplicitThis",
+				source: "this.setCostume \"idle\"\n",
+				want:   []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
+			},
+			{
+				name:   "ShadowedThis",
+				source: "func run(this *Other) { this.setCostume \"idle\" }\n",
+			},
 			{
 				name:   "TypedConstantWithExplicitReceiver",
 				source: "const Costume SpriteCostumeName = \"idle\"\nfunc run() { Other.setCostume Costume }\n",
-				want:   []SpxResourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Runner", "idle"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
+				want:   []resourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Runner", "idle"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
 			},
 			{
 				name:   "UntypedConstantWithExplicitReceiver",
 				source: "const Costume = \"idle\"\nfunc run() { Other.setCostume Costume }\n",
-				want:   []SpxResourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
+				want:   []resourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
 			},
 			{
 				name:   "UnboundReceiver",
@@ -314,7 +290,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 			{
 				name:   "OrdinaryCallbackReturn",
 				source: "func invoke(fn func() string) {}\nfunc current() SpriteCostumeName {\n\tinvoke => { return \"ordinary\" }\n\treturn \"idle\"\n}\n",
-				want:   []SpxResourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
+				want:   []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
 			},
 			{
 				name:   "ComputedReturn",
@@ -331,14 +307,14 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.compile()
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
-				var got []SpxResourceID
-				for _, ref := range result.spxResourceRefs {
+				var got []resourceID
+				for _, ref := range result.resourceRefs {
 					got = append(got, ref.ID)
 				}
 				assert.ElementsMatch(t, tt.want, got)
-				for _, diagnostics := range result.diagnostics {
+				for _, diagnostics := range resourceDiagnostics(s, result.resourceAnalysis).diagnostics {
 					assert.Empty(t, diagnostics)
 				}
 			})
@@ -348,7 +324,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 	t.Run("ValueWithoutSourcePosition", func(t *testing.T) {
 		for _, resource := range []struct {
 			name string
-			id   SpxResourceID
+			id   resourceID
 		}{
 			{"SpriteCostumeName", SpxSpriteCostumeResourceID{"Runner", "Known"}},
 			{"SpriteAnimationName", SpxSpriteAnimationResourceID{"Runner", "Known"}},
@@ -377,18 +353,18 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 						literal.ValuePos = pos
 						set, err := NewSpxResourceSet(proj)
 						require.NoError(t, err)
-						result := newCompileResult(proj, s.lookupPkgDoc)
+						result := newSpxAnalysis(proj)
 						result.mainSpxFile = "main.spx"
 						result.spxResourceSet = *set
 						require.NotPanics(t, func() {
-							s.inspectForSpxResourceRefs(result)
+							inspectForSpxResourceRefs(s.getProj(), result)
 						})
-						require.Len(t, result.spxResourceRefs, 1)
-						ref := result.spxResourceRefs[0]
+						require.Len(t, result.resourceRefs, 1)
+						ref := result.resourceRefs[0]
 						assert.Equal(t, resource.id, ref.ID)
-						assert.Equal(t, SpxResourceRefKindStringLiteral, ref.Kind)
+						assert.Equal(t, XGoResourceRefKindStringLiteral, ref.Kind)
 						assert.Equal(t, `"Known"`, requireValueAs[*ast.BasicLit](t, ref.Node).Value)
-						assert.Empty(t, result.diagnostics)
+						assert.Empty(t, resourceDiagnostics(s, result.resourceAnalysis).diagnostics)
 					})
 				}
 			})
@@ -399,10 +375,10 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 		for _, tt := range []struct {
 			name     string
 			filename string
-			want     []SpxResourceID
+			want     []resourceID
 		}{
 			{"Project", "main.spx", nil},
-			{"Sprite", "Runner.spx", []SpxResourceID{SpxSpriteCostumeResourceID{"Runner", "runner"}, SpxSpriteAnimationResourceID{"Runner", "walk"}}},
+			{"Sprite", "Runner.spx", []resourceID{SpxSpriteCostumeResourceID{"Runner", "runner"}, SpxSpriteAnimationResourceID{"Runner", "walk"}}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -415,10 +391,10 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, SpxResource
 				s := newSpxTestServer(t, files)
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				result, err := s.compile()
+				result, err := analyzeSpx(s.syncProject())
 				require.NoError(t, err)
-				var ids []SpxResourceID
-				for _, ref := range result.spxResourceRefs {
+				var ids []resourceID
+				for _, ref := range result.resourceRefs {
 					ids = append(ids, ref.ID)
 				}
 				assert.ElementsMatch(t, tt.want, ids)
