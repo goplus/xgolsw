@@ -95,7 +95,7 @@ func TestSpxSymbolsSpxTypeName(t *testing.T) {
 		ctx := newSpxSymbols(proj)
 		assert.Empty(t, ctx.spxResourceNameType(spxTestType(t, s, "SoundName")))
 		assert.False(t, ctx.isSpxPropertyNameType(spxTestType(t, s, "PropertyName")))
-		assert.False(t, ctx.isPropertyType(requireValueAs[*gotypes.Named](t, spxTestType(t, s, "Value"))))
+		assert.False(t, ctx.isPropertyTypeName(requireValueAs[*gotypes.Named](t, spxTestType(t, s, "Value"))))
 	})
 
 	t.Run("PartialSDK", func(t *testing.T) {

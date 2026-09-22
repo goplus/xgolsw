@@ -2,6 +2,7 @@ package server
 
 import (
 	gotypes "go/types"
+	"iter"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
@@ -17,7 +18,8 @@ import (
 type frameworkAdapter interface {
 	displayTypeName(gotypes.Object, string) string
 	functionDocumentation(*gotypes.Func, *pkgdoc.PkgDoc) (string, bool)
-	isPropertyType(*gotypes.Named) bool
+	// A nil sequence leaves the receiver's properties to XGo semantics.
+	properties(*gotypes.Named) iter.Seq[propertyObject]
 	isEventHandler(*gotypes.Func) bool
 }
 
@@ -81,12 +83,6 @@ func (r *definitionContext) frameworkFunctionDocumentation(fun *gotypes.Func, do
 	return "", false
 }
 
-// isFrameworkPropertyType reports whether a framework exposes named as a property.
-func (r *definitionContext) isFrameworkPropertyType(named *gotypes.Named) bool {
-	adapter := r.frameworkAdapter()
-	return adapter != nil && adapter.isPropertyType(named)
-}
-
 // isFrameworkEventHandler reports whether obj registers a framework event.
 func (r *definitionContext) isFrameworkEventHandler(obj gotypes.Object) bool {
 	fun, ok := obj.(*gotypes.Func)
@@ -105,7 +101,7 @@ func (r *definitionContext) isInFrameworkEventHandler(pos token.Pos) bool {
 	if astFile == nil {
 		return false
 	}
-	typeInfo, _ := r.proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(r.proj)
 	if typeInfo == nil {
 		return false
 	}

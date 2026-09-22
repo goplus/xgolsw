@@ -521,13 +521,18 @@ enum XGoInputKind {
 
 ### XGo property lookup
 
-The `xgo.getProperties` command retrieves properties for a target type (for example, `Game` or a sprite name).
-Properties include:
-- Direct fields of basic types (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (non-embedded only)
-- Auto-getter methods: exported, no parameters, exactly one return value of a basic type, `spx.Value`, or `spx.List`
+The `xgo.getProperties` command retrieves readable properties for a named struct or classfile type in the package scope.
+Type aliases to these types are also accepted. Properties include:
 
-Properties from embedded types are included recursively; outer-scope members shadow embedded ones with the same name.
-Fields are listed before methods; within each group, names are sorted alphabetically.
+- Accessible fields, including promoted fields, with no restriction on their value types
+- Methods that XGo can read as single-value auto-properties, including resolved overloads and inferred generic results
+
+Embedded fields themselves are excluded. Member lookup and shadowing follow XGo's rules. Fields are listed before methods,
+and names within each group are sorted alphabetically.
+
+Framework adapters can supply their runtime property rules. For spx game and sprite types, properties follow monitor
+lookup and remain limited to supported scalar values, `spx.Value`, and `spx.List`. Ordinary types in the same project use
+the XGo rules above.
 
 *Request:*
 
@@ -554,7 +559,7 @@ type XGoGetPropertiesExecuteCommandParams = Omit<ExecuteCommandParams, 'command'
  */
 interface XGoGetPropertiesParams {
   /**
-   * The target name, for example `Game` or a specific sprite name.
+   * The name of a package-scope struct or classfile type, or an alias to one.
    */
   target: string
 }
@@ -614,7 +619,7 @@ The `textDocument/xgo.propertyRenamed` notification is sent from the server to t
  */
 interface PropertyRenamedParams {
   /**
-   * The name of the type that contains the renamed property (e.g., "Game", "MySprite").
+   * The package-scope type that exposes the renamed property.
    */
   target: string
 
@@ -635,9 +640,12 @@ interface PropertyRenamedParams {
 }
 ```
 
-This notification is sent after the workspace edit for the rename operation is successfully constructed. A property is defined as:
-- A field (direct or embedded) of basic types (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` that is not of a type from the main package
-- A method with no parameters and exactly one return value of a basic type (`int`, `float64`, `string`, `bool`, etc.), `spx.Value`, or `spx.List` (the property name is converted to lowerCamelCase)
+Notifications are sent after the rename workspace edit is successfully constructed, using the same properties as
+[`xgo.getProperties`](#xgo-property-lookup). Each affected target receives a notification, including type aliases and types
+that expose the property through embedding. Shadowed properties and local types are excluded. Method property names use
+their source aliases, such as `label` for `Label`. A notification is emitted only when the new property name still resolves
+to the renamed declaration under the target's property rules. Properties removed or hidden by the rename do not produce
+notifications.
 
 ## Other JSON structures
 

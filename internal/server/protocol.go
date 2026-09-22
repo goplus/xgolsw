@@ -269,7 +269,7 @@ type XGoGetInputSlotsParams struct {
 
 // XGoGetPropertiesParams holds parameters to get properties for a specific target.
 type XGoGetPropertiesParams struct {
-	// The target name (object type) to retrieve properties for (e.g., 'Game' type or a sprite type name).
+	// The name of a package-scope struct or classfile type, or an alias to one.
 	Target string `json:"target"`
 }
 
@@ -281,6 +281,7 @@ const (
 	XGoPropertyKindMethod XGoPropertyKind = "method"
 )
 
+// XGoProperty describes a readable field or single-value auto-property.
 type XGoProperty struct {
 	// The name of the property.
 	Name string `json:"name"`

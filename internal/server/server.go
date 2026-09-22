@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	gotypes "go/types"
 	"maps"
 	"net/url"
 	"slices"
@@ -82,6 +81,7 @@ func New(
 	proj.RegisterCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
 	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
 	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)
+	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
@@ -417,37 +417,6 @@ func (s *Server) hoverClientCapabilities() (HoverClientCapabilities, bool) {
 		return HoverClientCapabilities{}, true
 	}
 	return *capabilities.TextDocument.Hover, true
-}
-
-// notifyPropertyRenamed sends a notification to the client when a property is renamed.
-// This allows clients to update any monitoring or tracking of the property.
-func (s *Server) notifyPropertyRenamed(proj *xgo.Project, obj gotypes.Object, params *RenameParams) error {
-	typeName := memberTypeName(proj, obj)
-	if typeName == "" {
-		return fmt.Errorf("failed to find enclosing type for object: %s", obj.Name())
-	}
-
-	notifParams := PropertyRenamedParams{
-		Target:  typeName,
-		OldName: obj.Name(),
-		NewName: params.NewName,
-		TextDocument: TextDocumentIdentifier{
-			URI: s.posDocumentURI(proj, obj.Pos()),
-		},
-	}
-
-	// Create notification
-	notification, err := jsonrpc2.NewNotification("textDocument/xgo.propertyRenamed", notifParams)
-	if err != nil {
-		return fmt.Errorf("failed to create property renamed notification: %w", err)
-	}
-
-	// Send notification to client
-	if err := s.replier.ReplyMessage(notification); err != nil {
-		return fmt.Errorf("failed to send property renamed notification: %w", err)
-	}
-
-	return nil
 }
 
 // sendTelemetryEvent sends a telemetry event to the client.

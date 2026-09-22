@@ -39,7 +39,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	if !pos.IsValid() {
 		return nil, nil
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil, nil
 	}
@@ -349,7 +349,7 @@ func (ctx *completionContext) analyze() {
 	}
 	if len(ctx.enumInfo.members) > 0 {
 		if ident := xgoutil.EnclosingNode[*ast.Ident](path); ident != nil {
-			ctx.enumContext = enumContextAtIdent(ctx.proj, ctx.typeInfo, ident)
+			ctx.enumContext = enumContextAtIdent(ctx.proj, ident)
 		}
 	}
 
@@ -813,8 +813,18 @@ func (ctx *completionContext) collectGeneral() error {
 	seenQualifiers := make(map[string]bool)
 	memberNames := make(map[string]bool)
 	autoProperty := !ctx.itemSet.callResult && (ctx.valueExpression || ctx.kind == completionKindDecl)
+	packageResolver := autoPropertyResolver{proj: ctx.proj}
 	addDefinitions := func(seen map[string]bool, defs ...symbolDefinition) {
+		if autoProperty {
+			defs = ctx.appendPackagePropertyDefinitions(&packageResolver, defs)
+		}
 		for _, def := range defs {
+			if source, ok := def.SourceObject.(*gotypes.Func); ok && source.Signature().Recv() == nil {
+				var ok bool
+				if def, ok = ctx.functionCompletionDefinition(&packageResolver, def, autoProperty); !ok {
+					continue
+				}
+			}
 			if !seen[ctx.itemSet.definitionName(def)] {
 				ctx.itemSet.addDefinitions(def)
 			}
@@ -842,23 +852,20 @@ func (ctx *completionContext) collectGeneral() error {
 				}
 				defs = append(defs, ctx.definitionsForMember(member)...)
 			}
+			defs = ctx.appendAutoPropertyDefinitions(&resolver, defs)
 			for _, def := range defs {
 				if def.Function == nil {
 					continue
 				}
-				name := functionValueName(def.Function)
+				name := def.SourceObject.Name()
 				if !seenNames[name] {
 					memberNames[name] = true
 					seenQualifiers[name] = true
 				}
 				// Bare aliases and selector qualifiers require an auto-property.
 				// Explicit calls also resolve methods that require arguments.
-				receiverParams := 0
-				if _, _, _, isXGotMethod := displayedFuncName(def.Function); isXGotMethod {
-					receiverParams = 1
-				}
-				property := methodHasAutoProperty(def.TypeHint, receiverParams)
 				for _, alias := range []string{xgoutil.ToLowerCamelCase(name), def.CompletionItemLabel} {
+					property := resolver.resolve(alias).exists
 					if (!autoProperty || property) && !seenNames[alias] {
 						memberNames[alias] = true
 					}
@@ -868,11 +875,9 @@ func (ctx *completionContext) collectGeneral() error {
 				}
 			}
 			for _, def := range defs {
-				if autoProperty {
-					var ok bool
-					if def, ok = ctx.autoPropertyDefinition(&resolver, def); !ok {
-						continue
-					}
+				var ok bool
+				if def, ok = ctx.functionCompletionDefinition(&resolver, def, autoProperty); !ok {
+					continue
 				}
 				addDefinitions(seenNames, def)
 			}
@@ -912,6 +917,11 @@ func (ctx *completionContext) collectGeneral() error {
 				// those types available alongside value candidates.
 				if _, ok := obj.(*gotypes.TypeName); ok && memberNames[name] {
 					ctx.itemSet.addDefinitions(ctx.definitionsFor(obj, "")...)
+				}
+				// A package alias can remain accessible when a local hides its
+				// uppercase declaration. Filter by the final insertion name.
+				if isAliasCallable(obj) && scope == pkg.Scope() {
+					addDefinitions(seenNames, ctx.definitionsFor(obj, "")...)
 				}
 				continue
 			}
@@ -1035,30 +1045,28 @@ func (ctx *completionContext) collectDot() error {
 	}
 
 	typ := ctx.typeInfo.TypeOf(ctx.selectorExpr.X)
-	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
-		if propertyLikeType := ctx.resolvePropertyLikeExprType(ident, typ); xgoutil.IsValidType(propertyLikeType) {
-			typ = propertyLikeType
-		}
-	}
 	if !xgoutil.IsValidType(typ) {
 		return nil
 	}
+	receiver := typ
 	typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
 
 	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
-		ctx.collectInterfaceMethodCompletions(iface, typ)
+		ctx.collectInterfaceMethodCompletions(iface, receiver)
 	} else if _, ok := typ.Underlying().(*gotypes.Struct); ok {
-		ctx.addMemberCompletions(ctx.definitionsForStruct(typ)...)
+		ctx.addMemberCompletions(receiver, ctx.definitionsForStruct(typ)...)
 	}
 	return nil
 }
 
 // addMemberCompletions uses the source selector's signature when completing a
 // callback, including the explicit receiver of a method expression.
-func (ctx *completionContext) addMemberCompletions(defs ...symbolDefinition) {
-	receiver := ctx.typeInfo.TypeOf(ctx.selectorExpr.X)
+func (ctx *completionContext) addMemberCompletions(receiver gotypes.Type, defs ...symbolDefinition) {
 	resolver := autoPropertyResolver{proj: ctx.proj, receiver: receiver}
-	methodExpression := ctx.typeInfo.Types[ctx.selectorExpr.X].IsType()
+	methodExpression, _ := xgoutil.IsTypeExpr(ctx.typeInfo, ctx.selectorExpr.X)
+	if !methodExpression {
+		defs = ctx.appendAutoPropertyDefinitions(&resolver, defs)
+	}
 	autoProperty := !ctx.itemSet.callResult && !methodExpression && xgoutil.IsValidType(receiver) &&
 		(ctx.valueExpression || ctx.itemSet.isCompatibleWithExpectedTypes != nil)
 	for _, def := range defs {
@@ -1068,96 +1076,59 @@ func (ctx *completionContext) addMemberCompletions(defs ...symbolDefinition) {
 				def.TypeHint = gotypes.NewSignatureType(nil, nil, nil, params, sig.Results(), sig.Variadic())
 			}
 		}
-		if autoProperty {
-			var ok bool
-			if def, ok = ctx.autoPropertyDefinition(&resolver, def); !ok {
-				continue
-			}
+		var ok bool
+		if def, ok = ctx.functionCompletionDefinition(&resolver, def, autoProperty); !ok {
+			continue
 		}
 		ctx.itemSet.addDefinitions(def)
 	}
 }
 
-// autoPropertyDefinition filters implicit calls by the selected overload and
-// its inferred result while preserving explicit method-value candidates.
-func (ctx *completionContext) autoPropertyDefinition(resolver *autoPropertyResolver, def symbolDefinition) (symbolDefinition, bool) {
-	if def.Function == nil || ctx.itemSet.isFunctionValue(def.TypeHint) {
-		return def, true
-	}
-	property := resolver.resolve(def.CompletionItemLabel)
-	if !property.exists {
-		return def, true
-	}
-	if property.typ == nil || property.function == nil || types.ObjectOrigin(property.function) != types.ObjectOrigin(def.Function) {
-		return def, false
-	}
-	def.AutoPropertyType = property.typ
-	return def, true
-}
-
-// resolvePropertyLikeExprType returns the result type of a property-like
-// function reference. If type-checker information is unavailable, it falls back
-// to [completionContext.resolvePropertyLikeFuncResultType].
-func (ctx *completionContext) resolvePropertyLikeExprType(ident *ast.Ident, typ gotypes.Type) gotypes.Type {
-	if ident == nil || ident.Name == "" {
-		return nil
-	}
-
-	if sig, ok := typ.(*gotypes.Signature); ok && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
-		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-			if fun, ok := obj.(*gotypes.Func); ok {
-				if fun.Name() != ident.Name && xgoutil.ToLowerCamelCase(fun.Name()) == ident.Name {
-					return sig.Results().At(0).Type()
-				}
-			}
+// appendAutoPropertyDefinitions includes aliases hidden by a field or absent
+// from expanded overload definitions. Existing methods keep their display spelling.
+func (ctx *completionContext) appendAutoPropertyDefinitions(resolver *autoPropertyResolver, defs []symbolDefinition) []symbolDefinition {
+	seen := make(map[string]bool)
+	for _, def := range defs {
+		if def.Function == nil {
+			continue
+		}
+		name := def.CompletionItemLabel
+		if def.SourceObject != def.Function {
+			name = functionAliasName(def.SourceObject.Name())
+		}
+		property := resolver.resolve(name)
+		if property.function != nil && types.ObjectOrigin(property.function) == types.ObjectOrigin(def.Function) {
+			seen[functionAliasName(name)] = true
 		}
 	}
-
-	if xgoutil.IsValidType(typ) {
-		return nil
-	}
-
-	return ctx.resolvePropertyLikeFuncResultType(ident)
-}
-
-// resolvePropertyLikeFuncResultType resolves the result type of a property-like
-// function from the enclosing scopes.
-func (ctx *completionContext) resolvePropertyLikeFuncResultType(ident *ast.Ident) gotypes.Type {
-	if ident == nil || ident.Name == "" {
-		return nil
-	}
-
-	for scope := ctx.innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
-		isInnermost := scope == ctx.innermostScope
-		isPkgScope := ctx.typeInfo.Pkg != nil && scope == ctx.typeInfo.Pkg.Scope()
-		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			fun, ok := obj.(*gotypes.Func)
-			if !ok || fun.Name() == ident.Name || xgoutil.ToLowerCamelCase(fun.Name()) != ident.Name {
-				continue
-			}
-			if isInnermost && !isPkgScope && fun.Pos().IsValid() && fun.Pos() >= ident.Pos() {
-				continue
-			}
-
-			sig := fun.Signature()
-			if sig.Params().Len() != 0 || sig.Results().Len() != 1 {
-				continue
-			}
-			return sig.Results().At(0).Type()
+	for name, property := range resolver.candidates() {
+		if !property.exists || property.function == nil || !xgoutil.IsValidType(property.typ) || seen[name] {
+			continue
+		}
+		if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(property.object) {
+			continue
+		}
+		for _, def := range ctx.definitionsForSelection(property.function, resolver.receiver) {
+			def.SourceObject = property.object
+			def.CompletionItemLabel = name
+			def.CompletionItemInsertText = name
+			def.AutoPropertyType = property.typ
+			defs = append(defs, def)
 		}
 	}
-	return nil
+	return defs
 }
 
 // collectInterfaceMethodCompletions collects accessible methods, including
 // embedded methods, using each method's declaration for its description.
 func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.Interface, receiver gotypes.Type) {
+	var defs []symbolDefinition
 	for method := range iface.Methods() {
 		if xgoutil.IsExportedOrInMainPkg(method) {
-			ctx.addMemberCompletions(ctx.definitionsForSelection(method, receiver)...)
+			defs = append(defs, ctx.definitionsForSelection(method, receiver)...)
 		}
 	}
+	ctx.addMemberCompletions(receiver, defs...)
 }
 
 // collectPackageMembers collects members of a package.
@@ -1173,7 +1144,17 @@ func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
 		pkgDoc, _ = ctx.lookupPkgDoc(xgoutil.PkgPath(pkg))
 	}
 
-	ctx.itemSet.addDefinitions(ctx.definitionsForPkg(pkg, pkgDoc)...)
+	resolver := autoPropertyResolver{proj: ctx.proj}
+	autoProperty := !ctx.itemSet.callResult && (ctx.valueExpression || ctx.itemSet.isCompatibleWithExpectedTypes != nil)
+	defs := ctx.definitionsForPkg(pkg, pkgDoc)
+	if autoProperty {
+		defs = ctx.appendPackagePropertyDefinitions(&resolver, defs)
+	}
+	for _, def := range defs {
+		if def, ok := ctx.functionCompletionDefinition(&resolver, def, autoProperty); ok {
+			ctx.itemSet.addDefinitions(def)
+		}
+	}
 }
 
 // collectCall collects function call completions.
@@ -1764,8 +1745,13 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 // addDefinitions adds symbol definitions to the set.
 func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 	for _, def := range defs {
+		if def.CompletionItemKind == ConstantCompletion && xgoutil.IsXGoInternalName(def.CompletionItemLabel) {
+			continue
+		}
 		var sig *gotypes.Signature
-		if xgoutil.IsValidType(def.TypeHint) {
+		// Function variables keep their value type unless they are the callee
+		// of an explicit call or the source of an implicit property call.
+		if (def.Function != nil || def.AutoPropertyType != nil || s.callResult) && xgoutil.IsValidType(def.TypeHint) {
 			sig, _ = def.TypeHint.Underlying().(*gotypes.Signature)
 		}
 		if s.isCompatibleWithCallResults != nil && (sig == nil || !s.isCompatibleWithCallResults(sig.Results())) {
@@ -1811,16 +1797,17 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 			}
 		}
 
-		definitionKey := def.ID.String()
+		if functionValue && def.Function != nil {
+			def.CompletionItemLabel = functionValueName(def.Function)
+			def.CompletionItemInsertText = def.CompletionItemLabel
+		}
+		// Distinct source aliases can share the same implementation definition.
+		definitionKey := def.ID.String() + "\x00" + def.CompletionItemLabel
 		if _, ok := s.seenDefinitions[definitionKey]; ok {
 			continue
 		}
 		s.seenDefinitions[definitionKey] = struct{}{}
 
-		if functionValue && def.Function != nil {
-			def.CompletionItemLabel = functionValueName(def.Function)
-			def.CompletionItemInsertText = def.CompletionItemLabel
-		}
 		s.add(def.completionItem(s.documentationKind))
 	}
 }

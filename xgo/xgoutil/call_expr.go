@@ -209,7 +209,7 @@ func ResolveCallExprSignature(typeInfo *types.Info, expr *ast.CallExpr) (fun *go
 // callExprSignature returns the callee's actual function type. Conversions and
 // builtins do not have ordinary function call semantics.
 func callExprSignature(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Signature {
-	isType, _ := callExprArgIsType(typeInfo, expr.Fun)
+	isType, _ := IsTypeExpr(typeInfo, expr.Fun)
 	if isType || typeInfo.Types[expr.Fun].IsBuiltin() {
 		return nil
 	}
@@ -261,7 +261,7 @@ func ResolveFuncSignatureForCall(typeInfo *types.Info, expr *ast.CallExpr, fun *
 	// which may differ from the declaring receiver for promoted methods.
 	if typeInfo != nil && sig.Recv() != nil {
 		if selector, ok := astutil.Unparen(expr.Fun).(*ast.SelectorExpr); ok {
-			if isType, _ := callExprArgIsType(typeInfo, selector.X); isType {
+			if isType, _ := IsTypeExpr(typeInfo, selector.X); isType {
 				recv := gotypes.NewParam(token.NoPos, fun.Pkg(), "", typeInfo.TypeOf(selector.X))
 				params = gotypes.NewTuple(slices.AppendSeq([]*gotypes.Var{recv}, params.Variables())...)
 			}
@@ -353,7 +353,7 @@ func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, fun *got
 	typeArgCount := typeParams.Len()
 	args, _ := CallExprArgs(typeInfo, expr, sig.Params())
 	for i := 0; i < min(typeArgCount, len(args)); i++ {
-		isType, known := callExprArgIsType(typeInfo, args[i])
+		isType, known := IsTypeExpr(typeInfo, args[i])
 		if !known {
 			return typeArgCount
 		}
@@ -365,39 +365,6 @@ func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, fun *got
 		}
 	}
 	return typeArgCount
-}
-
-// callExprArgIsType reports whether arg is known to be a type expression.
-func callExprArgIsType(typeInfo *types.Info, arg ast.Expr) (isType, known bool) {
-	arg = astutil.Unparen(arg)
-	// The recorder marks a pointer type's StarExpr as a value. Its operand
-	// still distinguishes a pointer type from a pointer dereference.
-	if ptr, ok := arg.(*ast.StarExpr); ok {
-		return callExprArgIsType(typeInfo, ptr.X)
-	}
-	// Generic type applications are also recorded as ordinary index values.
-	// Their base identifies whether the expression denotes a type.
-	switch index := arg.(type) {
-	case *ast.IndexExpr:
-		return callExprArgIsType(typeInfo, index.X)
-	case *ast.IndexListExpr:
-		return callExprArgIsType(typeInfo, index.X)
-	}
-	var ident *ast.Ident
-	switch arg := arg.(type) {
-	case *ast.Ident:
-		ident = arg
-	case *ast.SelectorExpr:
-		ident = arg.Sel
-	}
-	obj := typeInfo.ObjectOf(ident)
-	if _, ok := obj.(*gotypes.TypeName); ok {
-		return true, true
-	}
-	if tv, ok := typeInfo.Types[arg]; ok {
-		return tv.IsType(), true
-	}
-	return false, obj != nil
 }
 
 // resolvedCallExprArgType returns the expected argument type at paramIndex.

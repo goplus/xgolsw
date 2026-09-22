@@ -74,16 +74,42 @@ show "Missing"
 					assert.Empty(t, diagnostics.diagnostics)
 					return
 				}
-				var want []Diagnostic
-				for i, name := range []string{"Count", "size"} {
-					line := uint32(strings.Count(source, "\n") - 2 + i)
-					want = append(want, Diagnostic{
-						Severity: SeverityError, Message: "unknown property \"" + name + "\"",
-						Range: Range{Start: Position{Line: line, Character: 10}, End: Position{Line: line, Character: uint32(12 + len(name))}},
-					})
-				}
-				assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": want}, diagnostics.diagnostics)
+				line := uint32(strings.Count(source, "\n") - 1)
+				assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main.xgo": {{
+					Severity: SeverityError, Message: `unknown property "size"`,
+					Range: Range{Start: Position{Line: line, Character: 10}, End: Position{Line: line, Character: 16}},
+				}}}, diagnostics.diagnostics)
 			})
 		}
 	})
+}
+
+func TestSpxDiagnosticPassAutoPropertyReceiver(t *testing.T) {
+	for _, receiver := range []struct{ name, expression string }{
+		{"Bare", "current"},
+		{"Selector", "this.current"},
+		{"Parenthesized", "(this.current)"},
+		{"Chained", "this.current.next"},
+	} {
+		t.Run(receiver.name, func(t *testing.T) {
+			s := newImportTestServer(t, map[string][]byte{
+				"main_fixture.gox": []byte("func Current() *Record { return nil }\n" + receiver.expression + ".Show(\"Count\")\n" + receiver.expression + ".Show(\"Missing\")\n"),
+				"types.xgo":        []byte("type PropertyName string\ntype Record struct { Count int }\nfunc (*Record) Show(name PropertyName) {}\nfunc (*Record) Next() *Record { return nil }\n"),
+			})
+			proj := s.requestProject()
+			info, err := proj.TypeInfo()
+			require.NoError(t, err)
+			configurePass := spxDiagnosticPass(proj, newSpxAnalysis(proj))
+			diagnostics := newDiagnosticResult()
+			propertyNameType := info.Pkg.Scope().Lookup("PropertyName").Type()
+			s.inspectDiagnosticsAnalyzers(proj, &diagnostics, func(filename string, pass *protocol.Pass) {
+				configurePass(filename, pass)
+				pass.IsPropertyNameType = func(typ gotypes.Type) bool { return typ == propertyNameType }
+			})
+			assert.Equal(t, map[DocumentURI][]Diagnostic{"file:///main_fixture.gox": {{
+				Severity: SeverityError, Message: `unknown property "Missing"`,
+				Range: Range{Start: Position{Line: 2, Character: uint32(len(receiver.expression) + 6)}, End: Position{Line: 2, Character: uint32(len(receiver.expression) + 15)}},
+			}}}, diagnostics.diagnostics)
+		})
+	}
 }

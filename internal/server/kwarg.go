@@ -31,7 +31,7 @@ type callExprKwargTarget struct {
 // position. Kwarg names take precedence over generated identifiers at the same
 // source position.
 func objectAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) (ident *ast.Ident, obj gotypes.Object, kwargTarget *kwargNameTarget) {
-	kwargTarget = kwargNameTargetAtPosition(proj, typeInfo, astFile, position)
+	kwargTarget = kwargNameTargetAtPosition(proj, astFile, position)
 	if kwargTarget != nil {
 		return kwargTarget.ident, kwargTarget.obj, kwargTarget
 	}
@@ -58,7 +58,7 @@ func sourceObjectAtPosition(proj *xgo.Project, info *types.Info, file *ast.File,
 
 // kwargNameTargetAtPosition resolves the kwarg target under position if the
 // cursor is on a kwarg name.
-func kwargNameTargetAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile *ast.File, position token.Position) *kwargNameTarget {
+func kwargNameTargetAtPosition(proj *xgo.Project, astFile *ast.File, position token.Position) *kwargNameTarget {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	pos := tokenFile.Pos(position.Offset)
 
@@ -69,6 +69,10 @@ func kwargNameTargetAtPosition(proj *xgo.Project, typeInfo *types.Info, astFile 
 			continue
 		}
 		if pos < kwargExpr.Name.Pos() || pos > kwargExpr.Name.End() {
+			return nil
+		}
+		typeInfo, _ := expressionTypeInfo(proj)
+		if typeInfo == nil {
 			return nil
 		}
 		return kwargNameTargetForPath(typeInfo, path, kwargExpr)

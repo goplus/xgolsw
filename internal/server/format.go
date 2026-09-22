@@ -449,7 +449,7 @@ func getDeclDoc(decl ast.Decl) *ast.CommentGroup {
 //
 // We may complete it in the future, if needed.
 func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return
 	}

@@ -52,7 +52,7 @@ func createSpxColorInputSlot(ctx *inputSlotContext, call *ast.CallExpr, declared
 			Type:  XGoInputTypeSpxColor,
 			Value: XGoInputSpxColorValue{Constructor: constructor, Args: args},
 		},
-		PredefinedNames: collectPredefinedNames(ctx, call, declaredType),
+		PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindValue, call, declaredType),
 		Range:           ctx.rangeForNode(call),
 	}
 }

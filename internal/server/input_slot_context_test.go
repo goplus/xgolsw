@@ -37,7 +37,7 @@ func main() {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				literal := inputSlotLiteral(t, ctx, tt.literal)
-				assert.ElementsMatch(t, tt.want, collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int]))
+				assert.ElementsMatch(t, tt.want, collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.Int]))
 			})
 		}
 	})
@@ -87,11 +87,11 @@ func main() {
 				ctx := inputSlotTestContext(t, s, "main.xgo")
 				before := inputSlotLiteral(t, ctx, "11")
 				after := inputSlotLiteral(t, ctx, "22")
-				assert.ElementsMatch(t, []string{"shared"}, collectPredefinedNames(ctx, before, gotypes.Typ[gotypes.Int]))
-				assert.Empty(t, collectPredefinedNames(ctx, after, gotypes.Typ[gotypes.Int]))
-				assert.ElementsMatch(t, []string{"shared"}, collectPredefinedNames(ctx, before, gotypes.Typ[gotypes.Int]))
+				assert.ElementsMatch(t, []string{"shared"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, before, gotypes.Typ[gotypes.Int]))
+				assert.Empty(t, collectPredefinedNames(ctx, XGoInputSlotKindValue, after, gotypes.Typ[gotypes.Int]))
+				assert.ElementsMatch(t, []string{"shared"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, before, gotypes.Typ[gotypes.Int]))
 				for _, literal := range []*ast.BasicLit{before, after} {
-					assert.NotContains(t, collectPredefinedNames(ctx, literal, nil), "_xgo_ret")
+					assert.NotContains(t, collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, nil), "_xgo_ret")
 				}
 				beforeItems := completionItemsAt(t, s, "main.xgo", ctx.position(before.Pos()))
 				for _, item := range beforeItems {
@@ -124,7 +124,7 @@ func main() {
 		}
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		for _, value := range []string{"11", "22", "11", "22"} {
-			names := collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, value), gotypes.Typ[gotypes.Int])
+			names := collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, value), gotypes.Typ[gotypes.Int])
 			if value == "11" {
 				assert.Contains(t, names, "value")
 			} else {
@@ -139,7 +139,7 @@ func main() {
 			"values.xgo": []byte("var exported int\nconst limit = 100\nvar message string\n"),
 		})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
-		assert.ElementsMatch(t, []string{"exported", "limit"}, collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, "5"), gotypes.Typ[gotypes.Int]))
+		assert.ElementsMatch(t, []string{"exported", "limit"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, "5"), gotypes.Typ[gotypes.Int]))
 	})
 
 	t.Run("ClassMembersAndCallback", func(t *testing.T) {
@@ -149,8 +149,8 @@ func main() {
 		})
 		ctx := inputSlotTestContext(t, s, "Worker_fixture.gox")
 		literal := inputSlotLiteral(t, ctx, "5")
-		assert.ElementsMatch(t, []string{"Count", "Value", "value"}, collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int]))
-		assert.ElementsMatch(t, []string{"label"}, collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.String]))
+		assert.ElementsMatch(t, []string{"Count", "Value", "value"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.Int]))
+		assert.ElementsMatch(t, []string{"label"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.String]))
 	})
 
 	t.Run("ImplicitPackages", func(t *testing.T) {
@@ -174,7 +174,7 @@ func main() {
 				s := newFrameworkTestServerWithModule(t, files, mod)
 				ctx := inputSlotTestContext(t, s, tt.filename)
 				literal := inputSlotLiteral(t, ctx, "5")
-				names := collectPredefinedNames(ctx, literal, nil)
+				names := collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, nil)
 				if tt.implicit {
 					assert.Contains(t, names, "Args")
 					assert.Contains(t, names, "EOF")
@@ -197,7 +197,7 @@ func main() {
 		_, err := ctx.proj.TypeInfo()
 		require.NoError(t, err)
 		importer.unavailablePath = testframework.PkgPath
-		assert.ElementsMatch(t, []string{"Count"}, collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, "5"), gotypes.Typ[gotypes.Int]))
+		assert.ElementsMatch(t, []string{"Count"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, "5"), gotypes.Typ[gotypes.Int]))
 	})
 }
 
@@ -251,7 +251,7 @@ func TestServerClassfileCandidateShadowing(t *testing.T) {
 					require.NoError(t, err)
 					ctx := inputSlotTestContext(t, s, filename)
 					literal := inputSlotLiteral(t, ctx, "11")
-					names := collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int])
+					names := collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.Int])
 					if tt.visible {
 						assert.Contains(t, names, "zebra")
 					} else {
@@ -261,7 +261,7 @@ func TestServerClassfileCandidateShadowing(t *testing.T) {
 					}
 					if tt.name == "Initializer" {
 						literal = inputSlotLiteral(t, ctx, "22")
-						assert.NotContains(t, collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int]), "zebra")
+						assert.NotContains(t, collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.Int]), "zebra")
 					}
 					s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(strings.Replace(source, "11", "zebra", 1)), Version: 1}})
 					_, err = s.requestProject().TypeInfo()
@@ -345,7 +345,7 @@ func TestServerComprehensionFilterScopes(t *testing.T) {
 						// Revisit both sides of the initializer to exercise cached candidates.
 						for _, value := range []string{"11", "22", "33", "44", "33", "22", "11"} {
 							literal := inputSlotLiteral(t, ctx, value)
-							names := collectPredefinedNames(ctx, literal, gotypes.Typ[gotypes.Int])
+							names := collectPredefinedNames(ctx, XGoInputSlotKindValue, literal, gotypes.Typ[gotypes.Int])
 							items := completionItemsAt(t, s, kind.filename, ctx.position(literal.Pos()))
 							if value == "11" || value == "33" {
 								assert.Contains(t, names, "limit")

@@ -40,7 +40,7 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 	proj.PkgPath = "main"
 	proj.SetModule(newTestModule(t, testframework.NewBaseModule(t).Module))
 	proj.Importer = testframework.NewBaseImporter(t, proj.Fset)
-	return New(proj, nil, fileMapGetter(files), &MockScheduler{},
+	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{},
 		func() ([]string, error) { return nil, nil },
 		func(pkgPath string) (*pkgdoc.PkgDoc, error) {
 			t.Helper()
@@ -91,7 +91,7 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 		}
 		return nil, fs.ErrNotExist
 	}
-	return New(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
 }
 
 func newTestModule(t testing.TB, config modload.Module) *xgo.Module {

@@ -37,7 +37,7 @@ func (s *Server) textDocumentInlayHint(params *InlayHintParams) ([]InlayHint, er
 // restrict hint positions to [rangeStart, rangeEnd). A zero bound leaves that
 // end unrestricted.
 func collectInlayHints(proj *xgo.Project, astFile *ast.File, rangeStart, rangeEnd token.Pos) []InlayHint {
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil
 	}
@@ -82,7 +82,7 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 	if astFile == nil {
 		return nil
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil
 	}

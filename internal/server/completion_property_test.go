@@ -3,6 +3,7 @@ package server
 import (
 	gotypes "go/types"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,7 +43,11 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 				ctx.itemSet.setExpectedTypes([]gotypes.Type{gotypes.Typ[gotypes.String]})
 				ctx.collectPropertyNames(tt.target)
 				ctx.collectPropertyNames(tt.target)
-				assert.ElementsMatch(t, []string{`"score"`, `"ready"`, `"label"`}, completionItemLabels(ctx.itemSet.items))
+				want := []string{`"score"`, `"ready"`, `"label"`}
+				if tt.name == "WorkClass" {
+					want = append(want, `"Value"`, `"Worker"`)
+				}
+				assert.ElementsMatch(t, want, completionItemLabels(ctx.itemSet.items))
 				for _, item := range ctx.itemSet.items {
 					assert.Equal(t, PropertyCompletion, item.Kind)
 					assert.Equal(t, item.Label, item.InsertText)
@@ -50,7 +55,11 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 					assert.Nil(t, item.TextEdit)
 					data := requireValueAs[*CompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
-					if item.Label == `"label"` && tt.name == "WorkClass" {
+					if tt.name == "WorkClass" && (item.Label == `"label"` || item.Label == `"Value"`) {
+						if item.Label == `"Value"` {
+							assert.Equal(t, "xgo:example.com/framework?Item.Value", data.Definition.String())
+							continue
+						}
 						assert.Equal(t, "xgo:example.com/framework?Item.label", data.Definition.String())
 						doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
 						assert.Contains(t, doc.Value, "Label is exposed as a property in XGo source.")
@@ -81,22 +90,24 @@ func (r *Record) Reset() {}
 func (r *Record) WithParam(v int) int { return v }
 type RecordAlias = Record
 type RecordPointer = *Record
+type AliasPointer = *RecordAlias
 `)})
 		info, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
-		for _, target := range []string{"Record", "RecordAlias", "RecordPointer"} {
+		for _, target := range []string{"Record", "RecordAlias", "RecordPointer", "AliasPointer"} {
 			ctx := &completionContext{
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(PlainText),
 			}
 			ctx.collectPropertyNames(target)
-			require.Len(t, ctx.itemSet.items, 3)
+			require.Len(t, ctx.itemSet.items, 4)
 			for _, want := range []struct {
 				label string
 				id    string
 				doc   string
 			}{
 				{`"Score"`, "xgo:main?Base.Score", "Score stores the base score."},
+				{`"Value"`, "xgo:example.com/framework?Item.Value", "Value stores the work item"},
 				{`"Shared"`, "xgo:main?Record.Shared", ""},
 				{`"label"`, "xgo:main?Record.Label", "Label describes the record."},
 			} {
@@ -112,10 +123,16 @@ type RecordPointer = *Record
 	})
 
 	t.Run("InvalidTargets", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("type Count int\ntype Alias = int\nvar count int\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Count int
+func (Count) Value() int { return 0 }
+type Alias = int
+type Record struct { Value int }
+type Pointer = **Record
+var count int
+`)})
 		info, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
-		for _, target := range []string{"Missing", "Count", "Alias", "count"} {
+		for _, target := range []string{"Missing", "Count", "Alias", "Pointer", "count"} {
 			ctx := &completionContext{
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
@@ -152,7 +169,7 @@ type RecordPointer = *Record
 			typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 		}
 		ctx.collectPropertyNames("Worker")
-		assert.ElementsMatch(t, []string{`"after"`, `"label"`}, completionItemLabels(ctx.itemSet.items))
+		assert.ElementsMatch(t, []string{`"after"`, `"label"`, `"Value"`, `"Worker"`}, completionItemLabels(ctx.itemSet.items))
 	})
 
 	t.Run("InsideStringLiteral", func(t *testing.T) {
@@ -237,6 +254,63 @@ func TestCompletionContextGetPropertyTarget(t *testing.T) {
 				}
 				assert.Equal(t, tt.wantCompletion, ctx.getPropertyTarget())
 			}
+		})
+	}
+}
+
+func TestCompletionContextCollectPropertyNamesSharedImplementation(t *testing.T) {
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
+func (Record) text() string { return "" }
+func (Record).Label = ((Record).text)
+func (Record).Title = ((Record).text)
+var record Record
+_ = record.label
+_ = record.title
+`)})
+	proj := s.requestProject()
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+	require.NoError(t, err)
+	for _, name := range []string{"label", "title"} {
+		assert.True(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == name }))
+	}
+	ctx := &completionContext{definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc}, typeInfo: info, itemSet: newCompletionItemSet(PlainText)}
+	ctx.collectPropertyNames("Record")
+	ctx.collectPropertyNames("Record")
+	assert.ElementsMatch(t, []string{`"label"`, `"title"`}, completionItemLabels(ctx.itemSet.items))
+}
+
+func TestCompletionContextGetPropertyTargetAutoProperty(t *testing.T) {
+	for _, tt := range []struct{ name, filename, receiver string }{
+		{"Package", "main.xgo", "current"},
+		{"Class", "main_fixture.gox", "current"},
+		{"Selector", "main_fixture.gox", "this.current"},
+		{"Parenthesized", "main_fixture.gox", "(this.current)"},
+		{"Chained", "main_fixture.gox", "this.current.next"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newImportTestServer(t, map[string][]byte{
+				tt.filename: []byte("func Current() *Record { return nil }\n" + tt.receiver + ".Show(\"Count\")\n"),
+				"types.xgo": []byte("type Record struct { Count int }\nfunc (*Record) Show(name string) {}\nfunc (*Record) Next() *Record { return nil }\n"),
+			})
+			proj := s.requestProject()
+			info, err := proj.TypeInfo()
+			require.NoError(t, err)
+			file, err := proj.ASTFile(tt.filename)
+			require.NoError(t, err)
+			stmt := requireValueAs[*ast.ExprStmt](t, file.ShadowEntry.Body.List[len(file.ShadowEntry.Body.List)-1])
+			call := requireValueAs[*ast.CallExpr](t, stmt.X)
+			named := propertyTargetForCall(proj, file, call)
+			require.NotNil(t, named)
+			assert.Equal(t, "Record", named.Obj().Name())
+			ctx := &completionContext{
+				definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc},
+				typeInfo:          info, astFile: file, enclosingCallExpr: call, itemSet: newCompletionItemSet(PlainText),
+			}
+			assert.Equal(t, "Record", ctx.getPropertyTarget())
+			ctx.collectPropertyNames(ctx.getPropertyTarget())
+			assert.ElementsMatch(t, []string{`"Count"`, `"next"`}, completionItemLabels(ctx.itemSet.items))
 		})
 	}
 }

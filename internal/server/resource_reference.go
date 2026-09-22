@@ -28,7 +28,7 @@ type resourceValue struct {
 // its context cannot produce an ID, preventing unrelated intrinsic-type matches.
 func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resourceID, bool)) iter.Seq[resourceRef] {
 	return func(yield func(resourceRef) bool) {
-		info, _ := proj.TypeInfo()
+		info, _ := expressionTypeInfo(proj)
 		if info == nil {
 			return
 		}

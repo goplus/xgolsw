@@ -9,6 +9,9 @@ import (
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal"
+	"github.com/goplus/xgolsw/internal/pkgdata"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/require"
 )
@@ -25,10 +28,17 @@ func newSpxTestServer(t testing.TB, files map[string][]byte) *Server {
 	pkg, err := new(gotypes.Config).Check(SpxPkgPath, proj.Fset, []*goast.File{file}, nil)
 	require.NoError(t, err)
 	doc := pkgdoc.NewGo(SpxPkgPath, &goast.Package{Name: pkg.Name(), Files: map[string]*goast.File{"spx.go": file}})
+	data, err := pkgdata.New(testframework.NewPkgDataZip(t))
+	require.NoError(t, err)
+	fmtPkg, err := internal.NewImporter(data.OpenExport).Import("fmt")
+	require.NoError(t, err)
 	baseImporter, baseLookup := proj.Importer, s.lookupPkgDoc
 	proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
 		if path == SpxPkgPath {
 			return pkg, nil
+		}
+		if path == "fmt" {
+			return fmtPkg, nil
 		}
 		return baseImporter.Import(path)
 	})

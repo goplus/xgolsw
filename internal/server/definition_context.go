@@ -79,7 +79,9 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 		if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 			defs := make([]symbolDefinition, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
-				defs = append(defs, r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc))
+				def := r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc)
+				def.SourceObject = obj
+				defs = append(defs, def)
 			}
 			return defs
 		}

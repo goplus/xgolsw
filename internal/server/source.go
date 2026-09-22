@@ -33,12 +33,12 @@ type sourceInfo struct {
 // sourceInfoCacheKind identifies source references for one project revision.
 type sourceInfoCacheKind struct{}
 
-// buildSourceInfoCache indexes completed syntax and types from a stable snapshot.
+// buildSourceInfoCache indexes completed syntax and expression types from a stable snapshot.
 func buildSourceInfoCache(proj *xgo.Project) (any, error) {
-	proj.TypeInfo()
+	expressionTypeInfo(proj)
 	proj = proj.Snapshot()
 	astPkg, _ := proj.ASTPackage()
-	info, _ := proj.TypeInfo()
+	info, _ := expressionTypeInfo(proj)
 	result := &sourceInfo{
 		references: make(map[gotypes.Object][]sourceIdent),
 		kwargs:     make(map[gotypes.Object][]sourceIdent),

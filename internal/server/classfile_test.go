@@ -494,17 +494,18 @@ func TestServerRegisteredClassfileProperties(t *testing.T) {
 			assert.Contains(t, hover.Contents.Value, wantDoc)
 			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: name})
 			require.NoError(t, err)
-			require.Len(t, properties, 1)
-			assert.Equal(t, "score", properties[0].Name)
-			assert.Equal(t, wantID, properties[0].Definition.String())
-			assert.Equal(t, wantDoc, strings.TrimSpace(properties[0].Doc))
+			require.Len(t, properties, 2)
+			assert.Equal(t, "score", properties[1].Name)
+			assert.Equal(t, wantID, properties[1].Definition.String())
+			assert.Equal(t, wantDoc, strings.TrimSpace(properties[1].Doc))
 			ctx := &completionContext{
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 			}
 			ctx.collectPropertyNames(name)
-			require.Len(t, ctx.itemSet.items, 1)
-			item := ctx.itemSet.items[0]
+			require.Len(t, ctx.itemSet.items, 2)
+			item := completionItemByLabel(ctx.itemSet.items, `"score"`)
+			require.NotNil(t, item)
 			assert.Equal(t, `"score"`, item.Label)
 			assert.Equal(t, PropertyCompletion, item.Kind)
 			data := requireValueAs[*CompletionItemData](t, item.Data)
