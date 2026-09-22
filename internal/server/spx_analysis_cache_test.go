@@ -85,7 +85,7 @@ work
 		wg.Go(func() {
 			<-start
 			for range 100 {
-				result, analysisErr = buildFrameworkAnalysisCache(proj)
+				result, analysisErr = buildFrameworkAnalysis(proj, nil)
 				if analysisErr != nil {
 					return
 				}
@@ -252,7 +252,7 @@ work
 		require.Len(t, want.Changes["file:///Runner.spx"], 1)
 		proj := s.getProj()
 		cached := requireFrameworkAnalysis(t, proj)
-		snapshot := New(proj.Snapshot(), nil, s.fileMapGetter, &MockScheduler{}, s.listPkgs, s.lookupPkgDoc)
+		snapshot := New(proj.Snapshot(), nil, s.fileMapGetter, &MockScheduler{}, s.listPkgs, s.lookupPkgDoc, nil)
 		snapshot.workspaceRootURI = "file:///snapshot/"
 		proj.PutFile("main.spx", &xgo.File{Content: []byte("play \"Other\"\n")})
 		require.NoError(t, proj.RenameFile("Runner.spx", "Renamed.spx"))

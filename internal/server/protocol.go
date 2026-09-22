@@ -326,7 +326,7 @@ type XGoInputSlotAccept struct {
 	Type XGoInputType `json:"type"`
 
 	// Resource context for resource-backed input types.
-	// Only valid when Type is [XGoInputTypeSpxResourceName] or
+	// Only valid when Type is [XGoInputTypeResourceName] or
 	// [XGoInputTypeSpxSpriteInstance].
 	ResourceContext *XGoResourceContextURI `json:"resourceContext,omitempty"`
 }
@@ -341,7 +341,7 @@ const (
 	XGoInputTypeDecimal           XGoInputType = "decimal"
 	XGoInputTypeBoolean           XGoInputType = "boolean"
 	XGoInputTypeUnknown           XGoInputType = "unknown"
-	XGoInputTypeSpxResourceName   XGoInputType = "spx-resource-name"
+	XGoInputTypeResourceName      XGoInputType = "resource-name"
 	XGoInputTypeSpxSpriteInstance XGoInputType = "spx-sprite-instance"
 	XGoInputTypeSpxDirection      XGoInputType = "spx-direction"
 	XGoInputTypeSpxLayerAction    XGoInputType = "spx-layer-action"
@@ -402,92 +402,3 @@ type XGoCompletionItemData struct {
 	// The corresponding definition of the completion item.
 	Definition *XGoDefinitionIdentifier `json:"definition,omitempty"`
 }
-
-// Deprecated: use XGoRenameResourceParams.
-type SpxRenameResourceParams = XGoRenameResourceParams
-
-// Deprecated: use XGoGetDefinitionsParams.
-type SpxGetDefinitionsParams = XGoGetDefinitionsParams
-
-// Deprecated: use XGoGetInputSlotsParams.
-type SpxGetInputSlotsParams = XGoGetInputSlotsParams
-
-// Deprecated: use XGoInputSlot.
-type SpxInputSlot = XGoInputSlot
-
-// Deprecated: use XGoInputSlotKind.
-type SpxInputSlotKind = XGoInputSlotKind
-
-const (
-	// Deprecated: use XGoInputSlotKindValue.
-	SpxInputSlotKindValue = XGoInputSlotKindValue
-	// Deprecated: use XGoInputSlotKindAddress.
-	SpxInputSlotKindAddress = XGoInputSlotKindAddress
-)
-
-// Deprecated: use XGoInputSlotAccept.
-type SpxInputSlotAccept = XGoInputSlotAccept
-
-// Deprecated: use XGoInput.
-type SpxInput = XGoInput
-
-// Deprecated: use XGoInputType.
-type SpxInputType = XGoInputType
-
-// Deprecated: use XGoInputType*.
-const (
-	SpxInputTypeString         SpxInputType = XGoInputTypeString
-	SpxInputTypeInteger        SpxInputType = XGoInputTypeInteger
-	SpxInputTypeDecimal        SpxInputType = XGoInputTypeDecimal
-	SpxInputTypeBoolean        SpxInputType = XGoInputTypeBoolean
-	SpxInputTypeUnknown        SpxInputType = XGoInputTypeUnknown
-	SpxInputTypeResourceName   SpxInputType = XGoInputTypeSpxResourceName
-	SpxInputTypeSpriteInstance SpxInputType = XGoInputTypeSpxSpriteInstance
-	SpxInputTypeDirection      SpxInputType = XGoInputTypeSpxDirection
-	SpxInputTypeLayerAction    SpxInputType = XGoInputTypeSpxLayerAction
-	SpxInputTypeDirAction      SpxInputType = XGoInputTypeSpxDirAction
-	SpxInputTypeColor          SpxInputType = XGoInputTypeSpxColor
-	SpxInputTypeEffectKind     SpxInputType = XGoInputTypeSpxEffectKind
-	SpxInputTypeKey            SpxInputType = XGoInputTypeSpxKey
-	SpxInputTypeSpecialObj     SpxInputType = XGoInputTypeSpxSpecialObj
-	SpxInputTypeRotationStyle  SpxInputType = XGoInputTypeSpxRotationStyle
-	SpxInputTypePropertyName   SpxInputType = XGoInputTypeSpxPropertyName
-)
-
-// Deprecated: use XGoInputTypeSpxColorConstructor.
-type SpxInputTypeSpxColorConstructor = XGoInputTypeSpxColorConstructor
-
-// Deprecated: use XGoInputTypeSpxColorConstructor*.
-const (
-	SpxInputTypeSpxColorConstructorHSB  SpxInputTypeSpxColorConstructor = XGoInputTypeSpxColorConstructorHSB
-	SpxInputTypeSpxColorConstructorHSBA SpxInputTypeSpxColorConstructor = XGoInputTypeSpxColorConstructorHSBA
-)
-
-// Deprecated: use XGoInputKind.
-type SpxInputKind = XGoInputKind
-
-const (
-	// Deprecated: use XGoInputKindInPlace.
-	SpxInputKindInPlace = XGoInputKindInPlace
-
-	// Deprecated: use XGoInputKindPredefined.
-	SpxInputKindPredefined = XGoInputKindPredefined
-)
-
-// Deprecated: use XGoInputSpxColorValue.
-type SpxColorInputValue = XGoInputSpxColorValue
-
-// Deprecated: use XGoResourceRefDocumentLinkData.
-type SpxResourceRefDocumentLinkData = XGoResourceRefDocumentLinkData
-
-// Deprecated: use XGoResourceIdentifier.
-type SpxResourceIdentifier = XGoResourceIdentifier
-
-// Deprecated: use XGoResourceURI.
-type SpxResourceURI = XGoResourceURI
-
-// Deprecated: use XGoResourceContextURI.
-type SpxResourceContextURI = XGoResourceContextURI
-
-// Deprecated: use XGoCompletionItemData.
-type CompletionItemData = XGoCompletionItemData

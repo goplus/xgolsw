@@ -66,7 +66,7 @@ func TestServerStructMemberCompletion(t *testing.T) {
 			}
 			require.Len(t, matches, 1)
 			item := matches[0]
-			data := requireValueAs[*CompletionItemData](t, item.Data)
+			data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 			require.NotNil(t, data.Definition)
 			assert.Equal(t, tt.id, data.Definition.String())
 			require.NotNil(t, item.Documentation)

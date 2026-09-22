@@ -2,7 +2,6 @@ package server
 
 import (
 	gotypes "go/types"
-	"slices"
 	"strings"
 	"testing"
 
@@ -110,173 +109,6 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 }
 
 func TestServerRenameSpxResources(t *testing.T) {
-	t.Run("LiteralConversions", func(t *testing.T) {
-		for _, tt := range []struct {
-			name       string
-			source     string
-			collection string
-		}{
-			{"Intrinsic", "echo spx.BackdropName(\"Shared\")\n", "backdrops"},
-			{"Nested", "echo spx.BackdropName(string((\"Shared\")))\n", "backdrops"},
-			{"Initializer", "const name = spx.BackdropName(\"Shared\")\nsetBackdrop name\n", "backdrops"},
-			{"Contextual", "play spx.BackdropName(\"Shared\")\n", "sounds"},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				source := "import \"github.com/goplus/spx/v3\"\n" + tt.source
-				name := "Shared"
-				for _, newName := range []string{"Renamed", "Final"} {
-					files := map[string][]byte{"main.spx": []byte(source)}
-					if tt.collection == "backdrops" {
-						files["assets/index.json"] = []byte(`{"backdrops":[{"name":"` + name + `"}]}`)
-					} else {
-						files["assets/index.json"] = []byte(`{}`)
-						files["assets/sounds/"+name+"/index.json"] = []byte(`{}`)
-					}
-					s := newSpxTestServer(t, files)
-					requireNoDiagnostics(t, s)
-					uri := XGoResourceURI("spx://resources/" + tt.collection + "/" + name)
-					links, err := documentLinksForResources(s.getProj(), "main.spx")
-					require.NoError(t, err)
-					require.NotEmpty(t, links)
-					for _, link := range links {
-						require.NotNil(t, link.Target)
-						assert.Equal(t, URI(uri), *link.Target)
-					}
-					edit, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{URI: uri}, NewName: newName}})
-					require.NoError(t, err)
-					require.NotNil(t, edit)
-					updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.spx"])
-					assert.Equal(t, strings.ReplaceAll(source, name, newName), updated)
-					source = updated
-					name = newName
-				}
-			})
-		}
-	})
-
-	t.Run("ConstantExpressionDependency", func(t *testing.T) {
-		const source = "const base BackdropName = \"Shared\"\nconst sound = base + \"Suffix\"\nsetBackdrop base\nplay sound\n"
-		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                              []byte(source),
-			"assets/index.json":                     []byte(`{"backdrops":[{"name":"Shared"}]}`),
-			"assets/sounds/SharedSuffix/index.json": []byte(`{}`),
-		})
-		requireNoDiagnostics(t, s)
-		edit, err := s.renameResources([]XGoRenameResourceParams{{
-			Resource: XGoResourceIdentifier{URI: "spx://resources/backdrops/Shared"}, NewName: "Scene",
-		}})
-		require.NoError(t, err)
-		require.NotNil(t, edit)
-		updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.spx"])
-		assert.Equal(t, "const base BackdropName = \"Scene\"\nconst sound = \"Shared\" + \"Suffix\"\nsetBackdrop base\nplay sound\n", updated)
-		updatedServer := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                              []byte(updated),
-			"assets/index.json":                     []byte(`{"backdrops":[{"name":"Scene"}]}`),
-			"assets/sounds/SharedSuffix/index.json": []byte(`{}`),
-		})
-		requireNoDiagnostics(t, updatedServer)
-	})
-
-	t.Run("SharedTypedConstants", func(t *testing.T) {
-		for _, tt := range []struct {
-			name        string
-			declaration string
-			backdrop    string
-			sound       string
-			want        string
-		}{
-			{"PrimaryResource", "const name BackdropName = \"Shared\"\n", "Scene", "Shared", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay \"Shared\"\n"},
-			{"OtherResource", "const name BackdropName = \"Shared\"\n", "Shared", "Sound", "const name BackdropName = \"Shared\"\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"DifferentValues", "const name BackdropName = \"Shared\"\n", "Scene", "Sound", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"SameValue", "const name BackdropName = \"Shared\"\n", "Scene", "Scene", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay name\n"},
-			{"ConstantDependency", "const base BackdropName = \"Shared\"\nconst name = base\n", "Scene", "Sound", "const base BackdropName = \"Scene\"\nconst name = base\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"RepeatedInitializer", "const (\nbase BackdropName = \"Shared\"\nname\n)\n", "Scene", "Sound", "const (\nbase BackdropName = \"Scene\"\nname\n)\nsetBackdrop name\nplay \"Sound\"\n"},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				source := tt.declaration + "setBackdrop name\nplay name\n"
-				s := newSpxTestServer(t, map[string][]byte{
-					"main.spx":                        []byte(source),
-					"assets/index.json":               []byte(`{"backdrops":[{"name":"Shared"}]}`),
-					"assets/sounds/Shared/index.json": []byte(`{}`),
-				})
-				requireNoDiagnostics(t, s)
-				var params []XGoRenameResourceParams
-				if tt.backdrop != "Shared" {
-					params = append(params, XGoRenameResourceParams{Resource: XGoResourceIdentifier{URI: "spx://resources/backdrops/Shared"}, NewName: tt.backdrop})
-				}
-				if tt.sound != "Shared" {
-					params = append(params, XGoRenameResourceParams{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Shared"}, NewName: tt.sound})
-				}
-				for range 2 {
-					edit, err := s.renameResources(params)
-					require.NoError(t, err)
-					require.NotNil(t, edit)
-					updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.spx"])
-					assert.Equal(t, tt.want, updated)
-					updatedServer := newSpxTestServer(t, map[string][]byte{
-						"main.spx":          []byte(updated),
-						"assets/index.json": []byte(`{"backdrops":[{"name":"` + tt.backdrop + `"}]}`),
-						"assets/sounds/" + tt.sound + "/index.json": []byte(`{}`),
-					})
-					requireNoDiagnostics(t, updatedServer)
-					slices.Reverse(params)
-				}
-			})
-		}
-	})
-
-	t.Run("SharedConstants", func(t *testing.T) {
-		for _, tt := range []struct {
-			name     string
-			literal  string
-			backdrop string
-			sound    string
-		}{
-			{"SameReplacement", `"Shared"`, "Renamed", "Renamed"},
-			{"DifferentReplacements", `"Shared"`, "Scene", "Sound"},
-			{"RawString", "`Shared`", "Scene", "Sound`"},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				source := "const name = " + tt.literal + "\nsetBackdrop name\nplay name\n"
-				s := newSpxTestServer(t, map[string][]byte{
-					"main.spx":                        []byte(source),
-					"assets/index.json":               []byte(`{"backdrops":[{"name":"Shared"}]}`),
-					"assets/sounds/Shared/index.json": []byte(`{}`),
-				})
-				requireNoDiagnostics(t, s)
-				for _, batch := range []bool{false, true} {
-					params := []XGoRenameResourceParams{{
-						Resource: XGoResourceIdentifier{URI: "spx://resources/backdrops/Shared"}, NewName: tt.backdrop,
-					}}
-					want := "const name = " + tt.literal + "\nsetBackdrop \"" + tt.backdrop + "\"\nplay name\n"
-					sound := "Shared"
-					if batch {
-						params = append(params, XGoRenameResourceParams{
-							Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Shared"}, NewName: tt.sound,
-						})
-						want = strings.Replace(want, "play name", "play \""+tt.sound+"\"", 1)
-						sound = tt.sound
-						if tt.backdrop == tt.sound {
-							want = strings.Replace(source, "Shared", tt.backdrop, 1)
-						}
-					}
-					edit, err := s.renameResources(params)
-					require.NoError(t, err)
-					require.NotNil(t, edit)
-					require.Len(t, edit.Changes, 1)
-					updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.spx"])
-					assert.Equal(t, want, updated)
-					updatedServer := newSpxTestServer(t, map[string][]byte{
-						"main.spx":                               []byte(updated),
-						"assets/index.json":                      []byte(`{"backdrops":[{"name":"` + tt.backdrop + `"}]}`),
-						"assets/sounds/" + sound + "/index.json": []byte(`{}`),
-					})
-					requireNoDiagnostics(t, updatedServer)
-				}
-			})
-		}
-	})
-
 	t.Run("ConflictingRequests", func(t *testing.T) {
 		for _, source := range []string{"", "play \"Shared\"\n"} {
 			s := newSpxTestServer(t, map[string][]byte{
@@ -339,7 +171,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 	t.Run("Validation", func(t *testing.T) {
 		for _, tt := range []struct {
 			name    string
-			uri     SpxResourceURI
+			uri     XGoResourceURI
 			wantErr string
 		}{
 			{name: "BackdropAlreadyExists", uri: "spx://resources/backdrops/Studio", wantErr: `backdrop resource "Taken" already exists`},
@@ -367,7 +199,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 				edit, err := s.renameSpxResources(s.getProj(), result, []XGoRenameResourceParams{{
 					Resource: XGoResourceIdentifier{URI: tt.uri}, NewName: "Taken",
 				}})
-				assert.EqualError(t, err, "failed to rename spx resource \""+string(tt.uri)+"\": "+tt.wantErr)
+				assert.EqualError(t, err, "failed to rename resource \""+string(tt.uri)+"\": "+tt.wantErr)
 				assert.Nil(t, edit)
 			})
 		}
@@ -438,7 +270,21 @@ func TestServerRenameSpxResources(t *testing.T) {
 		edit, err := s.renameSpxResources(s.getProj(), newSpxAnalysis(s.getProj()), []XGoRenameResourceParams{{
 			Resource: XGoResourceIdentifier{URI: "file:///assets/Studio"}, NewName: "Park",
 		}})
-		assert.EqualError(t, err, "failed to parse spx resource URI: invalid spx resource URI: file:///assets/Studio")
+		assert.EqualError(t, err, `unknown resource collection for "file:///assets/Studio"`)
 		assert.Nil(t, edit)
 	})
+}
+
+// renameSpxResources validates the complete batch and plans its edits together.
+func (s *Server) renameSpxResources(proj *xgo.Project, result *spxAnalysis, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
+	renames, err := prepareResourceRenames([]*resourceProvider{result.resourceProvider()}, params)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := s.renameResourcesAtRefs(proj, result.resourceAnalysis, renames)
+	if err != nil {
+		return nil, err
+	}
+	s.appendSpxSpriteTypeRenames(proj, result, renames, changes)
+	return &WorkspaceEdit{Changes: changes}, nil
 }

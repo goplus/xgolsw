@@ -159,7 +159,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 				})
 				item := completionItemByLabel(completionItemsAt(t, s, tt.filename, position), tt.field)
 				require.NotNil(t, item)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				require.NotNil(t, data.Definition)
 				assert.Equal(t, tt.id, data.Definition.String())
 				if tt.doc != "" {
@@ -271,7 +271,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(tt.declarations + tt.call + "option = 1\n"), Version: 1}})
 				item := completionItemByLabel(completionItemsAt(t, s, "main.xgo", position), tt.label)
 				require.NotNil(t, item)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				require.NotNil(t, data.Definition)
 				assert.Equal(t, tt.id, data.Definition.String())
 			})

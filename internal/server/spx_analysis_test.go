@@ -1,7 +1,6 @@
 package server
 
 import (
-	gotypes "go/types"
 	"strings"
 	"testing"
 
@@ -10,144 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestAnalyzeSpxCallResourceReferences(t *testing.T) {
-	for _, tt := range []struct {
-		name            string
-		source          string
-		externalPackage bool
-	}{
-		{
-			name:            "ExternalPackage",
-			source:          "import \"example.com/audio\"\naudio.play \"Known\", \"Missing\"\n",
-			externalPackage: true,
-		},
-		{
-			name: "ParenthesizedSlice",
-			source: `func use(names []SoundName) {}
-use ((["Known", ("Missing")]))
-`,
-		},
-		{
-			name: "VariadicSlice",
-			source: `func use(names ...SoundName) {}
-use ["Known", "Missing"]...
-`,
-		},
-		{
-			name: "ParenthesizedVariadicSlice",
-			source: `func use(names ...SoundName) {}
-use ((["Known", "Missing"]))...
-`,
-		},
-		{
-			name: "Kwarg",
-			source: `type Options struct { Names []SoundName }
-func use(opts Options?) {}
-use names = (["Known", "Missing"])
-`,
-		},
-		{
-			name: "OverloadKwarg",
-			source: `type Worker struct{}
-type Options struct { Names []SoundName }
-var worker Worker
-func (w *Worker) useNames(opts Options?) {}
-func (Worker).use = (
-    (Worker).useNames
-)
-worker.use names = (["Known", "Missing"])
-`,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			s := newSpxTestServer(t, map[string][]byte{
-				"main.spx":                       []byte(tt.source),
-				"assets/index.json":              []byte(`{}`),
-				"assets/sounds/Known/index.json": []byte(`{}`),
-			})
-			if tt.externalPackage {
-				proj := s.getProj()
-				fallback := proj.Importer
-				pkg := gotypes.NewPackage("example.com/audio", "audio")
-				params := gotypes.NewTuple(
-					gotypes.NewParam(token.NoPos, pkg, "first", spxTestType(t, s, "SoundName")),
-					gotypes.NewParam(token.NoPos, pkg, "second", spxTestType(t, s, "SoundName")),
-				)
-				pkg.Scope().Insert(gotypes.NewFunc(token.NoPos, pkg, "Play", gotypes.NewSignatureType(nil, nil, nil, params, nil, false)))
-				pkg.MarkComplete()
-				proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
-					if path == pkg.Path() {
-						return pkg, nil
-					}
-					return fallback.Import(path)
-				})
-			}
-			_, err := s.getProj().TypeInfo()
-			require.NoError(t, err)
-			result, err := analyzeSpx(s.syncProject())
-			require.NoError(t, err)
-			require.Len(t, result.resourceRefs, 2)
-			var wantLinks []DocumentLink
-			var wantDiagnostics []Diagnostic
-			for i, name := range []string{"Known", "Missing"} {
-				ref := result.resourceRefs[i]
-				assert.Equal(t, SpxSoundResourceID{name}, ref.ID)
-				assert.Equal(t, XGoResourceRefKindStringLiteral, ref.Kind)
-				needle := `"` + name + `"`
-				offset := strings.Index(tt.source, needle)
-				require.NotEqual(t, -1, offset)
-				line := uint32(strings.Count(tt.source[:offset], "\n"))
-				column := uint32(offset - strings.LastIndex(tt.source[:offset], "\n") - 1)
-				span := Range{Start: Position{Line: line, Character: column}, End: Position{Line: line, Character: column + uint32(len(needle))}}
-				if name == "Known" {
-					wantLinks = append(wantLinks, DocumentLink{
-						Range:  span,
-						Target: toURI("spx://resources/sounds/Known"),
-						Data:   XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral},
-					})
-				} else {
-					wantDiagnostics = append(wantDiagnostics, Diagnostic{
-						Range: span, Severity: SeverityError, Message: `sound resource "Missing" not found`,
-					})
-				}
-			}
-			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})
-			require.NoError(t, err)
-			var resourceLinks []DocumentLink
-			for _, link := range links {
-				if link.Target != nil && strings.HasPrefix(string(*link.Target), "spx://") {
-					resourceLinks = append(resourceLinks, link)
-				}
-			}
-			assert.Equal(t, wantLinks, resourceLinks)
-			report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
-			require.NoError(t, err)
-			require.Len(t, report.Items, 1)
-			full := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0])
-			assert.Equal(t, DocumentURI("file:///main.spx"), full.URI)
-			assert.Equal(t, wantDiagnostics, full.Items)
-		})
-	}
-
-	t.Run("UnknownKwarg", func(t *testing.T) {
-		files := map[string][]byte{
-			"main.spx": []byte(`type Options struct { Target SpriteName }
-func configure(opts Options?) {}
-configure target = "OtherSprite", unknown = 9
-`),
-			"OtherSprite.spx":                       nil,
-			"assets/index.json":                     []byte(`{}`),
-			"assets/sprites/OtherSprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, files)
-		result, err := analyzeSpx(s.syncProject())
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.Len(t, result.resourceRefs, 1)
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), result.resourceRefs[0].ID.URI())
-	})
-}
 
 func TestInspectForSpxResourceRefs(t *testing.T) {
 	for _, resource := range []struct {
@@ -295,6 +156,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 			{
 				name:   "ComputedReturn",
 				source: "func current() SpriteCostumeName { return \"id\" + \"le\" }\n",
+				want:   []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -357,7 +219,7 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 						result.mainSpxFile = "main.spx"
 						result.spxResourceSet = *set
 						require.NotPanics(t, func() {
-							inspectForSpxResourceRefs(s.getProj(), result)
+							collectResourceReferences(s.getProj(), []*resourceProvider{result.resourceProvider()})
 						})
 						require.Len(t, result.resourceRefs, 1)
 						ref := result.resourceRefs[0]

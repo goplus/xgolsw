@@ -48,7 +48,7 @@ func TestServerSymbolDocumentation(t *testing.T) {
 			require.NotNil(t, item.Documentation)
 			assert.Contains(t, requireValueAs[MarkupContent](t, item.Documentation.Value).Value, tt.doc)
 			if tt.id != "" {
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				require.NotNil(t, data.Definition)
 				assert.Equal(t, tt.id, data.Definition.String())
 			}

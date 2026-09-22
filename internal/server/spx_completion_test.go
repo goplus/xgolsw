@@ -30,7 +30,7 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 				}
 				assert.Equal(t, 3, countCompletionItemLabel(items, "step"))
 				item := completionItemByLabel(items, "stepWith")
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:github.com/goplus/spx/v3?Sprite.stepWith", data.Definition.String())
 				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
@@ -54,7 +54,7 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 		require.NotNil(t, item)
 		assert.Equal(t, ModuleCompletion, item.Kind)
 		assert.Equal(t, SpxPkgPath, item.InsertText)
-		data := requireValueAs[*CompletionItemData](t, item.Data)
+		data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 		assert.Equal(t, ToPtr(SpxPkgPath), data.Definition.Package)
 	})
 

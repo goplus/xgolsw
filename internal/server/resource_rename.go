@@ -71,6 +71,9 @@ func newResourceRenamePlan(proj *xgo.Project, result *resourceAnalysis, info *ty
 	}
 	for _, ref := range result.resourceRefs {
 		p.refs[ref.Node] = ref
+		if expr, ok := ref.Node.(ast.Expr); ok {
+			p.refs[resourceStringOperand(expr, info)] = ref
+		}
 	}
 	shared := make(map[ast.Expr]bool)
 	for ident, obj := range info.Uses {
@@ -125,17 +128,22 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 	}
 	plan := newResourceRenamePlan(proj, result, info, renames)
 	seen := make(map[DocumentURI]map[TextEdit]bool)
+	covered := make(map[*ast.Ident]bool)
 	addEdit := func(node ast.Node, name string, quoted bool) error {
+		var intrinsic bool
 		if expr, ok := node.(ast.Expr); ok && quoted {
-			if literal, _ := resourceStringLiteral(expr, info); literal != nil {
-				node = literal
-			}
+			intrinsic = result.expressions[expr].value.Intrinsic
+			node = resourceStringOperand(expr, info)
 		}
 		file := sourceASTFile(proj, node.Pos())
 		if file == nil {
 			return nil
 		}
-		edit := TextEdit{Range: resourceRange(proj, file, node), NewText: name}
+		tokenFile := proj.Fset.File(node.Pos())
+		edit := TextEdit{Range: Range{
+			Start: FromPosition(proj, file, tokenFile.PositionFor(node.Pos(), false)),
+			End:   FromPosition(proj, file, tokenFile.PositionFor(resourceNodeEnd(proj.Fset, file, node), false)),
+		}, NewText: name}
 		if quoted {
 			edit.NewText = strings.ReplaceAll(strconv.Quote(name), "$", `\x24`)
 			if lit, ok := node.(*ast.BasicLit); ok {
@@ -150,9 +158,12 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 					}
 				}
 			} else if expr, ok := node.(ast.Expr); ok {
-				// Retain defined string types when replacing a typed expression.
-				if typ := info.TypeOf(expr); typ != nil {
-					if _, ok := gotypes.Unalias(typ).(*gotypes.Named); ok {
+				// Defined types preserve language semantics. Intrinsic aliases
+				// also preserve the resource collection on subsequent requests.
+				if typ := resourceExpressionType(expr, info); typ != nil {
+					_, named := gotypes.Unalias(typ).(*gotypes.Named)
+					_, alias := typ.(*gotypes.Alias)
+					if named || alias && intrinsic {
 						display := newTypeDisplay(proj, file, node.Pos())
 						name, ok := display.sourceTypeString(typ)
 						if !ok {
@@ -163,7 +174,13 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 				}
 			}
 		}
-		uri := s.toDocumentURI(proj.Fset.File(node.Pos()).Name())
+		ast.Inspect(node, func(node ast.Node) bool {
+			if ident, ok := node.(*ast.Ident); ok {
+				covered[ident] = true
+			}
+			return true
+		})
+		uri := s.toDocumentURI(tokenFile.Name())
 		if seen[uri] == nil {
 			seen[uri] = make(map[TextEdit]bool)
 		}
@@ -173,9 +190,31 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 		}
 		return nil
 	}
+	// Preserve a dependent initializer as a complete value. Replacing its
+	// operands independently can change its type or introduce references to
+	// the old resource through newly inserted type conversions.
+	preserved := make(map[ast.Expr]bool)
+	for ident, obj := range info.Uses {
+		value, changed := plan.values[plan.initializers[obj]]
+		owner := plan.owners[ident]
+		if !changed || owner == nil || preserved[owner] || constant.StringVal(obj.(*gotypes.Const).Val()) == value {
+			continue
+		}
+		if _, replaced := plan.values[owner]; replaced {
+			continue
+		}
+		text, err := resourceConstantSource(proj, owner, info)
+		if err != nil {
+			return nil, err
+		}
+		if err := addEdit(owner, text, false); err != nil {
+			return nil, err
+		}
+		preserved[owner] = true
+	}
 	for expr, name := range plan.values {
-		if ident, ok := expr.(*ast.Ident); ok {
-			initializer := plan.initializers[info.ObjectOf(ident)]
+		if obj := resourceConstantObject(expr, info); obj != nil {
+			initializer := plan.initializers[obj]
 			if value, changed := plan.values[initializer]; changed && value == name {
 				continue
 			}
@@ -185,29 +224,31 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 		}
 	}
 	for _, ref := range result.resourceRefs {
+		name, renamed := renames[ref.ID]
 		if owner := plan.owners[ref.Node]; owner != nil {
-			if _, renamed := renames[ref.ID]; renamed && ref.Kind == XGoResourceRefKindStringLiteral && owner != ref.Node {
-				if _, replaced := plan.values[owner]; !replaced {
-					return nil, fmt.Errorf("cannot rename a resource within a derived constant at %s", proj.Fset.PositionFor(ref.Node.Pos(), false))
-				}
+			if preserved[owner] || !renamed || owner == ref.Node {
+				continue
+			}
+			if _, replaced := plan.values[owner]; replaced {
+				continue
+			}
+			switch ref.Kind {
+			case XGoResourceRefKindStringLiteral, XGoResourceRefKindStringExpression:
+				return nil, fmt.Errorf("cannot rename a resource within a derived constant at %s", proj.Fset.PositionFor(ref.Node.Pos(), false))
 			}
 			continue
 		}
-		name, renamed := renames[ref.ID]
 		if ref.Kind != XGoResourceRefKindConstantReference {
 			if !renamed {
 				continue
 			}
-			if err := addEdit(ref.Node, name, ref.Kind == XGoResourceRefKindStringLiteral); err != nil {
+			if err := addEdit(ref.Node, name, ref.Kind != XGoResourceRefKindAutoBindingReference); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		obj := info.ObjectOf(ref.Node.(*ast.Ident))
+		obj := resourceConstantObject(ref.Node, info)
 		initializer := plan.initializers[obj]
-		if initializer == nil {
-			continue
-		}
 		current := ref.ID.Name()
 		if value, changed := plan.values[initializer]; changed {
 			current = value
@@ -223,6 +264,9 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 		}
 	}
 	for ident, obj := range info.Uses {
+		if covered[ident] {
+			continue
+		}
 		value, changed := plan.values[plan.initializers[obj]]
 		if !changed {
 			continue
@@ -239,11 +283,6 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 		if original == value {
 			continue
 		}
-		// Retaining a defined string type here would introduce a resource
-		// conversion with the old name inside an unchanged initializer.
-		if _, named := gotypes.Unalias(obj.Type()).(*gotypes.Named); named && owner != nil {
-			return nil, fmt.Errorf("cannot preserve a derived constant at %s", proj.Fset.PositionFor(owner.Pos(), false))
-		}
 		if err := addEdit(ident, original, true); err != nil {
 			return nil, err
 		}
@@ -252,6 +291,63 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 		slices.SortFunc(edits, func(a, b TextEdit) int { return comparePositions(a.Range.Start, b.Range.Start) })
 	}
 	return changes, nil
+}
+
+// resourceConstantSource preserves the value and type of a dependent initializer.
+// An iota expression cannot be folded because omitted initializers reevaluate it.
+func resourceConstantSource(proj *xgo.Project, expr ast.Expr, info *types.Info) (string, error) {
+	value := info.Types[expr].Value
+	var usesIota bool
+	ast.Inspect(expr, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok && info.ObjectOf(ident) == gotypes.Universe.Lookup("iota") {
+			usesIota = true
+		}
+		return !usesIota
+	})
+	if value == nil || usesIota {
+		return "", fmt.Errorf("cannot preserve a derived constant at %s", proj.Fset.PositionFor(expr.Pos(), false))
+	}
+	var text string
+	switch value.Kind() {
+	case constant.String:
+		text = strings.ReplaceAll(strconv.Quote(constant.StringVal(value)), "$", `\x24`)
+	case constant.Bool:
+		// Boolean spellings are identifiers and may be shadowed in source.
+		text = "(0 == 0)"
+		if !constant.BoolVal(value) {
+			text = "(0 != 0)"
+		}
+	case constant.Int:
+		text = value.ExactString()
+	default:
+		return "", fmt.Errorf("cannot preserve a derived constant at %s", proj.Fset.PositionFor(expr.Pos(), false))
+	}
+	typ := resourceExpressionType(expr, info)
+	if basic, ok := typ.(*gotypes.Basic); ok && basic.Info()&gotypes.IsUntyped != 0 {
+		return text, nil
+	}
+	display := newTypeDisplay(proj, sourceASTFile(proj, expr.Pos()), expr.Pos())
+	name, ok := display.sourceTypeString(typ)
+	if !ok {
+		return "", fmt.Errorf("cannot preserve resource constant type %q at %s", display.typeString(typ), proj.Fset.PositionFor(expr.Pos(), false))
+	}
+	return name + "(" + text + ")", nil
+}
+
+// resourceConstantObject returns the constant named by a reference, including
+// imported selectors and identifiers wrapped in string conversions.
+func resourceConstantObject(node ast.Node, info *types.Info) gotypes.Object {
+	expr, ok := node.(ast.Expr)
+	if !ok {
+		return nil
+	}
+	switch expr := resourceStringOperand(expr, info).(type) {
+	case *ast.Ident:
+		return info.ObjectOf(expr)
+	case *ast.SelectorExpr:
+		return info.ObjectOf(expr.Sel)
+	}
+	return nil
 }
 
 // renameResources dispatches resource edits to the current framework.

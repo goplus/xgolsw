@@ -391,10 +391,10 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 	if ctx.typeInfo == nil {
 		return nil
 	}
-	// Constant string conversions have no callable signature. Keep their
-	// literal editable without replacing the surrounding conversion.
-	if literal, _ := resourceStringLiteral(callExpr, ctx.typeInfo); literal != nil {
-		if slot := createValueInputSlotFromBasicLit(ctx, literal, ctx.typeInfo.TypeOf(callExpr)); slot != nil {
+	// String conversions have no callable signature. Keep their operand
+	// editable without replacing the surrounding conversion.
+	if operand := resourceStringOperand(callExpr, ctx.typeInfo); operand != callExpr {
+		if slot := checkValueInputSlot(ctx, operand, ctx.typeInfo.TypeOf(callExpr)); slot != nil {
 			return []XGoInputSlot{*slot}
 		}
 		return nil
@@ -747,8 +747,27 @@ func (ctx *inputSlotContext) inferInputType(typ gotypes.Type) XGoInputType {
 
 // adaptInputSlot applies framework semantics to an otherwise ordinary input.
 func (ctx *inputSlotContext) adaptInputSlot(expr ast.Expr, typ gotypes.Type, slot *XGoInputSlot) *XGoInputSlot {
-	if ctx.frameworkResult != nil && ctx.frameworkResult.adaptInputSlot != nil {
-		return ctx.frameworkResult.adaptInputSlot(ctx, expr, typ, slot)
+	framework := ctx.frameworkResult
+	if framework == nil {
+		return slot
+	}
+	if resources := framework.resources; resources != nil {
+		if resolved, recognized := resources.expressions[expr]; recognized {
+			if resolved.id == nil {
+				return nil
+			}
+			if literal, ok := expr.(*ast.BasicLit); ok {
+				return resources.createResourceInputSlot(ctx, literal, typ)
+			}
+			if slot != nil {
+				slot.Accept.Type = XGoInputTypeResourceName
+				slot.Accept.ResourceContext = ToPtr(resolved.id.ContextURI())
+			}
+			return slot
+		}
+	}
+	if framework.adaptInputSlot != nil {
+		return framework.adaptInputSlot(ctx, expr, typ, slot)
 	}
 	return slot
 }

@@ -27,7 +27,7 @@ func newSpxIntegrationTestServer(t testing.TB, files map[string][]byte) *Server 
 		PkgData:         data,
 	})
 	require.NoError(t, err)
-	return New(proj, nil, fileMapGetter(files), &MockScheduler{}, data.ListPkgs, data.GetPkgDoc)
+	return New(proj, nil, fileMapGetter(files), &MockScheduler{}, data.ListPkgs, data.GetPkgDoc, nil)
 }
 
 func TestSpxIntegrationSymbols(t *testing.T) {

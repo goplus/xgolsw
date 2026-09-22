@@ -58,14 +58,15 @@ func TestResourceReferences(t *testing.T) {
 		{"Call", "use \"call\"\n", []string{"call"}},
 		{"Kwarg", "type Options struct { Asset Asset }\nfunc option(opts Options?) {}\noption asset = \"kwarg\"\n", []string{"kwarg"}},
 		{"Constant", "const asset = \"constant\"\nuse asset\n", []string{"constant"}},
-		{"ConstantExpression", "const asset Asset = \"prefix\" + \"suffix\"\nuse asset\n", []string{"prefixsuffix"}},
+		{"ConstantExpression", "const asset Asset = \"prefix\" + \"suffix\"\nuse asset\n", []string{"prefixsuffix", "prefixsuffix"}},
 		{"Parenthesized", "use (\"parenthesized\")\n", []string{"parenthesized"}},
 		{"Conversion", "println Asset(\"intrinsic\")\n", []string{"intrinsic"}},
 		{"NestedConversion", "println Asset(string(\"intrinsic\"))\n", []string{"intrinsic"}},
 		{"ConversionArgument", "use Asset(\"argument\")\n", []string{"argument"}},
 		{"ConversionInitializer", "const asset = Asset(\"initializer\")\nuse asset\n", []string{"initializer", "initializer"}},
+		{"OverloadedConcatenation", "func (asset Asset) XGo_Add(other Asset) Asset { return \"result\" }\nuse Asset(\"pre\") + Asset(\"fix\")\n", []string{"result"}},
 		{"NumericConversion", "println Asset(65)\n", nil},
-		{"ConstantConversion", "const name = \"constant\"\nprintln Asset(name)\n", nil},
+		{"ConstantConversion", "const name = \"constant\"\nprintln Asset(name)\n", []string{"constant"}},
 		{"UnrelatedArgument", "func fromText(text string) Asset { return \"result\" }\nasset := fromText(\"unrelated\")\n", []string{"result"}},
 		{"IncompleteCall", "use \"partial\", missing\n", []string{"partial"}},
 		{"Variadic", "func many(assets ...Asset) {}\nmany \"first\", \"second\"\n", []string{"first", "second"}},
@@ -108,7 +109,11 @@ func TestResourceReferences(t *testing.T) {
 							file := sourceASTFile(proj, ref.Node.Pos())
 							span := resourceRange(proj, file, ref.Node)
 							text := tt.source[PositionOffset([]byte(tt.source), span.Start):PositionOffset([]byte(tt.source), span.End)]
-							assert.Equal(t, `"`+ref.ID.Name()+`"`, text)
+							if ref.Kind == XGoResourceRefKindConstantReference {
+								assert.Equal(t, "name", text)
+							} else {
+								assert.Equal(t, `"`+ref.ID.Name()+`"`, text)
+							}
 						}
 					}
 					assert.ElementsMatch(t, tt.want, names)

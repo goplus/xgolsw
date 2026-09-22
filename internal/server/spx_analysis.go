@@ -27,10 +27,6 @@ type spxAnalysis struct {
 	// spxResourceSetErr distinguishes unavailable metadata from an empty set.
 	spxResourceSetErr error
 
-	// resourceLiterals retains resolved contexts for completion, including
-	// empty names that cannot produce resource references.
-	resourceLiterals map[*ast.BasicLit]resourceValue
-
 	// spxSpriteResourceAutoBindings stores spx sprite resource auto-bindings.
 	spxSpriteResourceAutoBindings map[gotypes.Object]struct{}
 }
@@ -45,7 +41,6 @@ func newSpxAnalysis(proj *xgo.Project) *spxAnalysis {
 		spxSymbols:                    symbols,
 		resourceAnalysis:              &resourceAnalysis{},
 		spxSpriteTypes:                make(map[gotypes.Type]struct{}),
-		resourceLiterals:              make(map[*ast.BasicLit]resourceValue),
 		spxSpriteResourceAutoBindings: make(map[gotypes.Object]struct{}),
 	}
 }
@@ -63,10 +58,10 @@ func (r *spxAnalysis) hasSpxSpriteResourceAutoBinding(obj gotypes.Object) bool {
 	return ok
 }
 
-// analyzeSpx analyzes spx resources throughout the project. It returns nil when
+// loadSpxAnalysis loads SDK resource metadata. It returns nil when
 // the project has no spx classfiles or its SDK is unavailable. Syntax errors,
 // type errors, and analyzers are handled separately by diagnosticsAt.
-func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
+func loadSpxAnalysis(proj *xgo.Project) (*spxAnalysis, error) {
 	var hasSpxFile bool
 	for file := range proj.Files() {
 		if spxClassForFile(proj, file) != nil {
@@ -111,7 +106,7 @@ func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
 	}
 
 	inspectForSpxResourceSet(proj, result)
-	inspectForSpxResourceRefs(proj, result)
+	inspectForAutoBindingSpxResources(proj, result)
 
 	return result, nil
 }
@@ -135,39 +130,21 @@ func inspectForSpxResourceSet(proj *xgo.Project, result *spxAnalysis) {
 	result.contains = result.spxResourceSet.Contains
 }
 
-// inspectForSpxResourceRefs collects source references using SDK resource types.
-func inspectForSpxResourceRefs(proj *xgo.Project, result *spxAnalysis) {
-	inspectForAutoBindingSpxResources(proj, result)
-	info, _ := proj.TypeInfo()
-	callSprites := make(map[*ast.CallExpr]*SpxSpriteResource)
-	for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
-		if value.Intrinsic {
-			switch result.spxResourceNameType(value.Type) {
-			case "BackdropName", "SpriteName", "SoundName", "WidgetName":
-			default:
-				return nil, false
-			}
+// resolveResourceValue resolves a resource from SDK declarations and sprite context.
+func (result *spxAnalysis) resolveResourceValue(proj *xgo.Project, value resourceValue) (resourceID, bool) {
+	if value.Intrinsic {
+		switch result.spxResourceNameType(value.Type) {
+		case "BackdropName", "SpriteName", "SoundName", "WidgetName":
+		default:
+			return nil, false
 		}
-		id, recognized := result.resolveResourceID(value.Type, value.Name, func() *SpxSpriteResource {
-			if value.Call == nil {
-				return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(value.Expr.Pos(), false).Filename)
-			}
-			sprite, ok := callSprites[value.Call]
-			if !ok {
-				sprite = resolveSpxSpriteContextFromCallExpr(proj, result, value.Call)
-				callSprites[value.Call] = sprite
-			}
-			return sprite
-		})
-		if id != nil {
-			if literal, _ := resourceStringLiteral(value.Expr, info); literal != nil {
-				result.resourceLiterals[literal] = value
-			}
-		}
-		return id, recognized
-	}) {
-		inspectSpxResourceRef(proj, result, ref)
 	}
+	return result.resolveResourceID(value.Type, value.Name, func() *SpxSpriteResource {
+		if value.Call == nil {
+			return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(value.Expr.Pos(), false).Filename)
+		}
+		return resolveSpxSpriteContextFromCallExpr(proj, result, value.Call)
+	})
 }
 
 // inspectForAutoBindingSpxResources inspects for auto-binding spx resources and
@@ -290,6 +267,10 @@ func inspectSpxResourceRef(proj *xgo.Project, result *spxAnalysis, ref resourceR
 	}
 	if ref.ID.Name() == "" {
 		addEmptySpxResourceNameDiagnostic(proj, result, ref.Node, emptyResourceType)
+		return
+	}
+	if !validResourceName(ref.ID.Name()) {
+		addResourceDiagnostic(proj, result.resourceAnalysis, ref.Node, "invalid resource name")
 		return
 	}
 	result.addResourceRef(ref)

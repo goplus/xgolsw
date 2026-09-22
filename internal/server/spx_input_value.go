@@ -73,33 +73,29 @@ func (r *spxAnalysis) adaptInputSlot(ctx *inputSlotContext, expr ast.Expr, decla
 	case *ast.CallExpr:
 		return r.createValueInputSlotFromColorFuncCall(ctx, expr, declaredType)
 	case *ast.BasicLit:
-		if _, resource := r.resourceLiterals[expr]; resource || slot.Accept.Type == SpxInputTypeResourceName {
-			return r.createResourceInputSlot(ctx, expr, declaredType, XGoInputTypeSpxResourceName)
+		if slot.Accept.Type == XGoInputTypeResourceName {
+			// Resolved literal contexts are handled by inputSlotContext.
+			return nil
 		}
 	case *ast.Ident:
 		input, accept := slot.Input, slot.Accept
 		switch input.Type {
-		case SpxInputTypeDirection,
-			SpxInputTypeEffectKind,
-			SpxInputTypeLayerAction,
-			SpxInputTypeDirAction,
-			SpxInputTypeKey,
-			SpxInputTypeSpecialObj,
-			SpxInputTypeRotationStyle:
+		case XGoInputTypeSpxDirection,
+			XGoInputTypeSpxEffectKind,
+			XGoInputTypeSpxLayerAction,
+			XGoInputTypeSpxDirAction,
+			XGoInputTypeSpxKey,
+			XGoInputTypeSpxSpecialObj,
+			XGoInputTypeSpxRotationStyle:
 			if cnst, ok := ctx.typeInfo.ObjectOf(expr).(*gotypes.Const); ok && r.isSpxSymbol(cnst) {
 				input = spxEnumInput(cnst, input.Type)
 			}
 		}
 		switch accept.Type {
-		case SpxInputTypeResourceName:
-			id, _ := r.resolveResourceID(declaredType, "", func() *SpxSpriteResource {
-				return inferSpxSpriteResourceEnclosingNode(ctx.proj, r, expr)
-			})
-			if id == nil {
-				return nil
-			}
-			accept.ResourceContext = ToPtr(id.ContextURI())
-		case SpxInputTypeSpriteInstance:
+		case XGoInputTypeResourceName:
+			// Resource contexts are supplied by the shared expression analysis.
+			return nil
+		case XGoInputTypeSpxSpriteInstance:
 			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
 			if spxSpriteResource := spxSpriteResourceForObject(r, ctx.typeInfo.ObjectOf(expr)); spxSpriteResource != nil {
 				input.Kind = XGoInputKindInPlace

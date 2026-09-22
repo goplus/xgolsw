@@ -1,10 +1,17 @@
 package server
 
 import (
+	"unicode/utf8"
+
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 )
+
+// validResourceName reports whether a name can identify a resource in a URI.
+func validResourceName(name string) bool {
+	return name != "" && utf8.ValidString(name)
+}
 
 // resourceID is a comparable framework resource identity.
 type resourceID interface {
@@ -25,18 +32,17 @@ type XGoResourceRefKind string
 
 const (
 	XGoResourceRefKindStringLiteral        XGoResourceRefKind = "stringLiteral"
+	XGoResourceRefKindStringExpression     XGoResourceRefKind = "stringExpression"
 	XGoResourceRefKindAutoBindingReference XGoResourceRefKind = "autoBindingReference"
 	XGoResourceRefKindConstantReference    XGoResourceRefKind = "constantReference"
 )
 
-// resourceSourceNode selects the literal inside a conversion for source-facing
+// resourceSourceNode selects the operand inside a conversion for source-facing
 // ranges. The reference retains its full expression for type and rename analysis.
 func resourceSourceNode(proj *xgo.Project, node ast.Node) ast.Node {
 	if call, ok := node.(*ast.CallExpr); ok {
 		if info, _ := proj.TypeInfo(); info != nil {
-			if literal, _ := resourceStringLiteral(call, info); literal != nil {
-				return literal
-			}
+			return resourceStringOperand(call, info)
 		}
 	}
 	return node
@@ -72,6 +78,7 @@ func resourceRange(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
 // resourceAnalysis contains references, availability, and untranslated diagnostics.
 // A nil contains function means that resource metadata is unavailable.
 type resourceAnalysis struct {
+	expressions      map[ast.Expr]resourceExpression
 	diagnostics      []sourceDiagnostic
 	resourceRefs     []resourceRef
 	seenResourceRefs map[resourceRef]struct{}

@@ -39,6 +39,56 @@ applications.
 
 For detailed API references, please check the [index.d.ts](index.d.ts) file.
 
+To enable named resources for a framework, pass `resourceConfig` when creating the server:
+
+```typescript
+const server = NewXGoLanguageServer(filesProvider, messageReplier, {
+  classfileConfig,
+  pkgDataZip,
+  resourceConfig: {
+    dataFile: 'resources.json',
+    types: [
+      { pkgPath: 'example.com/framework', typeName: 'ClipName', contextURI: 'demo://resources/clips' }
+    ]
+  }
+})
+```
+
+The framework must declare `ClipName` as a string type or alias, such as `type ClipName string` or
+`type ClipName = string`. Bindings preserve declaration identity, so separate aliases can select different collections
+without affecting ordinary strings. An explicit alias binding takes precedence over bindings on its underlying alias
+chain. The package must be available in package data. Use `pkgPath: 'main'` to bind a type declared in project source.
+
+Include the resource manifest in `filesProvider` alongside the source files. For the configuration above, provide
+`resources.json` with this content:
+
+```json
+{
+  "demo://resources/clips": ["Intro", "Finale"]
+}
+```
+
+Resource collections are keyed by their configured URI. Omitted collections are empty. Names must be nonempty UTF-8
+strings. A resource URI appends the name as one percent-encoded path segment, such as
+`demo://resources/clips/Intro`. Update the manifest's content and `modTime` through `filesProvider` when resources
+change. The next request uses the updated inventory together with the current source snapshot.
+
+Completion, hover, document links, diagnostics, input slots, and `xgo.renameResources` share these type bindings and
+resources. Unavailable resource types or a missing or malformed manifest produce diagnostics at the manifest path.
+An invalid binding or collection leaves unrelated collections available. A missing or malformed manifest makes all
+configured inventory unavailable. Unavailable inventory suppresses resource completion, links, and missing-resource
+diagnostics, and resource rename reports an error. Ordinary code diagnostics remain available. Renaming returns source
+edits, and the caller updates the inventory itself.
+
+The spx adapter continues to supply its own resource rules and asset layout when its classfiles and package data are
+configured. Those SDK resource types and collections cannot be overridden by `resourceConfig`.
+
+Resource name inputs use `type: 'resource-name'`, including those supplied by the spx adapter. Clients consuming
+`xgo.getInputSlots` must replace the previous `spx-resource-name` discriminator with `resource-name`. Empty or invalid
+resource literals retain a string input and a resource accept type with their collection context so they remain editable.
+The legacy `spx.renameResources` and `spx.getInputSlots` commands have been removed. Use `xgo.renameResources` and
+`xgo.getInputSlots` instead.
+
 ## Supported LSP methods
 
 | Category | Method | Purpose & Explanation |
@@ -86,8 +136,9 @@ capabilities are advertised for their client capabilities.*
 
 ### XGo resource renaming
 
-The `xgo.renameResources` command enables renaming of XGo resources referenced by string literals (e.g.,
-`play "explosion"`) across the workspace.
+The `xgo.renameResources` command renames resource references across the workspace, including string literals, constants,
+string conversions, and static concatenations. It preserves other uses of shared constants and replaces imported constant
+references at their use sites. Runtime expressions and numeric-to-string conversions are not treated as resource names.
 
 *Request:*
 
@@ -142,6 +193,7 @@ interface XGoResourceIdentifier {
  * The XGo resource's URI.
  *
  * For example:
+ * - `demo://resources/clips/Intro`
  * - `spx://resources/sounds/MySound`
  * - `spx://resources/sprites/MySprite`
  * - `spx://resources/sprites/MySprite/costumes/MyCostume`
@@ -288,7 +340,7 @@ type XGoInputSlotAccept =
       /**
        * The input type accepted by the slot.
        */
-      type: XGoInputType.SpxResourceName | XGoInputType.SpxSpriteInstance
+      type: XGoInputType.ResourceName | XGoInputType.SpxSpriteInstance
 
       /**
        * The resource context for the resource-backed input type.
@@ -328,9 +380,9 @@ enum XGoInputType {
   Unknown = 'unknown',
 
   /**
-   * Resource name (`SpriteName`, `SoundName`, etc.) in spx.
+   * A name in a configured or SDK resource collection.
    */
-  SpxResourceName = 'spx-resource-name',
+  ResourceName = 'resource-name',
 
   /**
    * Sprite instance resource references in spx.
@@ -401,7 +453,7 @@ type XGoInputTypedValue =
   | { type: XGoInputType.Decimal; value: number }
   | { type: XGoInputType.Boolean; value: boolean }
   | { type: XGoInputType.Unknown; value: void }
-  | { type: XGoInputType.SpxResourceName; value: XGoResourceUri }
+  | { type: XGoInputType.ResourceName; value: XGoResourceUri }
   | { type: XGoInputType.SpxSpriteInstance; value: XGoResourceUri }
   | { type: XGoInputType.SpxDirection; value: number }
   | { type: XGoInputType.SpxLayerAction; value: string }
@@ -432,6 +484,7 @@ type XGoInputTypedValue =
  * The URI of the resource context.
  *
  * For example:
+ * - `demo://resources/clips`
  * - `spx://resources/sprites`
  * - `spx://resources/sounds`
  * - `spx://resources/sprites/<sName>/costumes`

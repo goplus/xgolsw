@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -8,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerSpxResourceSourceRanges(t *testing.T) {
+func TestServerConfiguredResourceSourceRanges(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		literal string
@@ -28,19 +29,22 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 			} {
 				t.Run(state.name, func(t *testing.T) {
 					files := map[string][]byte{
-						"main.spx":          []byte("play " + tt.literal + "\n"),
-						"assets/index.json": []byte(`{}`),
+						"main_fixture.gox": []byte("play " + tt.literal + "\n"),
+						"types.xgo":        []byte("import clips \"example.com/support/v2\"\nfunc play(value clips.Name) {}\n"),
+						"resources.json":   []byte(`{}`),
 					}
 					if state.exists {
-						files["assets/sounds/"+tt.value+"/index.json"] = []byte(`{}`)
+						manifest, err := json.Marshal(map[string][]string{"demo://resources/clips": {tt.value}})
+						require.NoError(t, err)
+						files["resources.json"] = manifest
 					}
-					s := newSpxTestServer(t, files)
-					id := SpxSoundResourceID{tt.value}
+					s := newConfiguredResourceTestServer(t, files, resourceTestConfig)
+					id := configuredResourceID{"demo://resources/clips", tt.value}
 					wantRange := Range{Start: Position{Character: 5}, End: tt.end}
 					position := tt.end
 					position.Character--
 					hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}, Position: position,
+						TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}, Position: position,
 					}})
 					require.NoError(t, err)
 					require.NotNil(t, hover)
@@ -48,16 +52,16 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 					assert.Equal(t, resourceMarkupContent(id.URI(), Markdown), hover.Contents)
 
 					slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{
-						TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+						TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 					}})
 					require.NoError(t, err)
-					slot := findInputSlot(slots, id.URI(), "", SpxInputTypeResourceName, XGoInputKindInPlace)
+					slot := findInputSlot(slots, id.URI(), "", XGoInputTypeResourceName, XGoInputKindInPlace)
 					require.NotNil(t, slot)
-					assert.Equal(t, SpxInputTypeResourceName, slot.Accept.Type)
-					assert.Equal(t, ToPtr(SpxSoundResourceContextURI), slot.Accept.ResourceContext)
+					assert.Equal(t, XGoInputTypeResourceName, slot.Accept.Type)
+					assert.Equal(t, ToPtr(XGoResourceContextURI("demo://resources/clips")), slot.Accept.ResourceContext)
 					assert.Equal(t, wantRange, slot.Range)
 
-					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})
+					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}})
 					require.NoError(t, err)
 					if state.exists {
 						assert.Contains(t, links, DocumentLink{
@@ -67,7 +71,7 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 					} else {
 						assert.NotContains(t, documentLinkTargets(t, links), string(id.URI()))
 					}
-					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})
+					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}})
 					require.NoError(t, err)
 					require.NotNil(t, report)
 					diagnostics := requireRelatedFullDocumentDiagnosticReport(t, report).Items
@@ -85,14 +89,14 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 	}
 }
 
-func TestServerTextDocumentHoverSpxResourceDocumentation(t *testing.T) {
+func TestServerConfiguredResourceDocumentation(t *testing.T) {
 	t.Run("PkgDocLookup", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.spx":                       []byte("import \"fmt\"\nfmt.Println(1)\nplay \"Sound\"\n"),
-			"assets/index.json":              []byte(`{}`),
-			"assets/sounds/Sound/index.json": []byte(`{}`),
+			"main_fixture.gox": []byte("import \"fmt\"\nfmt.Println(1)\nplay \"Sound\"\n"),
+			"types.xgo":        []byte("import clips \"example.com/support/v2\"\nfunc play(value clips.Name) {}\n"),
+			"resources.json":   []byte(`{"demo://resources/clips":["Sound"]}`),
 		}
-		s := newSpxTestServer(t, files)
+		s := newConfiguredResourceTestServer(t, files, resourceTestConfig)
 		const wantDoc = "Documentation supplied by the server."
 		doc := &pkgdoc.PkgDoc{
 			Path:  "fmt",
@@ -115,7 +119,7 @@ func TestServerTextDocumentHoverSpxResourceDocumentation(t *testing.T) {
 
 		hover, err := s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 1, Character: 5},
 			},
 		})
@@ -126,13 +130,13 @@ func TestServerTextDocumentHoverSpxResourceDocumentation(t *testing.T) {
 
 		hover, err = s.textDocumentHover(&HoverParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
-				TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"},
+				TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
 				Position:     Position{Line: 2, Character: 7},
 			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Equal(t, resourceMarkupContent("spx://resources/sounds/Sound", Markdown), hover.Contents)
+		assert.Equal(t, resourceMarkupContent("demo://resources/clips/Sound", Markdown), hover.Contents)
 		assert.Equal(t, []string{"fmt", "fmt"}, lookups)
 	})
 

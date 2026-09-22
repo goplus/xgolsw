@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -234,27 +234,24 @@ func TestInputSlotContextFrameworkResources(t *testing.T) {
 	require.NoError(t, err)
 	assetType := info.Pkg.Scope().Lookup("Asset").Type()
 	result := newTestResourceAnalysis(testResourceID{"files", "logo"})
-	for ref := range resourceReferences(proj, testResourceResolver(t, proj)) {
-		result.addResourceRef(ref)
-	}
+	resolve := testResourceResolver(t, proj)
+	collectResourceReferences(proj, []*resourceProvider{{
+		analysis: result,
+		resolve:  func(_ *xgo.Project, value resourceValue) (resourceID, bool) { return resolve(value) },
+		inspect:  func(_ *xgo.Project, ref resourceRef) { result.addResourceRef(ref) },
+	}})
 	ctx := inputSlotTestContext(t, s, "main_fixture.gox")
 	ctx.frameworkResult = &frameworkAnalysis{
 		resources: result,
 		inputType: func(typ gotypes.Type) XGoInputType {
 			if gotypes.Unalias(typ) == assetType {
-				return testResourceInputType
+				return XGoInputTypeResourceName
 			}
 			return inferBasicInputType(typ)
 		},
-		adaptInputSlot: func(ctx *inputSlotContext, expr ast.Expr, typ gotypes.Type, slot *XGoInputSlot) *XGoInputSlot {
-			if lit, ok := expr.(*ast.BasicLit); ok && gotypes.Unalias(typ) == assetType {
-				return result.createResourceInputSlot(ctx, lit, typ, testResourceInputType)
-			}
-			return slot
-		},
 	}
 	slots := findInputSlots(ctx)
-	resourceSlot := findInputSlot(slots, XGoResourceURI("test://resources/files/logo"), "", testResourceInputType, XGoInputKindInPlace)
+	resourceSlot := findInputSlot(slots, XGoResourceURI("test://resources/files/logo"), "", XGoInputTypeResourceName, XGoInputKindInPlace)
 	require.NotNil(t, resourceSlot)
 	assert.Equal(t, Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 12}}, resourceSlot.Range)
 	assert.Equal(t, ToPtr(XGoResourceContextURI("test://resources/files")), resourceSlot.Accept.ResourceContext)

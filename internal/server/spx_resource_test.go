@@ -292,126 +292,126 @@ func TestListSubdirs(t *testing.T) {
 func TestSpxResourceIDURI(t *testing.T) {
 	t.Run("BackdropASCII", func(t *testing.T) {
 		id := SpxBackdropResourceID{BackdropName: "backdrop1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/backdrops/backdrop1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/backdrops/backdrop1"), id.URI())
 	})
 
 	t.Run("BackdropWithSpaces", func(t *testing.T) {
 		id := SpxBackdropResourceID{BackdropName: "my backdrop"}
-		assert.Equal(t, SpxResourceURI("spx://resources/backdrops/my%20backdrop"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/backdrops/my%20backdrop"), id.URI())
 	})
 
 	t.Run("BackdropNonASCII", func(t *testing.T) {
 		id := SpxBackdropResourceID{BackdropName: "背景"}
-		assert.Equal(t, SpxResourceURI("spx://resources/backdrops/%E8%83%8C%E6%99%AF"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/backdrops/%E8%83%8C%E6%99%AF"), id.URI())
 	})
 
 	t.Run("SoundASCII", func(t *testing.T) {
 		id := SpxSoundResourceID{SoundName: "Sound1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sounds/Sound1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sounds/Sound1"), id.URI())
 	})
 
 	t.Run("SoundWithSpaces", func(t *testing.T) {
 		id := SpxSoundResourceID{SoundName: "my sound"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sounds/my%20sound"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sounds/my%20sound"), id.URI())
 	})
 
 	t.Run("SoundNonASCII", func(t *testing.T) {
 		id := SpxSoundResourceID{SoundName: "音效"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sounds/%E9%9F%B3%E6%95%88"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sounds/%E9%9F%B3%E6%95%88"), id.URI())
 	})
 
 	t.Run("SpriteASCII", func(t *testing.T) {
 		id := SpxSpriteResourceID{SpriteName: "Sprite1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/Sprite1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/Sprite1"), id.URI())
 	})
 
 	t.Run("SpriteWithSpaces", func(t *testing.T) {
 		id := SpxSpriteResourceID{SpriteName: "my sprite"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/my%20sprite"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/my%20sprite"), id.URI())
 	})
 
 	t.Run("SpriteNonASCII", func(t *testing.T) {
 		id := SpxSpriteResourceID{SpriteName: "小猫"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB"), id.URI())
 	})
 
 	t.Run("SpriteCostumeASCII", func(t *testing.T) {
 		id := SpxSpriteCostumeResourceID{SpriteName: "Sprite1", CostumeName: "costume1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/Sprite1/costumes/costume1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/Sprite1/costumes/costume1"), id.URI())
 	})
 
 	t.Run("SpriteCostumeWithSpaces", func(t *testing.T) {
 		id := SpxSpriteCostumeResourceID{SpriteName: "my sprite", CostumeName: "my costume"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/my%20sprite/costumes/my%20costume"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/my%20sprite/costumes/my%20costume"), id.URI())
 	})
 
 	t.Run("SpriteCostumeNonASCII", func(t *testing.T) {
 		id := SpxSpriteCostumeResourceID{SpriteName: "小猫", CostumeName: "跑步"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/costumes/%E8%B7%91%E6%AD%A5"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/costumes/%E8%B7%91%E6%AD%A5"), id.URI())
 	})
 
 	t.Run("SpriteAnimationASCII", func(t *testing.T) {
 		id := SpxSpriteAnimationResourceID{SpriteName: "Sprite1", AnimationName: "anim1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/Sprite1/animations/anim1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/Sprite1/animations/anim1"), id.URI())
 	})
 
 	t.Run("SpriteAnimationWithSpaces", func(t *testing.T) {
 		id := SpxSpriteAnimationResourceID{SpriteName: "my sprite", AnimationName: "my anim"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/my%20sprite/animations/my%20anim"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/my%20sprite/animations/my%20anim"), id.URI())
 	})
 
 	t.Run("SpriteAnimationNonASCII", func(t *testing.T) {
 		id := SpxSpriteAnimationResourceID{SpriteName: "小猫", AnimationName: "奔跑"}
-		assert.Equal(t, SpxResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/animations/%E5%A5%94%E8%B7%91"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/animations/%E5%A5%94%E8%B7%91"), id.URI())
 	})
 
 	t.Run("WidgetASCII", func(t *testing.T) {
 		id := SpxWidgetResourceID{WidgetName: "widget1"}
-		assert.Equal(t, SpxResourceURI("spx://resources/widgets/widget1"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/widgets/widget1"), id.URI())
 	})
 
 	t.Run("WidgetWithSpaces", func(t *testing.T) {
 		id := SpxWidgetResourceID{WidgetName: "my widget"}
-		assert.Equal(t, SpxResourceURI("spx://resources/widgets/my%20widget"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/widgets/my%20widget"), id.URI())
 	})
 
 	t.Run("WidgetNonASCII", func(t *testing.T) {
 		id := SpxWidgetResourceID{WidgetName: "分数"}
-		assert.Equal(t, SpxResourceURI("spx://resources/widgets/%E5%88%86%E6%95%B0"), id.URI())
+		assert.Equal(t, XGoResourceURI("spx://resources/widgets/%E5%88%86%E6%95%B0"), id.URI())
 	})
 }
 
 func TestFormatSpxSpriteCostumeResourceContextURI(t *testing.T) {
 	t.Run("ASCII", func(t *testing.T) {
 		result := FormatSpxSpriteCostumeResourceContextURI("Sprite1")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/Sprite1/costumes"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/Sprite1/costumes"), result)
 	})
 
 	t.Run("WithSpaces", func(t *testing.T) {
 		result := FormatSpxSpriteCostumeResourceContextURI("my sprite")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/my%20sprite/costumes"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/my%20sprite/costumes"), result)
 	})
 
 	t.Run("NonASCII", func(t *testing.T) {
 		result := FormatSpxSpriteCostumeResourceContextURI("小猫")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/costumes"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/costumes"), result)
 	})
 }
 
 func TestFormatSpxSpriteAnimationResourceContextURI(t *testing.T) {
 	t.Run("ASCII", func(t *testing.T) {
 		result := FormatSpxSpriteAnimationResourceContextURI("Sprite1")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/Sprite1/animations"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/Sprite1/animations"), result)
 	})
 
 	t.Run("WithSpaces", func(t *testing.T) {
 		result := FormatSpxSpriteAnimationResourceContextURI("my sprite")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/my%20sprite/animations"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/my%20sprite/animations"), result)
 	})
 
 	t.Run("NonASCII", func(t *testing.T) {
 		result := FormatSpxSpriteAnimationResourceContextURI("小猫")
-		assert.Equal(t, SpxResourceContextURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/animations"), result)
+		assert.Equal(t, XGoResourceContextURI("spx://resources/sprites/%E5%B0%8F%E7%8C%AB/animations"), result)
 	})
 }
 
@@ -441,7 +441,7 @@ func TestParseSpxResourceURI(t *testing.T) {
 	})
 
 	t.Run("EmptyPathSegments", func(t *testing.T) {
-		for _, uri := range []SpxResourceURI{
+		for _, uri := range []XGoResourceURI{
 			"spx://resources/backdrops/",
 			"spx://resources//Studio",
 			"spx://resources/sprites//costumes/idle",
@@ -453,7 +453,7 @@ func TestParseSpxResourceURI(t *testing.T) {
 	})
 
 	t.Run("ExtraPathSegments", func(t *testing.T) {
-		for _, uri := range []SpxResourceURI{
+		for _, uri := range []XGoResourceURI{
 			"spx://resources/backdrops/Studio/extra",
 			"spx://resources/sounds/Beep/extra",
 			"spx://resources/widgets/Score/extra",

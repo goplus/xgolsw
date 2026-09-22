@@ -284,7 +284,7 @@ func TestTypeDisplaySourceContexts(t *testing.T) {
 			doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
 			assert.Contains(t, doc.Value, `overview="`+want.overview+`"`)
 			assert.Contains(t, doc.Value, want.detail)
-			data := requireValueAs[*CompletionItemData](t, item.Data)
+			data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 			assert.Equal(t, "xgo:example.com/framework?"+want.id, data.Definition.String())
 		}
 	}

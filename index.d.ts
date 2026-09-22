@@ -30,6 +30,45 @@ export interface XGoLanguageServerOptions {
    * An omitted or empty `Uint8Array` uses only embedded data. The server copies the supplied bytes.
    */
   pkgDataZip?: Uint8Array
+
+  /**
+   * Resource type bindings and the project-relative path of their JSON manifest.
+   * The manifest is supplied through `filesProvider` and maps collection URIs to arrays of resource names.
+   * Resource names and source files are analyzed from the same project snapshot.
+   */
+  resourceConfig?: XGoResourceConfig
+}
+
+/**
+ * Configuration for named resources referenced through string types and aliases.
+ */
+export interface XGoResourceConfig {
+  /**
+   * A project-relative `.json` file, for example `resources.json`.
+   */
+  dataFile: string
+
+  /**
+   * Type bindings resolved by declaration identity, including aliases to builtin `string`.
+   * An explicit alias binding takes precedence over bindings on its underlying alias chain.
+   * SDK resource types and collections already handled by spx cannot be overridden.
+   */
+  types: Array<{
+    /**
+     * Import path of the package declaring the type, or `main` for project source.
+     */
+    pkgPath: string
+
+    /**
+     * Name of a string type or alias. Binding an alias does not bind ordinary `string` values.
+     */
+    typeName: string
+
+    /**
+     * Absolute hierarchical URI without a query, fragment, or trailing slash, for example `demo://resources/clips`.
+     */
+    contextURI: string
+  }>
 }
 
 declare global {
