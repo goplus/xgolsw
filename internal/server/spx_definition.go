@@ -47,7 +47,7 @@ func newSpxSymbols(proj *xgo.Project) *spxSymbols {
 		symbols.pkg = pkg
 		symbols.types = make(map[gotypes.Type]string)
 		for _, name := range []string{
-			"Sprite", "SpriteImpl", "BackdropName", "SpriteName", "SpriteCostumeName",
+			"Game", "Sprite", "SpriteImpl", "BackdropName", "SpriteName", "SpriteCostumeName",
 			"SpriteAnimationName", "SoundName", "WidgetName", "Direction", "layerAction",
 			"dirAction", "EffectKind", "Key", "Edge", "RotationStyle", "PropertyName", "Value", "List",
 		} {
@@ -129,13 +129,4 @@ func (r *spxSymbols) displayTypeName(obj gotypes.Object, typeName string) string
 		return "Sprite"
 	}
 	return typeName
-}
-
-// isPropertyType reports whether named is spx.Value or spx.List.
-func (r *spxSymbols) isPropertyType(named *gotypes.Named) bool {
-	switch r.spxTypeName(named) {
-	case "Value", "List":
-		return true
-	}
-	return false
 }

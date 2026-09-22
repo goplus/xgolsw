@@ -278,7 +278,7 @@ func TestCollectPredefinedNamesImports(t *testing.T) {
 			ctx := inputSlotTestContext(t, s, "main_fixture.gox")
 			pkg, err := ctx.proj.Import(importTestPkgPath)
 			require.NoError(t, err)
-			names := collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, `"text"`), pkg.Scope().Lookup("Name").Type())
+			names := collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, `"text"`), pkg.Scope().Lookup("Name").Type())
 			if tt.want {
 				assert.Contains(t, names, "Value")
 			} else {
@@ -330,7 +330,7 @@ func TestServerCompletionImportNamespaces(t *testing.T) {
 					switch tt.kind {
 					case VariableCompletion:
 						ctx := inputSlotTestContext(t, s, "main_fixture.gox")
-						names := collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, `"text"`), pkg.Scope().Lookup("Name").Type())
+						names := collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, `"text"`), pkg.Scope().Lookup("Name").Type())
 						assert.Contains(t, names, "Value")
 					case ClassCompletion:
 						file, err := proj.ASTFile("main_fixture.gox")
@@ -731,7 +731,7 @@ func TestFileImportsDuplicateLookups(t *testing.T) {
 			pkg, err := proj.Import(importTestPkgPath)
 			require.NoError(t, err)
 			typ := pkg.Scope().Lookup("Name").Type()
-			assert.NotContains(t, collectPredefinedNames(ctx, inputSlotLiteral(t, ctx, `"text"`), typ), "Value")
+			assert.NotContains(t, collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, `"text"`), typ), "Value")
 			file, err := proj.ASTFile("main_fixture.gox")
 			require.NoError(t, err)
 			display := newTypeDisplay(proj, file, PosAt(proj, file, pos))

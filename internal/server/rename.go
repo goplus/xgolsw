@@ -88,7 +88,7 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		kwargParams := *params
 		kwargParams.NewName = kwargDefinitionRenameText(obj, params.NewName)
 		params = &kwargParams
-	} else if _, ok := obj.(*gotypes.Func); ok && ident.Name != obj.Name() && functionNameForAlias(ident.Name) == obj.Name() {
+	} else if isAliasCallable(obj) && ident.Name != obj.Name() && functionNameForAlias(ident.Name) == obj.Name() {
 		aliasParams := *params
 		aliasParams.NewName = functionNameForAlias(params.NewName)
 		params = &aliasParams
@@ -100,9 +100,9 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	if err != nil {
 		return nil, err
 	}
-	if (&definitionContext{proj: proj}).isPropertyOfEnclosingType(obj) {
-		s.notifyPropertyRenamed(proj, obj, params)
-	}
+	// Property notifications are best effort. Delivery failure must not
+	// invalidate the rename edit, especially after partial delivery.
+	s.notifyPropertiesRenamed(proj, params, edit, obj)
 	return edit, nil
 }
 
@@ -137,11 +137,12 @@ func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *typ
 			result.Changes[uri] = append(result.Changes[uri], edits...)
 		}
 	}
-	for _, method := range methods {
-		if (&definitionContext{proj: proj}).isPropertyOfEnclosingType(method) {
-			s.notifyPropertyRenamed(proj, method, params)
-		}
+	objects := make([]gotypes.Object, len(methods))
+	for i, method := range methods {
+		objects[i] = method
 	}
+	// Keep the complete method edit even if property notifications fail.
+	s.notifyPropertiesRenamed(proj, params, result, objects...)
 	return result, nil
 }
 
@@ -308,7 +309,7 @@ func functionAliasName(name string) string {
 // functionAliasRenames preserves alias calls and automatic property reads.
 // If newName has no usable alias, property reads become explicit calls.
 func (s *Server) functionAliasRenames(proj *xgo.Project, info *types.Info, obj gotypes.Object, newName string) map[Location]string {
-	if _, ok := obj.(*gotypes.Func); !ok {
+	if !isAliasCallable(obj) {
 		return nil
 	}
 	newAlias := functionAliasName(newName)

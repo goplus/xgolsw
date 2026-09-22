@@ -57,6 +57,7 @@ type inputSlotContext struct {
 	predefinedScopes         []*gotypes.Scope
 	imports                  *fileImports
 	autoProperties           *autoPropertyResolver
+	packageProperties        *autoPropertyResolver
 	astFile                  *ast.File
 	astPkg                   *ast.Package
 	typeInfo                 *types.Info
@@ -69,6 +70,7 @@ type inputSlotContext struct {
 
 // predefinedNamesCacheKey identifies expressions with the same visible names.
 type predefinedNamesCacheKey struct {
+	kind             XGoInputSlotKind
 	scope            *gotypes.Scope
 	declaredType     gotypes.Type
 	visibilityRegion int
@@ -76,7 +78,7 @@ type predefinedNamesCacheKey struct {
 
 // newInputSlotContext creates a context for finding input slots in astFile.
 func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext {
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	astPkg, _ := proj.ASTPackage()
 	var predefinedScopes []*gotypes.Scope
 	imports := importsForFile(proj, astFile)
@@ -439,9 +441,9 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 }
 
 // collectPredefinedNames collects all predefined names for the given expression.
-func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType gotypes.Type) []string {
+func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr ast.Expr, declaredType gotypes.Type) []string {
 	innermostScope := ctx.innermostScope(expr)
-	key := predefinedNamesCacheKey{scope: innermostScope, declaredType: declaredType}
+	key := predefinedNamesCacheKey{scope: innermostScope, kind: kind, declaredType: declaredType}
 	if innermostScope != nil {
 		key.visibilityRegion = ctx.visibilityRegion(innermostScope, expr.Pos())
 	}
@@ -462,6 +464,9 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 		// A visible declaration shadows outer names even when its type
 		// cannot be used in this slot.
 		seenNames[name] = struct{}{}
+		if _, variable := obj.(*gotypes.Var); kind == XGoInputSlotKindAddress && !variable {
+			return
+		}
 		if typ := obj.Type(); typ != nil && declaredType != nil && !gotypes.AssignableTo(typ, declaredType) {
 			return
 		}
@@ -469,6 +474,31 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 			return
 		}
 		names = append(names, name)
+	}
+
+	addPackageAlias := func(obj gotypes.Object) {
+		if !isAliasCallable(obj) || xgoutil.IsXGoInternalName(obj.Name()) {
+			return
+		}
+		name := functionAliasName(obj.Name())
+		if name == obj.Name() {
+			return
+		}
+		if _, seen := seenNames[name]; seen {
+			return
+		}
+		if ctx.packageProperties == nil {
+			ctx.packageProperties = &autoPropertyResolver{proj: ctx.proj}
+		}
+		property := ctx.packageProperties.resolvePackageObject(obj)
+		if !property.exists {
+			return
+		}
+		seenNames[name] = struct{}{}
+		_, tuple := property.typ.(*gotypes.Tuple)
+		if kind == XGoInputSlotKindValue && xgoutil.IsValidType(property.typ) && !tuple && (declaredType == nil || gotypes.AssignableTo(property.typ, declaredType)) {
+			names = append(names, name)
+		}
 	}
 
 	var classType *gotypes.Named
@@ -490,21 +520,16 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 					// The declared method name hides imported values even when
 					// its alias cannot supply a value for this slot.
 					seenNames[member.Name()] = struct{}{}
-					name := xgoutil.ToLowerCamelCase(member.Name())
-					if _, seen := seenNames[name]; seen || !methodHasAutoProperty(member.Type(), 0) {
-						continue
-					}
-					seenNames[name] = struct{}{}
-					// Offer the overload declaration rather than its generated
-					// implementation methods, retaining their shadowing above.
-					if xgoutil.IsMarkedAsXGoPackage(member.Pkg()) && xgoutil.IsXGoOverloadedFuncName(member.Name()) {
-						continue
-					}
-					result := ctx.autoProperties.resolve(name).typ
-					_, tuple := result.(*gotypes.Tuple)
-					if result != nil && !tuple && (declaredType == nil || gotypes.AssignableTo(result, declaredType)) {
-						names = append(names, name)
-					}
+				}
+			}
+			for name, property := range ctx.autoProperties.candidates() {
+				if _, seen := seenNames[name]; seen || !property.exists {
+					continue
+				}
+				seenNames[name] = struct{}{}
+				_, tuple := property.typ.(*gotypes.Tuple)
+				if kind == XGoInputSlotKindValue && xgoutil.IsValidType(property.typ) && !tuple && (declaredType == nil || gotypes.AssignableTo(property.typ, declaredType)) {
+					names = append(names, name)
 				}
 			}
 		}
@@ -531,6 +556,9 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 		}
 	}
 
+	for _, obj := range ctx.objectsInScope(ctx.typeInfo.Pkg.Scope()) {
+		addPackageAlias(obj)
+	}
 	for name := range ctx.imports.ambiguous {
 		seenNames[name] = struct{}{}
 	}
@@ -538,9 +566,15 @@ func collectPredefinedNames(ctx *inputSlotContext, expr ast.Expr, declaredType g
 		objects := ctx.objectsInScope(scope)
 		names = slices.Grow(names, len(objects))
 		for _, obj := range objects {
-			if _, ok := obj.(*gotypes.Var); ok && (scope == gotypes.Universe || obj.Exported()) {
-				addObjectName(obj)
+			if scope != gotypes.Universe && !obj.Exported() {
+				continue
 			}
+			if _, ok := obj.(*gotypes.Var); ok {
+				addObjectName(obj)
+			} else {
+				seenNames[obj.Name()] = struct{}{}
+			}
+			addPackageAlias(obj)
 		}
 	}
 
@@ -577,7 +611,7 @@ func checkAddressInputSlot(ctx *inputSlotContext, expr ast.Expr) *XGoInputSlot {
 			Type: XGoInputTypeUnknown,
 			Name: ident.Name,
 		},
-		PredefinedNames: collectPredefinedNames(ctx, expr, nil),
+		PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindAddress, expr, nil),
 		Range:           ctx.rangeForNode(ident),
 	}
 }
@@ -620,7 +654,7 @@ func createValueInputSlotFromBasicLit(ctx *inputSlotContext, lit *ast.BasicLit, 
 		Kind:            XGoInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
+		PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, declaredType),
 		Range:           ctx.rangeForPosEnd(lit.Pos(), basicLitEnd(ctx.proj.Fset, ctx.astFile, lit)),
 	})
 }
@@ -659,7 +693,7 @@ func createValueInputSlotFromNumberUnitLit(ctx *inputSlotContext, lit *ast.Numbe
 		Kind:            XGoInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
+		PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, declaredType),
 		Range:           ctx.rangeForPosEnd(lit.ValuePos, xgoUnitStart(lit)),
 	}
 }
@@ -698,7 +732,7 @@ func createValueInputSlotFromIdent(ctx *inputSlotContext, ident *ast.Ident, decl
 		Kind:            XGoInputSlotKindValue,
 		Accept:          accept,
 		Input:           input,
-		PredefinedNames: collectPredefinedNames(ctx, ident, declaredType),
+		PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindValue, ident, declaredType),
 		Range:           ctx.rangeForNode(ident),
 	})
 }

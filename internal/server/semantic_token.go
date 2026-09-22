@@ -99,7 +99,7 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil, nil
 	}

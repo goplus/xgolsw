@@ -34,7 +34,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if hover, err := hoverForResource(proj, position, markupKind); hover != nil || err != nil {
 		return hover, err
 	}
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil, nil
 	}

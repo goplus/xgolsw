@@ -18,7 +18,11 @@ type symbolDefinition struct {
 	TypeHint gotypes.Type
 	Function *gotypes.Func
 
-	// AutoPropertyType is the inferred result of an implicit member call.
+	// SourceObject is the source declaration before overload expansion.
+	// Function supplies the implementation signature and documentation.
+	SourceObject gotypes.Object
+
+	// AutoPropertyType is the inferred result of an implicit call.
 	// It distinguishes a property returning a function from a method value.
 	AutoPropertyType gotypes.Type
 
@@ -87,7 +91,9 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 			}
 			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
 				for _, funcOverload := range funcOverloads {
-					defs = append(defs, d.definitionForFunc(funcOverload, "", pkgDoc))
+					def := d.definitionForFunc(funcOverload, "", pkgDoc)
+					def.SourceObject = obj
+					defs = append(defs, def)
 				}
 			} else {
 				defs = append(defs, d.definitionForFunc(obj, "", pkgDoc))
@@ -127,7 +133,8 @@ func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, f
 		idName = selectorTypeName + "." + idName
 	}
 	return symbolDefinition{
-		TypeHint: v.Type(),
+		TypeHint:     v.Type(),
+		SourceObject: v,
 
 		ID: XGoDefinitionIdentifier{
 			Package: ToPtr(xgoutil.PkgPath(v.Pkg())),
@@ -232,8 +239,9 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		idName = recvTypeName + "." + idName
 	}
 	return symbolDefinition{
-		TypeHint: fun.Type(),
-		Function: fun,
+		TypeHint:     fun.Type(),
+		Function:     fun,
+		SourceObject: fun,
 
 		ID: XGoDefinitionIdentifier{
 			Package:    ToPtr(xgoutil.PkgPath(fun.Pkg())),

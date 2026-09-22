@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	gotypes "go/types"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,8 +22,7 @@ func TestServerXGoGetProperties(t *testing.T) {
 		require.NoError(t, err)
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 		require.NoError(t, err)
-		require.Len(t, properties, 1)
-		assert.Equal(t, "\u0393amma", properties[0].Name)
+		assert.Empty(t, properties, "XGo only creates automatic aliases for ASCII method names")
 	})
 
 	t.Run("OverloadWrapper", func(t *testing.T) {
@@ -40,17 +40,20 @@ func (r *Record) Label() string { return "record" }
 		named := requirePropertyTestType(t, info.Pkg, "Record")
 		method := requireValueAs[*gotypes.Func](t, requirePropertyTestMember(t, named, "Value"))
 		require.Len(t, xgoutil.ExpandXGoOverloadableFunc(method), 2)
-		assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyMethod(method))
+		objects := slices.Collect((&definitionContext{proj: s.getProj()}).propertyObjects(named))
+		assert.True(t, slices.ContainsFunc(objects, func(p propertyObject) bool { return p.Object == method }))
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 		require.NoError(t, err)
-		require.Len(t, properties, 1)
+		require.Len(t, properties, 2)
 		assert.Equal(t, "label", properties[0].Name)
+		assert.Equal(t, "value", properties[1].Name)
+		assert.Equal(t, "int", properties[1].Type)
 		ctx := &completionContext{
 			definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 			typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 		}
 		ctx.collectPropertyNames("Record")
-		assert.Equal(t, []string{`"label"`}, completionItemLabels(ctx.itemSet.items))
+		assert.ElementsMatch(t, []string{`"label"`, `"value"`}, completionItemLabels(ctx.itemSet.items))
 	})
 
 	t.Run("DeclarationDocumentation", func(t *testing.T) {
@@ -137,13 +140,17 @@ func GetScore() int { return score }
 					{Name: "getScore", Type: "int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr(tt.target + ".GetScore")}},
 				}
 				if tt.name == "WorkClass" {
+					want = append(want,
+						XGoProperty{Name: "Value", Type: "int", Kind: XGoPropertyKindField, Doc: "Value stores the work item's value.\n", Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.Value")}},
+						XGoProperty{Name: "Worker", Type: "*Worker", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("App.Worker")}},
+					)
 					want = append(want, XGoProperty{
 						Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
 						Doc:        "Label is exposed as a property in XGo source.\n",
 						Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")},
 					})
 				}
-				assert.Equal(t, want, properties)
+				assert.ElementsMatch(t, want, properties)
 			})
 		}
 	})
@@ -179,12 +186,28 @@ func (r *Record) XGo_Internal() int { return 0 }
 		require.NoError(t, err)
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 		require.NoError(t, err)
-		assert.Equal(t, []XGoProperty{
-			{Name: "enabled", Type: "bool", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.enabled")}},
-			{Name: "name", Type: "string", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.name")}},
-			{Name: "score", Type: "float64", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.score")}},
-			{Name: "getScore", Type: "float64", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.GetScore")}},
-		}, properties)
+		require.Len(t, properties, 13)
+		for _, tt := range []struct {
+			name, typ, definition string
+			kind                  XGoPropertyKind
+		}{
+			{"enabled", "bool", "enabled", XGoPropertyKindField},
+			{"name", "string", "name", XGoPropertyKindField},
+			{"score", "float64", "score", XGoPropertyKindField},
+			{"count", "Count", "count", XGoPropertyKindField},
+			{"values", "[]int", "values", XGoPropertyKindField},
+			{"other", "struct{}", "other", XGoPropertyKindField},
+			{"value", "Value", "value", XGoPropertyKindField},
+			{"list", "List", "list", XGoPropertyKindField},
+			{"getScore", "float64", "GetScore", XGoPropertyKindMethod},
+			{"counts", "[]int", "Counts", XGoPropertyKindMethod},
+			{"namedCount", "Count", "NamedCount", XGoPropertyKindMethod},
+			{"currentValue", "Value", "CurrentValue", XGoPropertyKindMethod},
+			{"currentList", "List", "CurrentList", XGoPropertyKindMethod},
+		} {
+			assert.Contains(t, properties, XGoProperty{Name: tt.name, Type: tt.typ, Kind: tt.kind,
+				Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record." + tt.definition)}})
+		}
 	})
 
 	t.Run("EmbeddedMembers", func(t *testing.T) {
@@ -206,10 +229,11 @@ type Record struct {
 func (r *Record) Size() string { return "record" }
 type RecordAlias = Record
 type RecordPointer = *Record
+type AliasPointer = *RecordAlias
 `)})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
-		for _, target := range []string{"Record", "RecordAlias", "RecordPointer"} {
+		for _, target := range []string{"Record", "RecordAlias", "RecordPointer", "AliasPointer"} {
 			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: target})
 			require.NoError(t, err)
 			assert.Equal(t, []XGoProperty{
@@ -229,8 +253,9 @@ type RecordPointer = *Record
 			newServer testServerFactory
 		}{
 			{
-				name:   "UnsupportedField",
+				name:   "SliceField",
 				source: "type Base struct { Keep, Count int }\ntype Record struct { *Base; Count []int }\n",
+				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Count")}},
 			},
 			{
 				name:   "MethodWithParameter",
@@ -245,12 +270,14 @@ type RecordPointer = *Record
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() (int, int) { return 1, 2 }\n",
 			},
 			{
-				name:   "MethodWithUnsupportedResult",
+				name:   "MethodWithSliceResult",
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() []int { return nil }\n",
+				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Size")}},
 			},
 			{
 				name:   "FieldShadowsMethod",
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base; size []int }\n",
+				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.size")}},
 			},
 			{
 				name:   "MethodShadowsField",
@@ -271,6 +298,7 @@ type RecordPointer = *Record
 			{
 				name:   "IntermediateMember",
 				source: "type Base struct { Keep, Count int }\ntype Middle struct { *Base; Count []int }\ntype Record struct { *Middle }\n",
+				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Middle.Count")}},
 			},
 			{
 				name:   "DifferentCase",
@@ -307,9 +335,18 @@ type RecordPointer = *Record
 				if tt.want != nil {
 					want = append(want, *tt.want)
 				}
+				if tt.name == "DifferentCase" {
+					want = append(want, XGoProperty{Name: "Size", Type: "[]int", Kind: XGoPropertyKindField,
+						Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Size")}})
+				}
+				if tt.name == "ImportedPrivateField" || tt.name == "ImportedPrivateMethod" {
+					want = append(want, XGoProperty{Name: "Value", Type: "int", Kind: XGoPropertyKindField,
+						Doc:        "Value stores the work item's value.\n",
+						Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.Value")}})
+				}
 				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 				require.NoError(t, err)
-				assert.Equal(t, want, properties)
+				assert.ElementsMatch(t, want, properties)
 
 				ctx := &completionContext{
 					definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc},
@@ -341,16 +378,19 @@ type Record struct { framework.Item }
 			}
 			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 			require.NoError(t, err)
-			assert.Equal(t, []XGoProperty{{
+			require.Len(t, properties, 2)
+			assert.Equal(t, XGoProperty{
 				Name: "label", Type: "string", Kind: XGoPropertyKindMethod, Doc: wantDoc,
 				Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")},
-			}}, properties)
+			}, properties[1])
 		}
 	})
 
 	t.Run("InvalidTargets", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Count int
 type Alias = int
+type Record struct{}
+type Pointer = **Record
 var count int
 `)})
 		for _, tt := range []struct {
@@ -360,6 +400,7 @@ var count int
 			{target: "Missing", want: `target "Missing" not found`},
 			{target: "Count", want: `target "Count" is not a struct type`},
 			{target: "Alias", want: `target "Alias" is not a named type`},
+			{target: "Pointer", want: `target "Pointer" is not a named type`},
 			{target: "count", want: `target "count" is not a type`},
 		} {
 			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: tt.target})
@@ -403,7 +444,7 @@ var count int
 	})
 }
 
-func TestIsPropertyOfEnclosingType(t *testing.T) {
+func TestDefinitionContextPropertyObjects(t *testing.T) {
 	s := newFrameworkTestServer(t, map[string][]byte{
 		"main_fixture.gox": nil,
 		"Worker_fixture.gox": []byte(`var (
@@ -422,29 +463,29 @@ func XGo_Internal() int { return 0 }
 	typeInfo, err := s.workspaceRootFS.TypeInfo()
 	require.NoError(t, err)
 	named := requirePropertyTestType(t, typeInfo.Pkg, "Worker")
+	objects := slices.Collect((&definitionContext{proj: s.getProj()}).propertyObjects(named))
 	for _, tt := range []struct {
 		name string
 		want bool
 	}{
 		{name: "x", want: true},
 		{name: "y", want: true},
-		{name: "values"},
+		{name: "values", want: true},
 		{name: "Speed", want: true},
 		{name: "Move"},
 		{name: "hidden"},
 		{name: "XGo_Internal"},
-		{name: "Value"},
+		{name: "Value", want: true},
 		{name: "Label", want: true},
 	} {
 		obj := requirePropertyTestMember(t, named, tt.name)
-		assert.Equal(t, tt.want, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(obj), tt.name)
+		assert.Equal(t, tt.want, slices.ContainsFunc(objects, func(p propertyObject) bool { return p.Object == obj }), tt.name)
 	}
 	for _, name := range []string{"value", "Limit", "Worker"} {
 		obj := typeInfo.Pkg.Scope().Lookup(name)
 		require.NotNil(t, obj)
-		assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(obj), name)
+		assert.False(t, slices.ContainsFunc(objects, func(p propertyObject) bool { return p.Object == obj }), name)
 	}
-	assert.False(t, (&definitionContext{proj: s.getProj()}).isPropertyOfEnclosingType(nil))
 }
 
 func TestMemberTypeName(t *testing.T) {

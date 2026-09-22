@@ -2,6 +2,8 @@ package server
 
 import (
 	gotypes "go/types"
+	"iter"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,8 +29,16 @@ func (a testFrameworkAdapter) functionDocumentation(fun *gotypes.Func, _ *pkgdoc
 	return "Framework method documentation.", fun.Pkg() == a.pkg
 }
 
-func (a testFrameworkAdapter) isPropertyType(named *gotypes.Named) bool {
-	return named.Obj().Pkg() == a.pkg && named.Obj().Name() == "Item"
+func (a testFrameworkAdapter) properties(named *gotypes.Named) iter.Seq[propertyObject] {
+	if named.Obj().Pkg() != a.pkg {
+		return nil
+	}
+	return func(yield func(propertyObject) bool) {
+		field, _, _ := gotypes.LookupFieldOrMethod(named, false, a.pkg, "Value")
+		if field != nil {
+			yield(propertyObject{Name: "frameworkValue", Object: field, Type: field.Type()})
+		}
+	}
 }
 
 func (a testFrameworkAdapter) isEventHandler(fun *gotypes.Func) bool {
@@ -51,7 +61,7 @@ func newFrameworkDefinitionTestContext(t *testing.T, s *Server) *definitionConte
 }
 
 func TestDefinitionContextFrameworkAdaptation(t *testing.T) {
-	s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("println 1\n")})
+	s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": nil})
 	ctx := newFrameworkDefinitionTestContext(t, s)
 	pkg, err := ctx.proj.Importer.Import(testframework.PkgPath)
 	require.NoError(t, err)
@@ -63,21 +73,23 @@ func TestDefinitionContextFrameworkAdaptation(t *testing.T) {
 	assert.Equal(t, ToPtr("Actor.label"), defs[0].ID.Name)
 	assert.Equal(t, "Framework method documentation.", defs[0].Detail)
 	assert.Equal(t, "Framework method documentation.", ctx.functionDocumentation(fun))
-	assert.True(t, ctx.isFrameworkPropertyType(named))
-	assert.True(t, ctx.isPropertyMethod(gotypes.NewFunc(0, pkg, "Current", gotypes.NewSignatureType(nil, nil, nil, nil, gotypes.NewTuple(gotypes.NewVar(0, pkg, "", named)), false))))
+	properties := slices.Collect(ctx.propertyObjects(named))
+	require.Len(t, properties, 1)
+	assert.Equal(t, "frameworkValue", properties[0].Name)
+	assert.Equal(t, "Value", properties[0].Object.Name())
 
 	other := newFrameworkTestServer(t, nil)
 	otherPkg, err := other.getProj().Importer.Import(testframework.PkgPath)
 	require.NoError(t, err)
 	otherType := requireValueAs[*gotypes.Named](t, otherPkg.Scope().Lookup("Item").Type())
-	assert.False(t, ctx.isFrameworkPropertyType(otherType))
 	assert.Equal(t, "Item", ctx.frameworkDisplayTypeName(otherType.Obj(), "Item"))
+	assert.Nil(t, ctx.framework.properties(otherType))
 
 	ordinary := &definitionContext{proj: s.getProj(), enumInfo: &enumInfo{}, lookupPkgDoc: s.lookupPkgDoc}
 	assert.Nil(t, ordinary.frameworkAdapter())
 	assert.Equal(t, "Item", ordinary.frameworkDisplayTypeName(named.Obj(), "Item"))
-	assert.False(t, ordinary.isFrameworkPropertyType(named))
 	assert.False(t, ordinary.isFrameworkEventHandler(fun))
+	assert.Len(t, slices.Collect(ordinary.propertyObjects(named)), 2)
 	doc, ok := ordinary.frameworkFunctionDocumentation(fun, nil)
 	assert.Empty(t, doc)
 	assert.False(t, ok)
@@ -146,6 +158,70 @@ func TestCompletionContextFrameworkEventHandlers(t *testing.T) {
 			} else {
 				assert.Contains(t, labels, "onStart")
 				assert.Contains(t, labels, "onEvent")
+			}
+		})
+	}
+}
+
+func TestCompletionContextFrameworkEventHandlerPropertyArguments(t *testing.T) {
+	for _, tt := range []struct {
+		name, declaration, value, callee, callback string
+		ordinary, noAdapter                        bool
+	}{
+		{name: "Property", value: "label"},
+		{name: "ParenthesizedProperty", value: "(label)"},
+		{name: "MemberProperty", value: "this.label"},
+		{name: "FunctionLiteral", value: "label", callback: "func() {\n |println 1\n}"},
+		{name: "ExplicitCall", value: "Label()"},
+		{name: "Literal", value: `"label"`},
+		{name: "OrdinaryCallback", value: "label", callee: "choose", ordinary: true},
+		{name: "ShadowedHandler", value: "label", declaration: "onChoose := func(value string, handler func(), last int) {}\n", ordinary: true},
+		{name: "WithoutAdapter", value: "label", noAdapter: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, state := range []struct{ name, last string }{{"Complete", "1"}, {"Incomplete", "missing"}} {
+				t.Run(state.name, func(t *testing.T) {
+					callee := tt.callee
+					if callee == "" {
+						callee = "onChoose"
+					}
+					callback := tt.callback
+					if callback == "" {
+						callback = "=> {\n |println 1\n}"
+					}
+					source, pos := typeDisplayTestSource(t, "func Label() string { return \"\" }\n"+tt.declaration+callee+" "+tt.value+", "+callback+", "+state.last+"\n")
+					s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
+					setImportTestFrameworkMethods(t, s, `func (a *App) OnStart(handler func()) {}
+func (a *App) OnChoose__0(value string, handler func(), last int) {}
+func (a *App) OnChoose__1(value int, handler func(), last int) {}
+func (a *App) Choose__0(value string, handler func(), last int) {}
+func (a *App) Choose__1(value int, handler func(), last int) {}
+`)
+					proj := s.getProj()
+					_, err := proj.TypeInfo()
+					if state.name == "Complete" {
+						require.NoError(t, err)
+					} else {
+						require.ErrorContains(t, err, "undefined: missing")
+					}
+					ctx := newCompletionTestContext(t, s, "main_fixture.gox", pos)
+					ctx.frameworkResolved = true
+					if !tt.noAdapter {
+						ctx.framework = newFrameworkDefinitionTestContext(t, s).framework
+					}
+					wantEvent := !tt.ordinary && !tt.noAdapter
+					assert.Equal(t, wantEvent, ctx.isInFrameworkEventHandler(ctx.pos))
+					ctx.analyze()
+					assert.Equal(t, wantEvent, ctx.inFrameworkEventHandler)
+					require.NoError(t, ctx.collect())
+					labels := completionItemLabels(ctx.sortedItems())
+					assert.Contains(t, labels, "println")
+					if wantEvent {
+						assert.NotContains(t, labels, "onStart")
+					} else {
+						assert.Contains(t, labels, "onStart")
+					}
+				})
 			}
 		})
 	}

@@ -366,7 +366,7 @@ func (i *enumInfo) membersForIdent(proj *xgo.Project, typeInfo *types.Info, iden
 	if len(members) == 0 {
 		return nil
 	}
-	context := enumContextAtIdent(proj, typeInfo, ident)
+	context := enumContextAtIdent(proj, ident)
 	if selected := i.membersForExpectedTypes(members, context.expectedTypes); len(selected) > 0 {
 		return selected
 	}
@@ -378,7 +378,11 @@ func (i *enumInfo) membersForIdent(proj *xgo.Project, typeInfo *types.Info, iden
 
 // enumContextAtIdent returns the enum context provided by ident's surrounding
 // expression.
-func enumContextAtIdent(proj *xgo.Project, typeInfo *types.Info, ident *ast.Ident) enumIdentContext {
+func enumContextAtIdent(proj *xgo.Project, ident *ast.Ident) enumIdentContext {
+	typeInfo, _ := expressionTypeInfo(proj)
+	if typeInfo == nil {
+		return enumIdentContext{}
+	}
 	astPkg, _ := proj.ASTPackage()
 	astFile := xgoutil.NodeASTFile(proj.Fset, astPkg, ident)
 	if astFile == nil {

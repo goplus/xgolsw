@@ -39,6 +39,20 @@ type Info struct {
 	// FuncDecorators distinguishes decorator calls from ordinary calls, which
 	// have different argument expansion rules.
 	FuncDecorators map[*ast.CallExpr]bool
+
+	// ImplicitCallTypes supplies result types for source expressions that call
+	// a function through an alias. Types retains the compiler's original
+	// records, including the callable's operand mode.
+	ImplicitCallTypes map[ast.Expr]gotypes.Type
+}
+
+// TypeOf returns the source expression's type, including an implicit call's
+// result when available. ObjectOf still returns the callable declaration.
+func (i *Info) TypeOf(expr ast.Expr) gotypes.Type {
+	if typ := i.ImplicitCallTypes[expr]; typ != nil {
+		return typ
+	}
+	return i.Info.TypeOf(expr)
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced,

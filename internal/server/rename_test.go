@@ -634,12 +634,23 @@ func TestServerTextDocumentRename(t *testing.T) {
 				if tt.wantNotification == nil {
 					assert.Empty(t, msgs)
 				} else {
-					require.Len(t, msgs, 1)
+					wantCount := 1
+					if tt.name == "ProjectField" {
+						wantCount = 2
+					}
+					require.Len(t, msgs, wantCount)
 					notif := requireValueAs[*jsonrpc2.Notification](t, msgs[0])
 					assert.Equal(t, "textDocument/xgo.propertyRenamed", notif.Method())
 					var params PropertyRenamedParams
 					require.NoError(t, json.Unmarshal(notif.Params(), &params))
 					assert.Equal(t, *tt.wantNotification, params)
+					if tt.name == "ProjectField" {
+						notification := requireValueAs[*jsonrpc2.Notification](t, msgs[1])
+						require.NoError(t, json.Unmarshal(notification.Params(), &params))
+						want := *tt.wantNotification
+						want.Target = "Worker"
+						assert.Equal(t, want, params)
+					}
 				}
 				_, err = s.workspaceRootFS.TypeInfo()
 				assert.NoError(t, err)
@@ -693,12 +704,21 @@ func TestServerTextDocumentRename(t *testing.T) {
 				require.NoError(t, err)
 				assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{uri: changes})
 				messages := replier.getMessages()
-				require.Len(t, messages, 1)
-				notification := requireValueAs[*jsonrpc2.Notification](t, messages[0])
-				assert.Equal(t, "textDocument/xgo.propertyRenamed", notification.Method())
-				var params PropertyRenamedParams
-				require.NoError(t, json.Unmarshal(notification.Params(), &params))
-				assert.Equal(t, PropertyRenamedParams{Target: tt.owner, OldName: "Count", NewName: "Total", TextDocument: TextDocumentIdentifier{URI: uri}}, params)
+				if tt.name == "LocalType" {
+					assert.Empty(t, messages, "local types are not getProperties targets")
+					return
+				}
+				require.Len(t, messages, 2)
+				var targets []string
+				for _, message := range messages {
+					notification := requireValueAs[*jsonrpc2.Notification](t, message)
+					assert.Equal(t, "textDocument/xgo.propertyRenamed", notification.Method())
+					var params PropertyRenamedParams
+					require.NoError(t, json.Unmarshal(notification.Params(), &params))
+					targets = append(targets, params.Target)
+					assert.Equal(t, PropertyRenamedParams{Target: params.Target, OldName: "Count", NewName: "Total", TextDocument: TextDocumentIdentifier{URI: uri}}, params)
+				}
+				assert.ElementsMatch(t, []string{tt.owner, "Adapter"}, targets)
 			})
 		}
 	})

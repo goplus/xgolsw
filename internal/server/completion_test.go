@@ -1,15 +1,10 @@
 package server
 
 import (
-	gotypes "go/types"
 	"slices"
 	"testing"
 
-	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgo/x/typesutil"
 	"github.com/goplus/xgolsw/protocol"
-	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -364,122 +359,6 @@ onStar => {
 	})
 }
 
-func TestCompletionContextResolvePropertyLikeExprType(t *testing.T) {
-	t.Run("NilIdentifierReturnsNil", func(t *testing.T) {
-		ctx := newPropertyLikeTestCompletionContext(gotypes.NewPackage("main", "main"), nil, nil)
-
-		assert.Nil(t, ctx.resolvePropertyLikeExprType(nil, nil))
-		assert.Nil(t, ctx.resolvePropertyLikeExprType(&ast.Ident{}, nil))
-	})
-
-	t.Run("SignatureMatch", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(1), pkg, "Now", gotypes.Typ[gotypes.String])
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), map[*ast.Ident]gotypes.Object{
-			ident: fun,
-		})
-
-		got := ctx.resolvePropertyLikeExprType(ident, fun.Type())
-		assert.Same(t, gotypes.Typ[gotypes.String], got)
-	})
-
-	t.Run("ValidNonPropertyLikeSignatureReturnsNil", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(1), pkg, "now", gotypes.Typ[gotypes.String])
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), map[*ast.Ident]gotypes.Object{
-			ident: fun,
-		})
-
-		got := ctx.resolvePropertyLikeExprType(ident, fun.Type())
-		assert.Nil(t, got)
-	})
-
-	t.Run("ValidTypeWithoutResolvedObjectReturnsNil", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(1), pkg, "Now", gotypes.Typ[gotypes.String])
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), nil)
-
-		got := ctx.resolvePropertyLikeExprType(ident, fun.Type())
-		assert.Nil(t, got)
-	})
-
-	t.Run("InvalidTypeFallsBackToScopeWalk", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(20), pkg, "Now", gotypes.Typ[gotypes.String])
-		pkg.Scope().Insert(fun)
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), nil)
-
-		got := ctx.resolvePropertyLikeExprType(ident, nil)
-		assert.Same(t, gotypes.Typ[gotypes.String], got)
-	})
-}
-
-func TestCompletionContextResolvePropertyLikeFuncResultType(t *testing.T) {
-	t.Run("NilIdentifierReturnsNil", func(t *testing.T) {
-		ctx := newPropertyLikeTestCompletionContext(gotypes.NewPackage("main", "main"), nil, nil)
-
-		assert.Nil(t, ctx.resolvePropertyLikeFuncResultType(nil))
-		assert.Nil(t, ctx.resolvePropertyLikeFuncResultType(&ast.Ident{}))
-	})
-
-	t.Run("PackageScopeIgnoresDeclarationOrder", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(20), pkg, "Now", gotypes.Typ[gotypes.String])
-		pkg.Scope().Insert(fun)
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), nil)
-
-		got := ctx.resolvePropertyLikeFuncResultType(ident)
-		assert.Same(t, gotypes.Typ[gotypes.String], got)
-	})
-
-	t.Run("LocalScopeSkipsLaterFunction", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		localScope := gotypes.NewScope(pkg.Scope(), token.NoPos, token.NoPos, "local")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(20), pkg, "Now", gotypes.Typ[gotypes.String])
-		localScope.Insert(fun)
-		ctx := newPropertyLikeTestCompletionContext(pkg, localScope, nil)
-
-		got := ctx.resolvePropertyLikeFuncResultType(ident)
-		assert.Nil(t, got)
-	})
-
-	t.Run("SkipsFunctionWithParams", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		sig := gotypes.NewSignatureType(
-			nil,
-			nil,
-			nil,
-			gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "v", gotypes.Typ[gotypes.String])),
-			gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", gotypes.Typ[gotypes.String])),
-			false,
-		)
-		fun := gotypes.NewFunc(token.Pos(1), pkg, "Now", sig)
-		pkg.Scope().Insert(fun)
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), nil)
-
-		got := ctx.resolvePropertyLikeFuncResultType(ident)
-		assert.Nil(t, got)
-	})
-
-	t.Run("SkipsLowerCamelFunctionName", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
-		ident := &ast.Ident{Name: "now", NamePos: 10}
-		fun := newPropertyLikeTestFunc(token.Pos(1), pkg, "now", gotypes.Typ[gotypes.String])
-		pkg.Scope().Insert(fun)
-		ctx := newPropertyLikeTestCompletionContext(pkg, pkg.Scope(), nil)
-
-		got := ctx.resolvePropertyLikeFuncResultType(ident)
-		assert.Nil(t, got)
-	})
-}
-
 func TestAdaptCompletionItemsForClient(t *testing.T) {
 	for _, tt := range []struct {
 		name         string
@@ -599,38 +478,6 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 	}
 }
 
-func newPropertyLikeTestCompletionContext(pkg *gotypes.Package, innermostScope *gotypes.Scope, uses map[*ast.Ident]gotypes.Object) *completionContext {
-	if uses == nil {
-		uses = make(map[*ast.Ident]gotypes.Object)
-	}
-	return &completionContext{
-		typeInfo: &types.Info{
-			Info: typesutil.Info{
-				Types:      make(map[ast.Expr]gotypes.TypeAndValue),
-				Defs:       make(map[*ast.Ident]gotypes.Object),
-				Uses:       uses,
-				Selections: make(map[*ast.SelectorExpr]*gotypes.Selection),
-				Implicits:  make(map[ast.Node]gotypes.Object),
-				Scopes:     make(map[ast.Node]*gotypes.Scope),
-			},
-			Pkg: pkg,
-		},
-		innermostScope: innermostScope,
-	}
-}
-
-func newPropertyLikeTestFunc(pos token.Pos, pkg *gotypes.Package, name string, result gotypes.Type) *gotypes.Func {
-	sig := gotypes.NewSignatureType(
-		nil,
-		nil,
-		nil,
-		nil,
-		gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", result)),
-		false,
-	)
-	return gotypes.NewFunc(pos, pkg, name, sig)
-}
-
 func containsCompletionItemLabel(items []CompletionItem, label string) bool {
 	return slices.ContainsFunc(items, func(item CompletionItem) bool {
 		return item.Label == label
@@ -681,7 +528,7 @@ func newCompletionTestContext(t *testing.T, s *Server, filename string, position
 	require.NotNil(t, astPkg)
 	file := astPkg.Files[filename]
 	require.NotNil(t, file)
-	info, _ := proj.TypeInfo()
+	info, _ := expressionTypeInfo(proj)
 	require.NotNil(t, info)
 	pos := PosAt(proj, file, position)
 	require.True(t, pos.IsValid())

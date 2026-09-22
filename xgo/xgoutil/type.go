@@ -16,7 +16,13 @@
 
 package xgoutil
 
-import gotypes "go/types"
+import (
+	gotypes "go/types"
+
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo/types"
+)
 
 // DerefType returns the underlying type of t. For pointer types, it returns
 // the element type that the pointer points to. For non-pointer types, it
@@ -31,6 +37,35 @@ func DerefType(t gotypes.Type) gotypes.Type {
 // IsValidType reports whether typ is non-nil and not the invalid type sentinel.
 func IsValidType(typ gotypes.Type) bool {
 	return typ != nil && typ != gotypes.Typ[gotypes.Invalid]
+}
+
+// IsTypeExpr reports whether expr denotes a type. The second result is false
+// when the recorded type information does not determine this.
+func IsTypeExpr(typeInfo *types.Info, expr ast.Expr) (isType, known bool) {
+	expr = astutil.Unparen(expr)
+	var ident *ast.Ident
+	switch expr := expr.(type) {
+	// The recorder can mark pointer and generic type expressions as values.
+	// Their operands still identify whether the expression denotes a type.
+	case *ast.StarExpr:
+		return IsTypeExpr(typeInfo, expr.X)
+	case *ast.IndexExpr:
+		return IsTypeExpr(typeInfo, expr.X)
+	case *ast.IndexListExpr:
+		return IsTypeExpr(typeInfo, expr.X)
+	case *ast.Ident:
+		ident = expr
+	case *ast.SelectorExpr:
+		ident = expr.Sel
+	}
+	obj := typeInfo.ObjectOf(ident)
+	if _, ok := obj.(*gotypes.TypeName); ok {
+		return true, true
+	}
+	if tv, ok := typeInfo.Types[expr]; ok {
+		return tv.IsType(), true
+	}
+	return false, obj != nil
 }
 
 // IsTypesCompatible reports whether two types are compatible.

@@ -543,7 +543,7 @@ func TestServerRequestConcurrentDeletion(t *testing.T) {
 				}
 				return fallback.Import(path)
 			})
-			proj.PutFile("main.xgo", file("import _ \"example.com/paused\"\nvar value = 1\nvalue = 2\ntype Record struct { Value int }\nprintln Record{}.Value\n"))
+			proj.PutFile("main.xgo", file("import _ \"example.com/paused\"\ntype Record struct { Value int }\nvar value = 1\nvalue = 2\nprintln Record{}.Value\n"))
 			var wg sync.WaitGroup
 			var recovered any
 			var stack []byte
@@ -556,7 +556,7 @@ func TestServerRequestConcurrentDeletion(t *testing.T) {
 						stack = debug.Stack()
 					}
 				}()
-				result, readErr = tt.read(s, TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 2, Character: 2}})
+				result, readErr = tt.read(s, TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 3, Character: 2}})
 			})
 			<-entered
 			delete(files, "main.xgo")

@@ -234,7 +234,7 @@ func (s *Server) workspaceDiagnostic(params *WorkspaceDiagnosticParams) (*Worksp
 // inspectDiagnosticsAnalyzers runs registered analyzers on project source files.
 func (s *Server) inspectDiagnosticsAnalyzers(proj *xgo.Project, result *diagnosticResult, configurePass func(string, *protocol.Pass)) {
 	fset := proj.Fset
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return
 	}

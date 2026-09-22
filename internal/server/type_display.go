@@ -73,26 +73,18 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 	// A class member can shadow a type in expression context, including the
 	// function position of a conversion. Type annotations have no such conflict.
 	class := classTypeForFile(proj, file)
+	var resolver autoPropertyResolver
+	if class != nil {
+		resolver = autoPropertyResolver{proj: proj, receiver: gotypes.NewPointer(class)}
+	}
 	sourceLookup := func(name string) gotypes.Object {
 		at, obj := scope.LookupParent(name, pos)
 		if obj != nil && at != info.Pkg.Scope() && at != gotypes.Universe && at != info.Scopes[file] {
 			return obj
 		}
 		if class != nil {
-			if member, _, _ := gotypes.LookupFieldOrMethod(class, true, info.Pkg, name); member != nil {
+			if member := resolver.resolve(name).object; member != nil {
 				return member
-			}
-			var alias string
-			if name[0] >= 'a' && name[0] <= 'z' {
-				alias = string(name[0]-'a'+'A') + name[1:]
-			} else if name[0] == '_' {
-				alias = "XGo" + name
-			}
-			if alias != "" {
-				member, _, _ := gotypes.LookupFieldOrMethod(class, true, info.Pkg, alias)
-				if fun, ok := member.(*gotypes.Func); ok && methodHasAutoProperty(fun.Type(), 0) {
-					return fun
-				}
 			}
 		}
 		return lookup(name)

@@ -22,7 +22,7 @@ func (r *resourceAnalysis) createResourceInputSlot(ctx *inputSlotContext, lit *a
 				Type:  inputType,
 				Value: ref.ID.URI(),
 			},
-			PredefinedNames: collectPredefinedNames(ctx, lit, declaredType),
+			PredefinedNames: collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, declaredType),
 			Range:           ctx.rangeForPosEnd(lit.Pos(), basicLitEnd(ctx.proj.Fset, ctx.astFile, lit)),
 		}
 	}

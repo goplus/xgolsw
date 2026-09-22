@@ -27,13 +27,17 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 	if !ok {
 		return
 	}
-	namedType := resolvedNamedType(typeName.Type())
-	if namedType == nil {
+	typ := gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typeName.Type())))
+	namedType, ok := typ.(*gotypes.Named)
+	if !ok {
+		return
+	}
+	if _, ok := namedType.Underlying().(*gotypes.Struct); !ok {
 		return
 	}
 
 	for m := range ctx.propertyMembers(namedType) {
-		key := m.Definition.ID.String()
+		key := "property:" + m.Name
 		if _, seen := ctx.itemSet.seenDefinitions[key]; seen {
 			continue
 		}

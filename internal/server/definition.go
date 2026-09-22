@@ -4,6 +4,7 @@ import (
 	"fmt"
 	gotypes "go/types"
 
+	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -62,17 +63,32 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		return nil, nil
 	}
 	position := ToPosition(proj, astFile, params.Position)
-	typeInfo, _ := proj.TypeInfo()
+	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
 		return nil, nil
 	}
-	_, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
-	if !xgoutil.IsInMainPkg(obj) {
+	ident, obj, kwarg := objectAtPosition(proj, typeInfo, astFile, position)
+	if obj == nil {
 		return nil, nil
+	}
+	typ := obj.Type()
+	if kwarg == nil && ident != nil {
+		// The value of an auto-property can differ from the method's
+		// signature, including after overload and generic inference.
+		expr := ast.Expr(ident)
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
+			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel == ident {
+				expr = selector
+				break
+			}
+		}
+		if valueType := typeInfo.TypeOf(expr); xgoutil.IsValidType(valueType) {
+			typ = valueType
+		}
 	}
 
 	var typeName *gotypes.TypeName
-	switch objType := xgoutil.DerefType(obj.Type()).(type) {
+	switch objType := xgoutil.DerefType(typ).(type) {
 	case *gotypes.Named:
 		typeName = objType.Obj()
 	case *gotypes.Alias:
