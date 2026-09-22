@@ -357,7 +357,7 @@ type AliasPointer = *RecordAlias
 				for _, property := range want {
 					item := completionItemByLabel(ctx.itemSet.items, "\""+property.Name+"\"")
 					require.NotNil(t, item)
-					data := requireValueAs[*CompletionItemData](t, item.Data)
+					data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 					assert.Equal(t, property.Definition, *data.Definition)
 				}
 			})

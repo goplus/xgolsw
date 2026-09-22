@@ -60,9 +60,7 @@ func serverCapabilities(params *InitializeParams) ServerCapabilities {
 		ExecuteCommandProvider: &protocol.ExecuteCommandOptions{
 			Commands: []string{
 				CommandXGoRenameResources,
-				CommandSpxRenameResources,
 				CommandXGoGetInputSlots,
-				CommandSpxGetInputSlots,
 				CommandXGoGetProperties,
 			},
 		},

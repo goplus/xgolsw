@@ -128,9 +128,7 @@ func TestServerInitialize(t *testing.T) {
 		executeCommandProvider := requireValueAs[map[string]any](t, capabilities["executeCommandProvider"])
 		assert.ElementsMatch(t, []any{
 			CommandXGoRenameResources,
-			CommandSpxRenameResources,
 			CommandXGoGetInputSlots,
-			CommandSpxGetInputSlots,
 			CommandXGoGetProperties,
 		}, executeCommandProvider["commands"])
 

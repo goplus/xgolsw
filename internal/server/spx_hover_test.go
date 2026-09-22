@@ -33,7 +33,7 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 				var ids []string
 				for _, item := range completionItemsAt(t, s, tt.filename, position) {
 					if item.Label == tt.label {
-						data := requireValueAs[*CompletionItemData](t, item.Data)
+						data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 						ids = append(ids, data.Definition.String())
 					}
 				}
@@ -74,7 +74,7 @@ onTouchStart "MySprite", => {}
 			filename        string
 			line, character uint32
 			start, end      uint32
-			uri             SpxResourceURI
+			uri             XGoResourceURI
 		}{
 			{"main.spx", 1, 5, 5, 14, "spx://resources/sounds/MySound"},
 			{"main.spx", 2, 0, 0, 8, "spx://resources/sprites/MySprite"},

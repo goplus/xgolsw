@@ -26,7 +26,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 		assert.Contains(t, documentLinkTargets(t, links), string(resourceURI))
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
 		require.NoError(t, err)
-		assert.NotNil(t, findInputSlot(slots, resourceURI, "", XGoInputTypeSpxResourceName, XGoInputKindInPlace))
+		assert.NotNil(t, findInputSlot(slots, resourceURI, "", XGoInputTypeResourceName, XGoInputKindInPlace))
 		edit, err := s.renameResources([]XGoRenameResourceParams{{
 			Resource: XGoResourceIdentifier{URI: resourceURI}, NewName: "rest",
 		}})
@@ -49,7 +49,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 		assert.Contains(t, documentLinkTargets(t, links), "spx://resources/sounds/$")
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
 		require.NoError(t, err)
-		assert.NotNil(t, findInputSlot(slots, XGoResourceURI("spx://resources/sounds/$"), "", XGoInputTypeSpxResourceName, XGoInputKindInPlace))
+		assert.NotNil(t, findInputSlot(slots, XGoResourceURI("spx://resources/sounds/$"), "", XGoInputTypeResourceName, XGoInputKindInPlace))
 		assert.Nil(t, findInputSlot(slots, "${choice}", "", XGoInputTypeString, XGoInputKindInPlace))
 		edits, err := s.renameResources([]XGoRenameResourceParams{{Resource: XGoResourceIdentifier{
 			URI: (SpxSoundResourceID{SoundName: "${choice}"}).URI(),
@@ -101,7 +101,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 			assert.NotContains(t, documentLinkTargets(t, links), "spx://resources/sounds/Missing")
 			slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: id}})
 			require.NoError(t, err)
-			slot := findInputSlot(slots, SpxResourceURI("spx://resources/sounds/Known"), "", SpxInputTypeResourceName, XGoInputKindInPlace)
+			slot := findInputSlot(slots, XGoResourceURI("spx://resources/sounds/Known"), "", XGoInputTypeResourceName, XGoInputKindInPlace)
 			require.NotNil(t, slot)
 			assert.Equal(t, span, slot.Range)
 			assert.Equal(t, ToPtr(SpxSoundResourceContextURI), slot.Accept.ResourceContext)

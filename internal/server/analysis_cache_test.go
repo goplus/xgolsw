@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	gotypes "go/types"
 	"io/fs"
 	"maps"
 	"slices"
@@ -11,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,26 +31,24 @@ func newAnalysisTestServer(t testing.TB) (*Server, *atomic.Int32) {
 		}
 		id := testResourceID{"files", string(metadata.Content)}
 		resources := newTestResourceAnalysis(id)
-		for ref := range resourceReferences(proj, func(value resourceValue) (resourceID, bool) {
-			return testResourceID{"files", value.Name}, true
-		}) {
-			resources.addResourceRef(ref)
-			if !resources.contains(ref.ID) {
-				addResourceDiagnostic(proj, resources, ref.Node, "resource not found")
-			}
-		}
+		collectResourceReferences(proj, []*resourceProvider{{
+			analysis: resources,
+			resolve: func(_ *xgo.Project, value resourceValue) (resourceID, bool) {
+				return testResourceID{"files", value.Name}, true
+			},
+			inspect: func(proj *xgo.Project, ref resourceRef) {
+				resources.addResourceRef(ref)
+				if !resources.contains(ref.ID) {
+					addResourceDiagnostic(proj, resources, ref.Node, "resource not found")
+				}
+			},
+		}})
 		return &frameworkAnalysis{
 			resources: resources,
 			collectCompletions: func(ctx *completionContext) {
 				if ctx.inStringLit {
 					ctx.collectResourceNames([]resourceID{id})
 				}
-			},
-			adaptInputSlot: func(ctx *inputSlotContext, expr ast.Expr, typ gotypes.Type, slot *XGoInputSlot) *XGoInputSlot {
-				if lit, ok := expr.(*ast.BasicLit); ok {
-					return resources.createResourceInputSlot(ctx, lit, typ, "test-resource-name")
-				}
-				return slot
 			},
 			renameResources: func(server *Server, project *xgo.Project, params []XGoRenameResourceParams) (*WorkspaceEdit, error) {
 				renames := make(map[resourceID]string)
@@ -365,7 +361,7 @@ func TestAnalyzeFrameworkCache(t *testing.T) {
 		var builds int
 		s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
 			builds++
-			return buildFrameworkAnalysisCache(proj)
+			return buildFrameworkAnalysis(proj, nil)
 		})
 		for range 2 {
 			result, err := analyzeFramework(s.getProj())

@@ -39,7 +39,7 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 				items := completionItemsAt(t, s, tt.filename, tt.position)
 				item := completionItemByLabel(items, "apply")
 				require.NotNil(t, item)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				require.NotNil(t, data.Definition)
 				assert.Equal(t, "xgo:example.com/framework?Item.apply", data.Definition.String())
 			})
@@ -502,7 +502,7 @@ func containsKwargCompletionItem(items []CompletionItem, label string, id XGoDef
 			*item.InsertTextFormat != SnippetTextFormat {
 			return false
 		}
-		itemData, ok := item.Data.(*CompletionItemData)
+		itemData, ok := item.Data.(*XGoCompletionItemData)
 		if !ok {
 			return false
 		}
@@ -512,7 +512,7 @@ func containsKwargCompletionItem(items []CompletionItem, label string, id XGoDef
 
 func containsCompletionDefinitionID(items []CompletionItem, id XGoDefinitionIdentifier) bool {
 	return slices.ContainsFunc(items, func(item CompletionItem) bool {
-		itemData, ok := item.Data.(*CompletionItemData)
+		itemData, ok := item.Data.(*XGoCompletionItemData)
 		if !ok {
 			return false
 		}

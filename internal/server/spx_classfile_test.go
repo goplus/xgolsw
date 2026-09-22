@@ -75,7 +75,7 @@ func TestServerSpxClassfileResources(t *testing.T) {
 		items := completionItemsAt(t, s, "Stage.stage", position)
 		item := completionItemByLabel(items, "Runner")
 		require.NotNil(t, item)
-		data := requireValueAs[*CompletionItemData](t, item.Data)
+		data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 		assert.Equal(t, "xgo:main?Stage.Runner", data.Definition.String())
 	})
 }

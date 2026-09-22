@@ -15,6 +15,7 @@ import (
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal/analysis"
+	"github.com/goplus/xgolsw/internal/config"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
@@ -74,9 +75,12 @@ func New(
 	scheduler Scheduler,
 	listPkgs func() ([]string, error),
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
+	resources *config.ResourceConfig,
 ) *Server {
 	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
-	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
+	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
+		return buildFrameworkAnalysis(proj, resources)
+	})
 	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
 	proj.RegisterCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
 	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)

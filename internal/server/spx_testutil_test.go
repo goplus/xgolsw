@@ -13,6 +13,7 @@ import (
 	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,4 +171,13 @@ func analyzeSpxTestFile(t testing.TB, s *Server, filename string) (*spxAnalysis,
 	file, _ := s.getProj().ASTFile(filename)
 	require.NotNil(t, file)
 	return result, file
+}
+
+func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
+	result, err := loadSpxAnalysis(proj)
+	if err != nil || result == nil {
+		return result, err
+	}
+	collectResourceReferences(proj, []*resourceProvider{result.resourceProvider()})
+	return result, nil
 }

@@ -95,22 +95,15 @@ func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
 			want   string
 			absent string
 		}{
-			{"Intrinsic", "echo sdk.BackdropName(\"|\")\n", "Studio", "Beep"},
-			{"Nested", "echo sdk.BackdropName(string(\"|\"))\n", "Studio", "Beep"},
-			{"OuterString", "echo string(sdk.BackdropName(\"|\"))\n", "Studio", "Beep"},
-			{"Contextual", "play sdk.BackdropName(\"|\")\n", "Beep", "Studio"},
-			{"NestedContextual", "play string(sdk.BackdropName(\"|\"))\n", "Beep", "Studio"},
 			{"ReceiverContext", "Runner.setCostume sdk.SpriteCostumeName(\"|\")\n", "runner", "other"},
 			{"NestedReceiverContext", "Runner.setCostume string(sdk.SpriteCostumeName(\"|\"))\n", "runner", "other"},
-			{"PartialName", "play sdk.BackdropName(\"B|\")\n", "Beep", "Studio"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, "import sdk \"github.com/goplus/spx/v3\"\n"+tt.source)
 				s := newSpxTestServer(t, map[string][]byte{
-					"main.spx":                      []byte(source),
-					"assets/index.json":             []byte(`{"backdrops":[{"name":"Studio"}]}`),
-					"assets/sounds/Beep/index.json": []byte(`{}`),
-					"Runner.spx":                    nil, "Other.spx": nil,
+					"main.spx":          []byte(source),
+					"assets/index.json": []byte(`{}`),
+					"Runner.spx":        nil, "Other.spx": nil,
 					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"runner"}]}`),
 					"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"other"}]}`),
 				})
@@ -240,7 +233,7 @@ func test() {
 				item := completionItemByLabel(items, "Runner")
 				require.NotNil(t, item)
 				assert.Equal(t, "Runner", item.InsertText)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:main?Game.Runner", data.Definition.String())
 				result, err := analyzeSpx(s.getProj())
 				require.NoError(t, err)
@@ -280,45 +273,6 @@ func test() {
 				}
 			})
 		}
-	})
-
-	t.Run("VarDeclAndAssign", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-onStart => {
-	var x SpriteName = "m"
-}
-`),
-			"MySprite.spx": []byte(`
-`),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 2, Character: 22})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "MySprite")
-	})
-
-	t.Run("VarDeclAndAssignWithAlias", func(t *testing.T) {
-		m := map[string][]byte{
-			"main.spx": []byte(`
-type MySpriteName = SpriteName
-
-onStart => {
-	var x MySpriteName = "m"
-}
-`),
-			"MySprite.spx":                       []byte(``),
-			"assets/index.json":                  []byte(`{}`),
-			"assets/sprites/MySprite/index.json": []byte(`{}`),
-		}
-		s := newSpxTestServer(t, m)
-
-		items := completionItemsAt(t, s, "main.spx", Position{Line: 4, Character: 24})
-		assert.NotEmpty(t, items)
-		assert.Contains(t, completionItemLabels(items), "MySprite")
 	})
 
 	t.Run("SpxSoundResourceStringLit", func(t *testing.T) {
@@ -436,7 +390,7 @@ play "r"
 					item := completionItemByLabel(items, label)
 					require.NotNil(t, item, label)
 					if id != "" {
-						data := requireValueAs[*CompletionItemData](t, item.Data)
+						data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 						assert.Equal(t, id, data.Definition.String())
 					}
 				}

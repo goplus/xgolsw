@@ -86,7 +86,7 @@ func TestServerTextDocumentCompletionImports(t *testing.T) {
 			assert.Equal(t, ModuleCompletion, item.Kind)
 			assert.Equal(t, "fmt", item.InsertText)
 			assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
-			data := requireValueAs[*CompletionItemData](t, item.Data)
+			data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 			assert.Equal(t, ToPtr("fmt"), data.Definition.Package)
 			require.NotNil(t, item.Documentation)
 			doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
@@ -145,7 +145,7 @@ func TestServerTextDocumentCompletionImportWithoutDocumentation(t *testing.T) {
 			files := map[string][]byte{"main.xgo": []byte(source)}
 			proj, _, err := config.NewProject(newFileMap(files), config.Options{PkgData: data})
 			require.NoError(t, err)
-			s := New(proj, nil, fileMapGetter(files), &MockScheduler{}, data.ListPkgs, data.GetPkgDoc)
+			s := New(proj, nil, fileMapGetter(files), &MockScheduler{}, data.ListPkgs, data.GetPkgDoc, nil)
 			_, err = s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			item := completionItemByLabel(completionItemsAt(t, s, "main.xgo", pos), testframework.PkgPath)

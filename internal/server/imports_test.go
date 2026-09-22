@@ -135,7 +135,7 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 						require.NotNil(t, item)
 						assert.Equal(t, ModuleCompletion, item.Kind)
 						assert.Equal(t, tt.want, item.InsertText)
-						data := requireValueAs[*CompletionItemData](t, item.Data)
+						data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 						assert.Equal(t, importTestPkgPath, *data.Definition.Package)
 					} else {
 						assert.Nil(t, item)
@@ -162,7 +162,7 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 			item := completionItemByLabel(completionItemsAt(t, s, "main_fixture.gox", pos), "helper")
 			require.NotNil(t, item)
 			assert.Equal(t, tt.wantKind, item.Kind)
-			data := requireValueAs[*CompletionItemData](t, item.Data)
+			data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 			assert.Equal(t, tt.wantPath, *data.Definition.Package)
 		})
 	}
@@ -488,7 +488,7 @@ func TestServerCompletionImportedTypeShadowing(t *testing.T) {
 			if tt.wantPath != "" {
 				require.NotNil(t, item)
 				assert.Equal(t, ClassCompletion, item.Kind)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, tt.wantPath, *data.Definition.Package)
 				insertion = item.InsertText
 			} else {
@@ -840,7 +840,7 @@ func XGox_Create[T any](value string) *T { return nil }
 			item := completionItemByLabel(items, "accept")
 			if tt.wantPath != "" {
 				require.NotNil(t, item)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, tt.wantPath, *data.Definition.Package)
 			} else {
 				assert.Nil(t, item)

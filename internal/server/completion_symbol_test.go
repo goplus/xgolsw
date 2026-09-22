@@ -50,7 +50,7 @@ func TestServerTextDocumentCompletionSymbols(t *testing.T) {
 			require.NotNil(t, item, tt.label)
 			assert.Equal(t, tt.kind, item.Kind, tt.label)
 			assert.Equal(t, tt.label, item.InsertText)
-			data := requireValueAs[*CompletionItemData](t, item.Data)
+			data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 			assert.Equal(t, "xgo:builtin?"+tt.label, data.Definition.String())
 		}
 	})
@@ -182,7 +182,7 @@ type RecordList = []Record
 				require.NotNil(t, item)
 				assert.Equal(t, VariableCompletion, item.Kind)
 				assert.Equal(t, "Count", item.InsertText)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:main?"+tt.owner+"Count", data.Definition.String())
 				doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
 				assert.Contains(t, doc.Value, "Count documentation.")
@@ -238,7 +238,7 @@ type RecordList = []Record
 					if item.Label != "measure" {
 						continue
 					}
-					data := requireValueAs[*CompletionItemData](t, item.Data)
+					data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
 					assert.Equal(t, ToPtr(testframework.PkgPath), data.Definition.Package)
 					assert.Equal(t, ToPtr("App.measure"), data.Definition.Name)
@@ -314,7 +314,7 @@ type RecordList = []Record
 						}
 						require.NotNil(t, item)
 						assert.Equal(t, FunctionCompletion, item.Kind)
-						data := requireValueAs[*CompletionItemData](t, item.Data)
+						data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 						require.NotNil(t, data.Definition)
 						assert.Equal(t, "xgo:math?abs", data.Definition.String())
 						require.NotNil(t, item.Documentation)
@@ -375,7 +375,7 @@ func run() {
 					item := completionItemByLabel(items, method.label)
 					require.NotNil(t, item)
 					assert.Equal(t, FunctionCompletion, item.Kind)
-					data := requireValueAs[*CompletionItemData](t, item.Data)
+					data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
 					assert.Equal(t, method.definition, data.Definition.String())
 					require.NotNil(t, item.Documentation)
@@ -743,7 +743,7 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 7, Character: 12})
 		assert.NotEmpty(t, items)
 		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			itemData, ok := item.Data.(*CompletionItemData)
+			itemData, ok := item.Data.(*XGoCompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.X" {
 				assert.Equal(t, "X: ${1:}", item.InsertText)
 				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
@@ -752,7 +752,7 @@ func main() {
 			return false
 		}))
 		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			itemData, ok := item.Data.(*CompletionItemData)
+			itemData, ok := item.Data.(*XGoCompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.Y" {
 				assert.Equal(t, "Y: ${1:}", item.InsertText)
 				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
@@ -782,7 +782,7 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 9, Character: 17})
 		assert.NotEmpty(t, items)
 		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			itemData, ok := item.Data.(*CompletionItemData)
+			itemData, ok := item.Data.(*XGoCompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.X" {
 				assert.Equal(t, "X: ${1:}", item.InsertText)
 				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
@@ -837,7 +837,7 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 4, Character: 17})
 		assert.NotEmpty(t, items)
 		assert.True(t, slices.ContainsFunc(items, func(item CompletionItem) bool {
-			itemData, ok := item.Data.(*CompletionItemData)
+			itemData, ok := item.Data.(*XGoCompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:image/color?RGBA.R" {
 				assert.Equal(t, "R: ${1:}", item.InsertText)
 				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)

@@ -9,9 +9,9 @@ import (
 
 // inferInputType attempts to infer the input type from typ
 // using project sprite type metadata.
-func (result *spxAnalysis) inferInputType(typ gotypes.Type) SpxInputType {
+func (result *spxAnalysis) inferInputType(typ gotypes.Type) XGoInputType {
 	if isSpxSpriteInstanceType(result, typ) {
-		return SpxInputTypeSpriteInstance
+		return XGoInputTypeSpxSpriteInstance
 	}
 	return result.inferSpxInputTypeFromType(typ)
 }
@@ -54,32 +54,32 @@ func (r *spxAnalysis) createValueInputSlotFromColorFuncCall(ctx *inputSlotContex
 }
 
 // inferSpxInputTypeFromType attempts to infer the input type from the given type.
-func (r *spxSymbols) inferSpxInputTypeFromType(typ gotypes.Type) SpxInputType {
+func (r *spxSymbols) inferSpxInputTypeFromType(typ gotypes.Type) XGoInputType {
 	if _, ok := typ.(*gotypes.Basic); ok {
 		return inferBasicInputType(typ)
 	}
 
 	if r.spxResourceNameType(typ) != "" {
-		return SpxInputTypeResourceName
+		return XGoInputTypeResourceName
 	}
 
 	switch r.spxTypeName(typ) {
 	case "Direction":
-		return SpxInputTypeDirection
+		return XGoInputTypeSpxDirection
 	case "layerAction":
-		return SpxInputTypeLayerAction
+		return XGoInputTypeSpxLayerAction
 	case "dirAction":
-		return SpxInputTypeDirAction
+		return XGoInputTypeSpxDirAction
 	case "EffectKind":
-		return SpxInputTypeEffectKind
+		return XGoInputTypeSpxEffectKind
 	case "Key":
-		return SpxInputTypeKey
+		return XGoInputTypeSpxKey
 	case "Edge":
-		return SpxInputTypeSpecialObj
+		return XGoInputTypeSpxSpecialObj
 	case "RotationStyle":
-		return SpxInputTypeRotationStyle
+		return XGoInputTypeSpxRotationStyle
 	case "PropertyName":
-		return SpxInputTypePropertyName
+		return XGoInputTypeSpxPropertyName
 	}
 
 	// Fall back to the alias RHS when no direct basic or spx type match is found.
