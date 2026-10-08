@@ -27,13 +27,14 @@ type frameworkAdapter interface {
 // Operations receive the requesting project or context so cached data can also
 // be used by snapshots without retaining a mutable project or server.
 type frameworkAnalysis struct {
-	adapter            frameworkAdapter
-	resources          *resourceAnalysis
-	configurePass      func(*xgo.Project) func(string, *protocol.Pass)
-	collectCompletions func(*completionContext)
-	inputType          func(gotypes.Type) XGoInputType
-	adaptInputSlot     func(*inputSlotContext, ast.Expr, gotypes.Type, *XGoInputSlot) *XGoInputSlot
-	renameResources    func(*Server, *xgo.Project, []XGoRenameResourceParams) (*WorkspaceEdit, error)
+	adapter               frameworkAdapter
+	resources             *resourceAnalysis
+	configurePass         func(*xgo.Project) func(string, *protocol.Pass)
+	collectCompletions    func(*completionContext)
+	inputType             func(gotypes.Type) XGoInputType
+	adaptInputSlot        func(*inputSlotContext, ast.Expr, gotypes.Type, *XGoInputSlot) *XGoInputSlot
+	renameResources       func(*Server, *xgo.Project, []XGoRenameResourceParams) (*WorkspaceEdit, error)
+	appendResourceRenames func(*Server, *xgo.Project, map[resourceID]string, map[DocumentURI][]TextEdit)
 }
 
 // frameworkAnalysisCacheKind identifies cached framework analysis.

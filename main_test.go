@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"syscall/js"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ func TestParseServerOptions(t *testing.T) {
 		{"NumberClasses", map[string]any{"classfileConfig": 1}, "classfileConfig must be a string"},
 		{"NullArchive", map[string]any{"pkgDataZip": nil}, "pkgDataZip must be a Uint8Array"},
 		{"ArrayArchive", map[string]any{"pkgDataZip": []any{}}, "pkgDataZip must be a Uint8Array"},
+		{"NullResources", map[string]any{"resourceConfig": nil}, "resourceConfig must be an object"},
+		{"ArrayResources", map[string]any{"resourceConfig": []any{}}, "resourceConfig must be an object"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := parseServerOptions(js.ValueOf(tt.value))
@@ -60,6 +63,70 @@ func TestParseServerOptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, testframework.NewPkgDoc(t), doc)
 	})
+	t.Run("CyclicResources", func(t *testing.T) {
+		value := js.Global().Get("Object").New()
+		value.Set("cycle", value)
+		_, err := parseResourceConfigOption(value)
+		assert.ErrorContains(t, err, "invalid resource configuration")
+	})
+}
+
+func TestXGoLanguageServerResources(t *testing.T) {
+	archive := testframework.NewPkgDataZip(t)
+	data := js.Global().Get("Uint8Array").New(len(archive))
+	js.CopyBytesToJS(data, archive)
+	resources := js.Global().Get("JSON").Call("parse", `{"dataFile":"resources.json","types":[{"pkgPath":"main","typeName":"Asset","contextURI":"demo://assets"}]}`)
+	options := map[string]any{
+		"classfileConfig": "project main.actor App example.com/framework\nclass -embed *.actor Item\n",
+		"pkgDataZip":      data, "resourceConfig": resources,
+	}
+	const source = "type Asset string\nfunc Use(name Asset) {}\nuse \"Intro\"\n"
+	files := map[string]string{"main.actor": source, "resources.json": `{"demo://assets":["Intro"]}`}
+	first, firstReplies := newTestServerWithFiles(t, files, options)
+	second, secondReplies := newTestServerWithFiles(t, map[string]string{"main.actor": source, "resources.json": `{"demo://assets":[]}`}, options)
+	resources.Get("types").Index(0).Set("contextURI", "changed://assets")
+	document := map[string]any{"uri": "file:///main.actor"}
+	for _, instance := range []struct {
+		handle  js.Value
+		replies <-chan js.Value
+		links   int
+	}{{first, firstReplies, 1}, {second, secondReplies, 0}} {
+		callTestServer(t, instance.handle, instance.replies, "initialize", map[string]any{"capabilities": map[string]any{}})
+		links := callTestServer(t, instance.handle, instance.replies, "textDocument/documentLink", map[string]any{"textDocument": document})
+		assert.Len(t, testResourceLinkTargets(t, links), instance.links)
+	}
+	completion := callTestServer(t, first, firstReplies, "textDocument/completion", map[string]any{
+		"textDocument": document, "position": map[string]any{"line": 2, "character": 7},
+	})
+	assert.Contains(t, js.Global().Get("JSON").Call("stringify", completion).String(), "Intro")
+	slots := callTestServer(t, first, firstReplies, "workspace/executeCommand", map[string]any{
+		"command": "xgo.getInputSlots", "arguments": []any{map[string]any{"textDocument": document}},
+	})
+	encoded := js.Global().Get("JSON").Call("stringify", slots).String()
+	assert.Contains(t, encoded, `"type":"resource-name"`)
+	assert.Contains(t, encoded, "demo://assets/Intro")
+	edit := callTestServer(t, first, firstReplies, "workspace/executeCommand", map[string]any{
+		"command": "xgo.renameResources", "arguments": []any{map[string]any{"resource": map[string]any{"uri": "demo://assets/Intro"}, "newName": "Finale"}},
+	})
+	assert.Equal(t, 1, edit.Get("changes").Get("file:///main.actor").Length())
+	files["resources.json"] = `{"demo://assets":[]}`
+	links := callTestServer(t, first, firstReplies, "textDocument/documentLink", map[string]any{"textDocument": document})
+	assert.Empty(t, testResourceLinkTargets(t, links))
+	files["resources.json"] = `{"demo://assets":["Intro"]}`
+	links = callTestServer(t, first, firstReplies, "textDocument/documentLink", map[string]any{"textDocument": document})
+	assert.Equal(t, []string{"demo://assets/Intro"}, testResourceLinkTargets(t, links))
+}
+
+func testResourceLinkTargets(t *testing.T, links js.Value) []string {
+	t.Helper()
+	var targets []string
+	for i := range links.Length() {
+		target := links.Index(i).Get("target").String()
+		if strings.HasPrefix(target, "demo:") {
+			targets = append(targets, target)
+		}
+	}
+	return targets
 }
 
 func TestNewXGoLanguageServer(t *testing.T) {
@@ -128,10 +195,25 @@ func TestXGoLanguageServerInstanceConfiguration(t *testing.T) {
 
 func newTestServer(t *testing.T, filename, source string, options map[string]any) (js.Value, <-chan js.Value) {
 	t.Helper()
-	content := js.Global().Get("Uint8Array").New(len(source))
-	js.CopyBytesToJS(content, []byte(source))
+	return newTestServerWithFiles(t, map[string]string{filename: source}, options)
+}
+
+func newTestServerWithFiles(t *testing.T, files map[string]string, options map[string]any) (js.Value, <-chan js.Value) {
+	t.Helper()
+	previous := make(map[string]string)
+	versions := make(map[string]int)
 	provider := js.FuncOf(func(js.Value, []js.Value) any {
-		return map[string]any{filename: map[string]any{"content": content, "modTime": 0}}
+		result := make(map[string]any, len(files))
+		for filename, source := range files {
+			content := js.Global().Get("Uint8Array").New(len(source))
+			js.CopyBytesToJS(content, []byte(source))
+			if old, ok := previous[filename]; !ok || old != source {
+				versions[filename]++
+				previous[filename] = source
+			}
+			result[filename] = map[string]any{"content": content, "modTime": versions[filename]}
+		}
+		return result
 	})
 	responses := make(chan js.Value, 16)
 	reply := js.FuncOf(func(_ js.Value, args []js.Value) any {

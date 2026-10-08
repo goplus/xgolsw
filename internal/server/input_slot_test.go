@@ -739,26 +739,16 @@ func main() {
 	})
 
 	t.Run("ExecuteCommand", func(t *testing.T) {
-		for _, tt := range []struct {
-			name    string
-			command string
-		}{
-			{name: "XGo", command: CommandXGoGetInputSlots},
-			{name: "Spx", command: CommandSpxGetInputSlots},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 5\n")})
-				result, err := s.workspaceExecuteCommand(&ExecuteCommandParams{
-					Command: tt.command, Arguments: []json.RawMessage{json.RawMessage(`{"textDocument":{"uri":"file:///main.xgo"}}`)},
-				})
-				require.NoError(t, err)
-				slots := requireValueAs[[]XGoInputSlot](t, result)
-				require.Len(t, slots, 1)
-				encoded, err := json.Marshal(slots[0])
-				require.NoError(t, err)
-				assert.JSONEq(t, `{"range":{"start":{"line":0,"character":8},"end":{"line":0,"character":9}},"kind":"value","accept":{"type":"unknown"},"input":{"kind":"in-place","type":"integer","value":5},"predefinedNames":[]}`, string(encoded))
-			})
-		}
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 5\n")})
+		result, err := s.workspaceExecuteCommand(&ExecuteCommandParams{
+			Command: CommandXGoGetInputSlots, Arguments: []json.RawMessage{json.RawMessage(`{"textDocument":{"uri":"file:///main.xgo"}}`)},
+		})
+		require.NoError(t, err)
+		slots := requireValueAs[[]XGoInputSlot](t, result)
+		require.Len(t, slots, 1)
+		encoded, err := json.Marshal(slots[0])
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"range":{"start":{"line":0,"character":8},"end":{"line":0,"character":9}},"kind":"value","accept":{"type":"unknown"},"input":{"kind":"in-place","type":"integer","value":5},"predefinedNames":[]}`, string(encoded))
 	})
 
 	t.Run("InvalidCommandArguments", func(t *testing.T) {

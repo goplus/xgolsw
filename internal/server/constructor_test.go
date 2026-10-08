@@ -29,6 +29,7 @@ func TestNew(t *testing.T) {
 		s := New(proj, nil, fileMapGetter(files), &MockScheduler{},
 			func() ([]string, error) { return nil, nil },
 			func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist },
+			nil,
 		)
 		assert.Same(t, proj, s.getProj())
 		assert.Equal(t, "example.com/project", proj.PkgPath)
@@ -83,7 +84,7 @@ func TestNew(t *testing.T) {
 					return nil, fs.ErrNotExist
 				}
 			}
-			s := New(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+			s := New(proj, nil, fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc, nil)
 			check := func() {
 				t.Helper()
 

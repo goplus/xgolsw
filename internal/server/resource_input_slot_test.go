@@ -5,11 +5,10 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-const testResourceInputType XGoInputType = "test-resource"
 
 func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 	t.Run("LiteralConversion", func(t *testing.T) {
@@ -17,11 +16,14 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		result := newTestResourceAnalysis()
-		for ref := range resourceReferences(ctx.proj, testResourceResolver(t, ctx.proj)) {
-			result.addResourceRef(ref)
-		}
+		resolve := testResourceResolver(t, ctx.proj)
+		collectResourceReferences(ctx.proj, []*resourceProvider{{
+			analysis: result,
+			resolve:  func(_ *xgo.Project, value resourceValue) (resourceID, bool) { return resolve(value) },
+			inspect:  func(_ *xgo.Project, ref resourceRef) { result.addResourceRef(ref) },
+		}})
 		literal := inputSlotLiteral(t, ctx, `"Item"`)
-		slot := result.createResourceInputSlot(ctx, literal, nil, testResourceInputType)
+		slot := result.createResourceInputSlot(ctx, literal, nil)
 		require.NotNil(t, slot)
 		assert.Equal(t, XGoResourceURI("test://resources/files/Item"), slot.Input.Value)
 		assert.Equal(t, Range{Start: Position{Line: 1, Character: 11}, End: Position{Line: 1, Character: 17}}, slot.Range)
@@ -68,13 +70,13 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 			first := requireValueAs[*ast.BasicLit](t, call.Args[0])
 			second := requireValueAs[*ast.BasicLit](t, call.Args[1])
 			result := newTestResourceAnalysis()
-			result.addResourceRef(resourceRef{ID: tt.id, Kind: XGoResourceRefKindStringLiteral, Node: second})
-			assert.Nil(t, result.createResourceInputSlot(ctx, first, gotypes.Typ[gotypes.String], testResourceInputType))
-			slot := result.createResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String], testResourceInputType)
+			result.expressions = map[ast.Expr]resourceExpression{second: {value: resourceValue{Static: true}, id: tt.id}}
+			assert.Nil(t, result.createResourceInputSlot(ctx, first, gotypes.Typ[gotypes.String]))
+			slot := result.createResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String])
 			require.NotNil(t, slot)
 			assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
-			assert.Equal(t, XGoInputSlotAccept{Type: testResourceInputType, ResourceContext: ToPtr(tt.context)}, slot.Accept)
-			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: testResourceInputType, Value: tt.uri}, slot.Input)
+			assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeResourceName, ResourceContext: ToPtr(tt.context)}, slot.Accept)
+			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeResourceName, Value: tt.uri}, slot.Input)
 			assert.Equal(t, []string{"choice"}, slot.PredefinedNames)
 			assert.Equal(t, Range{Start: Position{Line: 2, Character: 13}, End: Position{Line: 2, Character: 19}}, slot.Range)
 		})
@@ -100,8 +102,8 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 				require.Len(t, call.Args, 3)
 				lit := requireValueAs[*ast.BasicLit](t, call.Args[1])
 				result := newTestResourceAnalysis()
-				result.addResourceRef(resourceRef{ID: testResourceID{"clips", "Item"}, Node: lit})
-				slot := result.createResourceInputSlot(ctx, lit, nil, testResourceInputType)
+				result.expressions = map[ast.Expr]resourceExpression{lit: {value: resourceValue{Static: true}, id: testResourceID{"clips", "Item"}}}
+				slot := result.createResourceInputSlot(ctx, lit, nil)
 				require.NotNil(t, slot)
 				start := PositionOffset([]byte(source), slot.Range.Start)
 				end := PositionOffset([]byte(source), slot.Range.End)
@@ -117,10 +119,10 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		lit := inputSlotLiteral(t, ctx, `"Item"`)
 		result := newTestResourceAnalysis()
-		result.addResourceRef(resourceRef{ID: testResourceID{"clips", "Item"}, Node: lit})
-		require.NotNil(t, result.createResourceInputSlot(ctx, lit, nil, testResourceInputType))
+		result.expressions = map[ast.Expr]resourceExpression{lit: {value: resourceValue{Static: true}, id: testResourceID{"clips", "Item"}}}
+		require.NotNil(t, result.createResourceInputSlot(ctx, lit, nil))
 		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: 1}})
 		ctx = inputSlotTestContext(t, s, "main.xgo")
-		assert.Nil(t, result.createResourceInputSlot(ctx, inputSlotLiteral(t, ctx, `"Item"`), nil, testResourceInputType))
+		assert.Nil(t, result.createResourceInputSlot(ctx, inputSlotLiteral(t, ctx, `"Item"`), nil))
 	})
 }

@@ -217,7 +217,7 @@ work
 		proj := s.getProj()
 		original, err := enumInfoForProject(proj)
 		require.NoError(t, err)
-		snapshot := New(proj.Snapshot(), nil, s.fileMapGetter, &MockScheduler{}, s.listPkgs, s.lookupPkgDoc)
+		snapshot := New(proj.Snapshot(), nil, s.fileMapGetter, &MockScheduler{}, s.listPkgs, s.lookupPkgDoc, nil)
 		s.ModifyFiles([]FileChange{{
 			Path: "enums.xgo", Content: []byte("type Color const (\nRuby = iota\n)\n"), Version: 1,
 		}})

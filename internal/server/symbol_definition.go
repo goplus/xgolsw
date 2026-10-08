@@ -61,7 +61,7 @@ func (def symbolDefinition) completionItem(documentationKind MarkupKind) Complet
 		Documentation:    completionDocumentation(def.markupContent(documentationKind)),
 		InsertText:       def.CompletionItemInsertText,
 		InsertTextFormat: &def.CompletionItemInsertTextFormat,
-		Data: &CompletionItemData{
+		Data: &XGoCompletionItemData{
 			Definition: &def.ID,
 		},
 	}

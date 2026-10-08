@@ -50,6 +50,7 @@ func newTestServer(t testing.TB, files map[string][]byte) *Server {
 			}
 			return nil, fs.ErrNotExist
 		},
+		nil,
 	)
 }
 
@@ -91,7 +92,7 @@ func newFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, mod
 		}
 		return nil, fs.ErrNotExist
 	}
-	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc)
+	return New(proj, newMockReplier(), fileMapGetter(files), &MockScheduler{}, listPkgs, lookupPkgDoc, nil)
 }
 
 func newTestModule(t testing.TB, config modload.Module) *xgo.Module {

@@ -49,12 +49,34 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 					testResourceID{"files", "Studio"}: "Park",
 					testResourceID{"files", "Other"}:  "Changed",
 				})
-				if tt.name == "Comparison" {
-					require.ErrorContains(t, err, "cannot rename a resource within a derived constant")
-				} else {
+				if tt.name == "Repeated" {
 					require.ErrorContains(t, err, "cannot preserve a derived constant")
+					assert.Nil(t, changes)
+					return
 				}
-				assert.Nil(t, changes)
+				require.NoError(t, err)
+				updated := applyResourceRenameTestEdits(t, prefix+tt.source, changes["file:///main.xgo"])
+				assert.Contains(t, updated, `const base Asset = "Park"`)
+				assert.Contains(t, updated, `use "Changed"`)
+				before, err := proj.TypeInfo()
+				require.NoError(t, err)
+				after, err := newTestServer(t, map[string][]byte{"main.xgo": []byte(updated)}).getProj().TypeInfo()
+				require.NoError(t, err)
+				var original, preserved *gotypes.Const
+				for _, obj := range before.Uses {
+					if obj.Name() == "derived" {
+						original, _ = obj.(*gotypes.Const)
+					}
+				}
+				for _, obj := range after.Uses {
+					if obj.Name() == "derived" {
+						preserved, _ = obj.(*gotypes.Const)
+					}
+				}
+				require.NotNil(t, original)
+				require.NotNil(t, preserved)
+				assert.Equal(t, original.Type().String(), preserved.Type().String())
+				assert.Equal(t, original.Val().ExactString(), preserved.Val().ExactString())
 			})
 		}
 	})
@@ -559,7 +581,7 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 		}
 	})
 
-	t.Run("UneditableConstants", func(t *testing.T) {
+	t.Run("ExternalConstants", func(t *testing.T) {
 		t.Run("ImportedPositionCollision", func(t *testing.T) {
 			const source = "import . \"example.com/assets\"\nfunc local() { const Name = \"Local\" }\necho Name\n"
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
@@ -591,7 +613,8 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			id := testResourceID{"files", "Remote"}
 			result := newTestResourceAnalysis()
 			result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindConstantReference, Node: call.Args[0]})
-			assert.Empty(t, s.renameResourceAtRefs(t, result, id, "Changed"))
+			changes := s.renameResourceAtRefs(t, result, id, "Changed")
+			assert.Equal(t, strings.Replace(source, "echo Name", `echo "Changed"`, 1), applyResourceRenameTestEdits(t, source, changes["file:///main.xgo"]))
 		})
 
 		for _, tt := range []struct {
@@ -609,13 +632,14 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				id := testResourceID{"scenes", tt.oldName}
 				result := newTestResourceAnalysis()
 				result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindConstantReference, Node: call.Args[0]})
-				assert.Empty(t, s.renameResourceAtRefs(t, result, id, "Park"))
+				wantConstant := TextEdit{Range: RangeForNode(proj, call.Args[0]), NewText: `"Park"`}
+				assert.Equal(t, map[DocumentURI][]TextEdit{"file:///main.xgo": {wantConstant}}, s.renameResourceAtRefs(t, result, id, "Park"))
 				result.addResourceRef(resourceRef{ID: id, Kind: XGoResourceRefKindStringLiteral, Node: call.Args[1]})
 				wantRange := RangeForNode(proj, call.Args[1])
 				wantRange.Start.Character++
 				wantRange.End.Character--
 				assert.Equal(t, map[DocumentURI][]TextEdit{
-					"file:///main.xgo": {{Range: wantRange, NewText: "Park"}},
+					"file:///main.xgo": {wantConstant, {Range: wantRange, NewText: "Park"}},
 				}, s.renameResourceAtRefs(t, result, id, "Park"))
 			})
 		}

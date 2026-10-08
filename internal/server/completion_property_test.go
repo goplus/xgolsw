@@ -53,7 +53,7 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 					assert.Equal(t, item.Label, item.InsertText)
 					assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
 					assert.Nil(t, item.TextEdit)
-					data := requireValueAs[*CompletionItemData](t, item.Data)
+					data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
 					if tt.name == "WorkClass" && (item.Label == `"label"` || item.Label == `"Value"`) {
 						if item.Label == `"Value"` {
@@ -113,7 +113,7 @@ type AliasPointer = *RecordAlias
 			} {
 				item := completionItemByLabel(ctx.itemSet.items, want.label)
 				require.NotNil(t, item)
-				data := requireValueAs[*CompletionItemData](t, item.Data)
+				data := requireValueAs[*XGoCompletionItemData](t, item.Data)
 				assert.Equal(t, want.id, data.Definition.String())
 				doc := requireValueAs[string](t, item.Documentation.Value)
 				assert.Contains(t, doc, want.doc)

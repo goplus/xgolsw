@@ -54,7 +54,7 @@ func NewXGoLanguageServer(this js.Value, args []js.Value) any {
 	if err != nil {
 		return fmt.Errorf("NewXGoLanguageServer: %w", err)
 	}
-	s.server = server.New(project, s, fileMapGetter, &JSScheduler{}, data.ListPkgs, data.GetPkgDoc)
+	s.server = server.New(project, s, fileMapGetter, &JSScheduler{}, data.ListPkgs, data.GetPkgDoc, options.ResourceConfig)
 	return js.ValueOf(map[string]any{
 		"handleMessage": JSFuncOfWithError(s.HandleMessage),
 	})
@@ -82,7 +82,33 @@ func parseServerOptions(value js.Value) (config.Options, error) {
 			return options, fmt.Errorf("invalid package data: %w", err)
 		}
 	}
+	if resources := value.Get("resourceConfig"); !resources.IsUndefined() {
+		var err error
+		options.ResourceConfig, err = parseResourceConfigOption(resources)
+		if err != nil {
+			return options, err
+		}
+	}
 	return options, nil
+}
+
+// parseResourceConfigOption validates JSON configuration and reports JavaScript
+// serialization errors, including cyclic objects, through the constructor.
+func parseResourceConfigOption(value js.Value) (resources *config.ResourceConfig, err error) {
+	if value.Type() != js.TypeObject || value.IsNull() || js.Global().Get("Array").Call("isArray", value).Bool() {
+		return nil, errors.New("resourceConfig must be an object")
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if jsErr, ok := recovered.(js.Error); ok {
+				err = fmt.Errorf("invalid resource configuration: %w", jsErr)
+			} else {
+				panic(recovered)
+			}
+		}
+	}()
+	encoded := js.Global().Get("JSON").Call("stringify", value).String()
+	return config.ParseResourceConfig([]byte(encoded))
 }
 
 // HandleMessage handles incoming LSP messages from the client.

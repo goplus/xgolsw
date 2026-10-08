@@ -61,7 +61,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
@@ -103,7 +103,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
@@ -139,7 +139,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/backdrops/backdrop1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/backdrops/backdrop1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxBackdropResourceID](t, id), "backdrop2")
@@ -190,7 +190,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sounds/Sound1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/sounds/Sound1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSoundResourceID](t, id), "Sound2")
@@ -251,7 +251,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
@@ -299,7 +299,7 @@ func invalidFunc() {
 		require.NoError(t, err)
 		require.True(t, diagnostics.hasErrorSeverityDiagnostic)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/Sprite1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/sprites/Sprite1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteResourceID](t, id), "Sprite2")
@@ -335,7 +335,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/sprites/MySprite/costumes/costume1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteCostumeResourceID](t, id), "costume2")
@@ -379,7 +379,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/sprites/MySprite/animations/anim1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxSpriteAnimationResourceID](t, id), "anim2")
@@ -421,7 +421,7 @@ onStart => {
 		require.NoError(t, err)
 		requireNoDiagnostics(t, s)
 
-		id, err := ParseSpxResourceURI(SpxResourceURI("spx://resources/widgets/widget1"))
+		id, err := ParseSpxResourceURI(XGoResourceURI("spx://resources/widgets/widget1"))
 		require.NoError(t, err)
 
 		changes, err := s.renameSpxResource(s.syncProject(), result, requireValueAs[SpxWidgetResourceID](t, id), "widget2")

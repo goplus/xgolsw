@@ -11,8 +11,8 @@ import (
 // collectCompletions uses resolved literal contexts before inferred call types.
 // This keeps nested conversions in the same resource namespace as references.
 func (r *spxAnalysis) collectCompletions(ctx *completionContext) {
-	if value, ok := r.resourceLiterals[ctx.stringLit]; ok {
-		r.collectTypeCompletions(ctx, value.Type)
+	if value, ok := r.expressions[ctx.stringLit]; ok {
+		r.collectTypeCompletions(ctx, value.value.Type)
 		return
 	}
 	for _, typ := range ctx.expectedTypes {
@@ -40,7 +40,7 @@ func (r *spxAnalysis) collectTypeCompletions(ctx *completionContext, typ gotypes
 	}
 
 	// Handle spx.PropertyName type - provide property name completions.
-	if r.inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
+	if r.inferSpxInputTypeFromType(typ) == XGoInputTypeSpxPropertyName {
 		if target := ctx.getPropertyTarget(); target != "" {
 			ctx.collectPropertyNames(target)
 		}
@@ -130,8 +130,8 @@ func (r *spxAnalysis) collectSpxResourceNames(ctx *completionContext, kind spxRe
 // It returns nil if no [SpxSpriteResource] can be inferred.
 func (r *spxAnalysis) getSpxSpriteResource(ctx *completionContext) *SpxSpriteResource {
 	callExpr := ctx.getEnclosingCallExpr()
-	if value, ok := r.resourceLiterals[ctx.stringLit]; ok {
-		callExpr = value.Call
+	if value, ok := r.expressions[ctx.stringLit]; ok {
+		callExpr = value.value.Call
 	}
 	if callExpr != nil {
 		return inferSpxSpriteResourceEnclosingNode(ctx.proj, r, callExpr)

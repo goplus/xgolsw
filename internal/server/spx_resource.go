@@ -15,7 +15,7 @@ import (
 
 // ParseSpxResourceURI parses an spx resource URI and returns the corresponding
 // spx resource ID.
-func ParseSpxResourceURI(uri SpxResourceURI) (resourceID, error) {
+func ParseSpxResourceURI(uri XGoResourceURI) (resourceID, error) {
 	u, err := url.Parse(string(uri))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse spx resource URI: %w", err)
@@ -23,16 +23,17 @@ func ParseSpxResourceURI(uri SpxResourceURI) (resourceID, error) {
 	escapedPath := u.EscapedPath()
 	pathParts := strings.Split(strings.TrimPrefix(escapedPath, "/"), "/")
 	pathPartCount := len(pathParts)
-	if u.Scheme != "spx" || u.Host != "resources" || (pathPartCount != 2 && pathPartCount != 4) {
+	if u.Scheme != "spx" || u.Host != "resources" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+		strings.Contains(string(uri), "#") || (pathPartCount != 2 && pathPartCount != 4) {
 		return nil, fmt.Errorf("invalid spx resource URI: %s", uri)
 	}
 	// Preserve literal dots and escaped slashes within resource names.
 	// url.Parse has already validated the path's percent escapes.
 	for i, part := range pathParts {
-		if part == "" {
+		pathParts[i], _ = url.PathUnescape(part)
+		if !validResourceName(pathParts[i]) {
 			return nil, fmt.Errorf("invalid spx resource URI: %s", uri)
 		}
-		pathParts[i], _ = url.PathUnescape(part)
 	}
 	if pathPartCount == 4 {
 		if pathParts[0] == "sprites" {
@@ -250,15 +251,15 @@ func (id SpxBackdropResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxBackdropResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.BackdropName)))
+func (id SpxBackdropResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.BackdropName)))
 }
 
-// SpxBackdropResourceContextURI is the [SpxResourceContextURI] of [SpxBackdropResource].
-const SpxBackdropResourceContextURI SpxResourceContextURI = "spx://resources/backdrops"
+// SpxBackdropResourceContextURI is the [XGoResourceContextURI] of [SpxBackdropResource].
+const SpxBackdropResourceContextURI XGoResourceContextURI = "spx://resources/backdrops"
 
 // ContextURI implements [resourceID].
-func (id SpxBackdropResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxBackdropResourceID) ContextURI() XGoResourceContextURI {
 	return SpxBackdropResourceContextURI
 }
 
@@ -280,15 +281,15 @@ func (id SpxSoundResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxSoundResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SoundName)))
+func (id SpxSoundResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SoundName)))
 }
 
-// SpxSoundResourceContextURI is the [SpxResourceContextURI] of [SpxSoundResource].
-const SpxSoundResourceContextURI SpxResourceContextURI = "spx://resources/sounds"
+// SpxSoundResourceContextURI is the [XGoResourceContextURI] of [SpxSoundResource].
+const SpxSoundResourceContextURI XGoResourceContextURI = "spx://resources/sounds"
 
 // ContextURI implements [resourceID].
-func (id SpxSoundResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxSoundResourceID) ContextURI() XGoResourceContextURI {
 	return SpxSoundResourceContextURI
 }
 
@@ -321,15 +322,15 @@ func (id SpxSpriteResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxSpriteResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SpriteName)))
+func (id SpxSpriteResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.SpriteName)))
 }
 
-// SpxSpriteResourceContextURI is the [SpxResourceContextURI] of [SpxSpriteResource].
-const SpxSpriteResourceContextURI SpxResourceContextURI = "spx://resources/sprites"
+// SpxSpriteResourceContextURI is the [XGoResourceContextURI] of [SpxSpriteResource].
+const SpxSpriteResourceContextURI XGoResourceContextURI = "spx://resources/sprites"
 
 // ContextURI implements [resourceID].
-func (id SpxSpriteResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxSpriteResourceID) ContextURI() XGoResourceContextURI {
 	return SpxSpriteResourceContextURI
 }
 
@@ -374,18 +375,18 @@ func (id SpxSpriteCostumeResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxSpriteCostumeResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.CostumeName)))
+func (id SpxSpriteCostumeResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.CostumeName)))
 }
 
-// FormatSpxSpriteCostumeResourceContextURI formats the [SpxResourceContextURI]
+// FormatSpxSpriteCostumeResourceContextURI formats the [XGoResourceContextURI]
 // for a sprite's costume resources.
-func FormatSpxSpriteCostumeResourceContextURI(spriteName string) SpxResourceContextURI {
-	return SpxResourceContextURI(fmt.Sprintf("%s/%s/costumes", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
+func FormatSpxSpriteCostumeResourceContextURI(spriteName string) XGoResourceContextURI {
+	return XGoResourceContextURI(fmt.Sprintf("%s/%s/costumes", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
 }
 
 // ContextURI implements [resourceID].
-func (id SpxSpriteCostumeResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxSpriteCostumeResourceID) ContextURI() XGoResourceContextURI {
 	return FormatSpxSpriteCostumeResourceContextURI(id.SpriteName)
 }
 
@@ -409,18 +410,18 @@ func (id SpxSpriteAnimationResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxSpriteAnimationResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.AnimationName)))
+func (id SpxSpriteAnimationResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.AnimationName)))
 }
 
-// FormatSpxSpriteAnimationResourceContextURI formats the [SpxResourceContextURI]
+// FormatSpxSpriteAnimationResourceContextURI formats the [XGoResourceContextURI]
 // for a sprite's animation resources.
-func FormatSpxSpriteAnimationResourceContextURI(spriteName string) SpxResourceContextURI {
-	return SpxResourceContextURI(fmt.Sprintf("%s/%s/animations", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
+func FormatSpxSpriteAnimationResourceContextURI(spriteName string) XGoResourceContextURI {
+	return XGoResourceContextURI(fmt.Sprintf("%s/%s/animations", SpxSpriteResourceContextURI, url.PathEscape(spriteName)))
 }
 
 // ContextURI implements [resourceID].
-func (id SpxSpriteAnimationResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxSpriteAnimationResourceID) ContextURI() XGoResourceContextURI {
 	return FormatSpxSpriteAnimationResourceContextURI(id.SpriteName)
 }
 
@@ -444,15 +445,15 @@ func (id SpxWidgetResourceID) Name() string {
 }
 
 // URI implements [resourceID].
-func (id SpxWidgetResourceID) URI() SpxResourceURI {
-	return SpxResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.WidgetName)))
+func (id SpxWidgetResourceID) URI() XGoResourceURI {
+	return XGoResourceURI(fmt.Sprintf("%s/%s", id.ContextURI(), url.PathEscape(id.WidgetName)))
 }
 
-// SpxWidgetResourceContextURI is the [SpxResourceContextURI] of [SpxWidgetResource].
-const SpxWidgetResourceContextURI SpxResourceContextURI = "spx://resources/widgets"
+// SpxWidgetResourceContextURI is the [XGoResourceContextURI] of [SpxWidgetResource].
+const SpxWidgetResourceContextURI XGoResourceContextURI = "spx://resources/widgets"
 
 // ContextURI implements [resourceID].
-func (id SpxWidgetResourceID) ContextURI() SpxResourceContextURI {
+func (id SpxWidgetResourceID) ContextURI() XGoResourceContextURI {
 	return SpxWidgetResourceContextURI
 }
 

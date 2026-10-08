@@ -19,6 +19,8 @@ type Options struct {
 	// PkgData supplies immutable archives for this instance.
 	// Nil selects the embedded package data.
 	PkgData *pkgdata.Data
+	// ResourceConfig supplies optional resource type bindings and a manifest path.
+	ResourceConfig *ResourceConfig
 }
 
 // NewProject creates a project and its package data from an instance configuration.

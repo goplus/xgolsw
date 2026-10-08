@@ -7,16 +7,14 @@ import (
 
 const (
 	CommandXGoRenameResources = "xgo.renameResources"
-	CommandSpxRenameResources = "spx.renameResources"
 	CommandXGoGetInputSlots   = "xgo.getInputSlots"
-	CommandSpxGetInputSlots   = "spx.getInputSlots"
 	CommandXGoGetProperties   = "xgo.getProperties"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_executeCommand
 func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, error) {
 	switch params.Command {
-	case CommandXGoRenameResources, CommandSpxRenameResources:
+	case CommandXGoRenameResources:
 		var cmdParams []XGoRenameResourceParams
 		for _, arg := range params.Arguments {
 			var cmdParam XGoRenameResourceParams
@@ -26,7 +24,7 @@ func (s *Server) workspaceExecuteCommand(params *ExecuteCommandParams) (any, err
 			cmdParams = append(cmdParams, cmdParam)
 		}
 		return s.renameResources(cmdParams)
-	case CommandXGoGetInputSlots, CommandSpxGetInputSlots:
+	case CommandXGoGetInputSlots:
 		var cmdParams []XGoGetInputSlotsParams
 		for _, arg := range params.Arguments {
 			var cmdParam XGoGetInputSlotsParams
