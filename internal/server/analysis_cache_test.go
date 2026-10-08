@@ -394,24 +394,15 @@ func TestServerCollectResourceDiagnostics(t *testing.T) {
 		filename:   "main.xgo",
 		diagnostic: Diagnostic{Severity: SeverityError, Message: message, Range: Range{End: Position{Character: 8}}},
 	}}}
-	for _, tt := range []struct {
-		root   DocumentURI
-		locale string
-	}{
-		{"file:///first/", "en"}, {"file:///second/", "zh-CN"}, {"file:///first/", "en"},
-	} {
-		s.workspaceRootURI = tt.root
-		s.setLanguageFromLocale(tt.locale)
+	for _, root := range []DocumentURI{"file:///first/", "file:///second/", "file:///first/"} {
+		s.workspaceRootURI = root
 		result := newDiagnosticResult()
 		s.collectResourceDiagnostics(&result, analysis)
 		s.collectResourceDiagnostics(&result, analysis)
 		uri := s.toDocumentURI("main.xgo")
 		require.Len(t, result.diagnostics, 1)
 		require.Len(t, result.diagnostics[uri], 1)
-		assert.Equal(t, s.translate(message), result.diagnostics[uri][0].Message)
-		if tt.locale == "zh-CN" {
-			assert.NotEqual(t, message, result.diagnostics[uri][0].Message)
-		}
+		assert.Equal(t, message, result.diagnostics[uri][0].Message)
 		result.diagnostics[uri][0].Message = "changed response"
 		assert.Equal(t, message, analysis.diagnostics[0].diagnostic.Message)
 	}

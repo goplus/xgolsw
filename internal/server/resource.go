@@ -69,7 +69,7 @@ func resourceRange(proj *xgo.Project, astFile *ast.File, node ast.Node) Range {
 	}
 }
 
-// resourceAnalysis contains references, availability, and untranslated diagnostics.
+// resourceAnalysis contains references, availability, and diagnostics.
 // A nil contains function means that resource metadata is unavailable.
 type resourceAnalysis struct {
 	diagnostics      []sourceDiagnostic

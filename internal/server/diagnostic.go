@@ -117,13 +117,13 @@ func (s *Server) collectSyntaxDiagnostics(proj *xgo.Project, filename string, re
 			result.addDiagnostics(uri, Diagnostic{
 				Severity: SeverityError,
 				Range:    RangeForASTFilePosition(proj, astFile, position),
-				Message:  s.translate(e.Msg),
+				Message:  e.Msg,
 			})
 		}
 	} else {
 		result.addDiagnostics(uri, Diagnostic{
 			Severity: SeverityError,
-			Message:  s.translate(fmt.Sprintf("failed to parse source file: %v", err)),
+			Message:  fmt.Sprintf("failed to parse source file: %v", err),
 		})
 	}
 	return astFile
@@ -257,7 +257,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(proj *xgo.Project, result *diagnost
 				diagnostics = append(diagnostics, Diagnostic{
 					Range:    span,
 					Severity: SeverityError,
-					Message:  s.translate(d.Message),
+					Message:  d.Message,
 				})
 			},
 			ResultOf: map[*protocol.Analyzer]any{
@@ -277,7 +277,7 @@ func (s *Server) inspectDiagnosticsAnalyzers(proj *xgo.Project, result *diagnost
 			if _, err := an.Run(pass); err != nil {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: SeverityError,
-					Message:  s.translate(fmt.Sprintf("analyzer %q failed: %v", an.Name, err)),
+					Message:  fmt.Sprintf("analyzer %q failed: %v", an.Name, err),
 				})
 			}
 		}

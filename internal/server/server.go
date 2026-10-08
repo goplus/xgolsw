@@ -13,7 +13,6 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
-	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/internal/analysis"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/pkgdoc"
@@ -51,7 +50,6 @@ type Server struct {
 	listPkgs           func() ([]string, error)
 	lookupPkgDoc       func(string) (*pkgdoc.PkgDoc, error)
 	scheduler          Scheduler
-	language           i18n.Language // Current language for error message translation
 	initMu             sync.Mutex
 	clientCapabilities ClientCapabilities
 	initializeCalled   bool
@@ -91,7 +89,6 @@ func New(
 		scheduler:        scheduler,
 		listPkgs:         listPkgs,
 		lookupPkgDoc:     lookupPkgDoc,
-		language:         i18n.LanguageEN, // Default to English until initialize is called
 	}
 }
 
