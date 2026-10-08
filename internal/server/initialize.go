@@ -5,9 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"golang.org/x/text/language"
-
-	"github.com/goplus/xgolsw/i18n"
 	"github.com/goplus/xgolsw/protocol"
 )
 
@@ -15,7 +12,6 @@ import (
 // and client-derived configuration.
 func (s *Server) initialize(params *InitializeParams) (*InitializeResult, error) {
 	s.setClientCapabilities(params.Capabilities)
-	s.setLanguageFromLocale(params.Locale)
 	s.setWorkspaceRootURI(params)
 
 	return &InitializeResult{
@@ -174,25 +170,4 @@ func ensureTrailingSlash(uri string) string {
 		return uri
 	}
 	return uri + "/"
-}
-
-// setLanguageFromLocale sets the server language based on the client locale.
-func (s *Server) setLanguageFromLocale(locale string) {
-	s.language = i18n.LanguageEN
-
-	tag, err := language.Parse(locale)
-	if err != nil {
-		return
-	}
-
-	base, _ := tag.Base()
-	chineseBase, _ := language.Chinese.Base()
-	if base == chineseBase {
-		s.language = i18n.LanguageCN
-	}
-}
-
-// translate translates a diagnostic message based on the server's current language.
-func (s *Server) translate(message string) string {
-	return i18n.Translate(message, s.language)
 }

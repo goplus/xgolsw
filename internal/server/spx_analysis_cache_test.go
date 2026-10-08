@@ -206,20 +206,13 @@ work
 		})
 		proj := s.getProj()
 		cached := requireFrameworkAnalysis(t, proj)
-		for _, tt := range []struct {
-			root   DocumentURI
-			locale string
-		}{
-			{"file:///first/", "en"}, {"file:///second/", "zh-CN"}, {"file:///first/", "en"},
-		} {
-			s.workspaceRootURI = tt.root
-			s.setLanguageFromLocale(tt.locale)
+		for _, root := range []DocumentURI{"file:///first/", "file:///second/", "file:///first/"} {
+			s.workspaceRootURI = root
 			uri := s.toDocumentURI("main.spx")
 			report, err := s.diagnosticsAt(proj)
 			require.NoError(t, err)
 			require.Len(t, report.diagnostics[uri], 1)
-			message := "sound resource name cannot be empty"
-			assert.Equal(t, s.translate(message), report.diagnostics[uri][0].Message)
+			assert.Equal(t, "sound resource name cannot be empty", report.diagnostics[uri][0].Message)
 			report.diagnostics[uri][0].Message = "changed response"
 			edit, err := cached.renameResources(s, proj, []XGoRenameResourceParams{{
 				Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Other",

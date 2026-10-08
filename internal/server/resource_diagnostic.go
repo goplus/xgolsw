@@ -5,8 +5,8 @@ import (
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// sourceDiagnostic stores an untranslated diagnostic at a project-relative path.
-// URI resolution and translation belong to the request that reports it.
+// sourceDiagnostic stores a diagnostic at a project-relative path.
+// The reporting request resolves the path to a document URI.
 type sourceDiagnostic struct {
 	filename   string
 	diagnostic Diagnostic
@@ -26,11 +26,9 @@ func addResourceDiagnostic(proj *xgo.Project, result *resourceAnalysis, node ast
 	}})
 }
 
-// collectResourceDiagnostics renders cached diagnostics for the current server.
+// collectResourceDiagnostics resolves cached diagnostics against the current workspace root.
 func (s *Server) collectResourceDiagnostics(result *diagnosticResult, analysis *resourceAnalysis) {
 	for _, source := range analysis.diagnostics {
-		diagnostic := source.diagnostic
-		diagnostic.Message = s.translate(diagnostic.Message)
-		result.addDiagnostics(s.toDocumentURI(source.filename), diagnostic)
+		result.addDiagnostics(s.toDocumentURI(source.filename), source.diagnostic)
 	}
 }
