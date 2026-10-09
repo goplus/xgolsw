@@ -17,6 +17,7 @@
 package xgo
 
 import (
+	"cmp"
 	"fmt"
 	gotypes "go/types"
 	"maps"
@@ -118,7 +119,47 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		})
 	}
 
+	// XGo completes interfaces before setting their named underlying types.
+	// Go 1.26 no longer rejects cycles during that early step. Check after
+	// recovering local declarations so unused local interfaces are covered too.
+	interfaceCycles := make(map[*gotypes.Interface]bool)
+	var cycleErrors []typesutil.Error
+	for obj, ident := range typeInfo.ObjToDef {
+		if name, ok := obj.(*gotypes.TypeName); ok && hasInterfaceEmbeddingCycle(name.Type(), interfaceCycles) {
+			cycleErrors = append(cycleErrors, typesutil.Error{
+				Fset: proj.Fset, Pos: ident.Pos(), End: ident.End(),
+				Msg: "invalid recursive interface " + name.Name(),
+			})
+		}
+	}
+	slices.SortFunc(cycleErrors, func(a, b typesutil.Error) int {
+		return cmp.Compare(a.Pos, b.Pos)
+	})
+	for _, err := range cycleErrors {
+		checkerErrs.Add(err)
+	}
 	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
+}
+
+// hasInterfaceEmbeddingCycle reports whether typ embeds an interface cycle.
+// The memo tracks interfaces being visited as cyclic until all their embedded
+// types have been checked. Method signatures are not embedding edges.
+func hasInterfaceEmbeddingCycle(typ gotypes.Type, memo map[*gotypes.Interface]bool) bool {
+	iface, ok := typ.Underlying().(*gotypes.Interface)
+	if !ok {
+		return false
+	}
+	if cyclic, seen := memo[iface]; seen {
+		return cyclic
+	}
+	memo[iface] = true
+	for embedded := range iface.EmbeddedTypes() {
+		if hasInterfaceEmbeddingCycle(embedded, memo) {
+			return true
+		}
+	}
+	memo[iface] = false
+	return false
 }
 
 // recordTypeSwitchDeclaration links the variables in each case scope to their

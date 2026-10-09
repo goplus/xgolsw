@@ -61,7 +61,7 @@ func IdentAtPosition(fset *token.FileSet, typeInfo *types.Info, astFile *ast.Fil
 	if position.Line < tokenFile.LineCount() {
 		lineEnd = tokenFile.LineStart(position.Line + 1)
 	} else {
-		lineEnd = token.Pos(tokenFile.Base() + tokenFile.Size())
+		lineEnd = tokenFile.End()
 	}
 
 	var (

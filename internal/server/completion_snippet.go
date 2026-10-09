@@ -4,7 +4,7 @@ var (
 	// generalCompletionSnippets contains statement snippets for XGo completion.
 	generalCompletionSnippets = []symbolDefinition{
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("for_iterate")},
+			ID:       XGoDefinitionIdentifier{Name: new("for_iterate")},
 			Overview: "for v in arr {}",
 			Detail:   "Iterate within given set",
 
@@ -14,7 +14,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("for_iterate_with_index")},
+			ID:       XGoDefinitionIdentifier{Name: new("for_iterate_with_index")},
 			Overview: "for i, v in arr {}",
 			Detail:   "Iterate with index within given set",
 
@@ -24,7 +24,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("for_loop_with_condition")},
+			ID:       XGoDefinitionIdentifier{Name: new("for_loop_with_condition")},
 			Overview: "for condition {}",
 			Detail:   "Loop with condition",
 
@@ -34,7 +34,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("for_loop_with_range")},
+			ID:       XGoDefinitionIdentifier{Name: new("for_loop_with_range")},
 			Overview: "for i in start:end {}",
 			Detail:   "Loop with range",
 
@@ -44,7 +44,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("if_statement")},
+			ID:       XGoDefinitionIdentifier{Name: new("if_statement")},
 			Overview: "if condition {}",
 			Detail:   "If statement",
 
@@ -54,7 +54,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("if_else_statement")},
+			ID:       XGoDefinitionIdentifier{Name: new("if_else_statement")},
 			Overview: "if condition {} else {}",
 			Detail:   "If else statement",
 
@@ -64,7 +64,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("var_declaration")},
+			ID:       XGoDefinitionIdentifier{Name: new("var_declaration")},
 			Overview: "var name type",
 			Detail:   "Variable declaration, e.g., `var count int`",
 
@@ -78,7 +78,7 @@ var (
 	// fileScopeCompletionSnippets contains declaration snippets available at file scope.
 	fileScopeCompletionSnippets = []symbolDefinition{
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("import_declaration")},
+			ID:       XGoDefinitionIdentifier{Name: new("import_declaration")},
 			Overview: "import \"package\"",
 			Detail:   "Import package declaration, e.g., `import \"fmt\"`",
 
@@ -88,7 +88,7 @@ var (
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
-			ID:       XGoDefinitionIdentifier{Name: ToPtr("func_declaration")},
+			ID:       XGoDefinitionIdentifier{Name: new("func_declaration")},
 			Overview: "func name(params) { ... }",
 			Detail:   "Function declaration, e.g., `func add(a int, b int) int {}`",
 

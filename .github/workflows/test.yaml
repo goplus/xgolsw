@@ -11,7 +11,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
+          go-version: 1.26.x
       - name: Download Go modules
         run: go mod download
       - name: Regenerate package data
@@ -34,7 +34,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
+          go-version: 1.26.x
       - name: Download Go modules
         run: go mod download
       - name: Check isolated test dependencies
@@ -59,7 +59,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
+          go-version: 1.26.x
       - name: Download Go modules
         run: go mod download
       - name: Build Go binary
@@ -75,7 +75,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
+          go-version: 1.26.x
       - name: Download Go modules
         run: go mod download
       - name: Test WebAssembly entry points without embedded package data

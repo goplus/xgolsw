@@ -1104,8 +1104,8 @@ func (r *definitionContext) definitionForEnumMembers(members ...*enumMemberInfo)
 		}
 		def = symbolDefinition{
 			ID: XGoDefinitionIdentifier{
-				Package: ToPtr(pkgPath),
-				Name:    ToPtr(first.ident.Name),
+				Package: new(pkgPath),
+				Name:    new(first.ident.Name),
 			},
 			Overview: "const " + first.ident.Name,
 

@@ -70,7 +70,7 @@ func TestDefinitionContextFrameworkAdaptation(t *testing.T) {
 	fun := requireValueAs[*gotypes.Func](t, method)
 	defs := ctx.definitionsFor(fun, "Item")
 	require.Len(t, defs, 1)
-	assert.Equal(t, ToPtr("Actor.label"), defs[0].ID.Name)
+	assert.Equal(t, new("Actor.label"), defs[0].ID.Name)
 	assert.Equal(t, "Framework method documentation.", defs[0].Detail)
 	assert.Equal(t, "Framework method documentation.", ctx.functionDocumentation(fun))
 	properties := slices.Collect(ctx.propertyObjects(named))
@@ -257,7 +257,7 @@ func TestInputSlotContextFrameworkResources(t *testing.T) {
 	resourceSlot := findInputSlot(slots, XGoResourceURI("test://resources/files/logo"), "", testResourceInputType, XGoInputKindInPlace)
 	require.NotNil(t, resourceSlot)
 	assert.Equal(t, Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 12}}, resourceSlot.Range)
-	assert.Equal(t, ToPtr(XGoResourceContextURI("test://resources/files")), resourceSlot.Accept.ResourceContext)
+	assert.Equal(t, new(XGoResourceContextURI("test://resources/files")), resourceSlot.Accept.ResourceContext)
 	assert.NotNil(t, findInputSlot(slots, "ordinary", "", XGoInputTypeString, XGoInputKindInPlace))
 	assert.Nil(t, resolveFrameworkAdapter(proj))
 }

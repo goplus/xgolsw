@@ -145,7 +145,7 @@ func (d typeDisplay) definitionForBuiltin(obj gotypes.Object, importer gotypes.I
 		TypeHint: obj.Type(),
 
 		ID: XGoDefinitionIdentifier{
-			Package: ToPtr(pkgPath),
+			Package: new(pkgPath),
 			Name:    &idName,
 		},
 		Overview: overview,
@@ -212,7 +212,7 @@ func (d typeDisplay) definitionForBuiltinAlias(alias string, importer gotypes.Im
 	}
 
 	def.ID = XGoDefinitionIdentifier{
-		Package: ToPtr("builtin"),
+		Package: new("builtin"),
 		Name:    &alias,
 	}
 	def.CompletionItemLabel = alias

@@ -675,8 +675,7 @@ func BenchmarkServerDocumentLinkWithLargeList(b *testing.B) {
 	})
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, err := s.textDocumentDocumentLink(params)
 		require.NoError(b, err)
 	}

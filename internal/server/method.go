@@ -227,8 +227,8 @@ func projectInterfaces(info *types.Info) iter.Seq[*gotypes.Interface] {
 			}
 		}
 		addTypeParams := func(params *gotypes.TypeParamList) {
-			for i := 0; i < params.Len(); i++ {
-				pending = append(pending, params.At(i).Constraint())
+			for tparam := range params.TypeParams() {
+				pending = append(pending, tparam.Constraint())
 			}
 		}
 		seen := make(map[gotypes.Type]bool)
@@ -243,8 +243,8 @@ func projectInterfaces(info *types.Info) iter.Seq[*gotypes.Interface] {
 			case *gotypes.Named:
 				pending = append(pending, typ.Underlying())
 				addTypeParams(typ.TypeParams())
-				for i := 0; i < typ.TypeArgs().Len(); i++ {
-					pending = append(pending, typ.TypeArgs().At(i))
+				for t := range typ.TypeArgs().Types() {
+					pending = append(pending, t)
 				}
 			case *gotypes.TypeParam:
 				pending = append(pending, typ.Constraint())
@@ -273,8 +273,8 @@ func projectInterfaces(info *types.Info) iter.Seq[*gotypes.Interface] {
 					pending = append(pending, recv.Type())
 				}
 			case *gotypes.Tuple:
-				for i := 0; i < typ.Len(); i++ {
-					pending = append(pending, typ.At(i).Type())
+				for v := range typ.Variables() {
+					pending = append(pending, v.Type())
 				}
 			case *gotypes.Struct:
 				for field := range typ.Fields() {

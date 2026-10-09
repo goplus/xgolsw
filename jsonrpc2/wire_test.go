@@ -2,11 +2,33 @@ package jsonrpc2
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestToWireError(t *testing.T) {
+	wire := &WireError{Code: -32602, Message: "invalid params", Data: new(json.RawMessage(`{"field":"name"}`))}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want *WireError
+	}{
+		{name: "Nil"},
+		{name: "Plain", err: errors.New("failure"), want: &WireError{Message: "failure"}},
+		{name: "Direct", err: wire, want: wire},
+		{name: "Wrapped", err: fmt.Errorf("request: %w", wire), want: &WireError{Code: wire.Code, Message: "request: invalid params"}},
+		{name: "Joined", err: errors.Join(errors.New("failure"), wire), want: &WireError{Code: wire.Code, Message: "failure\ninvalid params"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, toWireError(tt.err))
+		})
+	}
+	assert.Same(t, wire, toWireError(wire))
+}
 
 func TestIDJSONRoundTrip(t *testing.T) {
 	for _, tt := range []struct {

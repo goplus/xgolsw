@@ -372,7 +372,7 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 				Label:            "count",
 				Kind:             ConstantCompletion,
 				InsertText:       "count = ${1:}",
-				InsertTextFormat: ToPtr(SnippetTextFormat),
+				InsertTextFormat: new(SnippetTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
 					Range: Range{
 						Start: Position{Line: 1, Character: 2},
@@ -385,7 +385,7 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 				Label:            "count",
 				Kind:             TextCompletion,
 				InsertText:       "count",
-				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				InsertTextFormat: new(PlainTextTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
 					Range: Range{
 						Start: Position{Line: 1, Character: 2},
@@ -409,13 +409,13 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 				Label:            "count",
 				Kind:             ConstantCompletion,
 				InsertText:       "count = ${1:}",
-				InsertTextFormat: ToPtr(SnippetTextFormat),
+				InsertTextFormat: new(SnippetTextFormat),
 			}},
 			want: []CompletionItem{{
 				Label:            "count",
 				Kind:             ConstantCompletion,
 				InsertText:       "count = ${1:}",
-				InsertTextFormat: ToPtr(SnippetTextFormat),
+				InsertTextFormat: new(SnippetTextFormat),
 			}},
 		},
 		{
@@ -423,7 +423,7 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 			items: []CompletionItem{{
 				Label:            "move",
 				Kind:             FunctionCompletion,
-				InsertTextFormat: ToPtr(SnippetTextFormat),
+				InsertTextFormat: new(SnippetTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: InsertReplaceEdit{
 					NewText: "move ${1:steps}",
 					Insert:  Range{Start: Position{Line: 1, Character: 2}, End: Position{Line: 1, Character: 4}},
@@ -437,7 +437,7 @@ func TestAdaptCompletionItemsForClient(t *testing.T) {
 				Label:            "move",
 				Kind:             FunctionCompletion,
 				InsertText:       "move",
-				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				InsertTextFormat: new(PlainTextTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: InsertReplaceEdit{
 					NewText: "move",
 					Insert:  Range{Start: Position{Line: 1, Character: 2}, End: Position{Line: 1, Character: 4}},

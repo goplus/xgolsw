@@ -90,7 +90,7 @@ type Copy Item
 		require.NoError(t, err)
 		assert.Contains(t, properties, XGoProperty{
 			Name: "count", Type: "int", Kind: XGoPropertyKindField,
-			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Worker.count")},
+			Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Worker.count")},
 		})
 	})
 
@@ -135,19 +135,19 @@ func GetScore() int { return score }
 				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: tt.target})
 				require.NoError(t, err)
 				want := []XGoProperty{
-					{Name: "level", Type: "int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr(tt.target + ".level")}},
-					{Name: "score", Type: "int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr(tt.target + ".score")}},
-					{Name: "getScore", Type: "int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr(tt.target + ".GetScore")}},
+					{Name: "level", Type: "int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new(tt.target + ".level")}},
+					{Name: "score", Type: "int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new(tt.target + ".score")}},
+					{Name: "getScore", Type: "int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new(tt.target + ".GetScore")}},
 				}
 				if tt.name == "WorkClass" {
 					want = append(want,
-						XGoProperty{Name: "Value", Type: "int", Kind: XGoPropertyKindField, Doc: "Value stores the work item's value.\n", Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.Value")}},
-						XGoProperty{Name: "Worker", Type: "*Worker", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("App.Worker")}},
+						XGoProperty{Name: "Value", Type: "int", Kind: XGoPropertyKindField, Doc: "Value stores the work item's value.\n", Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.Value")}},
+						XGoProperty{Name: "Worker", Type: "*Worker", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("App.Worker")}},
 					)
 					want = append(want, XGoProperty{
 						Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
 						Doc:        "Label is exposed as a property in XGo source.\n",
-						Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")},
+						Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.label")},
 					})
 				}
 				assert.ElementsMatch(t, want, properties)
@@ -206,7 +206,7 @@ func (r *Record) XGo_Internal() int { return 0 }
 			{"currentList", "List", "CurrentList", XGoPropertyKindMethod},
 		} {
 			assert.Contains(t, properties, XGoProperty{Name: tt.name, Type: tt.typ, Kind: tt.kind,
-				Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record." + tt.definition)}})
+				Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record." + tt.definition)}})
 		}
 	})
 
@@ -237,10 +237,10 @@ type AliasPointer = *RecordAlias
 			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: target})
 			require.NoError(t, err)
 			assert.Equal(t, []XGoProperty{
-				{Name: "Score", Type: "int", Kind: XGoPropertyKindField, Doc: "Score stores the base score.\n", Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Score")}},
-				{Name: "Shared", Type: "string", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Shared")}},
-				{Name: "label", Type: "string", Kind: XGoPropertyKindMethod, Doc: "Label describes the base.\n", Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Label")}},
-				{Name: "size", Type: "string", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Size")}},
+				{Name: "Score", Type: "int", Kind: XGoPropertyKindField, Doc: "Score stores the base score.\n", Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Base.Score")}},
+				{Name: "Shared", Type: "string", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Shared")}},
+				{Name: "label", Type: "string", Kind: XGoPropertyKindMethod, Doc: "Label describes the base.\n", Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Base.Label")}},
+				{Name: "size", Type: "string", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Size")}},
 			}, properties, target)
 		}
 	})
@@ -255,7 +255,7 @@ type AliasPointer = *RecordAlias
 			{
 				name:   "SliceField",
 				source: "type Base struct { Keep, Count int }\ntype Record struct { *Base; Count []int }\n",
-				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Count")}},
+				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Count")}},
 			},
 			{
 				name:   "MethodWithParameter",
@@ -272,12 +272,12 @@ type AliasPointer = *RecordAlias
 			{
 				name:   "MethodWithSliceResult",
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base }\nfunc (r *Record) Size() []int { return nil }\n",
-				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Size")}},
+				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Size")}},
 			},
 			{
 				name:   "FieldShadowsMethod",
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base; size []int }\n",
-				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.size")}},
+				want:   &XGoProperty{Name: "size", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.size")}},
 			},
 			{
 				name:   "MethodShadowsField",
@@ -298,27 +298,27 @@ type AliasPointer = *RecordAlias
 			{
 				name:   "IntermediateMember",
 				source: "type Base struct { Keep, Count int }\ntype Middle struct { *Base; Count []int }\ntype Record struct { *Middle }\n",
-				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Middle.Count")}},
+				want:   &XGoProperty{Name: "Count", Type: "[]int", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Middle.Count")}},
 			},
 			{
 				name:   "DifferentCase",
 				source: "type Base struct { Keep int }\nfunc (b *Base) Size() int { return 1 }\ntype Record struct { *Base; Size []int }\n",
 				want: &XGoProperty{Name: "size", Type: "int", Kind: XGoPropertyKindMethod,
-					Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Size")}},
+					Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Base.Size")}},
 			},
 			{
 				name: "ImportedPrivateField", newServer: newFrameworkTestServer,
 				source: "import f \"example.com/framework\"\ntype Base struct { Keep int }\ntype Record struct { *Base; f.PrivateField }\n",
 				want: &XGoProperty{Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
 					Doc:        "Label is exposed as a property in XGo source.\n",
-					Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")}},
+					Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.label")}},
 			},
 			{
 				name: "ImportedPrivateMethod", newServer: newFrameworkTestServer,
 				source: "import f \"example.com/framework\"\ntype Base struct { Keep int }\ntype Record struct { *Base; f.PrivateMethod }\n",
 				want: &XGoProperty{Name: "label", Type: "string", Kind: XGoPropertyKindMethod,
 					Doc:        "Label is exposed as a property in XGo source.\n",
-					Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")}},
+					Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.label")}},
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -331,18 +331,18 @@ type AliasPointer = *RecordAlias
 				info, err := proj.TypeInfo()
 				require.NoError(t, err)
 				want := []XGoProperty{{Name: "Keep", Type: "int", Kind: XGoPropertyKindField,
-					Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Base.Keep")}}}
+					Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Base.Keep")}}}
 				if tt.want != nil {
 					want = append(want, *tt.want)
 				}
 				if tt.name == "DifferentCase" {
 					want = append(want, XGoProperty{Name: "Size", Type: "[]int", Kind: XGoPropertyKindField,
-						Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Size")}})
+						Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Size")}})
 				}
 				if tt.name == "ImportedPrivateField" || tt.name == "ImportedPrivateMethod" {
 					want = append(want, XGoProperty{Name: "Value", Type: "int", Kind: XGoPropertyKindField,
 						Doc:        "Value stores the work item's value.\n",
-						Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.Value")}})
+						Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.Value")}})
 				}
 				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
 				require.NoError(t, err)
@@ -381,7 +381,7 @@ type Record struct { framework.Item }
 			require.Len(t, properties, 2)
 			assert.Equal(t, XGoProperty{
 				Name: "label", Type: "string", Kind: XGoPropertyKindMethod, Doc: wantDoc,
-				Definition: XGoDefinitionIdentifier{Package: ToPtr("example.com/framework"), Name: ToPtr("Item.label")},
+				Definition: XGoDefinitionIdentifier{Package: new("example.com/framework"), Name: new("Item.label")},
 			}, properties[1])
 		}
 	})
@@ -416,7 +416,7 @@ var count int
 		require.NoError(t, err)
 		assert.Equal(t, []XGoProperty{{
 			Name: "Before", Type: "int", Kind: XGoPropertyKindField,
-			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Before")},
+			Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Before")},
 		}}, before)
 		s.ModifyFiles([]FileChange{{Path: "Record.gox", Content: []byte("var After string\nAfter = missing\n"), Version: 1}})
 		after, err := s.xgoGetProperties(params)
@@ -426,7 +426,7 @@ var count int
 		require.NotNil(t, typeInfo)
 		assert.Equal(t, []XGoProperty{{
 			Name: "After", Type: "string", Kind: XGoPropertyKindField,
-			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.After")},
+			Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.After")},
 		}}, after)
 	})
 
@@ -439,7 +439,7 @@ var count int
 		properties := requireValueAs[[]XGoProperty](t, result)
 		assert.Equal(t, []XGoProperty{{
 			Name: "Count", Type: "int", Kind: XGoPropertyKindField,
-			Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Record.Count")},
+			Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Record.Count")},
 		}}, properties)
 	})
 }

@@ -142,7 +142,7 @@ func TestServerDocumentURIDiagnostics(t *testing.T) {
 				}))
 				synctest.Wait()
 				assert.Empty(t, requirePublishedDiagnostics(t, replier, canonical))
-				require.NoError(t, s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Text: ToPtr(source)}))
+				require.NoError(t, s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Text: new(source)}))
 				synctest.Wait()
 				assert.NotEmpty(t, requirePublishedDiagnostics(t, replier, canonical))
 				require.NoError(t, s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}}))

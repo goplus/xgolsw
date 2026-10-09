@@ -100,7 +100,7 @@ echo value.|%[2]s
 								TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 							})
 							require.NoError(t, err)
-							assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+							assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 						})
 					}
 				})
@@ -131,5 +131,5 @@ func TestServerBuiltinInterfaceMember(t *testing.T) {
 	assert.Contains(t, doc.Value, "func error() string")
 	links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 	require.NoError(t, err)
-	assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+	assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 }

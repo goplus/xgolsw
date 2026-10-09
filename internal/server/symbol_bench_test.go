@@ -65,8 +65,7 @@ func BenchmarkServerSymbolRequests(b *testing.B) {
 					}
 					run()
 					b.ReportAllocs()
-					b.ResetTimer()
-					for range b.N {
+					for b.Loop() {
 						run()
 					}
 				})
@@ -91,8 +90,7 @@ func BenchmarkProjectSymbolAnalysis(b *testing.B) {
 				// Each snapshot shares completed types, but starts with cold symbol
 				// caches. This measures indexing separately from type checking.
 				b.ReportAllocs()
-				b.ResetTimer()
-				for range b.N {
+				for b.Loop() {
 					proj := base.Snapshot()
 					source, err := sourceInfoForProject(proj)
 					require.NoError(b, err)

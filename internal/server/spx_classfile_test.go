@@ -51,7 +51,7 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: uri}}})
 				require.NoError(t, err)
 				require.NotEmpty(t, slots)
-				assert.Equal(t, ToPtr(FormatSpxSpriteCostumeResourceContextURI(tt.className)), slots[0].Accept.ResourceContext)
+				assert.Equal(t, new(FormatSpxSpriteCostumeResourceContextURI(tt.className)), slots[0].Accept.ResourceContext)
 			}
 			changes, err := s.renameSpxResource(s.getProj(), result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
 			require.NoError(t, err)

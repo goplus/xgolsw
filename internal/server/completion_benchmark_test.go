@@ -37,8 +37,7 @@ func BenchmarkServerTextDocumentCompletionMembers(b *testing.B) {
 				require.Len(b, items, size)
 
 				b.ReportAllocs()
-				b.ResetTimer()
-				for range b.N {
+				for b.Loop() {
 					_, err := s.textDocumentCompletion(params)
 					require.NoError(b, err)
 				}
@@ -95,8 +94,7 @@ func BenchmarkServerTextDocumentCompletionPackages(b *testing.B) {
 			require.NotNil(b, completionItemByLabel(items, tt.label))
 
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				_, err := s.textDocumentCompletion(params)
 				require.NoError(b, err)
 			}

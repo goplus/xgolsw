@@ -1863,8 +1863,7 @@ func BenchmarkServerGetInputSlotsWithLargeList(b *testing.B) {
 	require.Len(b, slots, slotCount)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, err := server.xgoGetInputSlots(params)
 		require.NoError(b, err)
 	}
@@ -1882,8 +1881,7 @@ func BenchmarkServerGetInputSlotsWithMixedLargeList(b *testing.B) {
 	require.Len(b, slots, expressionCount*3)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, err := server.xgoGetInputSlots(params)
 		require.NoError(b, err)
 	}
@@ -1906,8 +1904,7 @@ func BenchmarkServerGetInputSlotsWithMixedLiteral(b *testing.B) {
 			require.NoError(b, err)
 			require.Len(b, slots, expressionCount*3)
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				_, err := server.xgoGetInputSlots(params)
 				require.NoError(b, err)
 			}

@@ -54,7 +54,7 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 					slot := findInputSlot(slots, id.URI(), "", SpxInputTypeResourceName, XGoInputKindInPlace)
 					require.NotNil(t, slot)
 					assert.Equal(t, SpxInputTypeResourceName, slot.Accept.Type)
-					assert.Equal(t, ToPtr(SpxSoundResourceContextURI), slot.Accept.ResourceContext)
+					assert.Equal(t, new(SpxSoundResourceContextURI), slot.Accept.ResourceContext)
 					assert.Equal(t, wantRange, slot.Range)
 
 					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})

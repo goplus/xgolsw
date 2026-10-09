@@ -216,8 +216,8 @@ func XGot_App_Label[T any](a interface{ Value() T }) T { return a.Value() }
 			state.objects = append(state.objects, scope.Lookup(name))
 		}
 		scopes[scope] = state
-		for i := range scope.NumChildren() {
-			record(scope.Child(i))
+		for child := range scope.Children() {
+			record(child)
 		}
 	}
 	record(info.Pkg.Scope())

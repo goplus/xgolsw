@@ -184,7 +184,7 @@ func TestServerSpxSymbolDefinitions(t *testing.T) {
 			}
 			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 			require.NoError(t, err)
-			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 			position.Character += uint32(len("read("))
 			help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,

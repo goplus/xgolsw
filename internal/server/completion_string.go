@@ -22,7 +22,7 @@ func (ctx *completionContext) setCompletionStringValue(item *CompletionItem, val
 	// Dollar signs introduce interpolation and dollar escapes in XGo strings.
 	quoted = strings.ReplaceAll(quoted, "$", `\x24`)
 	item.InsertText = quoted
-	item.InsertTextFormat = ToPtr(PlainTextTextFormat)
+	item.InsertTextFormat = new(PlainTextTextFormat)
 	if !ctx.inStringLit {
 		return true
 	}

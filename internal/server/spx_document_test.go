@@ -222,8 +222,7 @@ func BenchmarkServerDocumentLinkWithLargeListSpx(b *testing.B) {
 	require.Contains(b, documentLinkTargets(b, links), "spx://resources/sounds/KnownSound")
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, err := server.textDocumentDocumentLink(params)
 		require.NoError(b, err)
 	}

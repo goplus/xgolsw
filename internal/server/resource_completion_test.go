@@ -46,7 +46,7 @@ func TestCompletionContextCollectResourceNames(t *testing.T) {
 				ctx.collectResourceNames([]resourceID{testResourceID{"scenes", tt.resource}})
 				require.Len(t, ctx.itemSet.items, 1)
 				item := ctx.itemSet.items[0]
-				assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(PlainTextTextFormat), item.InsertTextFormat)
 				if tt.name == "EscapedPrefix" {
 					assert.Equal(t, `"re\x73ource"`, item.FilterText)
 				} else if ctx.stringLit != nil {

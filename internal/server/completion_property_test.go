@@ -51,7 +51,7 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 				for _, item := range ctx.itemSet.items {
 					assert.Equal(t, PropertyCompletion, item.Kind)
 					assert.Equal(t, item.Label, item.InsertText)
-					assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+					assert.Equal(t, new(PlainTextTextFormat), item.InsertTextFormat)
 					assert.Nil(t, item.TextEdit)
 					data := requireValueAs[*CompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
@@ -64,7 +64,7 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 						doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
 						assert.Contains(t, doc.Value, "Label is exposed as a property in XGo source.")
 					} else {
-						assert.Equal(t, ToPtr("main"), data.Definition.Package)
+						assert.Equal(t, new("main"), data.Definition.Package)
 					}
 				}
 			})

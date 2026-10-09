@@ -39,7 +39,7 @@ func TestGenerate(t *testing.T) {
 			t.Chdir(t.TempDir())
 			t.Setenv("CGO_ENABLED", "1")
 			t.Setenv("GOFLAGS", tt.goFlags)
-			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
+			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
 			for name, source := range map[string]string{
 				"fixture.go": "// Package " + tt.pkgName + " provides fixture values.\npackage " + tt.pkgName + `
 
@@ -141,7 +141,7 @@ func (r Record) Backend() string { return Mode }
 		source, err := os.ReadFile(filepath.Join("..", "..", "internal", "testframework", "testdata", "framework.go"))
 		require.NoError(t, err)
 		t.Chdir(t.TempDir())
-		require.NoError(t, os.WriteFile("go.mod", []byte("module "+testframework.PkgPath+"\n\ngo 1.25.0\n"), 0o644))
+		require.NoError(t, os.WriteFile("go.mod", []byte("module "+testframework.PkgPath+"\n\ngo 1.26.0\n"), 0o644))
 		require.NoError(t, os.WriteFile("framework.go", source, 0o644))
 		require.NoError(t, generate([]string{testframework.PkgPath}, "pkgdata.zip"))
 		zr, err := zip.OpenReader("pkgdata.zip")
@@ -277,7 +277,7 @@ func (r Record) Backend() string { return Mode }
 		t.Run(tt.name, func(t *testing.T) {
 			const pkgPath = "example.com/fixture"
 			t.Chdir(t.TempDir())
-			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
+			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
 			if tt.filename != "" {
 				require.NoError(t, os.WriteFile(tt.filename, []byte("package fixture\nconst Value = 1\n"), 0o644))
 			}
@@ -294,7 +294,7 @@ func (r Record) Backend() string { return Mode }
 	t.Run("InvalidPackage", func(t *testing.T) {
 		const pkgPath = "example.com/invalid"
 		t.Chdir(t.TempDir())
-		require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.25.0\n"), 0o644))
+		require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
 		require.NoError(t, os.WriteFile("invalid.go", []byte("package invalid\nconst Value int = \"invalid\"\n"), 0o644))
 		err := generate([]string{pkgPath}, "pkgdata.zip")
 		require.ErrorContains(t, err, "failed to execute go command")
@@ -304,7 +304,7 @@ func (r Record) Backend() string { return Mode }
 
 	t.Run("PackagePattern", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/fixture\n\ngo 1.25.0\n"), 0o644))
+		require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/fixture\n\ngo 1.26.0\n"), 0o644))
 		require.NoError(t, os.WriteFile("fixture.go", []byte("package fixture\nconst Value = 1\n"), 0o644))
 		require.NoError(t, os.Mkdir("child", 0o755))
 		require.NoError(t, os.WriteFile("child/child.go", []byte("package child\nconst Value = 2\n"), 0o644))

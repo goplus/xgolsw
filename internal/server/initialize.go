@@ -28,7 +28,7 @@ func (s *Server) initialize(params *InitializeParams) (*InitializeResult, error)
 func serverCapabilities(params *InitializeParams) ServerCapabilities {
 	textDocument := params.Capabilities.TextDocument
 	capabilities := ServerCapabilities{
-		PositionEncoding: ToPtr(protocol.UTF16),
+		PositionEncoding: new(protocol.UTF16),
 		TextDocumentSync: protocol.TextDocumentSyncOptions{
 			OpenClose: true,
 			Change:    protocol.Incremental,

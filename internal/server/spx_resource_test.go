@@ -58,7 +58,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 		assert.Same(t, &sprite.Costumes[1], sprite.Costume("step"))
 		assert.Equal(t, &SpxSpriteAnimationResource{
 			ID:   SpxSpriteAnimationResourceID{SpriteName: "Runner", AnimationName: "walk"},
-			Name: "walk", FromIndex: ToPtr(1), ToIndex: ToPtr(1),
+			Name: "walk", FromIndex: new(1), ToIndex: new(1),
 		}, sprite.Animation("walk"))
 		other := set.Sprite("Other")
 		require.NotNil(t, other)
@@ -121,24 +121,24 @@ func TestNewSpxResourceSet(t *testing.T) {
 		}{
 			{
 				name: "Range", animations: `{"walk":{"frameFrom":"b","frameTo":"c"}}`,
-				wantFrom: ToPtr(1), wantTo: ToPtr(2), wantNormal: []string{"a", "d"},
+				wantFrom: new(1), wantTo: new(2), wantNormal: []string{"a", "d"},
 			},
 			{
 				name: "SingleFrame", animations: `{"walk":{"frameFrom":"a","frameTo":"a"}}`,
-				wantFrom: ToPtr(0), wantTo: ToPtr(0), wantNormal: []string{"b", "c", "d"},
+				wantFrom: new(0), wantTo: new(0), wantNormal: []string{"b", "c", "d"},
 			},
 			{
 				name:       "OverlappingRanges",
 				animations: `{"walk":{"frameFrom":"a","frameTo":"c"},"run":{"frameFrom":"b","frameTo":"d"}}`,
-				wantFrom:   ToPtr(0), wantTo: ToPtr(2),
+				wantFrom:   new(0), wantTo: new(2),
 			},
 			{
 				name: "MissingFrom", animations: `{"walk":{"frameFrom":"missing","frameTo":"c"}}`,
-				wantTo: ToPtr(2), wantNormal: []string{"a", "b", "c", "d"},
+				wantTo: new(2), wantNormal: []string{"a", "b", "c", "d"},
 			},
 			{
 				name: "MissingTo", animations: `{"walk":{"frameFrom":"b","frameTo":"missing"}}`,
-				wantFrom: ToPtr(1), wantNormal: []string{"a", "b", "c", "d"},
+				wantFrom: new(1), wantNormal: []string{"a", "b", "c", "d"},
 			},
 			{
 				name: "MissingBoth", animations: `{"walk":{}}`,
@@ -146,7 +146,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 			},
 			{
 				name: "ReversedRange", animations: `{"walk":{"frameFrom":"c","frameTo":"b"}}`,
-				wantFrom: ToPtr(2), wantTo: ToPtr(1), wantNormal: []string{"a", "b", "c", "d"},
+				wantFrom: new(2), wantTo: new(1), wantNormal: []string{"a", "b", "c", "d"},
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -242,7 +242,7 @@ func TestNewSpxResourceSet(t *testing.T) {
 		*first.Sprite("Runner").Animation("rest").FromIndex = 10
 		assert.Equal(t, "Studio", second.Backdrop("Studio").Name)
 		assert.Equal(t, "idle", second.Sprite("Runner").Costumes[0].Name)
-		assert.Equal(t, ToPtr(0), second.Sprite("Runner").Animation("rest").FromIndex)
+		assert.Equal(t, new(0), second.Sprite("Runner").Animation("rest").FromIndex)
 
 		proj.PutFile("assets/index.json", &xgo.File{Content: []byte(`{}`)})
 		require.NoError(t, proj.DeleteFile("assets/sprites/Runner/index.json"))

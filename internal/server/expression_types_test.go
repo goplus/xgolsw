@@ -235,8 +235,7 @@ func BenchmarkBuildExpressionTypesCache(b *testing.B) {
 				require.NoError(b, err)
 				// Measure building a fresh value-type view of completed compiler data.
 				b.ReportAllocs()
-				b.ResetTimer()
-				for range b.N {
+				for b.Loop() {
 					_, err := buildExpressionTypesCache(proj)
 					require.NoError(b, err)
 				}
