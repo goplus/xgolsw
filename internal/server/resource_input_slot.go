@@ -16,7 +16,7 @@ func (r *resourceAnalysis) createResourceInputSlot(ctx *inputSlotContext, lit *a
 		}
 		return &XGoInputSlot{
 			Kind:   XGoInputSlotKindValue,
-			Accept: XGoInputSlotAccept{Type: inputType, ResourceContext: ToPtr(ref.ID.ContextURI())},
+			Accept: XGoInputSlotAccept{Type: inputType, ResourceContext: new(ref.ID.ContextURI())},
 			Input: XGoInput{
 				Kind:  XGoInputKindInPlace,
 				Type:  inputType,

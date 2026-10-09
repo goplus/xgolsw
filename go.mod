@@ -1,6 +1,6 @@
 module github.com/goplus/xgolsw
 
-go 1.25.0
+go 1.26.0
 
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
@@ -11,9 +11,9 @@ require (
 	github.com/goplus/xgo v1.7.6-0.20260818050008-fd36b6192e30
 	github.com/qiniu/x v1.18.3
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/mod v0.40.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/tools v0.49.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/tools v0.50.0
 )
 
 require (

@@ -83,22 +83,22 @@ func GetDamage() int { return 10 }
 			require.NoError(t, err)
 			assert.Contains(t, properties, XGoProperty{
 				Name: tt.field, Type: "int", Kind: XGoPropertyKindField,
-				Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr(tt.target + "." + tt.field)},
+				Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new(tt.target + "." + tt.field)},
 			})
 			idx := slices.IndexFunc(properties, func(property XGoProperty) bool { return property.Name == "volume" })
 			require.NotEqual(t, -1, idx, "volume")
 			volume := properties[idx]
 			assert.Equal(t, XGoPropertyKindMethod, volume.Kind)
 			assert.NotEmpty(t, volume.Doc, "%s.volume", tt.target)
-			assert.Equal(t, XGoDefinitionIdentifier{Package: ToPtr(SpxPkgPath), Name: ToPtr(tt.owner + ".volume")}, volume.Definition)
+			assert.Equal(t, XGoDefinitionIdentifier{Package: new(SpxPkgPath), Name: new(tt.owner + ".volume")}, volume.Definition)
 			if tt.target == "MySprite" {
 				assert.Contains(t, properties, XGoProperty{
 					Name: "xpos", Type: "float64", Kind: XGoPropertyKindMethod,
-					Definition: XGoDefinitionIdentifier{Package: ToPtr(SpxPkgPath), Name: ToPtr("Sprite.xpos")},
+					Definition: XGoDefinitionIdentifier{Package: new(SpxPkgPath), Name: new("Sprite.xpos")},
 				})
 				assert.Contains(t, properties, XGoProperty{
 					Name: "getDamage", Type: "int", Kind: XGoPropertyKindMethod,
-					Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("MySprite.GetDamage")},
+					Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("MySprite.GetDamage")},
 				})
 			}
 		}
@@ -119,10 +119,10 @@ func CurrentList() List { return list }
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Game"})
 		require.NoError(t, err)
 		for _, want := range []XGoProperty{
-			{Name: "value", Type: "Value", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Game.value")}},
-			{Name: "list", Type: "List", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Game.list")}},
-			{Name: "currentValue", Type: "Value", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Game.CurrentValue")}},
-			{Name: "currentList", Type: "List", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: ToPtr("main"), Name: ToPtr("Game.CurrentList")}},
+			{Name: "value", Type: "Value", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Game.value")}},
+			{Name: "list", Type: "List", Kind: XGoPropertyKindField, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Game.list")}},
+			{Name: "currentValue", Type: "Value", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Game.CurrentValue")}},
+			{Name: "currentList", Type: "List", Kind: XGoPropertyKindMethod, Definition: XGoDefinitionIdentifier{Package: new("main"), Name: new("Game.CurrentList")}},
 		} {
 			assert.Contains(t, properties, want)
 		}

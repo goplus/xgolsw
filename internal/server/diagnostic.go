@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"iter"
@@ -16,7 +17,7 @@ import (
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
-	"github.com/qiniu/x/errors"
+	xerrors "github.com/qiniu/x/errors"
 )
 
 // diagnosticResult contains diagnostic messages for project documents.
@@ -109,8 +110,7 @@ func (s *Server) collectSyntaxDiagnostics(proj *xgo.Project, filename string, re
 	if err == nil || errors.Is(err, fs.ErrNotExist) {
 		return astFile
 	}
-	var errorList scanner.ErrorList
-	if errors.As(err, &errorList) && astFile != nil && astFile.Pos().IsValid() {
+	if errorList, ok := errors.AsType[scanner.ErrorList](err); ok && astFile != nil && astFile.Pos().IsValid() {
 		file := xgoutil.NodeTokenFile(proj.Fset, astFile)
 		for _, e := range errorList {
 			position := file.PositionFor(file.Pos(e.Pos.Offset), false)
@@ -163,7 +163,7 @@ func (s *Server) collectTypeDiagnostics(proj *xgo.Project, result *diagnosticRes
 	}
 	typeInfo, err := proj.TypeInfo()
 	switch err := err.(type) {
-	case errors.List:
+	case xerrors.List:
 		for _, e := range err {
 			handleErr(e)
 		}

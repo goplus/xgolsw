@@ -116,7 +116,7 @@ func TestServerUnnamedStructLiteralCompletion(t *testing.T) {
 			for _, item := range items {
 				assert.Equal(t, FieldCompletion, item.Kind)
 				assert.Equal(t, item.Label+": ${1:}", item.InsertText)
-				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(SnippetTextFormat), item.InsertTextFormat)
 			}
 			if tt.name == "Direct" {
 				item := completionItemByLabel(items, "Value")

@@ -134,8 +134,8 @@ func (r *definitionContext) definitionsForMember(member xgoutil.StructMember) []
 		selector := member.Selector.Obj()
 		name := r.frameworkDisplayTypeName(selector, selector.Name())
 		for i := range defs {
-			defs[i].ID.Package = ToPtr(xgoutil.PkgPath(selector.Pkg()))
-			defs[i].ID.Name = ToPtr(name + "." + defs[i].CompletionItemLabel)
+			defs[i].ID.Package = new(xgoutil.PkgPath(selector.Pkg()))
+			defs[i].ID.Name = new(name + "." + defs[i].CompletionItemLabel)
 		}
 	}
 	return defs

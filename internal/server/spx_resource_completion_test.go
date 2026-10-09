@@ -63,7 +63,7 @@ func TestSpxAnalysisCollectSpxResourceNames(t *testing.T) {
 						}
 						assert.Equal(t, CompletionItem{
 							Label: label, Kind: TextCompletion, InsertText: label,
-							InsertTextFormat: ToPtr(PlainTextTextFormat),
+							InsertTextFormat: new(PlainTextTextFormat),
 							Documentation:    completionDocumentation(MarkupContent{Kind: kind, Value: value}),
 						}, *item)
 					}
@@ -168,7 +168,7 @@ func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
 					assert.Equal(t, 1, countCompletionItemLabel(items, label))
 					assert.Equal(t, TextCompletion, item.Kind)
 					assert.Equal(t, label, item.InsertText)
-					assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+					assert.Equal(t, new(PlainTextTextFormat), item.InsertTextFormat)
 				}
 				for _, label := range tt.absent {
 					assert.NotContains(t, completionItemLabels(items), label)

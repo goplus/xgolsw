@@ -1423,7 +1423,7 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 					"Multiplier: `"+spec.Factor+"`",
 					"Multiplier: "+spec.Factor,
 				)),
-				InsertTextFormat: ToPtr(PlainTextTextFormat),
+				InsertTextFormat: new(PlainTextTextFormat),
 				TextEdit: &Or_CompletionItem_textEdit{Value: TextEdit{
 					Range:   completionRange,
 					NewText: spec.Name,
@@ -1518,13 +1518,13 @@ func (ctx *completionContext) collectSelect() error {
 			Label:            "case",
 			Kind:             KeywordCompletion,
 			InsertText:       "case ${1:ch} <- ${2:value}:$0",
-			InsertTextFormat: ToPtr(SnippetTextFormat),
+			InsertTextFormat: new(SnippetTextFormat),
 		},
 		CompletionItem{
 			Label:            "default",
 			Kind:             KeywordCompletion,
 			InsertText:       "default:$0",
-			InsertTextFormat: ToPtr(SnippetTextFormat),
+			InsertTextFormat: new(SnippetTextFormat),
 		},
 	)
 	return nil
@@ -1568,7 +1568,7 @@ func adaptCompletionItemsForClient(capabilities CompletionClientCapabilities, it
 			!capabilities.CompletionItem.SnippetSupport {
 			item.InsertText = item.Label
 			item.TextEdit = plainTextCompletionTextEdit(item.Label, item.TextEdit)
-			item.InsertTextFormat = ToPtr(PlainTextTextFormat)
+			item.InsertTextFormat = new(PlainTextTextFormat)
 		}
 		if !completionItemKindSupportedByClient(capabilities, item.Kind) {
 			item.Kind = TextCompletion

@@ -41,14 +41,14 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 		return nil, nil
 	}
 	if kwargTarget != nil {
-		return ToPtr(RangeForNode(proj, kwargTarget.ident)), nil
+		return new(RangeForNode(proj, kwargTarget.ident)), nil
 	}
 	defIdent := typeInfo.ObjToDef[obj]
 	if defIdent == nil || defIdent.Implicit() || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
 		return nil, nil
 	}
 
-	return ToPtr(RangeForNode(proj, ident)), nil
+	return new(RangeForNode(proj, ident)), nil
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_rename

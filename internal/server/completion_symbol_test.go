@@ -240,8 +240,8 @@ type RecordList = []Record
 					}
 					data := requireValueAs[*CompletionItemData](t, item.Data)
 					require.NotNil(t, data.Definition)
-					assert.Equal(t, ToPtr(testframework.PkgPath), data.Definition.Package)
-					assert.Equal(t, ToPtr("App.measure"), data.Definition.Name)
+					assert.Equal(t, new(testframework.PkgPath), data.Definition.Package)
+					assert.Equal(t, new("App.measure"), data.Definition.Name)
 					require.NotNil(t, data.Definition.OverloadID)
 					overloads[*data.Definition.OverloadID] = item
 				}
@@ -258,7 +258,7 @@ type RecordList = []Record
 					require.True(t, ok, overload.id)
 					assert.Equal(t, FunctionCompletion, item.Kind)
 					assert.Equal(t, "measure", item.InsertText)
-					assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+					assert.Equal(t, new(PlainTextTextFormat), item.InsertTextFormat)
 					require.NotNil(t, item.Documentation)
 					doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
 					assert.Contains(t, doc.Value, `overview="func measure(value `+overload.typeName+`) int"`)
@@ -656,12 +656,12 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 10, Character: 3})
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Runner.Run"),
+			Package: new("main"),
+			Name:    new("Runner.Run"),
 		}))
 		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MyRunner.Run"),
+			Package: new("main"),
+			Name:    new("MyRunner.Run"),
 		}))
 	})
 
@@ -688,12 +688,12 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 12, Character: 3})
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Runner.Run"),
+			Package: new("main"),
+			Name:    new("Runner.Run"),
 		}))
 		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MyRunner.Run"),
+			Package: new("main"),
+			Name:    new("MyRunner.Run"),
 		}))
 	})
 
@@ -716,12 +716,12 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 8, Character: 3})
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("fmt"),
-			Name:    ToPtr("Stringer.string"),
+			Package: new("fmt"),
+			Name:    new("Stringer.string"),
 		}))
 		assert.False(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("MyStringer.String"),
+			Package: new("main"),
+			Name:    new("MyStringer.String"),
 		}))
 	})
 
@@ -746,7 +746,7 @@ func main() {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.X" {
 				assert.Equal(t, "X: ${1:}", item.InsertText)
-				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false
@@ -755,7 +755,7 @@ func main() {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.Y" {
 				assert.Equal(t, "Y: ${1:}", item.InsertText)
-				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false
@@ -785,7 +785,7 @@ func main() {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:main?Point.X" {
 				assert.Equal(t, "X: ${1:}", item.InsertText)
-				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false
@@ -813,12 +813,12 @@ func main() {
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 10, Character: 3})
 		assert.NotEmpty(t, items)
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Point.X"),
+			Package: new("main"),
+			Name:    new("Point.X"),
 		}))
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: ToPtr("main"),
-			Name:    ToPtr("Point.Y"),
+			Package: new("main"),
+			Name:    new("Point.Y"),
 		}))
 	})
 
@@ -840,7 +840,7 @@ func main() {
 			itemData, ok := item.Data.(*CompletionItemData)
 			if ok && itemData.Definition.String() == "xgo:image/color?RGBA.R" {
 				assert.Equal(t, "R: ${1:}", item.InsertText)
-				assert.Equal(t, ToPtr(SnippetTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(SnippetTextFormat), item.InsertTextFormat)
 				return true
 			}
 			return false

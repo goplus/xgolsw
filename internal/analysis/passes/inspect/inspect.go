@@ -37,7 +37,7 @@ var Analyzer = &protocol.Analyzer{
 	URL:              "https://pkg.go.dev/github.com/goplus/builder/internal/analysis/passes/inspect",
 	Run:              run,
 	RunDespiteErrors: true,
-	ResultType:       reflect.TypeOf(new(inspector.Inspector)),
+	ResultType:       reflect.TypeFor[*inspector.Inspector](),
 }
 
 func run(pass *protocol.Pass) (any, error) {

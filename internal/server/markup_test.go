@@ -54,7 +54,7 @@ func TestResourceMarkupContent(t *testing.T) {
 
 func TestSymbolDefinitionMarkupContent(t *testing.T) {
 	def := symbolDefinition{
-		ID:       XGoDefinitionIdentifier{Name: ToPtr("count")},
+		ID:       XGoDefinitionIdentifier{Name: new("count")},
 		Overview: "var count int",
 		Detail:   "count is a variable.\n",
 	}

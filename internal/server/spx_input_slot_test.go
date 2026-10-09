@@ -39,7 +39,7 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 				require.Len(t, slots, 1)
 				slot := slots[0]
 				context := XGoResourceContextURI("spx://resources/" + tt.collection)
-				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(context)}, slot.Accept)
+				assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: new(context)}, slot.Accept)
 				assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: XGoInputTypeSpxResourceName, Value: XGoResourceURI(string(context) + "/Shared")}, slot.Input)
 				start, end := PositionOffset([]byte(source), slot.Range.Start), PositionOffset([]byte(source), slot.Range.End)
 				assert.Equal(t, `"Shared"`, source[start:end])
@@ -133,7 +133,7 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 					}
 					require.Len(t, matching, 1, "line %d", want.line)
 					assert.Equal(t, SpxInputTypeResourceName, matching[0].Accept.Type)
-					assert.Equal(t, ToPtr(want.context), matching[0].Accept.ResourceContext)
+					assert.Equal(t, new(want.context), matching[0].Accept.ResourceContext)
 				}
 			})
 		}
@@ -206,12 +206,12 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 			},
 			{
 				inputType: XGoInputTypeSpxResourceName, value: SpxResourceURI("spx://resources/sprites/Other"),
-				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(SpxSpriteResourceContextURI)},
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: new(SpxSpriteResourceContextURI)},
 				start:  15, end: 22,
 			},
 			{
 				inputType: XGoInputTypeSpxSpriteInstance, value: SpxResourceURI("spx://resources/sprites/Other"),
-				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxSpriteInstance, ResourceContext: ToPtr(SpxSpriteResourceContextURI)},
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxSpriteInstance, ResourceContext: new(SpxSpriteResourceContextURI)},
 				start:  15, end: 20,
 			},
 		} {
@@ -267,7 +267,7 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 						require.NotNil(t, slot)
 						assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
 						assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeString, Name: "choice"}, slot.Input)
-						assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(tt.context)}, slot.Accept)
+						assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: new(tt.context)}, slot.Accept)
 						assert.Contains(t, slot.PredefinedNames, "choice")
 						assert.Equal(t, Range{Start: Position{Line: 2, Character: uint32(1 + len(tt.call) - len("choice"))}, End: Position{Line: 2, Character: uint32(1 + len(tt.call))}}, slot.Range)
 					})
@@ -342,7 +342,7 @@ onStart => {
 		slot := findInputSlot(inputSlots, nil, "target", SpxInputTypeSpriteInstance, SpxInputKindPredefined)
 		require.NotNil(t, slot)
 		assert.Equal(t, SpxInputTypeSpriteInstance, slot.Accept.Type)
-		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Equal(t, new(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
 		assert.Contains(t, slot.PredefinedNames, "target")
 		assert.Contains(t, slot.PredefinedNames, "OtherSprite")
 		assert.Equal(t, Range{
@@ -387,7 +387,7 @@ onStart => {
 		require.NotNil(t, slot)
 		assert.Equal(t, SpxInputSlotKindValue, slot.Kind)
 		assert.Equal(t, SpxInputTypeSpriteInstance, slot.Accept.Type)
-		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Equal(t, new(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
 		assert.Contains(t, slot.PredefinedNames, "OtherSprite")
 	})
 
@@ -444,7 +444,7 @@ onStart => {
 		require.NoError(t, err)
 		slot := findInputSlot(slots, nil, "target", SpxInputTypeSpriteInstance, XGoInputKindPredefined)
 		require.NotNil(t, slot)
-		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Equal(t, new(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
 		assert.Equal(t, "target", slot.Input.Name)
 		assert.Contains(t, slot.PredefinedNames, "target")
 	})
@@ -562,7 +562,7 @@ onStart => {
 			SpxInputKindInPlace,
 		)
 		require.NotNil(t, slot)
-		assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+		assert.Equal(t, new(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
 		assert.Contains(t, slot.PredefinedNames, "OtherSprite")
 	})
 
@@ -630,7 +630,7 @@ func TestCreateValueInputSlotFromBasicLitSpx(t *testing.T) {
 	require.NotNil(t, slot)
 	assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
 	assert.Equal(t, SpxInputTypeResourceName, slot.Accept.Type)
-	assert.Equal(t, ToPtr(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
+	assert.Equal(t, new(SpxSpriteResourceContextURI), slot.Accept.ResourceContext)
 	assert.Equal(t, XGoInputKindInPlace, slot.Input.Kind)
 	assert.Equal(t, SpxInputTypeResourceName, slot.Input.Type)
 	assert.Equal(t, SpxResourceURI("spx://resources/sprites/OtherSprite"), slot.Input.Value)
@@ -696,7 +696,7 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 		require.NotNil(t, target)
 		slot := createValueInputSlotFromIdent(ctx, ident, target.Type())
 		require.NotNil(t, slot)
-		assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: ToPtr(SpxSoundResourceContextURI)}, slot.Accept)
+		assert.Equal(t, XGoInputSlotAccept{Type: XGoInputTypeSpxResourceName, ResourceContext: new(SpxSoundResourceContextURI)}, slot.Accept)
 		assert.Equal(t, XGoInput{Kind: XGoInputKindPredefined, Type: XGoInputTypeString, Name: "sound"}, slot.Input)
 	})
 }

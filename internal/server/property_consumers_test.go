@@ -44,7 +44,7 @@ func TestServerResourceAutoPropertyContexts(t *testing.T) {
 					assert.Equal(t, XGoResourceRefKindStringLiteral, ref.Kind)
 					links := result.resourceDocumentLinks(proj, filename)
 					require.Len(t, links, 1)
-					assert.Equal(t, ToPtr(URI(id.URI())), links[0].Target)
+					assert.Equal(t, new(URI(id.URI())), links[0].Target)
 					assert.Equal(t, RangeForNode(proj, ref.Node), links[0].Range)
 
 					changes, err := s.renameResourcesAtRefs(proj, result, map[resourceID]string{id: "renamed"})

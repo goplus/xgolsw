@@ -12,11 +12,6 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// ToPtr returns a pointer to the value.
-func ToPtr[T any](v T) *T {
-	return &v
-}
-
 // FromPtr returns the value from a pointer. It returns the zero value of type T
 // if the pointer is nil.
 func FromPtr[T any](p *T) T {
@@ -164,7 +159,7 @@ func ToPosition(proj *xgo.Project, astFile *ast.File, position Position) token.P
 
 	// Go's line table omits the empty line after a trailing newline.
 	if int(position.Line) >= tokenFile.LineCount() {
-		return tokenFile.PositionFor(tokenFile.Pos(tokenFile.Size()), false)
+		return tokenFile.PositionFor(tokenFile.End(), false)
 	}
 	line := int(position.Line) + 1
 	lineStart := int(tokenFile.LineStart(line))
@@ -189,7 +184,7 @@ func ToPosition(proj *xgo.Project, astFile *ast.File, position Position) token.P
 func PosAt(proj *xgo.Project, astFile *ast.File, position Position) token.Pos {
 	tokenFile := xgoutil.NodeTokenFile(proj.Fset, astFile)
 	if int(position.Line) > tokenFile.LineCount()-1 {
-		return token.Pos(tokenFile.Base() + tokenFile.Size()) // EOF
+		return tokenFile.End() // EOF
 	}
 	return tokenFile.Pos(ToPosition(proj, astFile, position).Offset)
 }

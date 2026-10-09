@@ -32,6 +32,9 @@ through its API interfaces.
   GOOS=js GOARCH=wasm go build -trimpath -ldflags "-s -w" -o xgolsw.wasm
   ```
 
+Use `lib/wasm/wasm_exec.js` from the Go toolchain used to build `xgolsw.wasm`. The JavaScript support file must match
+the compiler's Go release, as described in the [Go WebAssembly guide](https://go.dev/wiki/WebAssembly).
+
 ## Usage
 
 This project is a standard Go WebAssembly module. You can use it like any other Go WebAssembly modules in your web

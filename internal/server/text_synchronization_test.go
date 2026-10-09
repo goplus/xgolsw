@@ -630,7 +630,7 @@ func TestServerDocumentSynchronizationErrors(t *testing.T) {
 			return s.didChange(&DidChangeTextDocumentParams{TextDocument: protocol.VersionedTextDocumentIdentifier{TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}}})
 		}, want: "outside"},
 		{name: "SaveOutsideWorkspace", run: func(s *Server) error {
-			return s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}, Text: ToPtr("println 1")})
+			return s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}, Text: new("println 1")})
 		}, want: "outside"},
 		{name: "CloseOutsideWorkspace", run: func(s *Server) error {
 			return s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///outside/main.xgo"}})

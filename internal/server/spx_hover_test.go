@@ -40,7 +40,7 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 				assert.Contains(t, ids, wantID)
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}})
 				require.NoError(t, err)
-				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 			})
 		}
 	})

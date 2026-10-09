@@ -273,7 +273,7 @@ func TestServerClassfileModuleUpdates(t *testing.T) {
 		assert.Equal(t, wantID, requireValueAs[*CompletionItemData](t, item.Data).Definition.String())
 		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 		require.NoError(t, err)
-		assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+		assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Target"})
 		require.NoError(t, err)
 		var found bool
@@ -352,7 +352,7 @@ func TestServerRegisteredClassfileMembers(t *testing.T) {
 					assert.Contains(t, doc.Value, wantDoc)
 					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(class.filename)}})
 					require.NoError(t, err)
-					assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+					assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 				})
 			}
 		}
@@ -420,7 +420,7 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 				assert.Contains(t, hover.Contents.Value, "field "+typ.field+" int")
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 				require.NoError(t, err)
-				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(typ.wantID))})
+				assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(typ.wantID))})
 
 				switch site {
 				case "Literal":
@@ -463,7 +463,7 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 			assert.Contains(t, hover.Contents.Value, wantDoc)
 			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 			require.NoError(t, err)
-			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 			item := completionItemByLabel(completionItemsAt(t, s, "main.xgo", position), "read")
 			require.NotNil(t, item)
 			data := requireValueAs[*CompletionItemData](t, item.Data)
@@ -542,7 +542,7 @@ func TestServerRegisteredClassfileLiteralMembers(t *testing.T) {
 			assert.Contains(t, hover.Contents.Value, "Count belongs to first.")
 			links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///First.first"}})
 			require.NoError(t, err)
-			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+			assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 		})
 	}
 }
@@ -639,7 +639,7 @@ func TestServerImportedClassfileMembers(t *testing.T) {
 					assert.Contains(t, doc.Value, wantDoc)
 					links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 					require.NoError(t, err)
-					assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: ToPtr(URI(wantID))})
+					assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
 					if member.name == "Method" {
 						properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Target"})
 						require.NoError(t, err)

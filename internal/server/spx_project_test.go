@@ -104,7 +104,7 @@ func TestServerSpxProjectResources(t *testing.T) {
 			slot := findInputSlot(slots, SpxResourceURI("spx://resources/sounds/Known"), "", SpxInputTypeResourceName, XGoInputKindInPlace)
 			require.NotNil(t, slot)
 			assert.Equal(t, span, slot.Range)
-			assert.Equal(t, ToPtr(SpxSoundResourceContextURI), slot.Accept.ResourceContext)
+			assert.Equal(t, new(SpxSoundResourceContextURI), slot.Accept.ResourceContext)
 			assert.Contains(t, completionItemLabels(completionItemsAt(t, s, tt.filename, position)), "Known")
 			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: id})
 			require.NoError(t, err)

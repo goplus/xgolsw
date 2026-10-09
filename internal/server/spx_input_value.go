@@ -98,9 +98,9 @@ func (r *spxAnalysis) adaptInputSlot(ctx *inputSlotContext, expr ast.Expr, decla
 			if id == nil {
 				return nil
 			}
-			accept.ResourceContext = ToPtr(id.ContextURI())
+			accept.ResourceContext = new(id.ContextURI())
 		case SpxInputTypeSpriteInstance:
-			accept.ResourceContext = ToPtr(SpxSpriteResourceContextURI)
+			accept.ResourceContext = new(SpxSpriteResourceContextURI)
 			if spxSpriteResource := spxSpriteResourceForObject(r, ctx.typeInfo.ObjectOf(expr)); spxSpriteResource != nil {
 				input.Kind = XGoInputKindInPlace
 				input.Value = spxSpriteResource.ID.URI()

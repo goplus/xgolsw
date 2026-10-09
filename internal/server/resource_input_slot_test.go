@@ -73,7 +73,7 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 			slot := result.createResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String], testResourceInputType)
 			require.NotNil(t, slot)
 			assert.Equal(t, XGoInputSlotKindValue, slot.Kind)
-			assert.Equal(t, XGoInputSlotAccept{Type: testResourceInputType, ResourceContext: ToPtr(tt.context)}, slot.Accept)
+			assert.Equal(t, XGoInputSlotAccept{Type: testResourceInputType, ResourceContext: new(tt.context)}, slot.Accept)
 			assert.Equal(t, XGoInput{Kind: XGoInputKindInPlace, Type: testResourceInputType, Value: tt.uri}, slot.Input)
 			assert.Equal(t, []string{"choice"}, slot.PredefinedNames)
 			assert.Equal(t, Range{Start: Position{Line: 2, Character: 13}, End: Position{Line: 2, Character: 19}}, slot.Range)

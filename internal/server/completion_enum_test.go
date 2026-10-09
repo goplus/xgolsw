@@ -44,7 +44,7 @@ echo color
 				assert.Equal(t, 1, countCompletionItemLabel(items, "Red"))
 				assert.Equal(t, EnumMemberCompletion, item.Kind)
 				assert.Equal(t, "Red", item.InsertText)
-				assert.Equal(t, ToPtr(PlainTextTextFormat), item.InsertTextFormat)
+				assert.Equal(t, new(PlainTextTextFormat), item.InsertTextFormat)
 				data := requireValueAs[*CompletionItemData](t, item.Data)
 				assert.Equal(t, "xgo:main?Red", data.Definition.String())
 				require.NotNil(t, item.Documentation)

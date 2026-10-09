@@ -115,6 +115,49 @@ func test() {
 }
 
 func TestProjectTypeInfo(t *testing.T) {
+	t.Run("InterfaceEmbeddingDiagnosticOrder", func(t *testing.T) {
+		for range 20 {
+			proj := newTestProject(t, map[string]*File{"main.xgo": file(`type Zebra interface { Alpha }
+type Alpha interface { Zebra }
+type Dependent interface { Zebra }
+type Separate interface { Separate }
+`)}, FeatAll)
+			info, err := proj.TypeInfo()
+			require.NotNil(t, info)
+			require.EqualError(t, err, "main.xgo:1:6: invalid recursive interface Zebra\n"+
+				"main.xgo:2:6: invalid recursive interface Alpha\n"+
+				"main.xgo:3:6: invalid recursive interface Dependent\n"+
+				"main.xgo:4:6: invalid recursive interface Separate")
+		}
+	})
+
+	t.Run("InterfaceEmbedding", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			source  string
+			wantErr bool
+		}{
+			{name: "DirectCycle", source: "type Broken interface { Broken }", wantErr: true},
+			{name: "IndirectCycle", source: "type First interface { Second }\ntype Second interface { First }", wantErr: true},
+			{name: "AliasCycle", source: "type Broken interface { Alias }\ntype Alias = Broken", wantErr: true},
+			{name: "LocalCycle", source: "func use() { type Broken interface { Broken } }", wantErr: true},
+			{name: "Diamond", source: "type Base interface { Run() }\ntype Left interface { Base }\ntype Right interface { Base }\ntype Both interface { Left; Right }"},
+			{name: "RecursiveMethod", source: "type Node interface { Next() Node }"},
+			{name: "StructPointer", source: "type Node struct { Next *Node }"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				proj := newTestProject(t, map[string]*File{"main.xgo": file(tt.source + "\n")}, FeatAll)
+				info, err := proj.TypeInfo()
+				require.NotNil(t, info)
+				if tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
 	t.Run("TypeSwitchRecovery", func(t *testing.T) {
 		for _, tt := range []struct {
 			name    string

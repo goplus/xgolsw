@@ -414,7 +414,7 @@ func TestServerDocumentSourceOwnership(t *testing.T) {
 						assert.Same(t, opened, s.requestProject(), "provider changes cannot replace an open document")
 						if tt.save {
 							require.NoError(t, s.didSave(&DidSaveTextDocumentParams{
-								TextDocument: TextDocumentIdentifier{URI: uri}, Text: ToPtr(changedSource),
+								TextDocument: TextDocumentIdentifier{URI: uri}, Text: new(changedSource),
 							}))
 							synctest.Wait()
 							saved, ok := s.requestProject().File(kind.filename)

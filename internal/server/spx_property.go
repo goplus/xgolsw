@@ -77,8 +77,8 @@ func (r *spxSymbols) monitorProperties(named *gotypes.Named) iter.Seq[propertyOb
 			queue = next
 		}
 		methods := gotypes.NewMethodSet(gotypes.NewPointer(named))
-		for i := range methods.Len() {
-			method := methods.At(i).Obj().(*gotypes.Func)
+		for selection := range methods.Methods() {
+			method := selection.Obj().(*gotypes.Func)
 			if !method.Exported() || xgoutil.IsXGoInternalName(method.Name()) {
 				continue
 			}

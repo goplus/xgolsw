@@ -155,7 +155,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 				links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}})
 				require.NoError(t, err)
 				assert.Contains(t, links, DocumentLink{
-					Range: hover.Range, Target: ToPtr(URI(tt.id)),
+					Range: hover.Range, Target: new(URI(tt.id)),
 				})
 				item := completionItemByLabel(completionItemsAt(t, s, tt.filename, position), tt.field)
 				require.NotNil(t, item)
@@ -266,7 +266,7 @@ func TestServerTextDocumentHover(t *testing.T) {
 						kwargLinks = append(kwargLinks, link)
 					}
 				}
-				assert.Equal(t, []DocumentLink{{Range: hover.Range, Target: ToPtr(URI(tt.id))}}, kwargLinks)
+				assert.Equal(t, []DocumentLink{{Range: hover.Range, Target: new(URI(tt.id))}}, kwargLinks)
 
 				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(tt.declarations + tt.call + "option = 1\n"), Version: 1}})
 				item := completionItemByLabel(completionItemsAt(t, s, "main.xgo", position), tt.label)

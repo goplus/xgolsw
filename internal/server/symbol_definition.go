@@ -137,7 +137,7 @@ func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, f
 		SourceObject: v,
 
 		ID: XGoDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(v.Pkg())),
+			Package: new(xgoutil.PkgPath(v.Pkg())),
 			Name:    &idName,
 		},
 		Overview: overview.String(),
@@ -171,8 +171,8 @@ func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc)
 		TypeHint: c.Type(),
 
 		ID: XGoDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(c.Pkg())),
-			Name:    ToPtr(c.Name()),
+			Package: new(xgoutil.PkgPath(c.Pkg())),
+			Name:    new(c.Name()),
 		},
 		Overview: overview.String(),
 		Detail:   detail,
@@ -200,8 +200,8 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 		TypeHint: typeName.Type(),
 
 		ID: XGoDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(typeName.Pkg())),
-			Name:    ToPtr(typeName.Name()),
+			Package: new(xgoutil.PkgPath(typeName.Pkg())),
+			Name:    new(typeName.Name()),
 		},
 		Overview: overview,
 		Detail:   detail,
@@ -244,7 +244,7 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		SourceObject: fun,
 
 		ID: XGoDefinitionIdentifier{
-			Package:    ToPtr(xgoutil.PkgPath(fun.Pkg())),
+			Package:    new(xgoutil.PkgPath(fun.Pkg())),
 			Name:       &idName,
 			OverloadID: overloadID,
 		},
@@ -284,7 +284,7 @@ func definitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) symbolDef
 		TypeHint: pkgName.Type(),
 
 		ID: XGoDefinitionIdentifier{
-			Package: ToPtr(xgoutil.PkgPath(pkgName.Imported())),
+			Package: new(xgoutil.PkgPath(pkgName.Imported())),
 		},
 		Overview: "package " + pkgName.Name(),
 		Detail:   detail,

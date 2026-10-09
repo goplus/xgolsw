@@ -245,8 +245,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 		messages := replier.waitForMessages(1, 5*time.Second)
 		response := requireResponseForID(t, messages, call.ID())
 		require.Error(t, response.Err())
-		var wireErr *jsonrpc2.WireError
-		require.True(t, errors.As(response.Err(), &wireErr))
+		wireErr, ok := errors.AsType[*jsonrpc2.WireError](response.Err())
+		require.True(t, ok)
 		assert.Equal(t, int64(ServerNotInitialized), wireErr.Code)
 	})
 
@@ -319,8 +319,8 @@ func TestHandleMessageInitialization(t *testing.T) {
 		messages := replier.waitForMessages(1, 5*time.Second)
 		response := requireResponseForID(t, messages, call.ID())
 		require.Error(t, response.Err())
-		var wireErr *jsonrpc2.WireError
-		require.True(t, errors.As(response.Err(), &wireErr))
+		wireErr, ok := errors.AsType[*jsonrpc2.WireError](response.Err())
+		require.True(t, ok)
 		assert.Equal(t, int64(protocol.InvalidRequest), wireErr.Code)
 	})
 
@@ -394,15 +394,15 @@ println x
 
 		assert.Equal(t, call1.ID(), response1.ID())
 		assert.NotNil(t, response1.Err())
-		var wireErr1 *jsonrpc2.WireError
-		require.True(t, errors.As(response1.Err(), &wireErr1))
+		wireErr1, ok := errors.AsType[*jsonrpc2.WireError](response1.Err())
+		require.True(t, ok)
 		assert.Equal(t, int64(RequestCancelled), wireErr1.Code)
 		assert.Contains(t, wireErr1.Message, "Request cancelled")
 
 		assert.Equal(t, call2.ID(), response2.ID())
 		assert.NotNil(t, response2.Err())
-		var wireErr2 *jsonrpc2.WireError
-		require.True(t, errors.As(response2.Err(), &wireErr2))
+		wireErr2, ok := errors.AsType[*jsonrpc2.WireError](response2.Err())
+		require.True(t, ok)
 		assert.Equal(t, int64(RequestCancelled), wireErr2.Code)
 		assert.Contains(t, wireErr2.Message, "Request cancelled")
 	})

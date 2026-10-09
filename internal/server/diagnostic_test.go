@@ -478,6 +478,10 @@ func TestServerGetDiagnostics(t *testing.T) {
 			Message:  "failed to parse source file: main.xgo:1:8: expected ';', found 'EOF' (and 1 more errors)",
 		}}},
 		{name: "NoError", content: "println 1\n", want: []Diagnostic{}},
+		{name: "RecursiveInterface", content: "type Broken interface { Broken }\n", want: []Diagnostic{{
+			Severity: SeverityError, Message: "invalid recursive interface Broken",
+			Range: Range{Start: Position{Character: 5}, End: Position{Character: 11}},
+		}}},
 		{name: "UndefinedImport", content: "fmt.println \"hello\"\n", want: []Diagnostic{{
 			Severity: SeverityError, Message: "undefined: fmt",
 			Range: Range{Start: Position{}, End: Position{Character: 3}},
