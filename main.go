@@ -66,11 +66,11 @@ func parseServerOptions(value js.Value) (config.Options, error) {
 	if value.Type() != js.TypeObject || value.IsNull() || js.Global().Get("Array").Call("isArray", value).Bool() {
 		return options, errors.New("options must be an object")
 	}
-	if classes := value.Get("classfileConfig"); !classes.IsUndefined() {
-		if classes.Type() != js.TypeString {
-			return options, errors.New("classfileConfig must be a string")
+	if frameworkConfig := value.Get("classFrameworkConfig"); !frameworkConfig.IsUndefined() {
+		if frameworkConfig.Type() != js.TypeString {
+			return options, errors.New("classFrameworkConfig must be a string")
 		}
-		options.ClassfileConfig = classes.String()
+		options.ClassFrameworkConfig = frameworkConfig.String()
 	}
 	if data := value.Get("pkgDataZip"); !data.IsUndefined() {
 		if data.Type() != js.TypeObject || data.IsNull() || !data.InstanceOf(js.Global().Get("Uint8Array")) {

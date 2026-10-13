@@ -34,17 +34,17 @@ func TestNewBaseModule(t *testing.T) {
 func TestNewModule(t *testing.T) {
 	first := NewModule(t)
 	second := NewModule(t)
-	class, ok := first.LookupClass("_fixture.gox")
+	framework, ok := first.LookupClass("_fixture.gox")
 	require.True(t, ok)
-	require.Len(t, class.PkgPaths, 1)
-	require.Len(t, class.Works, 1)
-	class.Ext = "_changed.gox"
-	class.FullExt = "main_changed.gox"
-	class.Class = "Changed"
-	class.PkgPaths[0] = "example.com/changed"
-	class.Works[0].Ext = "_changed.gox"
-	class.Works[0].Class = "ChangedItem"
-	class.Works[0].Prefix = "Task"
+	require.Len(t, framework.PkgPaths, 1)
+	require.Len(t, framework.Works, 1)
+	framework.Ext = "_changed.gox"
+	framework.FullExt = "main_changed.gox"
+	framework.Class = "Changed"
+	framework.PkgPaths[0] = "example.com/changed"
+	framework.Works[0].Ext = "_changed.gox"
+	framework.Works[0].Class = "ChangedItem"
+	framework.Works[0].Prefix = "Task"
 	require.NoError(t, first.ImportClasses())
 	assert.True(t, first.IsClass("_changed.gox"))
 	assert.False(t, first.IsClass("_fixture.gox"))
@@ -53,13 +53,13 @@ func TestNewModule(t *testing.T) {
 		assert.False(t, mod.IsClass("_changed.gox"))
 		assert.False(t, mod.IsClass(".spx"))
 		require.Len(t, mod.Opt.Projects, 1)
-		project, ok := mod.LookupClass("_fixture.gox")
+		projectFramework, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
-		assert.Equal(t, "main_fixture.gox", project.FullExt)
-		assert.Equal(t, "App", project.Class)
-		assert.Equal(t, []string{PkgPath}, project.PkgPaths)
-		require.Len(t, project.Works, 1)
-		assert.Equal(t, modfile.Class{Ext: "_fixture.gox", Class: "Item", Embedded: true}, *project.Works[0])
+		assert.Equal(t, "main_fixture.gox", projectFramework.FullExt)
+		assert.Equal(t, "App", projectFramework.Class)
+		assert.Equal(t, []string{PkgPath}, projectFramework.PkgPaths)
+		require.Len(t, projectFramework.Works, 1)
+		assert.Equal(t, modfile.Class{Ext: "_fixture.gox", Class: "Item", Embedded: true}, *projectFramework.Works[0])
 	}
 }
 
@@ -209,7 +209,7 @@ func TestNewPkgDoc(t *testing.T) {
 	for _, doc := range []*pkgdoc.PkgDoc{second, NewPkgDoc(t)} {
 		assert.Equal(t, PkgPath, doc.Path)
 		assert.Equal(t, "framework", doc.Name)
-		assert.Equal(t, "Package framework provides a minimal classfile framework for language tests.\n", doc.Doc)
+		assert.Equal(t, "Package framework provides a minimal class framework for language tests.\n", doc.Doc)
 		assert.Equal(t, "Low and High are values used by framework methods.\n", doc.Consts["Low"])
 		assert.Equal(t, "RunWhen accepts a deferred condition and a callback.\n", doc.Funcs["RunWhen"])
 		require.NotNil(t, doc.Types["App"])

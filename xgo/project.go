@@ -95,7 +95,7 @@ type Project struct {
 	fileCacheSFG      singleflight.Group
 }
 
-// NewProject creates a project with XGo's builtin classfiles, optional static
+// NewProject creates a project with XGo's builtin class frameworks, optional static
 // files, and features. Use SetModule to configure additional frameworks.
 func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Project {
 	if fset == nil {

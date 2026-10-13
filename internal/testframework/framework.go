@@ -1,4 +1,4 @@
-// Package testframework provides an isolated classfile framework for tests.
+// Package testframework provides an isolated class framework for tests.
 package testframework
 
 import (
@@ -34,7 +34,7 @@ var source string
 // of each test process. Package types and source positions remain importer-local.
 var exportCache = cache.New(func(string, bool) string { return cache.HashSkip })
 
-// NewBaseModule returns a fresh module with only XGo's builtin classfiles.
+// NewBaseModule returns a fresh module with only XGo's builtin class frameworks.
 func NewBaseModule(t testing.TB) *xgomod.Module {
 	t.Helper()
 
@@ -43,7 +43,8 @@ func NewBaseModule(t testing.TB) *xgomod.Module {
 	return mod
 }
 
-// NewModule returns a fresh module with one framework project and one work class.
+// NewModule returns a fresh module registering a class framework with one project
+// class and one work class.
 func NewModule(t testing.TB) *xgomod.Module {
 	t.Helper()
 

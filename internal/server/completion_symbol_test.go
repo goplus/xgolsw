@@ -291,9 +291,9 @@ type RecordList = []Record
 						files[sourceKind.filename] = []byte("func run() {\n\n}\n")
 						mod := testframework.NewModule(t)
 						if tt.withMath {
-							class, ok := mod.LookupClass("_fixture.gox")
+							framework, ok := mod.LookupClass("_fixture.gox")
 							require.True(t, ok)
-							class.PkgPaths = append(class.PkgPaths, "math")
+							framework.PkgPaths = append(framework.PkgPaths, "math")
 						}
 						s := newFrameworkTestServerWithModule(t, files, mod)
 						lookup := s.lookupPkgDoc

@@ -26,7 +26,7 @@ import (
 	"github.com/goplus/mod/xgomod"
 )
 
-// defaultModule supplies XGo's builtin classfiles to new projects.
+// defaultModule supplies XGo's builtin class frameworks to new projects.
 var defaultModule = func() *Module {
 	mod, err := NewModule(modload.Module{Opt: &modfile.File{}})
 	if err != nil {
@@ -35,76 +35,76 @@ var defaultModule = func() *Module {
 	return mod
 }()
 
-// Module holds a loaded module and its effective classfile registrations. It is
-// read-only and can be shared by projects and their snapshots.
+// Module holds a loaded module and its effective class framework registrations.
+// It is read-only and can be shared by projects and their snapshots.
 type Module struct {
-	mod      *xgomod.Module
-	projects []*modfile.Project
+	mod        *xgomod.Module
+	frameworks []*modfile.Project
 }
 
-// NewModule loads classfile registrations from config. Later changes to the
+// NewModule loads class framework registrations from config. Later changes to the
 // registration configuration or its files do not affect the returned module.
 // The Go module file in config must not be modified after this call.
 func NewModule(config modload.Module) (*Module, error) {
 	opt := *config.Opt
 	// Override the compiler's shared builtin registrations with owned copies.
-	opt.Projects = []*modfile.Project{cloneClassProject(xgomod.TestProject), cloneClassProject(xgomod.GshProject)}
-	for _, project := range config.Opt.Projects {
-		opt.Projects = append(opt.Projects, cloneClassProject(project))
+	opt.Projects = []*modfile.Project{cloneClassFramework(xgomod.TestProject), cloneClassFramework(xgomod.GshProject)}
+	for _, framework := range config.Opt.Projects {
+		opt.Projects = append(opt.Projects, cloneClassFramework(framework))
 	}
 	opt.ClassMods = slices.Clone(opt.ClassMods)
 	config.Opt = &opt
 	mod := xgomod.New(config)
 	var registered []*modfile.Project
-	if err := mod.ImportClasses(func(project *modfile.Project) {
-		registered = append(registered, project)
+	if err := mod.ImportClasses(func(framework *modfile.Project) {
+		registered = append(registered, framework)
 	}); err != nil {
 		return nil, err
 	}
-	projects := slices.DeleteFunc(registered, func(project *modfile.Project) bool {
-		if current, _ := mod.LookupClass(project.Ext); current == project {
+	frameworks := slices.DeleteFunc(registered, func(framework *modfile.Project) bool {
+		if current, _ := mod.LookupClass(framework.Ext); current == framework {
 			return false
 		}
-		for _, work := range project.Works {
-			if current, _ := mod.LookupClass(work.Ext); current == project {
+		for _, work := range framework.Works {
+			if current, _ := mod.LookupClass(work.Ext); current == framework {
 				return false
 			}
 		}
 		return true
 	})
-	return &Module{mod: mod, projects: projects}, nil
+	return &Module{mod: mod, frameworks: frameworks}, nil
 }
 
-// cloneClassProject copies the mutable configuration of a classfile project.
-func cloneClassProject(project *modfile.Project) *modfile.Project {
-	clone := *project
-	clone.PkgPaths = slices.Clone(project.PkgPaths)
-	clone.AutoLambdas = maps.Clone(project.AutoLambdas)
-	clone.Works = slices.Clone(project.Works)
-	for i, work := range project.Works {
+// cloneClassFramework copies a class framework's mutable registration data.
+func cloneClassFramework(framework *modfile.Project) *modfile.Project {
+	clone := *framework
+	clone.PkgPaths = slices.Clone(framework.PkgPaths)
+	clone.AutoLambdas = maps.Clone(framework.AutoLambdas)
+	clone.Works = slices.Clone(framework.Works)
+	for i, work := range framework.Works {
 		work := *work
 		clone.Works[i] = &work
 	}
-	clone.Import = slices.Clone(project.Import)
-	for i, imp := range project.Import {
+	clone.Import = slices.Clone(framework.Import)
+	for i, imp := range framework.Import {
 		imp := *imp
 		clone.Import[i] = &imp
 	}
-	if project.Pack != nil {
-		pack := *project.Pack
+	if framework.Pack != nil {
+		pack := *framework.Pack
 		clone.Pack = &pack
 	}
 	return &clone
 }
 
-// ClassProjects returns the effective classfile projects without reading module
-// files. The returned registrations must not be modified.
-func (m *Module) ClassProjects() iter.Seq[*modfile.Project] {
-	return slices.Values(m.projects)
+// ClassFrameworks returns the effective class framework registrations without
+// reading module files. The returned registrations must not be modified.
+func (m *Module) ClassFrameworks() iter.Seq[*modfile.Project] {
+	return slices.Values(m.frameworks)
 }
 
-// LookupClass returns the registration for ext. The returned registration must
-// not be modified.
+// LookupClass returns the class framework registration for ext. The returned
+// registration must not be modified.
 func (m *Module) LookupClass(ext string) (*modfile.Project, bool) {
 	return m.mod.LookupClass(ext)
 }

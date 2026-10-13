@@ -23,8 +23,8 @@ func newSpxIntegrationTestServer(t testing.TB, files map[string][]byte) *Server 
 	data, err := pkgdata.NewWithEmbedded(spxIntegrationPkgDataZip)
 	require.NoError(t, err)
 	proj, data, err := config.NewProject(newFileMap(files), config.Options{
-		ClassfileConfig: "project main.spx Game github.com/goplus/spx/v3 math\nclass -embed *.spx SpriteImpl\n",
-		PkgData:         data,
+		ClassFrameworkConfig: "project main.spx Game github.com/goplus/spx/v3 math\nclass -embed *.spx SpriteImpl\n",
+		PkgData:              data,
 	})
 	require.NoError(t, err)
 	return New(proj, nil, fileMapGetter(files), &MockScheduler{}, data.ListPkgs, data.GetPkgDoc)

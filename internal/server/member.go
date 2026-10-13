@@ -108,7 +108,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 			selectors[origin] = selector
 		}
 	}
-	members := xgoutil.StructMembers(receiver, r.isClassBaseType)
+	members := xgoutil.StructMembers(receiver, r.isFrameworkBaseType)
 	_, isInterface := receiver.Underlying().(*gotypes.Interface)
 	if isInterface {
 		members = importedInterfaceMembers(receiver)

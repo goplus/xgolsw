@@ -14,11 +14,11 @@ import (
 // definitionContext holds project data and documentation used to describe symbols.
 type definitionContext struct {
 	typeDisplay
-	proj              *xgo.Project
-	enumInfo          *enumInfo
-	classTypes        map[*gotypes.Named]struct{}
-	framework         frameworkAdapter
-	frameworkResolved bool
+	proj               *xgo.Project
+	enumInfo           *enumInfo
+	frameworkBaseTypes map[*gotypes.Named]struct{}
+	framework          frameworkAdapter
+	frameworkResolved  bool
 
 	// memberSelectors indexes receiver members for this request only.
 	memberSelectors map[gotypes.Type]map[gotypes.Object]*gotypes.Named
@@ -116,7 +116,7 @@ func (r *definitionContext) definitionsForIdent(ident *ast.Ident) []symbolDefini
 // definitionsForStruct describes the fields and methods of the given type.
 func (r *definitionContext) definitionsForStruct(typ gotypes.Type) []symbolDefinition {
 	var defs []symbolDefinition
-	for member := range xgoutil.StructMembers(typ, r.isClassBaseType) {
+	for member := range xgoutil.StructMembers(typ, r.isFrameworkBaseType) {
 		defs = append(defs, r.definitionsForMember(member)...)
 	}
 	return defs

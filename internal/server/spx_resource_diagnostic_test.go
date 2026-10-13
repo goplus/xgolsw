@@ -196,9 +196,9 @@ func TestServerDiagnosticsAtSpx(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newSpxTestServer(t, tt.files)
 			proj := s.getProj()
-			class, ok := proj.Module().LookupClass(".spx")
+			framework, ok := proj.Module().LookupClass(".spx")
 			require.True(t, ok)
-			require.Contains(t, class.PkgPaths, SpxPkgPath)
+			require.Contains(t, framework.PkgPaths, SpxPkgPath)
 			if tt.unavailablePackage != "" {
 				proj.Importer = completionTestImporter{Importer: proj.Importer, unavailablePath: tt.unavailablePackage}
 				_, err := proj.TypeInfo()

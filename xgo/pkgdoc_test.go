@@ -185,18 +185,18 @@ func Set() { value = `+value+` }
 				t.Helper()
 
 				mod := testframework.NewModule(t)
-				class, ok := mod.LookupClass("_fixture.gox")
+				framework, ok := mod.LookupClass("_fixture.gox")
 				require.True(t, ok)
-				class.FullExt = "Root_fixture.gox"
+				framework.FullExt = "Root_fixture.gox"
 				return newFrameworkTestProjectWithModule(t, files, feats, mod)
 			}},
 			{name: "PrefixedWork", filename: "Worker_fixture.gox", className: "TaskWorker", newProject: func(t *testing.T, files map[string]*File, feats uint) *Project {
 				t.Helper()
 
 				mod := testframework.NewModule(t)
-				class, ok := mod.LookupClass("_fixture.gox")
+				framework, ok := mod.LookupClass("_fixture.gox")
 				require.True(t, ok)
-				class.Works[0].Prefix = "Task"
+				framework.Works[0].Prefix = "Task"
 				return newFrameworkTestProjectWithModule(t, files, feats, mod)
 			}},
 			{name: "NormalizedClassName", filename: "work-item_fixture.gox", className: "work_item", newProject: newFrameworkTestProject},
@@ -300,9 +300,9 @@ func (a *App) Read() int { return a.total }
 
 	t.Run("EmptyClassName", func(t *testing.T) {
 		mod := testframework.NewModule(t)
-		class, ok := mod.LookupClass("_fixture.gox")
+		framework, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
-		class.Class = ""
+		framework.Class = ""
 		proj := newFrameworkTestProjectWithModule(t, map[string]*File{
 			"main_fixture.gox": file(`var (
 	// Total belongs to the unnamed project class.

@@ -12,7 +12,7 @@ import (
 
 func TestSpxDiagnosticPass(t *testing.T) {
 	t.Run("RegisteredClassfileReceiver", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{
+		s := newMultiFrameworkTestServer(t, map[string][]byte{
 			"First.first": nil,
 			"types.xgo":   []byte("type PropertyName string\n"),
 			"Worker.firstwork": []byte(`var Count int
@@ -22,7 +22,7 @@ show "Missing"
 `),
 		})
 		proj := s.getProj()
-		config := classfileTestModule()
+		config := multiFrameworkTestModule()
 		config.Opt.Projects[0].Works[0].Prefix = "Actor"
 		proj.SetModule(newTestModule(t, config))
 		info, err := proj.TypeInfo()
