@@ -118,7 +118,9 @@ func TestNodeTokenFile(t *testing.T) {
 
 func TestPosASTFile(t *testing.T) {
 	t.Run("LineDirective", func(t *testing.T) {
-		fset, astFile, err := newTestFile("main.xgo", "//line virtual.xgo:100:20\nvar count int\n")
+		fset, astFile, err := newTestFile("main.xgo", `//line virtual.xgo:100:20
+var count int
+`)
 		require.NoError(t, err)
 		other, err := parser.ParseEntry(fset, "virtual.xgo", "var other int\n", parser.Config{})
 		require.NoError(t, err)

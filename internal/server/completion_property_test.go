@@ -22,10 +22,29 @@ func TestCompletionContextCollectPropertyNames(t *testing.T) {
 			source    string
 			newServer testServerFactory
 		}{
-			{"XGo", "main.xgo", "Record", "type Record struct {\nscore int\nready bool\n}\nfunc (r *Record) Label() string { return \"item\" }\n", newTestServer},
-			{"StandaloneClass", "Record.gox", "Record", "var (\nscore int\nready bool\n)\nfunc Label() string { return \"item\" }\n", newTestServer},
-			{"ProjectClass", "main_fixture.gox", "App", "var (\nscore int\nready bool\n)\nfunc Label() string { return \"item\" }\n", newFrameworkTestServer},
-			{"WorkClass", "Worker_fixture.gox", "Worker", "var (\nscore int\nready bool\n)\n", newFrameworkTestServer},
+			{"XGo", "main.xgo", "Record", `type Record struct {
+score int
+ready bool
+}
+func (r *Record) Label() string { return "item" }
+`, newTestServer},
+			{"StandaloneClass", "Record.gox", "Record", `var (
+score int
+ready bool
+)
+func Label() string { return "item" }
+`, newTestServer},
+			{"ProjectClass", "main_fixture.gox", "App", `var (
+score int
+ready bool
+)
+func Label() string { return "item" }
+`, newFrameworkTestServer},
+			{"WorkClass", "Worker_fixture.gox", "Worker", `var (
+score int
+ready bool
+)
+`, newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte(tt.source)}
@@ -205,7 +224,9 @@ func TestCompletionContextGetPropertyTarget(t *testing.T) {
 		{name: "Value", source: "var item Record\nitem.show()", want: "Record", wantCompletion: "Record"},
 		{name: "ParenthesizedMethod", source: "var item Record\n((item.show))()", want: "Record", wantCompletion: "Record"},
 		{name: "Pointer", source: "var item *Record\nitem.show()", want: "Record", wantCompletion: "Record"},
-		{name: "Alias", source: "type Alias = *Record\nvar item Alias\nitem.show()", want: "Record", wantCompletion: "Record"},
+		{name: "Alias", source: `type Alias = *Record
+var item Alias
+item.show()`, want: "Record", wantCompletion: "Record"},
 		{name: "CallResult", source: "getRecord().show()", want: "Record", wantCompletion: "Record"},
 		{name: "ImportedReceiver", source: "var item Item\nitem.read(1)", want: "Item"},
 		{name: "MissingReceiver", source: "missing.show()", invalid: true},
@@ -216,7 +237,10 @@ func TestCompletionContextGetPropertyTarget(t *testing.T) {
 			s := newMultiFrameworkTestServer(t, map[string][]byte{
 				"First.first":      nil,
 				"Worker.firstwork": []byte(tt.source + "\n"),
-				"types.xgo":        []byte("type Record struct { Count int }\nfunc (r *Record) show() {}\nfunc getRecord() *Record { return nil }\n"),
+				"types.xgo": []byte(`type Record struct { Count int }
+func (r *Record) show() {}
+func getRecord() *Record { return nil }
+`),
 			})
 			proj := s.getProj()
 			config := multiFrameworkTestModule()
@@ -292,7 +316,10 @@ func TestCompletionContextGetPropertyTargetAutoProperty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newImportTestServer(t, map[string][]byte{
 				tt.filename: []byte("func Current() *Record { return nil }\n" + tt.receiver + ".Show(\"Count\")\n"),
-				"types.xgo": []byte("type Record struct { Count int }\nfunc (*Record) Show(name string) {}\nfunc (*Record) Next() *Record { return nil }\n"),
+				"types.xgo": []byte(`type Record struct { Count int }
+func (*Record) Show(name string) {}
+func (*Record) Next() *Record { return nil }
+`),
 			})
 			proj := s.requestProject()
 			info, err := proj.TypeInfo()

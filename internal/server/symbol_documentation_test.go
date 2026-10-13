@@ -20,13 +20,49 @@ func TestServerSymbolDocumentation(t *testing.T) {
 		doc    string
 		id     string
 	}{
-		{name: "Alias", source: "// Value is documented.\ntype Value = int\nvar value |Value\n", label: "Value", doc: "Value is documented."},
-		{name: "Slice", source: "// Value is documented.\ntype Value []int\nvar value |Value\n", label: "Value", doc: "Value is documented."},
-		{name: "Interface", source: "// Value is documented.\ntype Value interface { Read() int }\nvar value |Value\n", label: "Value", doc: "Value is documented."},
-		{name: "InterfaceMethod", source: "type Reader interface {\n// Read retrieves a value.\nRead() int\n}\nvar value Reader\necho value.|read()\n", label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "DefinedInterfaceMethod", source: "type Reader interface {\n// Read retrieves a value.\nRead() int\n}\ntype Adapter Reader\nvar value Adapter\necho value.|read()\n", label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "EmbeddedInterfaceMethod", source: "type Reader interface {\n// Read retrieves a value.\nRead() int\n}\ntype Adapter interface { Reader }\nvar value Adapter\necho value.|read()\n", label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "EmbeddedPointer", source: "type Item struct{}\ntype Group struct {\n// Item is the active item.\n*Item\n}\nvar value Group\necho value.|Item\n", label: "Item", doc: "Item is the active item."},
+		{name: "Alias", source: `// Value is documented.
+type Value = int
+var value |Value
+`, label: "Value", doc: "Value is documented."},
+		{name: "Slice", source: `// Value is documented.
+type Value []int
+var value |Value
+`, label: "Value", doc: "Value is documented."},
+		{name: "Interface", source: `// Value is documented.
+type Value interface { Read() int }
+var value |Value
+`, label: "Value", doc: "Value is documented."},
+		{name: "InterfaceMethod", source: `type Reader interface {
+// Read retrieves a value.
+Read() int
+}
+var value Reader
+echo value.|read()
+`, label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "DefinedInterfaceMethod", source: `type Reader interface {
+// Read retrieves a value.
+Read() int
+}
+type Adapter Reader
+var value Adapter
+echo value.|read()
+`, label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "EmbeddedInterfaceMethod", source: `type Reader interface {
+// Read retrieves a value.
+Read() int
+}
+type Adapter interface { Reader }
+var value Adapter
+echo value.|read()
+`, label: "Read", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "EmbeddedPointer", source: `type Item struct{}
+type Group struct {
+// Item is the active item.
+*Item
+}
+var value Group
+echo value.|Item
+`, label: "Item", doc: "Item is the active item."},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -73,7 +109,10 @@ func TestServerSignatureDocumentation(t *testing.T) {
 			{name: "UnknownFormat", initialized: true, capabilities: &protocol.SignatureHelpClientCapabilities{SignatureInformation: &protocol.ClientSignatureInformationOptions{DocumentationFormat: []MarkupKind{"unknown"}}}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, "// Add returns the next value.\nfunc add(value int) int { return value + 1 }\nadd(|1)\n")
+				source, position := typeDisplayTestSource(t, `// Add returns the next value.
+func add(value int) int { return value + 1 }
+add(|1)
+`)
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				if tt.initialized {
 					_, err := s.initialize(&InitializeParams{XInitializeParams: protocol.XInitializeParams{
@@ -104,9 +143,22 @@ func TestServerSignatureDocumentation(t *testing.T) {
 			declarations string
 			call         string
 		}{
-			{name: "Function", declarations: "// MESSAGE\nfunc use(value int) {}\n", call: "use(|1)\n"},
-			{name: "Method", declarations: "type Item struct{}\n// MESSAGE\nfunc (item *Item) Use(value int) {}\n", call: "var item Item\nitem.use(|1)\n"},
-			{name: "InterfaceMethod", declarations: "type Item interface {\n// MESSAGE\nUse(value int)\n}\n", call: "var item Item\nitem.use(|1)\n"},
+			{name: "Function", declarations: `// MESSAGE
+func use(value int) {}
+`, call: "use(|1)\n"},
+			{name: "Method", declarations: `type Item struct{}
+// MESSAGE
+func (item *Item) Use(value int) {}
+`, call: `var item Item
+item.use(|1)
+`},
+			{name: "InterfaceMethod", declarations: `type Item interface {
+// MESSAGE
+Use(value int)
+}
+`, call: `var item Item
+item.use(|1)
+`},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, tt.call)
@@ -133,7 +185,9 @@ func TestServerSignatureDocumentation(t *testing.T) {
 	})
 
 	t.Run("PackageUpdates", func(t *testing.T) {
-		source, position := typeDisplayTestSource(t, "import f \"example.com/framework\"\nf.use(|nil)\n")
+		source, position := typeDisplayTestSource(t, `import f "example.com/framework"
+f.use(|nil)
+`)
 		s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		for _, text := range []string{"First documentation.", "Second documentation.", ""} {
 			doc := testframework.NewPkgDoc(t)
@@ -183,23 +237,56 @@ func TestServerSignatureDocumentation(t *testing.T) {
 			doc    string
 		}{
 			{
-				name:   "ShadowedInterface",
-				source: "type Reader interface {\n// Global read.\nRead(n int) int\n}\nfunc run() {\ntype Reader interface {\n// Local read.\nRead(n int) int\n}\nvar value Reader\necho value.|Read(1)\n}\n",
-				doc:    "Local read.",
+				name: "ShadowedInterface",
+				source: `type Reader interface {
+// Global read.
+Read(n int) int
+}
+func run() {
+type Reader interface {
+// Local read.
+Read(n int) int
+}
+var value Reader
+echo value.|Read(1)
+}
+`,
+				doc: "Local read.",
 			},
 			{
-				name:   "AnonymousInterface",
-				source: "// Read is an unrelated function.\nfunc Read(n int) int { return n }\nvar value interface {\n// Anonymous read.\nRead(n int) int\n}\necho value.|Read(1)\n",
-				doc:    "Anonymous read.",
+				name: "AnonymousInterface",
+				source: `// Read is an unrelated function.
+func Read(n int) int { return n }
+var value interface {
+// Anonymous read.
+Read(n int) int
+}
+echo value.|Read(1)
+`,
+				doc: "Anonymous read.",
 			},
 			{
-				name:   "UndocumentedAnonymousInterface",
-				source: "// Read is an unrelated function.\nfunc Read(n int) int { return n }\nvar value interface { Read(n int) int }\necho value.|Read(1)\n",
+				name: "UndocumentedAnonymousInterface",
+				source: `// Read is an unrelated function.
+func Read(n int) int { return n }
+var value interface { Read(n int) int }
+echo value.|Read(1)
+`,
 			},
 			{
-				name:   "NestedInterface",
-				source: "type Outer interface {\n// Global read.\nRead(n int) int\nInner() interface {\n// Nested read.\nRead(n int) int\n}\n}\nvar value Outer\necho value.Inner().|Read(1)\n",
-				doc:    "Nested read.",
+				name: "NestedInterface",
+				source: `type Outer interface {
+// Global read.
+Read(n int) int
+Inner() interface {
+// Nested read.
+Read(n int) int
+}
+}
+var value Outer
+echo value.Inner().|Read(1)
+`,
+				doc: "Nested read.",
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -283,18 +370,108 @@ func TestServerScopedSymbolDocumentation(t *testing.T) {
 		label  string
 		want   string
 	}{
-		{name: "LocalStructField", source: "type Item struct {\n// Package doc.\nValue int\n}\nfunc run() {\ntype Item struct {\n// Local doc.\nValue int\n}\nvar item Item\necho item.|Value\n}\n", label: "Value", want: "Local doc."},
-		{name: "LocalVariable", source: "// Package doc.\nvar value int\nfunc run() {\n// Local doc.\nvar value int\necho |value\n}\n", label: "value", want: "Local doc."},
-		{name: "UndocumentedLocalVariable", source: "// Package doc.\nvar value int\nfunc run() {\nvar value int\necho |value\n}\n", label: "value"},
-		{name: "ShortVariable", source: "// Package doc.\nvar value int\n// Enclosing function documentation.\nfunc run() {\nvalue := 1\necho |value\n}\n", label: "value"},
-		{name: "RangeVariable", source: "// Package doc.\nvar value int\nfunc run() {\nfor value <- [1, 2] {\necho |value\n}\n}\n", label: "value"},
-		{name: "NamedResult", source: "// Package doc.\nvar value int\n// Enclosing function documentation.\nfunc run() (value int) {\nreturn |value\n}\n", label: "value"},
-		{name: "LocalConst", source: "// Package doc.\nconst Limit = 1\nfunc run() {\n// Local doc.\nconst Limit = 2\necho |Limit\n}\n", label: "Limit", want: "Local doc."},
-		{name: "LocalType", source: "// Package doc.\ntype Item int\nfunc run() {\n// Local doc.\ntype Item string\nvar item |Item\necho item\n}\n", label: "Item", want: "Local doc."},
-		{name: "LocalAlias", source: "// Package doc.\ntype Item = int\nfunc run() {\n// Local doc.\ntype Item = string\nvar item |Item\necho item\n}\n", label: "Item", want: "Local doc."},
-		{name: "Parameter", source: "// Package doc.\nvar value int\nfunc run(value int) {\necho |value\n}\n", label: "value"},
-		{name: "AnonymousStructField", source: "// Package doc.\nvar Value int\nvar item struct {\n// Local doc.\nValue int\n}\necho item.|Value\n", label: "Value", want: "Local doc."},
-		{name: "NestedStructField", source: "type Item struct {\n// Package doc.\nValue int\nNested struct {\n// Local doc.\nValue int\n}\n}\nvar item Item\necho item.Nested.|Value\n", label: "Value", want: "Local doc."},
+		{name: "LocalStructField", source: `type Item struct {
+// Package doc.
+Value int
+}
+func run() {
+type Item struct {
+// Local doc.
+Value int
+}
+var item Item
+echo item.|Value
+}
+`, label: "Value", want: "Local doc."},
+		{name: "LocalVariable", source: `// Package doc.
+var value int
+func run() {
+// Local doc.
+var value int
+echo |value
+}
+`, label: "value", want: "Local doc."},
+		{name: "UndocumentedLocalVariable", source: `// Package doc.
+var value int
+func run() {
+var value int
+echo |value
+}
+`, label: "value"},
+		{name: "ShortVariable", source: `// Package doc.
+var value int
+// Enclosing function documentation.
+func run() {
+value := 1
+echo |value
+}
+`, label: "value"},
+		{name: "RangeVariable", source: `// Package doc.
+var value int
+func run() {
+for value <- [1, 2] {
+echo |value
+}
+}
+`, label: "value"},
+		{name: "NamedResult", source: `// Package doc.
+var value int
+// Enclosing function documentation.
+func run() (value int) {
+return |value
+}
+`, label: "value"},
+		{name: "LocalConst", source: `// Package doc.
+const Limit = 1
+func run() {
+// Local doc.
+const Limit = 2
+echo |Limit
+}
+`, label: "Limit", want: "Local doc."},
+		{name: "LocalType", source: `// Package doc.
+type Item int
+func run() {
+// Local doc.
+type Item string
+var item |Item
+echo item
+}
+`, label: "Item", want: "Local doc."},
+		{name: "LocalAlias", source: `// Package doc.
+type Item = int
+func run() {
+// Local doc.
+type Item = string
+var item |Item
+echo item
+}
+`, label: "Item", want: "Local doc."},
+		{name: "Parameter", source: `// Package doc.
+var value int
+func run(value int) {
+echo |value
+}
+`, label: "value"},
+		{name: "AnonymousStructField", source: `// Package doc.
+var Value int
+var item struct {
+// Local doc.
+Value int
+}
+echo item.|Value
+`, label: "Value", want: "Local doc."},
+		{name: "NestedStructField", source: `type Item struct {
+// Package doc.
+Value int
+Nested struct {
+// Local doc.
+Value int
+}
+}
+var item Item
+echo item.Nested.|Value
+`, label: "Value", want: "Local doc."},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -331,11 +508,52 @@ func TestServerSymbolDocumentationUpdates(t *testing.T) {
 		source string
 		label  string
 	}{
-		{name: "LocalVariable", source: "// Package documentation.\nvar value int\nfunc run() {\n// MESSAGE\nvar value int\necho |value\n}\n", label: "value"},
-		{name: "LocalConst", source: "// Package documentation.\nconst Limit = 1\nfunc run() {\n// MESSAGE\nconst Limit = 2\necho |Limit\n}\n", label: "Limit"},
-		{name: "LocalType", source: "// Package documentation.\ntype Item int\nfunc run() {\n// MESSAGE\ntype Item string\nvar item |Item\necho item\n}\n", label: "Item"},
-		{name: "LocalField", source: "type Item struct {\n// Package documentation.\nValue int\n}\nfunc run() {\ntype Item struct {\n// MESSAGE\nValue int\n}\nvar item Item\necho item.|Value\n}\n", label: "Value"},
-		{name: "DefinedTypeField", source: "type Item struct {\n// MESSAGE\nValue int\n}\ntype Copy Item\nvar item Copy\necho item.|Value\n", label: "Value"},
+		{name: "LocalVariable", source: `// Package documentation.
+var value int
+func run() {
+// MESSAGE
+var value int
+echo |value
+}
+`, label: "value"},
+		{name: "LocalConst", source: `// Package documentation.
+const Limit = 1
+func run() {
+// MESSAGE
+const Limit = 2
+echo |Limit
+}
+`, label: "Limit"},
+		{name: "LocalType", source: `// Package documentation.
+type Item int
+func run() {
+// MESSAGE
+type Item string
+var item |Item
+echo item
+}
+`, label: "Item"},
+		{name: "LocalField", source: `type Item struct {
+// Package documentation.
+Value int
+}
+func run() {
+type Item struct {
+// MESSAGE
+Value int
+}
+var item Item
+echo item.|Value
+}
+`, label: "Value"},
+		{name: "DefinedTypeField", source: `type Item struct {
+// MESSAGE
+Value int
+}
+type Copy Item
+var item Copy
+echo item.|Value
+`, label: "Value"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": nil})

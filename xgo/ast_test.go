@@ -333,8 +333,14 @@ func TestProjectRegisteredClassfiles(t *testing.T) {
 	framework.Works[0].Ext = ".worker"
 	require.NoError(t, mod.ImportClasses())
 	proj := newFrameworkTestProjectWithModule(t, map[string]*File{
-		"src/main.fixture":  file("// Count documentation.\nvar Count int\necho Count\n"),
-		"src/Worker.worker": file("// Health documentation.\nvar Health int\necho Health, Value\n"),
+		"src/main.fixture": file(`// Count documentation.
+var Count int
+echo Count
+`),
+		"src/Worker.worker": file(`// Health documentation.
+var Health int
+echo Health, Value
+`),
 		"Record.gox":        file("var Value int\n"),
 		"ignored.spx":       file("invalid source {{{"),
 		"ignored.other":     file("invalid source {{{"),

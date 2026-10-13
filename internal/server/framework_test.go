@@ -101,7 +101,10 @@ func TestDefinitionContextIsInFrameworkEventHandler(t *testing.T) {
 		source string
 		want   bool
 	}{
-		{"Callback", "onStart => {\n |println 1\n}\n", true},
+		{"Callback", `onStart => {
+ |println 1
+}
+`, true},
 		{"FunctionLiteral", "onStart func() { |println 1 }\n", true},
 		{"ExplicitReceiver", "this.onStart => { |println 1 }\n", true},
 		{"NestedCall", "func run(fn func()) { fn() }\nonStart => { run => { |println 1 } }\n", true},
@@ -134,9 +137,15 @@ func TestCompletionContextFrameworkEventHandlers(t *testing.T) {
 		adapt     bool
 		wantEvent bool
 	}{
-		{"Callback", "onStart => {\n |println 1\n}\n", true, true},
+		{"Callback", `onStart => {
+ |println 1
+}
+`, true, true},
 		{"OutsideCallback", "\n|println 1\nonStart => {}\n", true, false},
-		{"WithoutAdapter", "onStart => {\n |println 1\n}\n", false, false},
+		{"WithoutAdapter", `onStart => {
+ |println 1
+}
+`, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -171,7 +180,9 @@ func TestCompletionContextFrameworkEventHandlerPropertyArguments(t *testing.T) {
 		{name: "Property", value: "label"},
 		{name: "ParenthesizedProperty", value: "(label)"},
 		{name: "MemberProperty", value: "this.label"},
-		{name: "FunctionLiteral", value: "label", callback: "func() {\n |println 1\n}"},
+		{name: "FunctionLiteral", value: "label", callback: `func() {
+ |println 1
+}`},
 		{name: "ExplicitCall", value: "Label()"},
 		{name: "Literal", value: `"label"`},
 		{name: "OrdinaryCallback", value: "label", callee: "choose", ordinary: true},
@@ -187,7 +198,9 @@ func TestCompletionContextFrameworkEventHandlerPropertyArguments(t *testing.T) {
 					}
 					callback := tt.callback
 					if callback == "" {
-						callback = "=> {\n |println 1\n}"
+						callback = `=> {
+ |println 1
+}`
 					}
 					source, pos := typeDisplayTestSource(t, "func Label() string { return \"\" }\n"+tt.declaration+callee+" "+tt.value+", "+callback+", "+state.last+"\n")
 					s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
@@ -228,7 +241,11 @@ func (a *App) Choose__1(value int, handler func(), last int) {}
 }
 
 func TestInputSlotContextFrameworkResources(t *testing.T) {
-	s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("type Asset string\nfunc use(asset Asset) {}\nuse ((\"logo\"))\nprintln \"ordinary\"\n")})
+	s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(`type Asset string
+func use(asset Asset) {}
+use (("logo"))
+println "ordinary"
+`)})
 	proj := s.requestProject()
 	info, err := proj.TypeInfo()
 	require.NoError(t, err)

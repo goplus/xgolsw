@@ -80,8 +80,10 @@ func TestServerTextDocumentCompletionTypeArgumentValues(t *testing.T) {
 		{"ArrayLengthCall", "var value string = api.Use[[len(candidate|Text)]Candidate]([2]Candidate{})", "candidateText", ""},
 		{"Index", "var value string = callbacks[candidate|Length]()", "candidateLength", "candidateText"},
 		{"MapIndex", "var value string = mapping[candidate|Text]()", "candidateText", "candidateLength"},
-		{"GenericSliceIndex", "var list api.List[func() string]\nvar value string = list[candidate|Length]()", "candidateLength", "candidateText"},
-		{"GenericMapIndex", "var dict api.Dict[string, func() string]\nvar value string = dict[candidate|Text]()", "candidateText", "candidateLength"},
+		{"GenericSliceIndex", `var list api.List[func() string]
+var value string = list[candidate|Length]()`, "candidateLength", "candidateText"},
+		{"GenericMapIndex", `var dict api.Dict[string, func() string]
+var value string = dict[candidate|Text]()`, "candidateText", "candidateLength"},
 		{"CallArgument", "var value string = api.Use[int](candidate|Length)", "candidateLength", "candidateText"},
 		{"CompositeField", "var value any = api.Box[int]{Val|}", "Value", "Candidate"},
 	} {

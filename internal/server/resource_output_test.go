@@ -12,7 +12,10 @@ import (
 
 func TestResourceAnalysisResourceDocumentLinks(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{
-		"main.xgo":  []byte("var Runner int\nconst Scene = \"Studio\"\necho \"Studio\", \"Beep\", Runner, \"idle\", \"walk\", \"Score\", Scene\n"),
+		"main.xgo": []byte(`var Runner int
+const Scene = "Studio"
+echo "Studio", "Beep", Runner, "idle", "walk", "Score", Scene
+`),
 		"other.xgo": []byte("const Other = \"Studio\"\n"),
 	})
 	proj := s.getProj()
@@ -195,8 +198,11 @@ func TestResourceRefSourceRanges(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{
-					"main.xgo":  []byte(source),
-					"other.xgo": []byte("func preview() {\n\techo \"Studio\"\n}\n"),
+					"main.xgo": []byte(source),
+					"other.xgo": []byte(`func preview() {
+	echo "Studio"
+}
+`),
 				})
 				proj := s.getProj()
 				call := resourceTestCall(t, proj, "main.xgo")

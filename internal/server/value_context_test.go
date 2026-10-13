@@ -31,7 +31,10 @@ func TestServerTextDocumentCompletionReceiveContexts(t *testing.T) {
 					source, pos := typeDisplayTestSource(t, "func run() {\n"+tt.source+"\necho value\n}\n")
 					files := map[string][]byte{
 						kind.filename: []byte(source),
-						"helpers.xgo": []byte("func noop() {}\nvar channel chan int\nvar wrong chan string\n"),
+						"helpers.xgo": []byte(`func noop() {}
+var channel chan int
+var wrong chan string
+`),
 					}
 					if kind.filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
@@ -274,7 +277,10 @@ var config = Config{Callback: () => { return 1 }}`, 1},
 
 func TestResourceReferencesLiteralCallContext(t *testing.T) {
 	for _, tt := range []struct{ name, source string }{
-		{"Composite", "type Config struct { Value Asset }\nfunc use(value any) {}\nuse(Config{Value: \"value\"})\n"},
+		{"Composite", `type Config struct { Value Asset }
+func use(value any) {}
+use(Config{Value: "value"})
+`},
 		{"Slice", "func use(values []Asset) {}\nuse([\"value\"])\n"},
 		{"Tuple", "func use(value (int, Asset)) {}\nuse((1, \"value\"))\n"},
 	} {

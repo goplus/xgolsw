@@ -226,7 +226,10 @@ func TestProjectSnapshot(t *testing.T) {
 			{"WorkClass", "Worker_fixture.gox", newFrameworkTestProject},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				const source = "var value int\nfunc Work() { value = 1 }\nfunc Reset() { value = 0 }\n"
+				const source = `var value int
+func Work() { value = 1 }
+func Reset() { value = 0 }
+`
 				files := map[string]*File{tt.filename: file(source)}
 				if tt.filename == "Worker_fixture.gox" {
 					files["main_fixture.gox"] = file("")

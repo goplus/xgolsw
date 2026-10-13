@@ -14,7 +14,11 @@ import (
 
 func TestServerTextDocumentHover(t *testing.T) {
 	t.Run("FieldOwners", func(t *testing.T) {
-		const record = "type Record struct {\n// Count stores the value.\nCount int\n}\n"
+		const record = `type Record struct {
+// Count stores the value.
+Count int
+}
+`
 		for _, tt := range []struct {
 			name      string
 			filename  string
@@ -28,82 +32,135 @@ func TestServerTextDocumentHover(t *testing.T) {
 		}{
 			{
 				name: "DirectField", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter struct { Record }\nvar item Record\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
+				source: record + `type Adapter struct { Record }
+var item Record
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
 			},
 			{
 				name: "DefinedSibling", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter Record\nvar item Record\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
+				source: record + `type Adapter Record
+var item Record
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Record",
 			},
 			{
 				name: "DefinedType", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter Record\nvar item Adapter\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+				source: record + `type Adapter Record
+var item Adapter
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
 			},
 			{
 				name: "CallReceiver", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter Record\nfunc item() *Adapter { return new(Adapter) }\nitem().|Count = 1\n",
-				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+				source: record + `type Adapter Record
+func item() *Adapter { return new(Adapter) }
+item().|Count = 1
+`,
+				field: "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
 			},
 			{
 				name: "IndexReceiver", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter Record\nitems := [Adapter{}]\nitems[0].|Count = 1\n",
-				field:  "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
+				source: record + `type Adapter Record
+items := [Adapter{}]
+items[0].|Count = 1
+`,
+				field: "Count", id: "xgo:main?Adapter.Count", target: "Adapter",
 			},
 			{
 				name: "LocalDefinedSibling", filename: "main.xgo", newServer: newTestServer,
-				source: "func run() {\n" + record + "type Adapter Record\nvar item Record\nitem.|Count = 1\n}\n",
-				field:  "Count", id: "xgo:main?Record.Count",
+				source: "func run() {\n" + record + `type Adapter Record
+var item Record
+item.|Count = 1
+}
+`,
+				field: "Count", id: "xgo:main?Record.Count",
 			},
 			{
 				name: "PromotedField", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter struct { *Record }\nvar item Adapter\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
+				source: record + `type Adapter struct { *Record }
+var item Adapter
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
 			},
 			{
 				name: "PointerAlias", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter struct { Record }\ntype Alias = *Record\nvar item Alias\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
+				source: record + `type Adapter struct { Record }
+type Alias = *Record
+var item Alias
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Record.Count", doc: "Count stores the value.", target: "Adapter",
 			},
 			{
 				name: "ShadowedField", filename: "main.xgo", newServer: newTestServer,
-				source: record + "type Adapter struct {\nRecord\n// Count stores the replacement.\nCount int\n}\nvar item Adapter\nitem.|Count = 1\n",
-				field:  "Count", id: "xgo:main?Adapter.Count", doc: "Count stores the replacement.", target: "Adapter",
+				source: record + `type Adapter struct {
+Record
+// Count stores the replacement.
+Count int
+}
+var item Adapter
+item.|Count = 1
+`,
+				field: "Count", id: "xgo:main?Adapter.Count", doc: "Count stores the replacement.", target: "Adapter",
 			},
 			{
 				name: "LocalPointerAlias", filename: "main.xgo", newServer: newTestServer,
-				source: "func run() {\n" + record + "type Alias = *Record\nvar item Alias\nitem.|Count = 1\n}\n",
-				field:  "Count", id: "xgo:main?Record.Count",
+				source: "func run() {\n" + record + `type Alias = *Record
+var item Alias
+item.|Count = 1
+}
+`,
+				field: "Count", id: "xgo:main?Record.Count",
 			},
 			{
 				name: "LocalType", filename: "main.xgo", newServer: newTestServer,
-				source: "func run() {\n" + record + "type Adapter struct { Record }\nvar item Adapter\nitem.|Count = 1\n}\n",
-				field:  "Count", id: "xgo:main?Record.Count",
+				source: "func run() {\n" + record + `type Adapter struct { Record }
+var item Adapter
+item.|Count = 1
+}
+`,
+				field: "Count", id: "xgo:main?Record.Count",
 			},
 			{
 				name: "ProjectField", filename: "main_fixture.gox", newServer: newFrameworkTestServer,
-				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
-				extra:  map[string][]byte{"helpers.xgo": []byte("type Adapter struct { *App }\n")},
-				field:  "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
+				source: `// Count stores the value.
+var Count int
+|Count = 1
+`,
+				extra: map[string][]byte{"helpers.xgo": []byte("type Adapter struct { *App }\n")},
+				field: "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
 			},
 			{
 				name: "WorkField", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
-				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
-				extra:  map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter struct { *Worker }\n")},
-				field:  "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
+				source: `// Count stores the value.
+var Count int
+|Count = 1
+`,
+				extra: map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter struct { *Worker }\n")},
+				field: "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
 			},
 			{
 				name: "ProjectDefinedSibling", filename: "main_fixture.gox", newServer: newFrameworkTestServer,
-				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
-				extra:  map[string][]byte{"helpers.xgo": []byte("type Adapter App\n")},
-				field:  "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
+				source: `// Count stores the value.
+var Count int
+|Count = 1
+`,
+				extra: map[string][]byte{"helpers.xgo": []byte("type Adapter App\n")},
+				field: "Count", id: "xgo:main?App.Count", doc: "Count stores the value.", target: "App",
 			},
 			{
 				name: "WorkDefinedSibling", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
-				source: "// Count stores the value.\nvar Count int\n|Count = 1\n",
-				extra:  map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")},
-				field:  "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
+				source: `// Count stores the value.
+var Count int
+|Count = 1
+`,
+				extra: map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")},
+				field: "Count", id: "xgo:main?Worker.Count", doc: "Count stores the value.", target: "Worker",
 			},
 			{
 				name: "ImportedImplicitField", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
@@ -113,23 +170,35 @@ func TestServerTextDocumentHover(t *testing.T) {
 			},
 			{
 				name: "ImportedDefinedType", filename: "main.xgo", newServer: newFrameworkTestServer,
-				source: "import f \"example.com/framework\"\nvar item f.Copy\nitem.|Value = 1\n",
-				field:  "Value", id: "xgo:example.com/framework?Copy.Value",
+				source: `import f "example.com/framework"
+var item f.Copy
+item.|Value = 1
+`,
+				field: "Value", id: "xgo:example.com/framework?Copy.Value",
 			},
 			{
 				name: "ImportedGenericField", filename: "main.xgo", newServer: newFrameworkTestServer,
-				source: "import f \"example.com/framework\"\nvar item f.Box[int]\nitem.|Value = 1\n",
-				field:  "Value", id: "xgo:example.com/framework?Box.Value", doc: "Value holds the boxed value.",
+				source: `import f "example.com/framework"
+var item f.Box[int]
+item.|Value = 1
+`,
+				field: "Value", id: "xgo:example.com/framework?Box.Value", doc: "Value holds the boxed value.",
 			},
 			{
 				name: "ImportedField", filename: "main.xgo", newServer: newFrameworkTestServer,
-				source: "import f \"example.com/framework\"\nvar item f.Item\nitem.|Value = 1\n",
-				field:  "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+				source: `import f "example.com/framework"
+var item f.Item
+item.|Value = 1
+`,
+				field: "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
 			},
 			{
 				name: "ImportedPromotedField", filename: "main.xgo", newServer: newFrameworkTestServer,
-				source: "import f \"example.com/framework\"\nvar item f.Group\nitem.|Value = 1\n",
-				field:  "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
+				source: `import f "example.com/framework"
+var item f.Group
+item.|Value = 1
+`,
+				field: "Value", id: "xgo:example.com/framework?Item.Value", doc: "Value stores the work item's value.",
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -184,8 +253,19 @@ func TestServerTextDocumentHover(t *testing.T) {
 	})
 
 	t.Run("KwargFieldOwners", func(t *testing.T) {
-		const declarations = "type Record struct {\n// Count stores the value.\nCount int\n}\ntype Adapter Record\n"
-		const overloads = declarations + "func configureRecord(prefix string, opts Record?) {}\nfunc configureAdapter(prefix int, opts Adapter?) {}\nfunc configure = (\nconfigureRecord\nconfigureAdapter\n)\n"
+		const declarations = `type Record struct {
+// Count stores the value.
+Count int
+}
+type Adapter Record
+`
+		const overloads = declarations + `func configureRecord(prefix string, opts Record?) {}
+func configureAdapter(prefix int, opts Adapter?) {}
+func configure = (
+configureRecord
+configureAdapter
+)
+`
 		for _, tt := range []struct {
 			name         string
 			declarations string
@@ -293,7 +373,10 @@ func TestServerTextDocumentHover(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
-					tt.filename: []byte("// Count documentation.\nvar Count int\nCount = 1\n"),
+					tt.filename: []byte(`// Count documentation.
+var Count int
+Count = 1
+`),
 				}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
@@ -336,15 +419,26 @@ func TestServerTextDocumentHover(t *testing.T) {
 			}{
 				{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8},
 					want: "Package framework provides a minimal class framework for language tests."},
-				{name: "Package", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 10},
+				{name: "Package", source: `import "example.com/framework"
+var item framework.Item
+`, position: Position{Line: 1, Character: 10},
 					want: "Package framework provides a minimal class framework for language tests."},
-				{name: "Type", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 19},
+				{name: "Type", source: `import "example.com/framework"
+var item framework.Item
+`, position: Position{Line: 1, Character: 19},
 					want: "Item is the work base class."},
-				{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
+				{name: "Method", source: `import "example.com/framework"
+var item framework.Item
+item.apply 1
+`, position: Position{Line: 2, Character: 5},
 					want: "Apply accepts a value on a work instance."},
-				{name: "Function", source: "import \"example.com/framework\"\nframework.runWhen true, => {}\n", position: Position{Line: 1, Character: 10},
+				{name: "Function", source: `import "example.com/framework"
+framework.runWhen true, => {}
+`, position: Position{Line: 1, Character: 10},
 					want: "RunWhen accepts a deferred condition and a callback."},
-				{name: "Constant", source: "import \"example.com/framework\"\necho framework.Low\n", position: Position{Line: 1, Character: 15},
+				{name: "Constant", source: `import "example.com/framework"
+echo framework.Low
+`, position: Position{Line: 1, Character: 15},
 					want: "Low and High are values used by framework methods."},
 			} {
 				t.Run(tt.name+markup.name, func(t *testing.T) {
@@ -382,7 +476,10 @@ func TestServerTextDocumentHover(t *testing.T) {
 			newServer testServerFactory
 		}{
 			{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8}, newServer: newFrameworkTestServer},
-			{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
+			{name: "Method", source: `import "example.com/framework"
+var item framework.Item
+item.apply 1
+`, position: Position{Line: 2, Character: 5},
 				want: `overview="func apply(value int)"`, newServer: newFrameworkTestServer},
 			{name: "BuiltinAlias", source: "var number int128\n", position: Position{Character: 12},
 				want: `overview="type Int128"`, newServer: newTestServer},
@@ -434,11 +531,18 @@ func TestServerTextDocumentHover(t *testing.T) {
 		}{
 			{name: "Method", source: "measure 1\n", position: Position{Character: 1},
 				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["App"].Methods["Measure__0"] = text }},
-			{name: "Type", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 19},
+			{name: "Type", source: `import "example.com/framework"
+var item framework.Item
+`, position: Position{Line: 1, Character: 19},
 				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Doc = text }},
-			{name: "Field", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.Value = 1\n", position: Position{Line: 2, Character: 5},
+			{name: "Field", source: `import "example.com/framework"
+var item framework.Item
+item.Value = 1
+`, position: Position{Line: 2, Character: 5},
 				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Types["Item"].Fields["Value"] = text }},
-			{name: "Constant", source: "import \"example.com/framework\"\necho framework.Low\n", position: Position{Line: 1, Character: 15},
+			{name: "Constant", source: `import "example.com/framework"
+echo framework.Low
+`, position: Position{Line: 1, Character: 15},
 				setDoc: func(doc *pkgdoc.PkgDoc, text string) { doc.Consts["Low"] = text }},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -463,7 +567,9 @@ func TestServerTextDocumentHover(t *testing.T) {
 	})
 
 	t.Run("DocumentUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// Before update.\nvar value int\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`// Before update.
+var value int
+`)})
 		params := &HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 1, Character: 4},
 		}}
@@ -471,7 +577,9 @@ func TestServerTextDocumentHover(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, before)
 		assert.Contains(t, before.Contents.Value, "Before update.")
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("// After update.\nvar value string\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`// After update.
+var value string
+`), Version: 1}})
 		after, err := s.textDocumentHover(params)
 		require.NoError(t, err)
 		require.NotNil(t, after)
@@ -1031,8 +1139,16 @@ this = 1
 			method   string
 			owner    string
 		}{
-			{"Project", "main_fixture.gox", "onStart => {\n    println 1\n    println 2\n}\n", "onStart", "App"},
-			{"Work", "Worker_fixture.gox", "onValue value => {\n    apply value\n    apply 2\n}\n", "onValue", "Item"},
+			{"Project", "main_fixture.gox", `onStart => {
+    println 1
+    println 2
+}
+`, "onStart", "App"},
+			{"Work", "Worker_fixture.gox", `onValue value => {
+    apply value
+    apply 2
+}
+`, "onValue", "Item"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{"main_fixture.gox": nil}
@@ -1551,8 +1667,15 @@ func run() {
 		endCharacter uint32
 	}{
 		{
-			name:         "XGoUnit",
-			source:       "import \"time\"\n\nfunc wait(d time.Duration) {}\n\nfunc run() {\n\twait 1m\n}\n",
+			name: "XGoUnit",
+			source: `import "time"
+
+func wait(d time.Duration) {}
+
+func run() {
+	wait 1m
+}
+`,
 			unit:         "m",
 			multiplier:   "60000000000",
 			endCharacter: 8,
@@ -1565,8 +1688,15 @@ func run() {
 			endCharacter: 9,
 		},
 		{
-			name:         "XGoUnitImportedAliasFallback",
-			source:       "import \"example.com/unit\"\n\nfunc wait(d unit.Delay) {}\n\nfunc run() {\n\twait 1ms\n}\n",
+			name: "XGoUnitImportedAliasFallback",
+			source: `import "example.com/unit"
+
+func wait(d unit.Delay) {}
+
+func run() {
+	wait 1ms
+}
+`,
 			unit:         "ms",
 			multiplier:   "1000000",
 			endCharacter: 9,

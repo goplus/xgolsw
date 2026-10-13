@@ -80,6 +80,9 @@ Test snippets for XGo behavior should match the existing XGo and classfile fixtu
 write XGo-specific fixtures as pure Go. Do not overfit fixtures to the full XGo spec when nearby tests intentionally use
 a narrower syntax subset.
 
+Prefer raw strings when multiline layout makes fixture structure clearer. Keep short snippets, concatenation fragments,
+and whitespace-sensitive cases interpreted when escapes are clearer. Preserve exact fixture contents.
+
 ## assert vs require
 
 Use `require` when subsequent code depends on the assertion passing (e.g., dereferencing a pointer, accessing array

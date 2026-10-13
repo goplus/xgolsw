@@ -36,7 +36,8 @@ func TestServerRequestsDuringSyntaxRecovery(t *testing.T) {
 				"type Value = struct { Field",
 				"func run() { println f(value=",
 				"func run() { println \"${",
-				"//line mapped.xgo:500\nfunc run() { println missing.",
+				`//line mapped.xgo:500
+func run() { println missing.`,
 				"// Prefix \U0001F600\r\nfunc run() { println 1 +",
 			} {
 				files := map[string][]byte{kind.filename: []byte(source)}
@@ -71,7 +72,13 @@ func TestServerRequestHistoryIndependence(t *testing.T) {
 		{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
-			const original = "type Count int\nvar current Count\nfunc add(v Count) Count { return v + 1 }\nfunc run() {\nprintln add(current)\n}\n"
+			const original = `type Count int
+var current Count
+func add(v Count) Count { return v + 1 }
+func run() {
+println add(current)
+}
+`
 			files := map[string][]byte{kind.filename: []byte(original)}
 			if kind.name == "WorkClass" {
 				files["main_fixture.gox"] = nil
@@ -196,16 +203,40 @@ func TestServerRequestsWithIncompleteMethods(t *testing.T) {
 				name   string
 				source string
 			}{
-				{name: "MissingResult", source: "type Reader interface { |Read() Missing }\ntype RecordValue struct{}\nfunc (RecordValue) Read() Missing { return nil }\n"},
-				{name: "MissingParameter", source: "type Reader interface { |Read(value Missing) }\ntype RecordValue struct{}\nfunc (RecordValue) Read(value Missing) {}\n"},
+				{name: "MissingResult", source: `type Reader interface { |Read() Missing }
+type RecordValue struct{}
+func (RecordValue) Read() Missing { return nil }
+`},
+				{name: "MissingParameter", source: `type Reader interface { |Read(value Missing) }
+type RecordValue struct{}
+func (RecordValue) Read(value Missing) {}
+`},
 				{name: "RecursiveInterface", source: "type Reader interface { Reader; |Read() int }\n"},
 				{name: "IncompleteSignature", source: "type Reader interface { |Read("},
 				{name: "MissingReceiver", source: "func (Missing) |Read() int { return 1 }\n"},
-				{name: "RecursiveStruct", source: "type RecordValue struct { RecordValue }\nfunc (RecordValue) |Read() int { return 1 }\n"},
-				{name: "MissingOverloadCandidate", source: "func |Read = (\nmissing\n)\n"},
-				{name: "VariableOverloadCandidate", source: "var other int\nfunc |Read = (\nother\n)\n"},
-				{name: "MissingOverloadAtCall", source: "func Read = (\nmissing\n)\nfunc run() { |Read(1) }\n"},
-				{name: "MixedOverloadCandidates", source: "func resolved(value int) {}\nfunc |Read = (\nresolved\nmissing\n)\n"},
+				{name: "RecursiveStruct", source: `type RecordValue struct { RecordValue }
+func (RecordValue) |Read() int { return 1 }
+`},
+				{name: "MissingOverloadCandidate", source: `func |Read = (
+missing
+)
+`},
+				{name: "VariableOverloadCandidate", source: `var other int
+func |Read = (
+other
+)
+`},
+				{name: "MissingOverloadAtCall", source: `func Read = (
+missing
+)
+func run() { |Read(1) }
+`},
+				{name: "MixedOverloadCandidates", source: `func resolved(value int) {}
+func |Read = (
+resolved
+missing
+)
+`},
 				{name: "EmptyOverload", source: "func |Read = ()\n"},
 				{name: "IncompleteOverload", source: "func |Read = (\nfunc(value int)"},
 			} {

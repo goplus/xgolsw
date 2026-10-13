@@ -13,17 +13,50 @@ func TestDefinitionContextIsInFrameworkEventHandlerSpx(t *testing.T) {
 		source string
 		want   bool
 	}{
-		{"OrdinaryCallback", "func invoke(fn func()) { fn() }\ninvoke => {\n    |println 1\n}\n", false},
-		{"UserHandler", "func onCustom(fn func()) { fn() }\nonCustom => {\n    |println 1\n}\n", false},
-		{"ShadowedHandler", "onStart := func(fn func()) { fn() }\nonStart => {\n    |println 1\n}\n", false},
-		{"Handler", "onStart => {\n    |println 1\n}\n", true},
-		{"NestedOrdinaryCallback", "func invoke(fn func()) { fn() }\nonStart => {\n    invoke => {\n        |println 1\n    }\n}\n", true},
-		{"ExplicitReceiver", "this.onStart => {\n    |println 1\n}\n", true},
-		{"OverloadedHandler", "onKey KeySpace, => {\n    |println 1\n}\n", true},
-		{"FunctionLiteral", "onStart func() {\n    |println 1\n}\n", true},
+		{"OrdinaryCallback", `func invoke(fn func()) { fn() }
+invoke => {
+    |println 1
+}
+`, false},
+		{"UserHandler", `func onCustom(fn func()) { fn() }
+onCustom => {
+    |println 1
+}
+`, false},
+		{"ShadowedHandler", `onStart := func(fn func()) { fn() }
+onStart => {
+    |println 1
+}
+`, false},
+		{"Handler", `onStart => {
+    |println 1
+}
+`, true},
+		{"NestedOrdinaryCallback", `func invoke(fn func()) { fn() }
+onStart => {
+    invoke => {
+        |println 1
+    }
+}
+`, true},
+		{"ExplicitReceiver", `this.onStart => {
+    |println 1
+}
+`, true},
+		{"OverloadedHandler", `onKey KeySpace, => {
+    |println 1
+}
+`, true},
+		{"FunctionLiteral", `onStart func() {
+    |println 1
+}
+`, true},
 		{"Argument", "onKey |KeySpace, => {}\n", false},
 		{"CallbackParameters", "onKey [KeySpace], |key => { println key }\n", false},
-		{"Unresolved", "onMissing => {\n    |println 1\n}\n", false},
+		{"Unresolved", `onMissing => {
+    |println 1
+}
+`, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)

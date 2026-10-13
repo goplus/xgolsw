@@ -11,7 +11,9 @@ import (
 )
 
 func TestSpxIntegrationConfiguration(t *testing.T) {
-	files := map[string][]byte{"main.spx": []byte("var Count int\nCount = 1\n")}
+	files := map[string][]byte{"main.spx": []byte(`var Count int
+Count = 1
+`)}
 	s := newSpxIntegrationTestServer(t, files)
 	proj := s.getProj()
 	assert.Equal(t, "main", proj.PkgPath)

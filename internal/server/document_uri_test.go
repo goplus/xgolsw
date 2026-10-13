@@ -23,8 +23,12 @@ func TestServerDocumentURI(t *testing.T) {
 		{name: "Unicode", path: "\u503c.xgo", escaped: "%E5%80%BC.xgo"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			const original = "var value int\nprintln value\n"
-			const updated = "var replacement int\nprintln replacement\n"
+			const original = `var value int
+println value
+`
+			const updated = `var replacement int
+println replacement
+`
 			s := newTestServer(t, map[string][]byte{tt.path: []byte(original)})
 			s.workspaceRootURI = "file:///work%20space/"
 			s.replier = newMockReplier()

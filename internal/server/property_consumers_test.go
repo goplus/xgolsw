@@ -18,7 +18,9 @@ func TestServerResourceAutoPropertyContexts(t *testing.T) {
 		{"Switch", "var saved Asset\nfunc Current() Asset { return saved }", `switch current { case "first": }`},
 		{"Index", "func Lookup() map[Asset]int { return nil }", `_ = lookup["first"]`},
 		{"Send", "func Stream() chan Asset { return nil }", `stream <- "first"`},
-		{"Member", "type Record struct { Value Asset }\nfunc (r Record) Current() Asset { return r.Value }\nvar record Record", `_ = record.current == "first"`},
+		{"Member", `type Record struct { Value Asset }
+func (r Record) Current() Asset { return r.Value }
+var record Record`, `_ = record.current == "first"`},
 		{"FunctionVariable", "var saved Asset\nvar Current = func() Asset { return saved }", `_ = current == "first"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,7 +84,9 @@ func TestServerInlayHintAutoPropertyArguments(t *testing.T) {
 		{"Incomplete", `func Label() string { return "" }`, "label", "missing"},
 		{"Parenthesized", `func Label() string { return "" }`, "(label)", "missing"},
 		{"FunctionVariable", `var Label = func() string { return "" }`, "label", "missing"},
-		{"Member", "type Record struct{}\nfunc (Record) Label() string { return \"\" }\nvar record Record", "record.label", "missing"},
+		{"Member", `type Record struct{}
+func (Record) Label() string { return "" }
+var record Record`, "record.label", "missing"},
 		{"ExplicitCall", `func Label() string { return "" }`, "Label()", "missing"},
 		{"Literal", "", `"value"`, "missing"},
 	} {
@@ -121,7 +125,9 @@ func TestServerKwargAutoPropertyArguments(t *testing.T) {
 		{"Property", `func Label() string { return "" }`, "label"},
 		{"Parenthesized", `func Label() string { return "" }`, "(label)"},
 		{"FunctionVariable", `var Label = func() string { return "" }`, "label"},
-		{"Member", "type Record struct{}\nfunc (Record) Label() string { return \"\" }\nvar record Record", "record.label"},
+		{"Member", `type Record struct{}
+func (Record) Label() string { return "" }
+var record Record`, "record.label"},
 		{"Call", `func Label() string { return "" }`, "Label()"},
 		{"Literal", "", `"value"`},
 	} {
@@ -246,7 +252,9 @@ func TestServerHoverUnitsWithAutoPropertyArguments(t *testing.T) {
 		{"Property", `func Label() string { return "" }`, "label"},
 		{"Parenthesized", `func Label() string { return "" }`, "(label)"},
 		{"FunctionVariable", `var Label = func() string { return "" }`, "label"},
-		{"Member", "type Record struct{}\nfunc (Record) Label() string { return \"\" }\nvar record Record", "record.label"},
+		{"Member", `type Record struct{}
+func (Record) Label() string { return "" }
+var record Record`, "record.label"},
 		{"ExplicitCall", `func Label() string { return "" }`, "Label()"},
 		{"Literal", "", `"text"`},
 	} {
@@ -260,7 +268,9 @@ func number(value int, distance f.Distance, last int) {}
 func Choose = (text; number)
 `),
 			})
-			setImportTestFrameworkMethods(t, s, "type Distance int\nconst XGou_Distance = \"m=1,km=1000\"\n")
+			setImportTestFrameworkMethods(t, s, `type Distance int
+const XGou_Distance = "m=1,km=1000"
+`)
 			_, err := s.requestProject().TypeInfo()
 			require.ErrorContains(t, err, "undefined: missing")
 			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{

@@ -62,7 +62,10 @@ func (a *App) Label__1() string { return "" }`, ""},
 			item := completionItemByLabel(ctx.itemSet.items, `"label"`)
 			require.NotNil(t, item)
 			assert.Equal(t, `"label"`, item.InsertText)
-			s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte("func run() {\n_ = label\n}\n"), Version: 1}})
+			s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte(`func run() {
+_ = label
+}
+`), Version: 1}})
 			_, err = s.requestProject().TypeInfo()
 			assert.NoError(t, err)
 		})
@@ -121,7 +124,9 @@ func TestServerTextDocumentTypeDefinitionPackagePropertyAlias(t *testing.T) {
 		{"ImplementationValue", "makeRe|sult", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "func makeResult() Result { return Result{} }\nfunc Current = (makeResult)\n_ = "+tt.expression+"\n")
+			source, pos := typeDisplayTestSource(t, `func makeResult() Result { return Result{} }
+func Current = (makeResult)
+_ = `+tt.expression+"\n")
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte("type Result struct{}\n")})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
@@ -141,7 +146,9 @@ func TestServerTextDocumentTypeDefinitionInferredProperty(t *testing.T) {
 		name, filename, declarations, expression string
 		template                                 bool
 	}{
-		{name: "GenericReceiver", filename: "main.xgo", declarations: "import f \"example.com/framework\"\nvar box f.Box[Result]\n", expression: "box.get|Value"},
+		{name: "GenericReceiver", filename: "main.xgo", declarations: `import f "example.com/framework"
+var box f.Box[Result]
+`, expression: "box.get|Value"},
 		{name: "PackageFunction", filename: "main.xgo", declarations: "func Value() Result { return Result{} }\n", expression: "val|ue"},
 		{name: "ClassMethod", filename: "main_fixture.gox", declarations: "func Value() Result { return Result{} }\n", expression: "val|ue"},
 		{name: "TemplateBare", filename: "main_fixture.gox", declarations: "func Value() Result { return Result{} }\n", expression: "la|bel", template: true},
@@ -150,9 +157,13 @@ func TestServerTextDocumentTypeDefinitionInferredProperty(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.declarations+"func run() {\n_ = "+tt.expression+"\n}\n")
-			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source), "types.xgo": []byte("type Result struct{}\nfunc (Result) Next() Result { return Result{} }\n")})
+			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source), "types.xgo": []byte(`type Result struct{}
+func (Result) Next() Result { return Result{} }
+`)})
 			if tt.name == "GenericReceiver" {
-				setImportTestFrameworkMethods(t, s, "type Box[T any] struct { Item T }\nfunc (b Box[T]) GetValue() T { return b.Item }\n")
+				setImportTestFrameworkMethods(t, s, `type Box[T any] struct { Item T }
+func (b Box[T]) GetValue() T { return b.Item }
+`)
 			}
 			if tt.template {
 				setImportTestFrameworkMethods(t, s, "func XGot_App_Label[T any](a interface{ Value() T }) T { return a.Value() }\n")
@@ -189,7 +200,12 @@ func TestServerCompletionInferredPropertyReceiver(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, "func Value() Result { return Result{} }\nfunc run() { use "+tt.receiver+".|Text }\n")
 			s := newImportTestServer(t, map[string][]byte{
 				"main_fixture.gox": []byte(source),
-				"types.xgo":        []byte("type Result struct { Child *Result }\nfunc (Result) Next() Result { return Result{} }\nfunc (Result) Text() string { return \"\" }\nfunc (Result) Count() int { return 0 }\nfunc use(text string) {}\n"),
+				"types.xgo": []byte(`type Result struct { Child *Result }
+func (Result) Next() Result { return Result{} }
+func (Result) Text() string { return "" }
+func (Result) Count() int { return 0 }
+func use(text string) {}
+`),
 			})
 			setImportTestFrameworkMethods(t, s, "func XGot_App_Current[T any](a interface{ Value() T }) T { return a.Value() }\n")
 			items := completionItemsAt(t, s, "main_fixture.gox", pos)
@@ -237,7 +253,9 @@ func TestServerXGoGetPropertiesProjectState(t *testing.T) {
 	})
 
 	t.Run("ConcurrentColdRequests", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "func Value() Result { return Result{} }\nfunc run() { _ = this.la|bel }\n")
+		source, pos := typeDisplayTestSource(t, `func Value() Result { return Result{} }
+func run() { _ = this.la|bel }
+`)
 		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source), "types.xgo": []byte("type Result struct{}\n")})
 		setImportTestFrameworkMethods(t, s, "func XGot_App_Label[T any](a interface{ Value() T }) T { return a.Value() }\n")
 		const count = 16

@@ -100,7 +100,11 @@ func run() {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
-					tt.filename: []byte("type Swatch struct {}\nvar available Swatch\nfunc sample(values ...any) Swatch { return Swatch{} }\nprintln sample(12, 34, 56)\n"),
+					tt.filename: []byte(`type Swatch struct {}
+var available Swatch
+func sample(values ...any) Swatch { return Swatch{} }
+println sample(12, 34, 56)
+`),
 				}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil

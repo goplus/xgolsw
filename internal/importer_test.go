@@ -139,7 +139,9 @@ func Read() dependency.Value { return dependency.Value{} }
 		assert.ErrorContains(t, err, "failed to open package export file")
 		assert.Nil(t, pkg)
 
-		files[pkgPath+".pkgexport"] = &fstest.MapFile{Data: exportTestPackage(t, pkgPath, "package retry\nconst Ready = true\n", nil)}
+		files[pkgPath+".pkgexport"] = &fstest.MapFile{Data: exportTestPackage(t, pkgPath, `package retry
+const Ready = true
+`, nil)}
 		pkg, err = imp.Import(pkgPath)
 		require.NoError(t, err)
 		assert.NotNil(t, pkg.Scope().Lookup("Ready"))
@@ -171,7 +173,9 @@ func Read() dependency.Value { return dependency.Value{} }
 		imp := importerForTestFiles(files)
 		_, err := imp.Import(pkgPath)
 		require.Error(t, err)
-		files[pkgPath+".pkgexport"] = &fstest.MapFile{Data: exportTestPackage(t, pkgPath, "package retry\nconst Ready = true\n", nil)}
+		files[pkgPath+".pkgexport"] = &fstest.MapFile{Data: exportTestPackage(t, pkgPath, `package retry
+const Ready = true
+`, nil)}
 		pkg, err := imp.Import(pkgPath)
 		require.NoError(t, err)
 		assert.NotNil(t, pkg.Scope().Lookup("Ready"))
@@ -179,7 +183,9 @@ func Read() dependency.Value { return dependency.Value{} }
 
 	t.Run("ConcurrentImports", func(t *testing.T) {
 		const pkgPath = "example.com/concurrent"
-		data := exportTestPackage(t, pkgPath, "package concurrent\ntype Value struct { Number int }\n", nil)
+		data := exportTestPackage(t, pkgPath, `package concurrent
+type Value struct { Number int }
+`, nil)
 		var opened int
 		imp := NewImporter(func(string) (io.ReadCloser, error) {
 			opened++

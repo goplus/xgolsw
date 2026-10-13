@@ -17,8 +17,14 @@ func TestServerTextDocumentRenameSpxPropertyVisibility(t *testing.T) {
 		name, source, newName string
 		want                  bool
 	}{
-		{name: "PromotedField", source: "type Base struct { title string }\nvar Base\nfunc La|bel() string { return \"\" }\n", newName: "Title"},
-		{name: "PromotedSliceField", source: "type Base struct { title []string }\nvar Base\nfunc La|bel() string { return \"\" }\n", newName: "Title"},
+		{name: "PromotedField", source: `type Base struct { title string }
+var Base
+func La|bel() string { return "" }
+`, newName: "Title"},
+		{name: "PromotedSliceField", source: `type Base struct { title []string }
+var Base
+func La|bel() string { return "" }
+`, newName: "Title"},
 		{name: "InternalField", source: "var Va|lue string\n", newName: "XGo_value", want: true},
 		{name: "OrdinaryGetter", source: "func La|bel() string { return \"\" }\n", newName: "Title", want: true},
 	} {
@@ -162,14 +168,23 @@ func TestSpxSymbolsMonitorProperties(t *testing.T) {
 		{name: "ListField", fields: "Count spx.List", wantType: "spx.List"},
 		{name: "Getter", declarations: "func (*Record) Label() string { return \"\" }", wantLabel: true},
 		{name: "PointerGetter", declarations: "func (*Record) Label() *int { return nil }", wantLabel: true},
-		{name: "PointerAliasGetter", declarations: "type Counter = *int\nfunc (*Record) Label() Counter { return nil }", wantLabel: true},
+		{name: "PointerAliasGetter", declarations: `type Counter = *int
+func (*Record) Label() Counter { return nil }`, wantLabel: true},
 		{name: "GetterWithParameter", declarations: "func (*Record) Label(value int) string { return \"\" }"},
 		{name: "GetterReturningSlice", declarations: "func (*Record) Label() []int { return nil }"},
-		{name: "Overload", declarations: "func (Record) text() string { return \"\" }\nfunc (Record) number() int { return 0 }\nfunc (Record).Label = ((Record).text; (Record).number)"},
-		{name: "FieldBeforeMethod", declarations: "type Base struct { label []int }\nfunc (*Record) Label() string { return \"\" }", fields: "Base"},
+		{name: "Overload", declarations: `func (Record) text() string { return "" }
+func (Record) number() int { return 0 }
+func (Record).Label = ((Record).text; (Record).number)`},
+		{name: "FieldBeforeMethod", declarations: `type Base struct { label []int }
+func (*Record) Label() string { return "" }`, fields: "Base"},
 		{name: "PrivateEmbedding", declarations: "type base struct { Count int }", fields: "base"},
-		{name: "ShallowerField", declarations: "type Deep struct { Count int }\ntype Left struct { Deep }\ntype Right struct { Count string }", fields: "Left; Right", wantType: "string"},
-		{name: "AmbiguousMethod", declarations: "type Left struct{}\nfunc (Left) Label() string { return \"\" }\ntype Right struct{}\nfunc (Right) Label() string { return \"\" }", fields: "Left; Right"},
+		{name: "ShallowerField", declarations: `type Deep struct { Count int }
+type Left struct { Deep }
+type Right struct { Count string }`, fields: "Left; Right", wantType: "string"},
+		{name: "AmbiguousMethod", declarations: `type Left struct{}
+func (Left) Label() string { return "" }
+type Right struct{}
+func (Right) Label() string { return "" }`, fields: "Left; Right"},
 		{name: "RecursiveEmbedding", declarations: "type Base struct { *Record; Count int }", fields: "*Base", wantType: "int"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,8 +208,12 @@ func TestSpxSymbolsMonitorProperties(t *testing.T) {
 
 func TestSpxSymbolsPropertyTargetIsolation(t *testing.T) {
 	s := newSpxTestServer(t, map[string][]byte{
-		"main.spx":  []byte("var Values []int\nfunc Items() []int { return nil }\n"),
-		"types.xgo": []byte("type Record struct { Values []int }\nfunc (Record) Items() []int { return nil }\n"),
+		"main.spx": []byte(`var Values []int
+func Items() []int { return nil }
+`),
+		"types.xgo": []byte(`type Record struct { Values []int }
+func (Record) Items() []int { return nil }
+`),
 	})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
@@ -215,7 +234,11 @@ func TestSpxSymbolsPropertyTargetIsolation(t *testing.T) {
 }
 
 func TestServerXGoGetInputSlotsSpxSourceProperties(t *testing.T) {
-	s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte("var values []int\nfunc Items() []int { return nil }\nfunc use(value []int) {}\nfunc run() { use values }\n")})
+	s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(`var values []int
+func Items() []int { return nil }
+func use(value []int) {}
+func run() { use values }
+`)})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
 	properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Game"})

@@ -9,7 +9,11 @@ import (
 )
 
 func TestServerStructMemberCompletion(t *testing.T) {
-	const reader = "type Reader interface {\n// Read retrieves a value.\nRead(n int) int\n}\n"
+	const reader = `type Reader interface {
+// Read retrieves a value.
+Read(n int) int
+}
+`
 	for _, tt := range []struct {
 		name      string
 		source    string
@@ -19,22 +23,80 @@ func TestServerStructMemberCompletion(t *testing.T) {
 		id        string
 		framework bool
 	}{
-		{name: "UnnamedStruct", source: "var item struct {\n// Value stores the value.\nValue int\n}\necho item.|Value\n", label: "Value", overview: "field Value int", doc: "Value stores the value.", id: "xgo:main?Value"},
-		{name: "UnnamedPointer", source: "var item *struct { Value int }\necho item.|Value\n", label: "Value", overview: "field Value int", id: "xgo:main?Value"},
-		{name: "UnnamedAlias", source: "type Item = struct { Value int }\nvar item Item\necho item.|Value\n", label: "Value", overview: "field Value int", id: "xgo:main?Item.Value"},
-		{name: "UnnamedPointerAlias", source: "type Item = *struct { Value int }\nvar item Item\necho item.|Value\n", label: "Value", overview: "field Value int", id: "xgo:main?Value"},
-		{name: "UnnamedCallResult", source: "func item() struct { Value int } { return struct { Value int }{} }\necho item().|Value\n", label: "Value", overview: "field Value int", id: "xgo:main?Value"},
-		{name: "NestedStruct", source: "type Item struct { Nested struct { Value int } }\nvar item Item\necho item.Nested.|Value\n", label: "Value", overview: "field Value int", id: "xgo:main?Value"},
-		{name: "EmbeddedInterface", source: reader + "type Item struct { Reader }\nvar item Item\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "AliasedStruct", source: reader + "type Item struct { Reader }\ntype Alias = Item\nvar item Alias\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "NestedEmbeddedInterface", source: reader + "type Nested interface { Reader }\ntype Item struct { Nested }\nvar item Item\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "UnnamedStruct", source: `var item struct {
+// Value stores the value.
+Value int
+}
+echo item.|Value
+`, label: "Value", overview: "field Value int", doc: "Value stores the value.", id: "xgo:main?Value"},
+		{name: "UnnamedPointer", source: `var item *struct { Value int }
+echo item.|Value
+`, label: "Value", overview: "field Value int", id: "xgo:main?Value"},
+		{name: "UnnamedAlias", source: `type Item = struct { Value int }
+var item Item
+echo item.|Value
+`, label: "Value", overview: "field Value int", id: "xgo:main?Item.Value"},
+		{name: "UnnamedPointerAlias", source: `type Item = *struct { Value int }
+var item Item
+echo item.|Value
+`, label: "Value", overview: "field Value int", id: "xgo:main?Value"},
+		{name: "UnnamedCallResult", source: `func item() struct { Value int } { return struct { Value int }{} }
+echo item().|Value
+`, label: "Value", overview: "field Value int", id: "xgo:main?Value"},
+		{name: "NestedStruct", source: `type Item struct { Nested struct { Value int } }
+var item Item
+echo item.Nested.|Value
+`, label: "Value", overview: "field Value int", id: "xgo:main?Value"},
+		{name: "EmbeddedInterface", source: reader + `type Item struct { Reader }
+var item Item
+echo item.|Read(1)
+`, label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "AliasedStruct", source: reader + `type Item struct { Reader }
+type Alias = Item
+var item Alias
+echo item.|Read(1)
+`, label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
+		{name: "NestedEmbeddedInterface", source: reader + `type Nested interface { Reader }
+type Item struct { Nested }
+var item Item
+echo item.|Read(1)
+`, label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
 		{name: "UnnamedEmbeddedInterface", source: reader + "var item struct { Reader }\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Reader.Read"},
-		{name: "ImportedInterface", source: "import f \"example.com/framework\"\ntype Item struct { f.Reader }\nvar item Item\necho item.|Read(1)\n", label: "read", overview: "func read(n int) int", doc: "Read retrieves a value.", id: "xgo:example.com/framework?Reader.read", framework: true},
-		{name: "EmbeddedScalarMethod", source: "type Value int\n// Read retrieves a value.\nfunc (v Value) Read(n int) int { return n }\ntype Item struct { Value }\nvar item Item\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Value.Read"},
-		{name: "DirectFieldShadowsInterfaceMethod", source: reader + "type Item struct { Reader; Read string }\nvar item Item\necho item.|Read\n", label: "Read", overview: "field Read string", id: "xgo:main?Item.Read"},
-		{name: "DirectMethodShadowsInterfaceMethod", source: reader + "type Item struct { Reader }\n// Read returns text.\nfunc (item Item) Read(n int) string { return \"value\" }\nvar item Item\necho item.|Read(1)\n", label: "Read", overview: "func Read(n int) string", doc: "Read returns text.", id: "xgo:main?Item.Read"},
-		{name: "XGoDepthFirstLookup", source: "type Deep struct { Value string }\ntype Left struct { Deep }\ntype Right struct { Value int }\ntype Item struct { Left; Right }\nvar item Item\necho item.|Value\n", label: "Value", overview: "field Value string", id: "xgo:main?Deep.Value"},
-		{name: "XGoSiblingLookup", source: "type Left struct { Value string }\ntype Right struct { Value int }\ntype Item struct { Left; Right }\nvar item Item\necho item.|Value\n", label: "Value", overview: "field Value string", id: "xgo:main?Left.Value"},
+		{name: "ImportedInterface", source: `import f "example.com/framework"
+type Item struct { f.Reader }
+var item Item
+echo item.|Read(1)
+`, label: "read", overview: "func read(n int) int", doc: "Read retrieves a value.", id: "xgo:example.com/framework?Reader.read", framework: true},
+		{name: "EmbeddedScalarMethod", source: `type Value int
+// Read retrieves a value.
+func (v Value) Read(n int) int { return n }
+type Item struct { Value }
+var item Item
+echo item.|Read(1)
+`, label: "Read", overview: "func Read(n int) int", doc: "Read retrieves a value.", id: "xgo:main?Value.Read"},
+		{name: "DirectFieldShadowsInterfaceMethod", source: reader + `type Item struct { Reader; Read string }
+var item Item
+echo item.|Read
+`, label: "Read", overview: "field Read string", id: "xgo:main?Item.Read"},
+		{name: "DirectMethodShadowsInterfaceMethod", source: reader + `type Item struct { Reader }
+// Read returns text.
+func (item Item) Read(n int) string { return "value" }
+var item Item
+echo item.|Read(1)
+`, label: "Read", overview: "func Read(n int) string", doc: "Read returns text.", id: "xgo:main?Item.Read"},
+		{name: "XGoDepthFirstLookup", source: `type Deep struct { Value string }
+type Left struct { Deep }
+type Right struct { Value int }
+type Item struct { Left; Right }
+var item Item
+echo item.|Value
+`, label: "Value", overview: "field Value string", id: "xgo:main?Deep.Value"},
+		{name: "XGoSiblingLookup", source: `type Left struct { Value string }
+type Right struct { Value int }
+type Item struct { Left; Right }
+var item Item
+echo item.|Value
+`, label: "Value", overview: "field Value string", id: "xgo:main?Left.Value"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -100,11 +162,24 @@ func TestServerUnnamedStructLiteralCompletion(t *testing.T) {
 		source string
 		want   []string
 	}{
-		{name: "Direct", source: "item := struct {\n// Value stores the value.\nValue int\n}{|}\necho item\n", want: []string{"Value"}},
+		{name: "Direct", source: `item := struct {
+// Value stores the value.
+Value int
+}{|}
+echo item
+`, want: []string{"Value"}},
 		{name: "Pointer", source: "item := &struct { Value int }{|}\necho item\n", want: []string{"Value"}},
-		{name: "Alias", source: "type Item = struct { Value int }\nitem := Item{|}\necho item\n", want: []string{"Value"}},
-		{name: "UsedFields", source: "item := struct { Value int; Other int }{Value: 1, |}\necho item\n", want: []string{"Other"}},
-		{name: "EmbeddedFields", source: "type Base struct { Promoted int }\nitem := struct { Base; Value int }{|}\necho item\n", want: []string{"Base", "Value"}},
+		{name: "Alias", source: `type Item = struct { Value int }
+item := Item{|}
+echo item
+`, want: []string{"Value"}},
+		{name: "UsedFields", source: `item := struct { Value int; Other int }{Value: 1, |}
+echo item
+`, want: []string{"Other"}},
+		{name: "EmbeddedFields", source: `type Base struct { Promoted int }
+item := struct { Base; Value int }{|}
+echo item
+`, want: []string{"Base", "Value"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -128,7 +203,10 @@ func TestServerUnnamedStructLiteralCompletion(t *testing.T) {
 	}
 
 	t.Run("FieldValue", func(t *testing.T) {
-		source, position := typeDisplayTestSource(t, "value := 1\nitem := struct { Value int }{Value: |value}\necho item\n")
+		source, position := typeDisplayTestSource(t, `value := 1
+item := struct { Value int }{Value: |value}
+echo item
+`)
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		_, err := s.getProj().TypeInfo()
 		require.NoError(t, err)

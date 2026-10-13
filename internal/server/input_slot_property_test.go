@@ -20,19 +20,39 @@ func TestServerXGoGetInputSlotsClassfileProperties(t *testing.T) {
 		want                          bool
 	}{
 		{name: "Plain", methods: plain, want: true},
-		{name: "Overload", methods: "func (a *App) Label__0() string { return \"\" }\nfunc (a *App) Label__1(value int) string { return \"\" }\n", want: true},
+		{name: "Overload", methods: `func (a *App) Label__0() string { return "" }
+func (a *App) Label__1(value int) string { return "" }
+`, want: true},
 		{name: "Template", methods: "func XGot_App_Label(a *App) string { return \"\" }\n", want: true},
-		{name: "TemplateOverload", methods: "func XGot_App_Label__0(a *App) string { return \"\" }\nfunc XGot_App_Label__1(a *App, value int) string { return \"\" }\n", want: true},
+		{name: "TemplateOverload", methods: `func XGot_App_Label__0(a *App) string { return "" }
+func XGot_App_Label__1(a *App, value int) string { return "" }
+`, want: true},
 		{name: "RequiredArguments", methods: required},
 		{name: "VariadicAlone", methods: "func (a *App) Label(values ...int) string { return \"\" }\n"},
-		{name: "OverloadArgumentsFirst", methods: "func (a *App) Label__0(value int) string { return \"\" }\nfunc (a *App) Label__1() string { return \"\" }\n", want: true},
-		{name: "OverloadVoidFirst", methods: "func (a *App) Label__0() {}\nfunc (a *App) Label__1() string { return \"\" }\n"},
-		{name: "OverloadDifferentResultFirst", methods: "func (a *App) Label__0() int { return 0 }\nfunc (a *App) Label__1() string { return \"\" }\n"},
-		{name: "OverloadVariadicFirst", methods: "func (a *App) Label__0(values ...int) int { return 0 }\nfunc (a *App) Label__1() string { return \"\" }\n"},
-		{name: "OverloadOptionalFirst", methods: "func (a *App) Label__0(__xgo_optional_value int) int { return 0 }\nfunc (a *App) Label__1() string { return \"\" }\n"},
-		{name: "OverloadMatchingResultFirst", methods: "func (a *App) Label__0() string { return \"\" }\nfunc (a *App) Label__1() int { return 0 }\n", want: true},
-		{name: "TemplateOverloadArgumentsFirst", methods: "func XGot_App_Label__0(a *App, value int) int { return 0 }\nfunc XGot_App_Label__1(a *App) string { return \"\" }\n", want: true},
-		{name: "TemplateOverloadVariadicFirst", methods: "func XGot_App_Label__0(a *App, values ...int) int { return 0 }\nfunc XGot_App_Label__1(a *App) string { return \"\" }\n"},
+		{name: "OverloadArgumentsFirst", methods: `func (a *App) Label__0(value int) string { return "" }
+func (a *App) Label__1() string { return "" }
+`, want: true},
+		{name: "OverloadVoidFirst", methods: `func (a *App) Label__0() {}
+func (a *App) Label__1() string { return "" }
+`},
+		{name: "OverloadDifferentResultFirst", methods: `func (a *App) Label__0() int { return 0 }
+func (a *App) Label__1() string { return "" }
+`},
+		{name: "OverloadVariadicFirst", methods: `func (a *App) Label__0(values ...int) int { return 0 }
+func (a *App) Label__1() string { return "" }
+`},
+		{name: "OverloadOptionalFirst", methods: `func (a *App) Label__0(__xgo_optional_value int) int { return 0 }
+func (a *App) Label__1() string { return "" }
+`},
+		{name: "OverloadMatchingResultFirst", methods: `func (a *App) Label__0() string { return "" }
+func (a *App) Label__1() int { return 0 }
+`, want: true},
+		{name: "TemplateOverloadArgumentsFirst", methods: `func XGot_App_Label__0(a *App, value int) int { return 0 }
+func XGot_App_Label__1(a *App) string { return "" }
+`, want: true},
+		{name: "TemplateOverloadVariadicFirst", methods: `func XGot_App_Label__0(a *App, values ...int) int { return 0 }
+func XGot_App_Label__1(a *App) string { return "" }
+`},
 		{name: "LocalAlias", methods: plain, local: "label := 1\n_ = label\n"},
 		{name: "LocalDeclaredName", methods: plain, local: "Label := 1\n_ = Label\n", want: true},
 		{name: "GlobalAlias", methods: plain, globals: "var label int\n", want: true},
@@ -72,7 +92,10 @@ func TestServerXGoGetInputSlotsClassfileProperties(t *testing.T) {
 		})
 	}
 	t.Run("ExactMethodName", func(t *testing.T) {
-		source := "func label() string { return \"value\" }\nfunc use(value string) {}\nfunc run() { use \"text\" }\n"
+		source := `func label() string { return "value" }
+func use(value string) {}
+func run() { use "text" }
+`
 		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 		setImportTestFrameworkMethods(t, s, plain)
 		_, err := s.requestProject().TypeInfo()

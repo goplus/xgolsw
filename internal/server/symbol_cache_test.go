@@ -135,7 +135,10 @@ func TestServerSymbolAnalysis(t *testing.T) {
 	})
 
 	t.Run("KwargDocumentIdentity", func(t *testing.T) {
-		const source = "type Options struct { Count int }\nfunc use(opts Options?) {}\nuse count = 1\n"
+		const source = `type Options struct { Count int }
+func use(opts Options?) {}
+use count = 1
+`
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		for _, uri := range []DocumentURI{"file:///main.xgo", "file:///m%61in.xgo"} {
 			highlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{TextDocumentPositionParams: TextDocumentPositionParams{
@@ -250,7 +253,9 @@ func TestProjectSymbolCaches(t *testing.T) {
 				var err error
 				wg.Go(func() { result, err = kind.load(proj) })
 				<-entered
-				proj.PutFile("main.xgo", &xgo.File{Content: []byte("type Reader interface { Read() int }\nfunc use(reader Reader) { println reader.Read() }\n")})
+				proj.PutFile("main.xgo", &xgo.File{Content: []byte(`type Reader interface { Read() int }
+func use(reader Reader) { println reader.Read() }
+`)})
 				release()
 				wg.Wait()
 				require.NoError(t, err)
@@ -288,7 +293,9 @@ func TestProjectSymbolCaches(t *testing.T) {
 	})
 
 	t.Run("ModuleChange", func(t *testing.T) {
-		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": nil, "Worker_fixture.gox": []byte("func Read() int { return 1 }\nfunc use() { println read }\n")})
+		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": nil, "Worker_fixture.gox": []byte(`func Read() int { return 1 }
+func use() { println read }
+`)})
 		before := s.requestProject()
 		oldSource, err := sourceInfoForProject(before)
 		require.NoError(t, err)
@@ -322,11 +329,20 @@ func TestServerSymbolAnalysisImportedOverloadContracts(t *testing.T) {
 		contract string
 		call     string
 	}{
-		{"Function", "func Accept__0(value interface { Read() int }) {}\nfunc Accept__1(value string) {}\n", "contract.accept missing"},
-		{"Method", "type Client struct{}\nfunc (Client) Accept__0(value interface { Read() int }) {}\nfunc (Client) Accept__1(value string) {}\n", "var client contract.Client\nclient.accept missing"},
+		{"Function", `func Accept__0(value interface { Read() int }) {}
+func Accept__1(value string) {}
+`, "contract.accept missing"},
+		{"Method", `type Client struct{}
+func (Client) Accept__0(value interface { Read() int }) {}
+func (Client) Accept__1(value string) {}
+`, `var client contract.Client
+client.accept missing`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source := "import contract \"example.com/contract\"\ntype Item struct{}\nfunc (Item) Read() int { return 1 }\n" + tt.call + "\n"
+			source := `import contract "example.com/contract"
+type Item struct{}
+func (Item) Read() int { return 1 }
+` + tt.call + "\n"
 			s := newSymbolContractTestServer(t, source, tt.contract)
 			_, err := s.requestProject().TypeInfo()
 			require.ErrorContains(t, err, "undefined: missing")
@@ -346,7 +362,10 @@ func (Client) Options() Options { return nil }
 func (Client) Complete__0(prefix int, opts Options) {}
 func (Client) Complete__1(prefix string, opts Options) {}
 `
-		const source = "import contract \"example.com/contract\"\nvar client contract.Client\nclient.complete missing, count = 1\n"
+		const source = `import contract "example.com/contract"
+var client contract.Client
+client.complete missing, count = 1
+`
 		s := newSymbolContractTestServer(t, source, contract)
 		for version, prefix := range []string{"missing", "1"} {
 			current := strings.Replace(source, "missing", prefix, 1)

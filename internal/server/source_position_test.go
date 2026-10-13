@@ -29,7 +29,10 @@ func TestServerRangeExpressionSourcePositions(t *testing.T) {
 				{name: "BoundAndStep", loop: "for value = range 0:len(values):len(values) { echo value }"},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					const prefix = "func run() {\nvalues := [1, 2]\nvar value int\n"
+					const prefix = `func run() {
+values := [1, 2]
+var value int
+`
 					source := prefix + tt.loop + "\n}\n"
 					files := map[string][]byte{kind.filename: []byte(source)}
 					if kind.filename == "Worker_fixture.gox" {
@@ -121,7 +124,13 @@ func TestServerReusedRangeExpression(t *testing.T) {
 		{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
-			const source = "type Options struct { Offset int }\nfunc pick(index int, options Options?) int { return index + options.Offset }\nfunc run() {\nvalues := [1, 2]\nfor values[pick(0, offset = 1)] = range 0:len(values) {}\n}\n"
+			const source = `type Options struct { Offset int }
+func pick(index int, options Options?) int { return index + options.Offset }
+func run() {
+values := [1, 2]
+for values[pick(0, offset = 1)] = range 0:len(values) {}
+}
+`
 			files := map[string][]byte{kind.filename: []byte(source)}
 			if kind.filename == "Worker_fixture.gox" {
 				files["main_fixture.gox"] = nil
@@ -251,7 +260,10 @@ func TestServerLineDirectives(t *testing.T) {
 
 	t.Run("ImportDocumentation", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main.xgo": []byte("//line virtual.xgo:100:20\nimport \"example.com/framework\"\nprintln framework.High\n"),
+			"main.xgo": []byte(`//line virtual.xgo:100:20
+import "example.com/framework"
+println framework.High
+`),
 		})
 		hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Line: 1, Character: 20},
@@ -299,7 +311,9 @@ func TestServerPositionsAtEOF(t *testing.T) {
 				}},
 			} {
 				t.Run(feature.name, func(t *testing.T) {
-					files := map[string][]byte{project.filename: []byte("var value = 1\nvalue = 2\n")}
+					files := map[string][]byte{project.filename: []byte(`var value = 1
+value = 2
+`)}
 					if project.filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
 					}
@@ -330,10 +344,23 @@ func TestServerLocalTypeNavigation(t *testing.T) {
 		suffix string
 	}{
 		{name: "Function", prefix: "func run() {\n", suffix: "}\n"},
-		{name: "Sibling", prefix: "func other() { type Item string; var value Item; echo value }\nfunc run() {\n", suffix: "}\n"},
-		{name: "Nested", prefix: "func run() {\ntype Item string\nvar outer Item\necho outer\n{\n", suffix: "}\n}\n"},
-		{name: "Closure", prefix: "func run() {\nwork := func() {\n", suffix: "}\nwork()\n}\n"},
-		{name: "Switch", prefix: "func run() {\nswitch 1 {\ncase 1:\n", suffix: "}\n}\n"},
+		{name: "Sibling", prefix: `func other() { type Item string; var value Item; echo value }
+func run() {
+`, suffix: "}\n"},
+		{name: "Nested", prefix: `func run() {
+type Item string
+var outer Item
+echo outer
+{
+`, suffix: "}\n}\n"},
+		{name: "Closure", prefix: "func run() {\nwork := func() {\n", suffix: `}
+work()
+}
+`},
+		{name: "Switch", prefix: `func run() {
+switch 1 {
+case 1:
+`, suffix: "}\n}\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, declaration := range []struct {
@@ -522,7 +549,10 @@ func TestServerRangeInputSlots(t *testing.T) {
 				{name: "ForPhrase", loop: "for value <- 0:len(values)"},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					const prefix = "func run() {\nvalues := [1, 2]\nvar value int\n"
+					const prefix = `func run() {
+values := [1, 2]
+var value int
+`
 					source := prefix + tt.loop + " {\necho 42\n}\n}\n"
 					files := map[string][]byte{kind.filename: []byte(source)}
 					if kind.filename == "Worker_fixture.gox" {
@@ -533,7 +563,8 @@ func TestServerRangeInputSlots(t *testing.T) {
 					for version := range 2 {
 						line := uint32(4 + version)
 						if version > 0 {
-							source = strings.Replace(source, "echo 42", "var _xgo_k, _xgo_end, _xgo_step int\necho 42", 1)
+							source = strings.Replace(source, "echo 42", `var _xgo_k, _xgo_end, _xgo_step int
+echo 42`, 1)
 							s.ModifyFiles([]FileChange{{Path: kind.filename, Content: []byte(source), Version: version}})
 						}
 						_, err := s.requestProject().TypeInfo()
@@ -583,7 +614,9 @@ func TestServerClassReceiverSourcePositions(t *testing.T) {
 	} {
 		t.Run(kind.name, func(t *testing.T) {
 			for _, marked := range []string{
-				"var value int\nfunc run() { println |this.value, |this.value }\n",
+				`var value int
+func run() { println |this.value, |this.value }
+`,
 				"|this = |this\n",
 			} {
 				parts := strings.Split(marked, "|")
@@ -634,8 +667,12 @@ func TestServerClassReceiverSourcePositions(t *testing.T) {
 
 func TestServerExplicitThisSourcePositions(t *testing.T) {
 	for _, marked := range []string{
-		"|this := 1\nprintln this\n",
-		"type Value int\nfunc (|this Value) use() { println this }\n",
+		`|this := 1
+println this
+`,
+		`type Value int
+func (|this Value) use() { println this }
+`,
 	} {
 		source, position := typeDisplayTestSource(t, marked)
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})

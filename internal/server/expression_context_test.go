@@ -234,10 +234,16 @@ func TestServerRegisteredClassfileExpressionContexts(t *testing.T) {
 		{"Slice", "values[candidate|Int():]"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "var (\nvalues []string\n)\nfunc run() {\nvalue := "+tt.expression+"\necho value\n}\n")
+			source, pos := typeDisplayTestSource(t, `var (
+values []string
+)
+func run() {
+value := `+tt.expression+"\necho value\n}\n")
 			s := newFrameworkTestServer(t, map[string][]byte{
 				"main_fixture.gox": []byte(source),
-				"helpers.xgo":      []byte("func candidateInt() int { return 0 }\nfunc wrongBool() bool { return false }\n"),
+				"helpers.xgo": []byte(`func candidateInt() int { return 0 }
+func wrongBool() bool { return false }
+`),
 			})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)

@@ -76,7 +76,9 @@ func TestServerCollectTypeDiagnostics(t *testing.T) {
 				}
 				return fallback.Import(path)
 			})
-			proj.PutFile("main.xgo", file("import _ \"example.com/paused\"\nprintln missing\n"))
+			proj.PutFile("main.xgo", file(`import _ "example.com/paused"
+println missing
+`))
 			result := newDiagnosticResult()
 			var wg sync.WaitGroup
 			wg.Go(func() { s.collectTypeDiagnostics(proj, &result) })
@@ -115,7 +117,9 @@ func TestServerInspectDiagnosticsAnalyzers(t *testing.T) {
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("values := [1, 2]\nvalues = append(values)\n")})
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`values := [1, 2]
+values = append(values)
+`)})
 			proj := s.getProj()
 			original := newDiagnosticResult()
 			s.inspectDiagnosticsAnalyzers(proj, &original, nil)
@@ -486,7 +490,9 @@ func TestServerGetDiagnostics(t *testing.T) {
 			Severity: SeverityError, Message: "undefined: fmt",
 			Range: Range{Start: Position{}, End: Position{Character: 3}},
 		}}},
-		{name: "SyntaxError", content: "var (\n    x int\n", want: []Diagnostic{
+		{name: "SyntaxError", content: `var (
+    x int
+`, want: []Diagnostic{
 			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
 			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
 		}},
@@ -532,8 +538,10 @@ func TestServerDiagnosticsAt(t *testing.T) {
 	t.Run("UnavailableFramework", func(t *testing.T) {
 		files := map[string][]byte{
 			"main_fixture.gox": []byte("println 1\n"),
-			"broken.xgo":       []byte("var (\n    x int\n"),
-			"assets.json":      []byte("{}"),
+			"broken.xgo": []byte(`var (
+    x int
+`),
+			"assets.json": []byte("{}"),
 		}
 		s := newFrameworkTestServer(t, files)
 		proj := s.getProj()
@@ -619,7 +627,9 @@ func TestServerDiagnosticsAt(t *testing.T) {
 				want := make(map[DocumentURI][]Diagnostic)
 				if tt.withParsedFiles {
 					files["helper.xgo"] = []byte("var value = 1\n")
-					files["broken.xgo"] = []byte("var (\n    x int\n")
+					files["broken.xgo"] = []byte(`var (
+    x int
+`)
 					want["file:///helper.xgo"] = []Diagnostic{}
 					want["file:///broken.xgo"] = []Diagnostic{
 						{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
@@ -717,9 +727,13 @@ func TestServerDiagnosticsAt(t *testing.T) {
 
 	t.Run("CrossFileTypeError", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo":   []byte("println value()\n"),
-			"values.xgo": []byte("func value() int {\n    var number int = \"bad\"\n    return 1\n}\n"),
-			"notes.txt":  []byte("not source code"),
+			"main.xgo": []byte("println value()\n"),
+			"values.xgo": []byte(`func value() int {
+    var number int = "bad"
+    return 1
+}
+`),
+			"notes.txt": []byte("not source code"),
 		})
 		report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.NoError(t, err)
@@ -746,7 +760,9 @@ func TestServerDiagnosticsAt(t *testing.T) {
 	})
 
 	t.Run("Analyzer", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("values := [1, 2]\nvalues = append(values)\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`values := [1, 2]
+values = append(values)
+`)})
 		report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 		require.NoError(t, err)
 		assert.Equal(t, []Diagnostic{{

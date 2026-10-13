@@ -14,9 +14,13 @@ func TestServerTextDocumentCompletionCalleeContexts(t *testing.T) {
 		absent           []string
 		incomplete       bool
 	}{
-		{"Declaration", "var value = cand|idate()()\nreturn value", "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
-		{"Assignment", "var value int\nvalue = cand|idate()()\nreturn value", "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
-		{"Argument", "consume(cand|idate()())\nreturn 0", "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
+		{"Declaration", `var value = cand|idate()()
+return value`, "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
+		{"Assignment", `var value int
+value = cand|idate()()
+return value`, "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
+		{"Argument", `consume(cand|idate()())
+return 0`, "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
 		{"Return", "return cand|idate()()", "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
 		{"Parentheses", "return (cand|idate())()", "candidate", []string{"wrongValue", "wrongParameter", "wrongResult"}, false},
 		{"Nested", "return candidate|Nested()()()", "candidateNested", []string{"candidate", "wrongValue"}, false},

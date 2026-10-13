@@ -110,7 +110,9 @@ func TestServerRequestProject(t *testing.T) {
 		require.NoError(t, err)
 		astFile, err := original.ASTFile("main_fixture.gox")
 		require.NoError(t, err)
-		s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte("func use(name string) {}\nuse \"Other\"\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte(`func use(name string) {}
+use "Other"
+`), Version: 1}})
 		current := s.requestProject()
 		assert.NotSame(t, original, current)
 		assert.Same(t, current, s.requestProject())
@@ -191,7 +193,12 @@ func TestServerRequestsWithIncompletePackage(t *testing.T) {
 				}},
 			} {
 				t.Run(request.name, func(t *testing.T) {
-					const source = "type Value int\nfunc run() {\nvar value Value\nprintln value\n}\n"
+					const source = `type Value int
+func run() {
+var value Value
+println value
+}
+`
 					files := map[string][]byte{kind.filename: []byte(source)}
 					if kind.name == "WorkClass" {
 						files["main_fixture.gox"] = nil
@@ -543,7 +550,12 @@ func TestServerRequestConcurrentDeletion(t *testing.T) {
 				}
 				return fallback.Import(path)
 			})
-			proj.PutFile("main.xgo", file("import _ \"example.com/paused\"\ntype Record struct { Value int }\nvar value = 1\nvalue = 2\nprintln Record{}.Value\n"))
+			proj.PutFile("main.xgo", file(`import _ "example.com/paused"
+type Record struct { Value int }
+var value = 1
+value = 2
+println Record{}.Value
+`))
 			var wg sync.WaitGroup
 			var recovered any
 			var stack []byte

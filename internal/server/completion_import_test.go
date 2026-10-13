@@ -24,9 +24,18 @@ func TestServerTextDocumentCompletionImportBindings(t *testing.T) {
 		want   []string
 		absent []string
 	}{
-		{name: "DeclaredName", source: "import \"example.com/version/v2\"\nprintln versioned.Value\n|\n", want: []string{"versioned"}, absent: []string{"v2"}},
-		{name: "Alias", source: "import custom \"example.com/version/v2\"\nprintln custom.Value\n|\n", want: []string{"custom"}, absent: []string{"versioned", "v2"}},
-		{name: "Dot", source: "import . \"example.com/framework\"\nprintln Limit\n|\n", want: []string{"Limit", "runWhen"}, absent: []string{".", "framework"}},
+		{name: "DeclaredName", source: `import "example.com/version/v2"
+println versioned.Value
+|
+`, want: []string{"versioned"}, absent: []string{"v2"}},
+		{name: "Alias", source: `import custom "example.com/version/v2"
+println custom.Value
+|
+`, want: []string{"custom"}, absent: []string{"versioned", "v2"}},
+		{name: "Dot", source: `import . "example.com/framework"
+println Limit
+|
+`, want: []string{"Limit", "runWhen"}, absent: []string{".", "framework"}},
 		{name: "Blank", source: "import _ \"fmt\"\n|\n", absent: []string{"_", "fmt"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -64,7 +73,10 @@ func TestServerTextDocumentCompletionImports(t *testing.T) {
 		position Position
 	}{
 		{name: "InImportStringLit", source: "\nimport \"f\n", position: Position{Line: 1, Character: 9}},
-		{name: "InImportGroupStringLit", source: "\nimport (\n\t\"f\n", position: Position{Line: 2, Character: 3}},
+		{name: "InImportGroupStringLit", source: `
+import (
+	"f
+`, position: Position{Line: 2, Character: 3}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
@@ -141,7 +153,9 @@ func TestServerTextDocumentCompletionImportWithoutDocumentation(t *testing.T) {
 			require.NoError(t, err)
 			_, err = data.GetPkgDoc(testframework.PkgPath)
 			require.Error(t, err)
-			source, pos := typeDisplayTestSource(t, "import \"|example.com/framework\"\nvar value framework.Item\n")
+			source, pos := typeDisplayTestSource(t, `import "|example.com/framework"
+var value framework.Item
+`)
 			files := map[string][]byte{"main.xgo": []byte(source)}
 			proj, _, err := config.NewProject(newFileMap(files), config.Options{PkgData: data})
 			require.NoError(t, err)

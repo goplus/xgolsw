@@ -54,8 +54,11 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{
-					"main_fixture.gox":   []byte("var total int\n"),
-					"Worker_fixture.gox": []byte("onValue amount => {\n    total = amount\n}\n"),
+					"main_fixture.gox": []byte("var total int\n"),
+					"Worker_fixture.gox": []byte(`onValue amount => {
+    total = amount
+}
+`),
 				})
 				rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: "file:///Worker_fixture.gox"},
@@ -118,13 +121,30 @@ func TestServerTextDocumentPrepareRename(t *testing.T) {
 		}{
 			{name: "BlankIdent", filename: "main.xgo", source: "const _ = 1\n", position: Position{Line: 0, Character: 6}, newServer: newTestServer},
 			{name: "BuiltinType", filename: "main.xgo", source: "var value int\n", position: Position{Line: 0, Character: 10}, newServer: newTestServer},
-			{name: "BuiltinEmbeddedField", filename: "main.xgo", source: "type Holder struct { int }\nvar holder Holder\necho holder.int\n", position: Position{Line: 2, Character: 12}, newServer: newTestServer},
-			{name: "ImportedEmbeddedField", filename: "main.xgo", source: "import f \"example.com/first\"\ntype Holder struct { f.App }\nvar holder Holder\necho holder.App\n", position: Position{Line: 3, Character: 12}, newServer: newMultiFrameworkTestServer},
-			{name: "ImportedPromotedEmbeddedField", filename: "main.xgo", source: "import f \"example.com/first\"\nvar holder f.Wrapper[int]\necho holder.App\n", position: Position{Line: 2, Character: 12}, newServer: newMultiFrameworkTestServer},
-			{name: "GeneratedEmbeddedField", filename: "main_fixture.gox", source: "type Holder struct { Worker }\nvar holder Holder\necho holder.Worker\n", position: Position{Line: 2, Character: 12}, needsWorker: true, newServer: newFrameworkTestServer},
+			{name: "BuiltinEmbeddedField", filename: "main.xgo", source: `type Holder struct { int }
+var holder Holder
+echo holder.int
+`, position: Position{Line: 2, Character: 12}, newServer: newTestServer},
+			{name: "ImportedEmbeddedField", filename: "main.xgo", source: `import f "example.com/first"
+type Holder struct { f.App }
+var holder Holder
+echo holder.App
+`, position: Position{Line: 3, Character: 12}, newServer: newMultiFrameworkTestServer},
+			{name: "ImportedPromotedEmbeddedField", filename: "main.xgo", source: `import f "example.com/first"
+var holder f.Wrapper[int]
+echo holder.App
+`, position: Position{Line: 2, Character: 12}, newServer: newMultiFrameworkTestServer},
+			{name: "GeneratedEmbeddedField", filename: "main_fixture.gox", source: `type Holder struct { Worker }
+var holder Holder
+echo holder.Worker
+`, position: Position{Line: 2, Character: 12}, needsWorker: true, newServer: newFrameworkTestServer},
 			{name: "BuiltinFunc", filename: "main.xgo", source: "println 1\n", newServer: newTestServer},
-			{name: "ImportedPackage", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1}, newServer: newTestServer},
-			{name: "ImportedMember", filename: "main.xgo", source: "import \"fmt\"\nfmt.println 1\n", position: Position{Line: 1, Character: 4}, newServer: newTestServer},
+			{name: "ImportedPackage", filename: "main.xgo", source: `import "fmt"
+fmt.println 1
+`, position: Position{Line: 1}, newServer: newTestServer},
+			{name: "ImportedMember", filename: "main.xgo", source: `import "fmt"
+fmt.println 1
+`, position: Position{Line: 1, Character: 4}, newServer: newTestServer},
 			{name: "StringLiteral", filename: "main.xgo", source: "_ = \"value\"\n", position: Position{Line: 0, Character: 5}, newServer: newTestServer},
 			{name: "GeneratedClass", filename: "main_fixture.gox", source: "Worker.apply Low\n", needsWorker: true, newServer: newFrameworkTestServer},
 			{name: "ImportedFrameworkMember", filename: "main_fixture.gox", source: "Worker.apply Low\n", position: Position{Line: 0, Character: 7}, needsWorker: true, newServer: newFrameworkTestServer},
@@ -266,18 +286,35 @@ func TestServerTextDocumentRename(t *testing.T) {
 					source      string
 					declaration int
 				}{
-					{name: "RangeValue", source: "for _, |value := range [1, 2] {\necho |value\n}"},
-					{name: "RangeKey", source: "for |value := range [1, 2] {\necho |value\n}"},
-					{name: "ForPhraseValue", source: "for |value <- [1, 2] {\necho |value\n}"},
-					{name: "ForPhraseKey", source: "for |value, item <- [1, 2] {\necho |value, item\n}"},
-					{name: "RangeExpression", source: "for |value <- 1:3 {\necho |value\n}"},
+					{name: "RangeValue", source: `for _, |value := range [1, 2] {
+echo |value
+}`},
+					{name: "RangeKey", source: `for |value := range [1, 2] {
+echo |value
+}`},
+					{name: "ForPhraseValue", source: `for |value <- [1, 2] {
+echo |value
+}`},
+					{name: "ForPhraseKey", source: `for |value, item <- [1, 2] {
+echo |value, item
+}`},
+					{name: "RangeExpression", source: `for |value <- 1:3 {
+echo |value
+}`},
 					{name: "ListComprehension", source: "echo [|value * 2 for |value <- [1, 2]]", declaration: 1},
 					{name: "MapComprehension", source: "echo {|value: |value * 2 for |value <- [1, 2]}", declaration: 2},
 					{name: "FilteredComprehension", source: "echo [|value for |value <- [1, 2] if |value > 1]", declaration: 1},
-					{name: "NestedScope", source: "for |value <- [1, 2] {\nfor value <- [3, 4] { echo value }\necho |value\n}"},
+					{name: "NestedScope", source: `for |value <- [1, 2] {
+for value <- [3, 4] { echo value }
+echo |value
+}`},
 				} {
 					t.Run(tt.name, func(t *testing.T) {
-						marked := "func run() {\nvalue := \"outer\"\necho value\n{\n" + tt.source + "\n}\necho value\n}\n"
+						marked := `func run() {
+value := "outer"
+echo value
+{
+` + tt.source + "\n}\necho value\n}\n"
 						parts := strings.Split(marked, "|")
 						source := strings.Join(parts, "")
 						var want []TextEdit
@@ -357,10 +394,24 @@ func TestServerTextDocumentRename(t *testing.T) {
 				} {
 					t.Run(target.name, func(t *testing.T) {
 						files := map[string][]byte{
-							"types.xgo": []byte("type Item struct{}\ntype Holder struct { Item }\ntype PointerHolder struct { *Item }\n" +
-								"type Wrapper struct { Holder }\ntype Other struct { Item int }\nfunc configure(opts Holder?) {}\n"),
-							filename: []byte("func use() {\nvar first Holder\nvar second PointerHolder\nvar promoted Wrapper\nvar other Other\n" +
-								"echo first.Item, second.Item, promoted.Item, other.Item\nconfigure item = Item{}\n}\n"),
+							"types.xgo": []byte(`type Item struct{}
+type Holder struct { Item }
+type PointerHolder struct { *Item }
+` +
+								`type Wrapper struct { Holder }
+type Other struct { Item int }
+func configure(opts Holder?) {}
+`),
+							filename: []byte(`func use() {
+var first Holder
+var second PointerHolder
+var promoted Wrapper
+var other Other
+` +
+								`echo first.Item, second.Item, promoted.Item, other.Item
+configure item = Item{}
+}
+`),
 						}
 						s := newTestServer(t, files)
 						_, err := s.requestProject().TypeInfo()
@@ -412,7 +463,13 @@ func TestServerTextDocumentRename(t *testing.T) {
 		}
 		t.Run("LocalTypes", func(t *testing.T) {
 			for _, position := range []Position{{Line: 1, Character: 5}, {Line: 2, Character: 21}, {Line: 4, Character: 12}} {
-				source := "func use() {\ntype Item struct{}\ntype Holder struct { Item }\nvar holder Holder\necho holder.Item\n}\n"
+				source := `func use() {
+type Item struct{}
+type Holder struct { Item }
+var holder Holder
+echo holder.Item
+}
+`
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				_, err := s.requestProject().TypeInfo()
 				require.NoError(t, err)
@@ -499,8 +556,13 @@ func TestServerTextDocumentRename(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{
-					"values.xgo": []byte("var value int\nfunc useLocal() {\n    var value int\n    _ = value\n}\n"),
-					"main.xgo":   []byte("_ = value\n"),
+					"values.xgo": []byte(`var value int
+func useLocal() {
+    var value int
+    _ = value
+}
+`),
+					"main.xgo": []byte("_ = value\n"),
 				})
 				edit, err := s.textDocumentRename(&RenameParams{
 					TextDocument: TextDocumentIdentifier{URI: "file:///values.xgo"},
@@ -516,7 +578,9 @@ func TestServerTextDocumentRename(t *testing.T) {
 	})
 
 	t.Run("ExplicitThis", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var this int\n_ = this\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var this int
+_ = this
+`)})
 		position := Position{Line: 1, Character: 4}
 		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -618,8 +682,13 @@ func TestServerTextDocumentRename(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{
-					"main_fixture.gox":   []byte("var total int\n"),
-					"Worker_fixture.gox": []byte("var value int\nonValue amount => {\n    total = amount\n    value = amount\n}\n"),
+					"main_fixture.gox": []byte("var total int\n"),
+					"Worker_fixture.gox": []byte(`var value int
+onValue amount => {
+    total = amount
+    value = amount
+}
+`),
 				})
 				replier := newMockReplier()
 				s.replier = replier
@@ -668,17 +737,37 @@ func TestServerTextDocumentRename(t *testing.T) {
 			newServer testServerFactory
 		}{
 			{name: "DefinedSibling", filename: "main.xgo", owner: "Record", newServer: newTestServer,
-				source: "type Record struct { |Count int }\ntype Adapter Record\nvar item Record\nitem.|Count = 1\n"},
+				source: `type Record struct { |Count int }
+type Adapter Record
+var item Record
+item.|Count = 1
+`},
 			{name: "DefinedReceiver", filename: "main.xgo", owner: "Record", newServer: newTestServer,
-				source: "type Record struct { |Count int }\ntype Adapter Record\nvar item Adapter\nitem.|Count = 1\n"},
+				source: `type Record struct { |Count int }
+type Adapter Record
+var item Adapter
+item.|Count = 1
+`},
 			{name: "PromotedField", filename: "main.xgo", owner: "Record", newServer: newTestServer,
-				source: "type Record struct { |Count int }\ntype Adapter struct { Record }\nvar item Adapter\nitem.|Count = 1\n"},
+				source: `type Record struct { |Count int }
+type Adapter struct { Record }
+var item Adapter
+item.|Count = 1
+`},
 			{name: "LocalType", filename: "main.xgo", owner: "Record", newServer: newTestServer,
-				source: "func run() {\ntype Record struct { |Count int }\ntype Adapter Record\nvar item Adapter\nitem.|Count = 1\n}\n"},
+				source: `func run() {
+type Record struct { |Count int }
+type Adapter Record
+var item Adapter
+item.|Count = 1
+}
+`},
 			{name: "ProjectField", filename: "main_fixture.gox", owner: "App", newServer: newFrameworkTestServer,
 				source: "var |Count int\n|Count = 1\n", extra: map[string][]byte{"helpers.xgo": []byte("type Adapter App\n")}},
 			{name: "WorkField", filename: "Worker_fixture.gox", owner: "Worker", newServer: newFrameworkTestServer,
-				source: "var |Count int\n|Count = 1\n", extra: map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")}},
+				source: `var |Count int
+|Count = 1
+`, extra: map[string][]byte{"main_fixture.gox": nil, "helpers.xgo": []byte("type Adapter Worker\n")}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				parts := strings.Split(tt.source, "|")
@@ -736,8 +825,13 @@ func TestServerTextDocumentRename(t *testing.T) {
 			"file:///main.xgo":   {{Range: Range{Start: Position{Line: 0, Character: 4}, End: Position{Line: 0, Character: 9}}, NewText: "count"}},
 		})
 		s.ModifyFiles([]FileChange{
-			{Path: "values.xgo", Content: []byte("\nvar value int\nfunc broken() { missing() }\n"), Version: 1},
-			{Path: "main.xgo", Content: []byte("_ = value\n_ = value\n"), Version: 1},
+			{Path: "values.xgo", Content: []byte(`
+var value int
+func broken() { missing() }
+`), Version: 1},
+			{Path: "main.xgo", Content: []byte(`_ = value
+_ = value
+`), Version: 1},
 		})
 		rng, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -819,7 +913,12 @@ func main() {
     configure count = 2
 }
 `),
-					"other.xgo": []byte("func another() {\n    configure count = 3\n    var opts Options\n    _ = opts.Count\n}\n"),
+					"other.xgo": []byte(`func another() {
+    configure count = 3
+    var opts Options
+    _ = opts.Count
+}
+`),
 				})
 				s.replier = newMockReplier()
 				params := &RenameParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position, NewName: tt.newName}
@@ -867,7 +966,10 @@ func main() {
     client.complete "bye", maxTokens = 2
 }
 `),
-					"other.xgo": []byte("func another() {\n    client.complete \"hi\", maxTokens = 3\n}\n"),
+					"other.xgo": []byte(`func another() {
+    client.complete "hi", maxTokens = 3
+}
+`),
 				})
 				params := &RenameParams{TextDocument: TextDocumentIdentifier{URI: tt.uri}, Position: tt.position, NewName: tt.newName}
 				edit, err := s.textDocumentRename(params)
@@ -941,8 +1043,13 @@ func TestServerTextDocumentRenameIdentifier(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, source := range []string{
-				"var |value int\nprintln value\n",
-				"type Record struct{}\nfunc (Record) |Value() int { return 1 }\nprintln Record{}.Value()\n",
+				`var |value int
+println value
+`,
+				`type Record struct{}
+func (Record) |Value() int { return 1 }
+println Record{}.Value()
+`,
 			} {
 				source, position := typeDisplayTestSource(t, source)
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
@@ -974,8 +1081,14 @@ func TestServerTextDocumentRenameKeywordKwarg(t *testing.T) {
 		source  string
 		newName string
 	}{
-		{name: "KeywordAtCall", source: "type Options struct { Count int }\nfunc configure(opts Options?) {}\nconfigure |count=1\n", newName: "for"},
-		{name: "KeywordAtDeclaration", source: "type Options struct { |Count int }\nfunc configure(opts Options?) {}\nconfigure count=1\n", newName: "For"},
+		{name: "KeywordAtCall", source: `type Options struct { Count int }
+func configure(opts Options?) {}
+configure |count=1
+`, newName: "for"},
+		{name: "KeywordAtDeclaration", source: `type Options struct { |Count int }
+func configure(opts Options?) {}
+configure count=1
+`, newName: "For"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)

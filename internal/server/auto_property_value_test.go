@@ -137,7 +137,12 @@ func TestTypeDisplayAutoPropertyQualifierShadowing(t *testing.T) {
 		{name: "RequiredArgument", methods: `func (a *App) Label(value int) string { return "" }`, want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "var (\nLabel []int\nvalue label.Name\n)\nfunc run() { _ = |value }\n")
+			source, pos := typeDisplayTestSource(t, `var (
+Label []int
+value label.Name
+)
+func run() { _ = |value }
+`)
 			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)}, &modfile.Import{Name: "label", Path: importTestPkgPath})
 			setImportTestFrameworkMethods(t, s, tt.methods)
 			proj := s.requestProject()
@@ -227,21 +232,31 @@ func TestServerCompletionPropertyAliases(t *testing.T) {
 		callback, shadowed                            bool
 	}{
 		{name: "Direct", filename: "main.xgo", declarations: "type Record struct{}", receiver: "record."},
-		{name: "Promoted", filename: "main.xgo", declarations: "type Base struct{}\ntype Record struct { Base; Label []int }", receiver: "record."},
-		{name: "FieldShadow", filename: "main.xgo", declarations: "type Base struct{}\ntype Record struct { Base; label int }", receiver: "record.", shadowed: true},
+		{name: "Promoted", filename: "main.xgo", declarations: `type Base struct{}
+type Record struct { Base; Label []int }`, receiver: "record."},
+		{name: "FieldShadow", filename: "main.xgo", declarations: `type Base struct{}
+type Record struct { Base; label int }`, receiver: "record.", shadowed: true},
 		{name: "ClassBare", filename: "main_fixture.gox"},
 		{name: "ClassSelector", filename: "main_fixture.gox", receiver: "this."},
 		{name: "LocalShadow", filename: "main_fixture.gox", local: "label := 1\n_ = label\n", shadowed: true},
 		{name: "Callback", filename: "main_fixture.gox", callback: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			methods := "func text() string { return \"\" }\nfunc Label = (text)\nfunc Title = (text)\n"
+			methods := `func text() string { return "" }
+func Label = (text)
+func Title = (text)
+`
 			if tt.declarations != "" {
 				owner := "Record"
 				if strings.Contains(tt.declarations, "Base") {
 					owner = "Base"
 				}
-				methods = tt.declarations + "\nfunc (" + owner + ") text() string { return \"\" }\nfunc (" + owner + ").Label = ((" + owner + ").text)\nfunc (" + owner + ").Title = ((" + owner + ").text)\nvar record Record\n"
+				methods = tt.declarations + `
+func (` + owner + `) text() string { return "" }
+func (` + owner + ").Label = ((" + owner + `).text)
+func (` + owner + ").Title = ((" + owner + `).text)
+var record Record
+`
 			}
 			parameter, placeholder := "string", "title"
 			if tt.callback {
@@ -277,14 +292,21 @@ func TestServerCompletionPackagePropertyAliasResult(t *testing.T) {
 	for _, tt := range []struct{ name, declarations, receiver string }{
 		{"Ordinary", "func Current() Result { return Result{} }", "current"},
 		{"Overload", "func makeResult() Result { return Result{} }\nfunc Current = (makeResult)", "current"},
-		{"VariadicFirst", "func makeResult(values ...int) Result { return Result{} }\nfunc fallback() int { return 0 }\nfunc Current = (makeResult; fallback)", "current"},
-		{"OptionalFirst", "func makeResult(value int?) Result { return Result{} }\nfunc fallback() int { return 0 }\nfunc Current = (makeResult; fallback)", "current"},
+		{"VariadicFirst", `func makeResult(values ...int) Result { return Result{} }
+func fallback() int { return 0 }
+func Current = (makeResult; fallback)`, "current"},
+		{"OptionalFirst", `func makeResult(value int?) Result { return Result{} }
+func fallback() int { return 0 }
+func Current = (makeResult; fallback)`, "current"},
 		{"Parenthesized", "func makeResult() Result { return Result{} }\nfunc Current = (makeResult)", "(current)"},
 		{"MethodChain", "func makeResult() Result { return Result{} }\nfunc Current = (makeResult)", "current.next"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.declarations+"\nfunc run() { use "+tt.receiver+".|Text }\n")
-			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte("type Result struct { Text string; Count int }\nfunc (Result) Next() Result { return Result{} }\nfunc Use(value string) {}\n")})
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte(`type Result struct { Text string; Count int }
+func (Result) Next() Result { return Result{} }
+func Use(value string) {}
+`)})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			items := completionItemsAt(t, s, "main.xgo", pos)
@@ -306,7 +328,10 @@ func TestServerXGoGetInputSlotsPackagePropertyAlias(t *testing.T) {
 		{"ImplementationValue", "makeText", XGoInputTypeUnknown},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("func makeText() (text string) { return }\nfunc Current = (makeText)\nfunc Use(value any) {}\nuse " + tt.expression + "\n")})
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`func makeText() (text string) { return }
+func Current = (makeText)
+func Use(value any) {}
+use ` + tt.expression + "\n")})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
@@ -326,7 +351,10 @@ func TestServerCompletionImportedPropertyAliasResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.imports+"func run() { _ = "+tt.receiver+".|Text }\n")
 			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source)})
-			setImportTestFrameworkMethods(t, s, "type Result struct { Text string }\nconst XGoo_Current = \"MakeResult\"\nfunc MakeResult() Result { return Result{} }\n")
+			setImportTestFrameworkMethods(t, s, `type Result struct { Text string }
+const XGoo_Current = "MakeResult"
+func MakeResult() Result { return Result{} }
+`)
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			items := completionItemsAt(t, s, tt.filename, pos)
@@ -372,12 +400,18 @@ func TestServerCompletionPackagePropertyAliases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			declarations := ""
 			if tt.name == "Local" {
-				declarations = "func makeText() string { return \"\" }\nfunc Label = (makeText)\nfunc Title = (makeText)\n"
+				declarations = `func makeText() string { return "" }
+func Label = (makeText)
+func Title = (makeText)
+`
 			}
 			source, pos := typeDisplayTestSource(t, tt.imports+declarations+"func run() { use "+tt.prefix+"|title }\n")
 			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source), "types.xgo": []byte("func Use(value string) {}\n")})
 			if tt.name != "Local" {
-				setImportTestFrameworkMethods(t, s, "const XGoo_Label = \"MakeText\"\nconst XGoo_Title = \"MakeText\"\nfunc MakeText() string { return \"\" }\n")
+				setImportTestFrameworkMethods(t, s, `const XGoo_Label = "MakeText"
+const XGoo_Title = "MakeText"
+func MakeText() string { return "" }
+`)
 			}
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
@@ -400,13 +434,23 @@ func TestServerCompletionPackagePropertyOverloads(t *testing.T) {
 		name, declarations, parameter, expression string
 		want                                      bool
 	}{
-		{name: "Selected", declarations: "func first() string { return \"first\" }\nfunc second() string { return \"second\" }\nfunc Label = (first; second)", want: true},
-		{name: "VariadicFirst", declarations: "func first(values ...int) string { return \"\" }\nfunc second() int { return 0 }\nfunc Label = (first; second)", want: true},
-		{name: "OptionalFirst", declarations: "func first(value int?) string { return \"\" }\nfunc second() int { return 0 }\nfunc Label = (first; second)", want: true},
-		{name: "IncompatibleResult", declarations: "func first() []int { return nil }\nfunc second() string { return \"\" }\nfunc Label = (first; second)"},
+		{name: "Selected", declarations: `func first() string { return "first" }
+func second() string { return "second" }
+func Label = (first; second)`, want: true},
+		{name: "VariadicFirst", declarations: `func first(values ...int) string { return "" }
+func second() int { return 0 }
+func Label = (first; second)`, want: true},
+		{name: "OptionalFirst", declarations: `func first(value int?) string { return "" }
+func second() int { return 0 }
+func Label = (first; second)`, want: true},
+		{name: "IncompatibleResult", declarations: `func first() []int { return nil }
+func second() string { return "" }
+func Label = (first; second)`},
 		{name: "Uninferred", declarations: "func first[T any]() T { var value T; return value }\nfunc Label = (first)"},
-		{name: "CallbackResult", declarations: "func first() func() string { return nil }\nfunc Label = (first)", parameter: "func() string", want: true},
-		{name: "CallbackImplementation", declarations: "func first() string { return \"\" }\nfunc Label = (first)", parameter: "func() string", expression: "first"},
+		{name: "CallbackResult", declarations: `func first() func() string { return nil }
+func Label = (first)`, parameter: "func() string", want: true},
+		{name: "CallbackImplementation", declarations: `func first() string { return "" }
+func Label = (first)`, parameter: "func() string", expression: "first"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			parameter, expression := tt.parameter, tt.expression
@@ -448,7 +492,14 @@ func TestServerCompletionPackagePropertyShadowing(t *testing.T) {
 		{name: "ImplementationLocal", local: "text := 1; _ = text", want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "func text() string { return \"\" }\nfunc Label = (text)\n"+tt.declarations+"\nfunc run() {\n"+tt.local+"\nuse |label\n}\n")
+			source, pos := typeDisplayTestSource(t, `func text() string { return "" }
+func Label = (text)
+`+tt.declarations+`
+func run() {
+`+tt.local+`
+use |label
+}
+`)
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte("func Use(value string) {}\n")})
 			_, err := s.requestProject().TypeInfo()
 			if tt.want {
@@ -467,7 +518,8 @@ func TestServerCompletionIncompletePackagePropertyCandidates(t *testing.T) {
 		want               bool
 	}{
 		{name: "Missing", declarations: "func Label = (missing)"},
-		{name: "SelectedBeforeMissing", declarations: "func first() string { return \"\" }\nfunc Label = (first; missing)", want: true},
+		{name: "SelectedBeforeMissing", declarations: `func first() string { return "" }
+func Label = (first; missing)`, want: true},
 		{name: "Nested", declarations: "func nested = (missing)\nfunc Label = (nested)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -504,7 +556,9 @@ var record Record`,
 		t.Run(tt.name, func(t *testing.T) {
 			local := ""
 			if tt.name == "LocalImplementation" {
-				local = "Label := []int{}\n_ = Label\n"
+				local = `Label := []int{}
+_ = Label
+`
 			}
 			source, pos := typeDisplayTestSource(t, tt.declarations+"\nfunc run() {\n"+local+"use "+tt.expression+"\n}\n")
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte("func Use(value func() string) {}\n")})
@@ -527,7 +581,9 @@ func TestServerCompletionImportedPropertyCallback(t *testing.T) {
 		{"Unexported", "makeText", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "import f \"example.com/framework\"\nfunc run() { use f.|MakeText }\n")
+			source, pos := typeDisplayTestSource(t, `import f "example.com/framework"
+func run() { use f.|MakeText }
+`)
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte("func Use(value func() string) {}\n")})
 			setImportTestFrameworkMethods(t, s, "const XGoo_Label = \""+tt.implementation+"\"\nfunc "+tt.implementation+"() string { return \"\" }\n")
 			items := completionItemsAt(t, s, "main.xgo", pos)

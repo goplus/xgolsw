@@ -16,21 +16,98 @@ func TestDefinitionContextSourceDocumentation(t *testing.T) {
 		source string
 		want   string
 	}{
-		{name: "GroupedVariable", source: "var (\n// Declaration documentation.\nvalue int\nother int\n)\necho |value\n", want: "Declaration documentation.\n"},
-		{name: "GroupedConstant", source: "const (\n// Declaration documentation.\nvalue = 1\nother = 2\n)\necho |value\n", want: "Declaration documentation.\n"},
-		{name: "GroupedType", source: "type (\n// Declaration documentation.\nItem int\nOther string\n)\nvar value |Item\n", want: "Declaration documentation.\n"},
-		{name: "MultipleNames", source: "// Declaration documentation.\nvar first, second int\necho |second\n", want: "Declaration documentation.\n"},
-		{name: "VariableTrailingComment", source: "var value int // Declaration documentation.\necho |value\n", want: "Declaration documentation.\n"},
-		{name: "TypeTrailingComment", source: "type Item int // Declaration documentation.\nvar value |Item\n", want: "Declaration documentation.\n"},
-		{name: "VariableLeadingComment", source: "// Declaration documentation.\nvar value int // Trailing comment.\necho |value\n", want: "Declaration documentation.\n"},
-		{name: "TypeLeadingComment", source: "// Declaration documentation.\ntype Item int // Trailing comment.\nvar value |Item\n", want: "Declaration documentation.\n"},
-		{name: "GroupDoesNotDocumentIndividualMembers", source: "// Group documentation.\nvar (\nvalue int\nother int\n)\necho |value\n"},
-		{name: "ParameterDoesNotBorrowFunctionDocumentation", source: "// Function documentation.\nfunc run(value int) { echo |value }\n"},
-		{name: "FieldTrailingComment", source: "type Item struct {\nValue int // Declaration documentation.\n}\nvar item Item\necho item.|Value\n", want: "Declaration documentation.\n"},
-		{name: "SiblingLocalType", source: "func first() {\n// Unrelated documentation.\ntype Item int\nvar item Item\necho item\n}\nfunc second() {\n// Declaration documentation.\ntype Item string\nvar item |Item\necho item\n}\n", want: "Declaration documentation.\n"},
-		{name: "NestedLocalType", source: "func run() {\n// Outer documentation.\ntype Item int\nif true {\n// Declaration documentation.\ntype Item string\nvar item |Item\necho item\n}\n}\n", want: "Declaration documentation.\n"},
-		{name: "LocalAlias", source: "func run() {\n// Declaration documentation.\ntype Item = int\nvar item |Item\necho item\n}\n", want: "Declaration documentation.\n"},
-		{name: "NestedFunctionLocal", source: "// Enclosing documentation.\nfunc run() {\ninvoke := func() { value := 1; echo |value }\ninvoke()\n}\n"},
+		{name: "GroupedVariable", source: `var (
+// Declaration documentation.
+value int
+other int
+)
+echo |value
+`, want: "Declaration documentation.\n"},
+		{name: "GroupedConstant", source: `const (
+// Declaration documentation.
+value = 1
+other = 2
+)
+echo |value
+`, want: "Declaration documentation.\n"},
+		{name: "GroupedType", source: `type (
+// Declaration documentation.
+Item int
+Other string
+)
+var value |Item
+`, want: "Declaration documentation.\n"},
+		{name: "MultipleNames", source: `// Declaration documentation.
+var first, second int
+echo |second
+`, want: "Declaration documentation.\n"},
+		{name: "VariableTrailingComment", source: `var value int // Declaration documentation.
+echo |value
+`, want: "Declaration documentation.\n"},
+		{name: "TypeTrailingComment", source: `type Item int // Declaration documentation.
+var value |Item
+`, want: "Declaration documentation.\n"},
+		{name: "VariableLeadingComment", source: `// Declaration documentation.
+var value int // Trailing comment.
+echo |value
+`, want: "Declaration documentation.\n"},
+		{name: "TypeLeadingComment", source: `// Declaration documentation.
+type Item int // Trailing comment.
+var value |Item
+`, want: "Declaration documentation.\n"},
+		{name: "GroupDoesNotDocumentIndividualMembers", source: `// Group documentation.
+var (
+value int
+other int
+)
+echo |value
+`},
+		{name: "ParameterDoesNotBorrowFunctionDocumentation", source: `// Function documentation.
+func run(value int) { echo |value }
+`},
+		{name: "FieldTrailingComment", source: `type Item struct {
+Value int // Declaration documentation.
+}
+var item Item
+echo item.|Value
+`, want: "Declaration documentation.\n"},
+		{name: "SiblingLocalType", source: `func first() {
+// Unrelated documentation.
+type Item int
+var item Item
+echo item
+}
+func second() {
+// Declaration documentation.
+type Item string
+var item |Item
+echo item
+}
+`, want: "Declaration documentation.\n"},
+		{name: "NestedLocalType", source: `func run() {
+// Outer documentation.
+type Item int
+if true {
+// Declaration documentation.
+type Item string
+var item |Item
+echo item
+}
+}
+`, want: "Declaration documentation.\n"},
+		{name: "LocalAlias", source: `func run() {
+// Declaration documentation.
+type Item = int
+var item |Item
+echo item
+}
+`, want: "Declaration documentation.\n"},
+		{name: "NestedFunctionLocal", source: `// Enclosing documentation.
+func run() {
+invoke := func() { value := 1; echo |value }
+invoke()
+}
+`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -50,7 +127,9 @@ func TestDefinitionContextSourceDocumentation(t *testing.T) {
 	}
 
 	t.Run("ForeignPackagePosition", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// Project documentation.\nvar value int\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`// Project documentation.
+var value int
+`)})
 		proj := s.getProj()
 		info, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -66,13 +145,17 @@ func TestDefinitionContextSourceDocumentation(t *testing.T) {
 	})
 
 	t.Run("SourceVersion", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// Old documentation.\nvar value int\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`// Old documentation.
+var value int
+`)})
 		proj := s.getProj()
 		info, err := proj.TypeInfo()
 		require.NoError(t, err)
 		old := info.Pkg.Scope().Lookup("value")
 		require.NotNil(t, old)
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("// New documentation.\nvar value int\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`// New documentation.
+var value int
+`), Version: 1}})
 		ctx := &definitionContext{proj: s.getProj()}
 		doc, ok := ctx.sourceDocumentation(old)
 		assert.False(t, ok)

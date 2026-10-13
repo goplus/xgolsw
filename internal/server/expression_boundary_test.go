@@ -246,13 +246,22 @@ var value = max("value", asset)
 
 func TestServerRegisteredClassfileExpressionBoundaries(t *testing.T) {
 	for _, tt := range []struct{ name, body, want, absent string }{
-		{"TypeAssertion", "var candidate any\nvalue := cand|idate.(int)\necho value\n", "candidate", ""},
+		{"TypeAssertion", `var candidate any
+value := cand|idate.(int)
+echo value
+`, "candidate", ""},
 		{"ArrayLength", "var values [candidate|Length]int\necho values\n", "candidateLength", "wrongBool"},
 		{"ErrorWrap", "value := candidate|Read()!\necho value\n", "candidateRead", "wrongRead"},
 		{"SliceComprehension", "values := [candidate|Int() for _ <- [1]]\necho values\n", "candidateInt", "wrongBool"},
-		{"MapComprehensionKey", "values := {candidate|Int(): value for value <- [1]}\necho values\n", "candidateInt", "wrongBool"},
-		{"MapComprehensionValue", "values := {value: candidate|Int() for value <- [1]}\necho values\n", "candidateInt", "wrongBool"},
-		{"ComprehensionCondition", "values := [value for value <- [1], candidate|Bool()]\necho values\n", "candidateBool", "candidateInt"},
+		{"MapComprehensionKey", `values := {candidate|Int(): value for value <- [1]}
+echo values
+`, "candidateInt", "wrongBool"},
+		{"MapComprehensionValue", `values := {value: candidate|Int() for value <- [1]}
+echo values
+`, "candidateInt", "wrongBool"},
+		{"ComprehensionCondition", `values := [value for value <- [1], candidate|Bool()]
+echo values
+`, "candidateBool", "candidateInt"},
 		{"Switch", "switch 1 {case candidate|Int():}\n", "candidateInt", "wrongBool"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -363,8 +372,16 @@ func TestServerXGoGetInputSlotsExpressionBoundaries(t *testing.T) {
 			} {
 				t.Run(kind.name, func(t *testing.T) {
 					source := "func run() {\n" + tt.source + "\n}\n"
-					declarations := "type Asset string\nvar asset Asset\nvar count int\nvar flag bool\nvar text string\n" +
-						"type Count int\nvar namedCount Count\nfunc useCount(Count) {}\n"
+					declarations := `type Asset string
+var asset Asset
+var count int
+var flag bool
+var text string
+` +
+						`type Count int
+var namedCount Count
+func useCount(Count) {}
+`
 					if kind.name == "Plain" {
 						source = declarations + source
 						declarations = ""

@@ -138,8 +138,16 @@ func TestServerTextDocumentRenameImportedMethodRelation(t *testing.T) {
 		name   string
 		source string
 	}{
-		{name: "ImportedInterface", source: "import \"fmt\"\ntype RecordValue struct{}\nfunc (RecordValue) |String() string { return \"\" }\nvar value fmt.Stringer = RecordValue{}\nprintln value.String()\n"},
-		{name: "ImportedImplementation", source: "import \"bytes\"\ntype Reader interface { |Read(p []byte) (int, error) }\nvar value Reader = new(bytes.Buffer)\n"},
+		{name: "ImportedInterface", source: `import "fmt"
+type RecordValue struct{}
+func (RecordValue) |String() string { return "" }
+var value fmt.Stringer = RecordValue{}
+println value.String()
+`},
+		{name: "ImportedImplementation", source: `import "bytes"
+type Reader interface { |Read(p []byte) (int, error) }
+var value Reader = new(bytes.Buffer)
+`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -170,7 +178,10 @@ func TestServerTextDocumentRenameImportedMethodContract(t *testing.T) {
 		{name: "Constraint", contract: `func Accept[T interface { ~int; Read() int }](value T) {}`, localType: "int", use: "contract.Accept(RecordValue(1))"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, position := typeDisplayTestSource(t, "import contract \"example.com/contract\"\ntype RecordValue "+tt.localType+"\nfunc (RecordValue) |Read() int { return 1 }\nfunc run() { "+tt.use+" }\n")
+			source, position := typeDisplayTestSource(t, `import contract "example.com/contract"
+type RecordValue `+tt.localType+`
+func (RecordValue) |Read() int { return 1 }
+func run() { `+tt.use+" }\n")
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			s.replier = newMockReplier()
 			fset := token.NewFileSet()
@@ -204,8 +215,15 @@ func TestServerTextDocumentRenameClassMethodContract(t *testing.T) {
 		{name: "WorkClass", filename: "Worker_fixture.gox"},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
-			const contract = "type Reader interface { Read() int }\nfunc consume(reader Reader) int { return reader.Read() }\n"
-			const implementation = "func Read() int { return 1 }\nfunc use() {\nprintln consume(this)\nprintln this.Read()\n}\n"
+			const contract = `type Reader interface { Read() int }
+func consume(reader Reader) int { return reader.Read() }
+`
+			const implementation = `func Read() int { return 1 }
+func use() {
+println consume(this)
+println this.Read()
+}
+`
 			for _, filename := range []string{"contract.xgo", kind.filename} {
 				files := map[string][]byte{"contract.xgo": []byte(contract), kind.filename: []byte(implementation)}
 				if kind.name == "WorkClass" {
@@ -243,15 +261,42 @@ func TestServerTextDocumentRenameMethodConflict(t *testing.T) {
 		name   string
 		source string
 	}{
-		{name: "DirectMethod", source: "type Value struct{}\nfunc (Value) |Read() int { return 1 }\nfunc (Value) Fetch() {}\n"},
+		{name: "DirectMethod", source: `type Value struct{}
+func (Value) |Read() int { return 1 }
+func (Value) Fetch() {}
+`},
 		{name: "DirectField", source: "type Value struct{ Fetch int }\nfunc (Value) |Read() int { return 1 }\n"},
 		{name: "InterfaceMethod", source: "type Reader interface { |Read() int; Fetch() }\n"},
-		{name: "RelatedImplementation", source: "type Reader interface { |Read() int }\ntype Value struct{ Fetch int }\nfunc (Value) Read() int { return 1 }\n"},
-		{name: "PromotedMethod", source: "type Base struct{}\nfunc (Base) |Read() int { return 1 }\ntype Value struct { Base }\nfunc (Value) Fetch() {}\nfunc use(v Value) { println v.Read() }\n"},
-		{name: "PromotedField", source: "type Base struct{}\nfunc (Base) |Read() int { return 1 }\ntype Value struct { Base; Fetch int }\nfunc use(v Value) { println v.Read() }\n"},
-		{name: "AliasMethod", source: "type Value struct{}\nfunc (Value) |Read() int { return 1 }\nfunc (Value) fetch() string { return \"text\" }\nvar value int = Value{}.read\n"},
-		{name: "UnderscoreAliasMethod", source: "type Value struct{}\nfunc (Value) |XGo_read() int { return 1 }\nfunc (Value) fetch() string { return \"text\" }\nvar value int = Value{}._read\n"},
-		{name: "PromotedAliasField", source: "type Base struct{}\nfunc (Base) |Read() int { return 1 }\ntype Value struct { Base; fetch string }\nfunc use(v Value) { var n int = v.read; println n }\n"},
+		{name: "RelatedImplementation", source: `type Reader interface { |Read() int }
+type Value struct{ Fetch int }
+func (Value) Read() int { return 1 }
+`},
+		{name: "PromotedMethod", source: `type Base struct{}
+func (Base) |Read() int { return 1 }
+type Value struct { Base }
+func (Value) Fetch() {}
+func use(v Value) { println v.Read() }
+`},
+		{name: "PromotedField", source: `type Base struct{}
+func (Base) |Read() int { return 1 }
+type Value struct { Base; Fetch int }
+func use(v Value) { println v.Read() }
+`},
+		{name: "AliasMethod", source: `type Value struct{}
+func (Value) |Read() int { return 1 }
+func (Value) fetch() string { return "text" }
+var value int = Value{}.read
+`},
+		{name: "UnderscoreAliasMethod", source: `type Value struct{}
+func (Value) |XGo_read() int { return 1 }
+func (Value) fetch() string { return "text" }
+var value int = Value{}._read
+`},
+		{name: "PromotedAliasField", source: `type Base struct{}
+func (Base) |Read() int { return 1 }
+type Value struct { Base; fetch string }
+func use(v Value) { var n int = v.read; println n }
+`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -333,7 +378,13 @@ func TestServerTextDocumentRenameMethodAlias(t *testing.T) {
 			{name: "ExactName", position: Position{Line: 1, Character: 19}, newName: "local", declaration: "local", alias: "local()"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				const source = "type RecordValue struct{}\nfunc (RecordValue) XGo_read() int { return 1 }\nvar item RecordValue\nvar value int = item._read\nvar other int = item.xGo_read\nprintln item._read(), item.xGo_read(), item.XGo_read()\n"
+				const source = `type RecordValue struct{}
+func (RecordValue) XGo_read() int { return 1 }
+var item RecordValue
+var value int = item._read
+var other int = item.xGo_read
+println item._read(), item.xGo_read(), item.XGo_read()
+`
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				s.replier = newMockReplier()
 				_, err := s.requestProject().TypeInfo()
@@ -361,7 +412,12 @@ func TestServerTextDocumentRenameMethodAlias(t *testing.T) {
 		{name: "Property", use: "item.read"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source := "type RecordValue struct{}\nfunc (RecordValue) Read() int { return 1 }\nvar item RecordValue\nvar value int = " + tt.use + "\nprintln item.Read()\n"
+			source := `type RecordValue struct{}
+func (RecordValue) Read() int { return 1 }
+var item RecordValue
+var value int = ` + tt.use + `
+println item.Read()
+`
 			for _, target := range []struct {
 				name     string
 				position Position
@@ -401,7 +457,12 @@ func TestServerTextDocumentRenameMethodAliasToExactName(t *testing.T) {
 		{name: "Underscore", newName: "_fetch"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			const source = "type RecordValue struct{}\nfunc (RecordValue) Read() int { return 1 }\nvar item RecordValue\nvar value int = item.read\nprintln item.read(), item.Read()\n"
+			const source = `type RecordValue struct{}
+func (RecordValue) Read() int { return 1 }
+var item RecordValue
+var value int = item.read
+println item.read(), item.Read()
+`
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			s.replier = newMockReplier()
 			_, err := s.requestProject().TypeInfo()
@@ -411,7 +472,11 @@ func TestServerTextDocumentRenameMethodAliasToExactName(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, edit)
 			updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
-			want := "type RecordValue struct{}\nfunc (RecordValue) " + tt.newName + "() int { return 1 }\nvar item RecordValue\nvar value int = item." + tt.newName + "()\nprintln item." + tt.newName + "(), item." + tt.newName + "()\n"
+			want := `type RecordValue struct{}
+func (RecordValue) ` + tt.newName + `() int { return 1 }
+var item RecordValue
+var value int = item.` + tt.newName + `()
+println item.` + tt.newName + "(), item." + tt.newName + "()\n"
 			assert.Equal(t, want, updated)
 			s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
 			_, err = s.requestProject().TypeInfo()
@@ -430,7 +495,13 @@ func TestServerTextDocumentRenameClassMethodAlias(t *testing.T) {
 		{name: "WorkClass", path: "Worker_fixture.gox"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			const source = "func Read() int { return 1 }\nfunc use() {\nvar a int = read\nvar b int = (this.read)\nprintln a, b, read(), this.read(), (this.read)()\n}\n"
+			const source = `func Read() int { return 1 }
+func use() {
+var a int = read
+var b int = (this.read)
+println a, b, read(), this.read(), (this.read)()
+}
+`
 			files := map[string][]byte{tt.path: []byte(source)}
 			if tt.name == "WorkClass" {
 				files["main_fixture.gox"] = nil
@@ -444,7 +515,13 @@ func TestServerTextDocumentRenameClassMethodAlias(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, edit)
 			updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
-			assert.Equal(t, "func fetch() int { return 1 }\nfunc use() {\nvar a int = fetch()\nvar b int = (this.fetch())\nprintln a, b, fetch(), this.fetch(), (this.fetch)()\n}\n", updated)
+			assert.Equal(t, `func fetch() int { return 1 }
+func use() {
+var a int = fetch()
+var b int = (this.fetch())
+println a, b, fetch(), this.fetch(), (this.fetch)()
+}
+`, updated)
 			s.ModifyFiles([]FileChange{{Path: tt.path, Content: []byte(updated), Version: 1}})
 			_, err = s.requestProject().TypeInfo()
 			assert.NoError(t, err)
@@ -453,7 +530,14 @@ func TestServerTextDocumentRenameClassMethodAlias(t *testing.T) {
 }
 
 func TestServerTextDocumentRenameOverload(t *testing.T) {
-	const source = "func readInt(n int) int { return n }\nfunc readString(s string) int { return len(s) }\nfunc Read = (\nreadInt\nreadString\n)\nprintln Read(1), Read(\"text\"), readInt(2)\n"
+	const source = `func readInt(n int) int { return n }
+func readString(s string) int { return len(s) }
+func Read = (
+readInt
+readString
+)
+println Read(1), Read("text"), readInt(2)
+`
 	for _, tt := range []struct {
 		name     string
 		position Position
@@ -527,7 +611,14 @@ func TestServerTextDocumentRenameClassOverload(t *testing.T) {
 		{name: "WorkClass", path: "Worker_fixture.gox", class: "Worker"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source := "func readInt(n int) int { return n }\nfunc readString(s string) int { return len(s) }\nfunc (" + tt.class + ").Read = (\n(" + tt.class + ").readInt\n(" + tt.class + ").readString\n)\nfunc use() { println Read(1), read(\"text\") }\n"
+			source := `func readInt(n int) int { return n }
+func readString(s string) int { return len(s) }
+func (` + tt.class + `).Read = (
+(` + tt.class + `).readInt
+(` + tt.class + `).readString
+)
+func use() { println Read(1), read("text") }
+`
 			for _, position := range []Position{{Line: 2, Character: uint32(len(tt.class) + 8)}, {Line: 6, Character: 22}} {
 				files := map[string][]byte{tt.path: []byte(source)}
 				if tt.name == "WorkClass" {

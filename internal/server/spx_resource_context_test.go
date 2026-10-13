@@ -11,7 +11,9 @@ import (
 
 func TestSpxSpriteResourceForObject(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{
-		"main.xgo":                         []byte("var Runner, Other, Missing int\necho Runner, Other, Missing\n"),
+		"main.xgo": []byte(`var Runner, Other, Missing int
+echo Runner, Other, Missing
+`),
 		"assets/index.json":                []byte(`{}`),
 		"assets/sprites/Runner/index.json": []byte(`{}`),
 		"assets/sprites/Other/index.json":  []byte(`{}`),
@@ -37,7 +39,9 @@ func TestSpxSpriteResourceForObject(t *testing.T) {
 	assert.Nil(t, spxSpriteResourceForObject(result, other))
 	assert.Nil(t, spxSpriteResourceForObject(result, missing))
 
-	otherProj := newTestServer(t, map[string][]byte{"main.xgo": []byte("var Runner int\necho Runner\n")}).getProj()
+	otherProj := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var Runner int
+echo Runner
+`)}).getProj()
 	otherInfo, err := otherProj.TypeInfo()
 	require.NoError(t, err)
 	sameName := otherInfo.Pkg.Scope().Lookup("Runner")
@@ -116,15 +120,24 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 		}{
 			{"AutoBinding", "Runner.use \"value\"\n", "Runner"},
 			{"UnboundObject", "Other.use \"value\"\n", ""},
-			{"ShadowedAutoBinding", "func run() {\n\tRunner := Other\n\tRunner.use \"value\"\n}\n", ""},
+			{"ShadowedAutoBinding", `func run() {
+	Runner := Other
+	Runner.use "value"
+}
+`, ""},
 			{"ReceiverExpression", "(&Runner).Use(\"value\")\n", ""},
 			{"FunctionExpression", "(Runner.Use)(\"value\")\n", ""},
-			{"LineDirective", "//line virtual.xgo:100:20\nRunner.use \"value\"\n", "Runner"},
+			{"LineDirective", `//line virtual.xgo:100:20
+Runner.use "value"
+`, "Runner"},
 			{"NoCall", "const Name = \"value\"\n", ""},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{
-					"main.xgo":                         []byte("type Actor struct {}\nfunc (a *Actor) Use(name string) {}\nvar Runner, Other Actor\n" + tt.source),
+					"main.xgo": []byte(`type Actor struct {}
+func (a *Actor) Use(name string) {}
+var Runner, Other Actor
+` + tt.source),
 					"assets/index.json":                []byte(`{}`),
 					"assets/sprites/Runner/index.json": []byte(`{}`),
 					"assets/sprites/Other/index.json":  []byte(`{}`),
@@ -162,9 +175,19 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 		}{
 			{"Project", "main.spx", "func use(name string) {}\nuse \"value\"\n", ""},
 			{"Class", "Runner.spx", "func use(name string) {}\nuse \"value\"\n", "Runner"},
-			{"Callback", "Runner.spx", "func use(name string) {}\nonStart => {\n\tuse \"value\"\n}\n", "Runner"},
-			{"LineDirective", "Runner.spx", "func use(name string) {}\n//line virtual.spx:100:20\nuse \"value\"\n", "Runner"},
-			{"FuncDecorator", "Runner.spx", "func withResource(name string, fn func()) {}\n@withResource(\"value\")\nfunc run() {}\n", "Runner"},
+			{"Callback", "Runner.spx", `func use(name string) {}
+onStart => {
+	use "value"
+}
+`, "Runner"},
+			{"LineDirective", "Runner.spx", `func use(name string) {}
+//line virtual.spx:100:20
+use "value"
+`, "Runner"},
+			{"FuncDecorator", "Runner.spx", `func withResource(name string, fn func()) {}
+@withResource("value")
+func run() {}
+`, "Runner"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -199,8 +222,10 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 
 	t.Run("SourceChanges", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                         nil,
-			"Runner.spx":                       []byte("func use(name string) {}\nuse \"value\"\n"),
+			"main.spx": nil,
+			"Runner.spx": []byte(`func use(name string) {}
+use "value"
+`),
 			"assets/index.json":                []byte(`{}`),
 			"assets/sprites/Runner/index.json": []byte(`{}`),
 		})
@@ -213,7 +238,9 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 		result.spxResourceSet = *set
 		require.NotNil(t, set.Sprite("Runner"))
 		assert.Same(t, set.Sprite("Runner"), inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
-		s.ModifyFiles([]FileChange{{Path: "Runner.spx", Content: []byte("func use(name string) {}\nuse \"other\"\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "Runner.spx", Content: []byte(`func use(name string) {}
+use "other"
+`), Version: 1}})
 		assert.Nil(t, inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
 	})
 }

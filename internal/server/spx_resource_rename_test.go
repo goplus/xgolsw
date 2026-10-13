@@ -28,9 +28,18 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 			source string
 		}{
 			{"Parenthesized", "var value *((Runner))\necho value\n"},
-			{"Alias", "type Alias = Runner\nvar value Alias\necho value\n"},
-			{"Embedded", "type Container struct { Runner }\nvar value Container\necho value\n"},
-			{"LineDirective", "//line virtual.xgo:100:20\nvar value *Runner\necho value\n"},
+			{"Alias", `type Alias = Runner
+var value Alias
+echo value
+`},
+			{"Embedded", `type Container struct { Runner }
+var value Container
+echo value
+`},
+			{"LineDirective", `//line virtual.xgo:100:20
+var value *Runner
+echo value
+`},
 			{"UTF16", "echo \"\U0001f600\", Runner{}\n"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -66,8 +75,17 @@ func TestServerRenameSpxResourcesSpriteTypeReferences(t *testing.T) {
 	})
 
 	s := newTestServer(t, map[string][]byte{
-		"types.xgo": []byte("type Runner struct{}\ntype Other struct{}\ntype Unclassified struct{}\nvar pointer *Runner\nvar list []Runner\nvar unrelated Other\nvar unclassified Unclassified\n"),
-		"main.xgo":  []byte("var runner Runner\necho \"Runner\", Runner{}, runner\n"),
+		"types.xgo": []byte(`type Runner struct{}
+type Other struct{}
+type Unclassified struct{}
+var pointer *Runner
+var list []Runner
+var unrelated Other
+var unclassified Unclassified
+`),
+		"main.xgo": []byte(`var runner Runner
+echo "Runner", Runner{}, runner
+`),
 	})
 	proj := s.getProj()
 	call := resourceTestCall(t, proj, "main.xgo")
@@ -155,7 +173,11 @@ func TestServerRenameSpxResources(t *testing.T) {
 	})
 
 	t.Run("ConstantExpressionDependency", func(t *testing.T) {
-		const source = "const base BackdropName = \"Shared\"\nconst sound = base + \"Suffix\"\nsetBackdrop base\nplay sound\n"
+		const source = `const base BackdropName = "Shared"
+const sound = base + "Suffix"
+setBackdrop base
+play sound
+`
 		s := newSpxTestServer(t, map[string][]byte{
 			"main.spx":                              []byte(source),
 			"assets/index.json":                     []byte(`{"backdrops":[{"name":"Shared"}]}`),
@@ -168,7 +190,11 @@ func TestServerRenameSpxResources(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, edit)
 		updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.spx"])
-		assert.Equal(t, "const base BackdropName = \"Scene\"\nconst sound = \"Shared\" + \"Suffix\"\nsetBackdrop base\nplay sound\n", updated)
+		assert.Equal(t, `const base BackdropName = "Scene"
+const sound = "Shared" + "Suffix"
+setBackdrop base
+play sound
+`, updated)
 		updatedServer := newSpxTestServer(t, map[string][]byte{
 			"main.spx":                              []byte(updated),
 			"assets/index.json":                     []byte(`{"backdrops":[{"name":"Scene"}]}`),
@@ -185,12 +211,40 @@ func TestServerRenameSpxResources(t *testing.T) {
 			sound       string
 			want        string
 		}{
-			{"PrimaryResource", "const name BackdropName = \"Shared\"\n", "Scene", "Shared", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay \"Shared\"\n"},
-			{"OtherResource", "const name BackdropName = \"Shared\"\n", "Shared", "Sound", "const name BackdropName = \"Shared\"\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"DifferentValues", "const name BackdropName = \"Shared\"\n", "Scene", "Sound", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"SameValue", "const name BackdropName = \"Shared\"\n", "Scene", "Scene", "const name BackdropName = \"Scene\"\nsetBackdrop name\nplay name\n"},
-			{"ConstantDependency", "const base BackdropName = \"Shared\"\nconst name = base\n", "Scene", "Sound", "const base BackdropName = \"Scene\"\nconst name = base\nsetBackdrop name\nplay \"Sound\"\n"},
-			{"RepeatedInitializer", "const (\nbase BackdropName = \"Shared\"\nname\n)\n", "Scene", "Sound", "const (\nbase BackdropName = \"Scene\"\nname\n)\nsetBackdrop name\nplay \"Sound\"\n"},
+			{"PrimaryResource", "const name BackdropName = \"Shared\"\n", "Scene", "Shared", `const name BackdropName = "Scene"
+setBackdrop name
+play "Shared"
+`},
+			{"OtherResource", "const name BackdropName = \"Shared\"\n", "Shared", "Sound", `const name BackdropName = "Shared"
+setBackdrop name
+play "Sound"
+`},
+			{"DifferentValues", "const name BackdropName = \"Shared\"\n", "Scene", "Sound", `const name BackdropName = "Scene"
+setBackdrop name
+play "Sound"
+`},
+			{"SameValue", "const name BackdropName = \"Shared\"\n", "Scene", "Scene", `const name BackdropName = "Scene"
+setBackdrop name
+play name
+`},
+			{"ConstantDependency", `const base BackdropName = "Shared"
+const name = base
+`, "Scene", "Sound", `const base BackdropName = "Scene"
+const name = base
+setBackdrop name
+play "Sound"
+`},
+			{"RepeatedInitializer", `const (
+base BackdropName = "Shared"
+name
+)
+`, "Scene", "Sound", `const (
+base BackdropName = "Scene"
+name
+)
+setBackdrop name
+play "Sound"
+`},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source := tt.declaration + "setBackdrop name\nplay name\n"

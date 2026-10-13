@@ -333,7 +333,8 @@ func run() {
 	t.Run("LSPResultShape", func(t *testing.T) {
 		t.Run("CompleteArray", func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"main.xgo": []byte("var x = 100\necho x"),
+				"main.xgo": []byte(`var x = 100
+echo x`),
 			})
 
 			items := completionItemsAt(t, s, "main.xgo", Position{Line: 1, Character: 5})

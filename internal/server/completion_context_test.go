@@ -17,10 +17,15 @@ func TestServerTextDocumentCompletionContext(t *testing.T) {
 		}{
 			{"FunctionVariable", "var use = func(value int) {}\n", "use(candidate|Int())"},
 			{"NamedFunction", "type Consumer func(value int)\nvar use Consumer\n", "use(candidate|Int())"},
-			{"FunctionField", "type Handler struct { Use func(value int) }\nvar handler Handler\n", "handler.Use(candidate|Int())"},
+			{"FunctionField", `type Handler struct { Use func(value int) }
+var handler Handler
+`, "handler.Use(candidate|Int())"},
 			{"FunctionResult", "func factory() func(value int) { return nil }\n", "factory()(candidate|Int())"},
 			{"ParenthesizedFunction", "func use(value int) {}\n", "(use)(candidate|Int())"},
-			{"MethodExpression", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\n", "Handler.Use(handler, candidate|Int())"},
+			{"MethodExpression", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+`, "Handler.Use(handler, candidate|Int())"},
 			{"Tuple", "func use(first string, value int) {}\n", "use((\"first\", candidate|Int()))"},
 			{"TupleFunctionValue", "var use = func(first string, value int) {}\n", "use((\"first\", candidate|Int()))"},
 			{"VariadicFunctionValue", "var use = func(values ...int) {}\n", "use(1, candidate|Int())"},

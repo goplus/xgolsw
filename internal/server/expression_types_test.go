@@ -183,10 +183,19 @@ func take(values []string) {}
 
 	t.Run("ReceiverInstantiations", func(t *testing.T) {
 		s := newImportTestServer(t, map[string][]byte{
-			"number.xgo": []byte("import f \"example.com/framework\"\nvar number f.Box[int]\nfunc useNumber() { _ = number.value; _ = f.Box[int].value }\n"),
-			"text.xgo":   []byte("import f \"example.com/framework\"\nvar text f.Box[string]\nfunc useText() { _ = text.value; _ = (f.Box[string]).value; _ = (*f.Box[string]).pointerValue }\n"),
+			"number.xgo": []byte(`import f "example.com/framework"
+var number f.Box[int]
+func useNumber() { _ = number.value; _ = f.Box[int].value }
+`),
+			"text.xgo": []byte(`import f "example.com/framework"
+var text f.Box[string]
+func useText() { _ = text.value; _ = (f.Box[string]).value; _ = (*f.Box[string]).pointerValue }
+`),
 		})
-		setImportTestFrameworkMethods(t, s, "type Box[T any] struct { Item T }\nfunc (b Box[T]) Value() T { return b.Item }\nfunc (b *Box[T]) PointerValue() T { return b.Item }\n")
+		setImportTestFrameworkMethods(t, s, `type Box[T any] struct { Item T }
+func (b Box[T]) Value() T { return b.Item }
+func (b *Box[T]) PointerValue() T { return b.Item }
+`)
 		proj := s.requestProject()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -223,8 +232,13 @@ func BenchmarkBuildExpressionTypesCache(b *testing.B) {
 	for _, tt := range []struct{ name, filename, declarations, expression string }{
 		{"Package", "main.xgo", "func Label() int { return 0 }", "label"},
 		{"Classfile", "main_fixture.gox", "func Label() int { return 0 }", "label"},
-		{"Member", "main.xgo", "type Record struct{}\nfunc (Record) Label() int { return 0 }\nvar record Record", "record.label"},
-		{"Chain", "main.xgo", "type Record struct{}\nfunc (Record) Next() Record { return Record{} }\nfunc (Record) Label() int { return 0 }\nvar record Record", "record.next.label"},
+		{"Member", "main.xgo", `type Record struct{}
+func (Record) Label() int { return 0 }
+var record Record`, "record.label"},
+		{"Chain", "main.xgo", `type Record struct{}
+func (Record) Next() Record { return Record{} }
+func (Record) Label() int { return 0 }
+var record Record`, "record.next.label"},
 	} {
 		for _, count := range []int{100, 1000, 3000} {
 			b.Run(fmt.Sprintf("%s/Uses%d", tt.name, count), func(b *testing.B) {

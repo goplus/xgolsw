@@ -17,7 +17,9 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 			{"Classfile", "main.spx", "spx.Sprite"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, "import spx \"github.com/goplus/spx/v3\"\ntype Target = spx.Sprite\nvar sprite "+tt.typ+"\nsprite.|stepWith(1)\n")
+				source, position := typeDisplayTestSource(t, `import spx "github.com/goplus/spx/v3"
+type Target = spx.Sprite
+var sprite `+tt.typ+"\nsprite.|stepWith(1)\n")
 				s := newSpxIntegrationTestServer(t, map[string][]byte{tt.filename: []byte(source)})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)

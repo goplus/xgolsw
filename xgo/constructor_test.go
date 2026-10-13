@@ -13,8 +13,13 @@ import (
 
 func TestNewTestProject(t *testing.T) {
 	files := map[string]*File{
-		"main.xgo":   file("import \"strings\"\n// Count stores the text length.\nvar Count = len(strings.ToUpper(\"text\"))\n"),
-		"Record.gox": file("// Value stores the count.\nvar value int\n"),
+		"main.xgo": file(`import "strings"
+// Count stores the text length.
+var Count = len(strings.ToUpper("text"))
+`),
+		"Record.gox": file(`// Value stores the count.
+var value int
+`),
 	}
 	plain := newTestProject(t, files, FeatAll)
 	check := func(proj *Project) {
@@ -51,7 +56,10 @@ func TestNewTestProject(t *testing.T) {
 	check(plain)
 
 	framework := newFrameworkTestProject(t, map[string]*File{
-		"main_fixture.gox": file("onStart => {\n    measure 1\n}\n"),
+		"main_fixture.gox": file(`onStart => {
+    measure 1
+}
+`),
 	}, FeatAll)
 	_, err := framework.TypeInfo()
 	require.NoError(t, err)
@@ -61,8 +69,13 @@ func TestNewTestProject(t *testing.T) {
 
 func TestNewFrameworkTestProject(t *testing.T) {
 	files := map[string]*File{
-		"main_fixture.gox":   file("onStart => {\n    measure 1\n}\n"),
-		"Worker_fixture.gox": file("// Value stores the count.\nvar value int\n"),
+		"main_fixture.gox": file(`onStart => {
+    measure 1
+}
+`),
+		"Worker_fixture.gox": file(`// Value stores the count.
+var value int
+`),
 	}
 	first := newFrameworkTestProject(t, files, FeatAll)
 	second := newFrameworkTestProject(t, files, FeatAll)
@@ -104,7 +117,9 @@ func TestNewFrameworkTestProject(t *testing.T) {
 	secondDoc, err := second.PkgDoc()
 	require.NoError(t, err)
 
-	first.PutFile("Worker_fixture.gox", file("// Value stores a label.\nvar value string\n"))
+	first.PutFile("Worker_fixture.gox", file(`// Value stores a label.
+var value string
+`))
 	updatedTypes, err := first.TypeInfo()
 	require.NoError(t, err)
 	assert.NotSame(t, firstTypes, updatedTypes)

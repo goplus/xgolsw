@@ -211,7 +211,9 @@ func TestServerDocumentSynchronization(t *testing.T) {
 		assert.Empty(t, requirePublishedDiagnostics(t, replier, uri))
 		current, ok := s.syncProject().File("main.xgo")
 		require.True(t, ok)
-		assert.Equal(t, "// repaired\nvar value = 1\n", string(current.Content))
+		assert.Equal(t, `// repaired
+var value = 1
+`, string(current.Content))
 		assert.Equal(t, 1, current.Version)
 		hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: uri}, Position: Position{Line: 1, Character: 4},
@@ -369,7 +371,11 @@ func TestServerDidOpen(t *testing.T) {
 		content string
 	}{
 		{name: "Basic", content: "println 100"},
-		{name: "Function", content: "func hello() {\n    println \"hello\"\n}\nhello\n"},
+		{name: "Function", content: `func hello() {
+    println "hello"
+}
+hello
+`},
 		{name: "Unicode", content: "println \"\u4f60\u597d\U0001f600\""},
 		{name: "Empty"},
 	} {
@@ -443,7 +449,9 @@ func TestServerPublishFileDiagnostics(t *testing.T) {
 					require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
 						TextDocument: protocol.TextDocumentItem{
 							URI: "file:///main.xgo", LanguageID: "xgo", Version: 1,
-							Text: "import \"example.com/paused\"\nprintln paused.Value, shared\n",
+							Text: `import "example.com/paused"
+println paused.Value, shared
+`,
 						},
 					}))
 					<-entered
@@ -594,7 +602,9 @@ func TestServerPublishFileDiagnostics(t *testing.T) {
 				require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
 					TextDocument: protocol.TextDocumentItem{
 						URI: uri, LanguageID: "xgo", Version: 1,
-						Text: "import \"example.com/paused\"\nprintln paused.Value, before\n",
+						Text: `import "example.com/paused"
+println paused.Value, before
+`,
 					},
 				}))
 				<-entered
@@ -706,7 +716,9 @@ func TestServerChangedText(t *testing.T) {
 			{Text: ""},
 			{Range: &Range{}, Text: "println 2\n"},
 		}, want: "println 2\n"},
-		{name: "Beginning", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{}, Text: "// hello\n"}}, want: "// hello\nprintln \"hello\"\n"},
+		{name: "Beginning", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{}, Text: "// hello\n"}}, want: `// hello
+println "hello"
+`},
 		{name: "Middle", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{Start: Position{Character: 14}, End: Position{Character: 14}}, Text: ", world"}}, want: "println \"hello, world\"\n"},
 		{name: "Delete", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{Start: Position{}, End: Position{Line: 1}}}}, want: ""},
 		{name: "Replace", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{Start: Position{Character: 9}, End: Position{Character: 14}}, Text: "world"}}, want: "println \"world\"\n"},

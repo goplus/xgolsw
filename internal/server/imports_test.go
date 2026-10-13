@@ -121,7 +121,9 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 				{"DeclaredName", "", "support"},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					source, pos := typeDisplayTestSource(t, "echo 1\n|\n")
+					source, pos := typeDisplayTestSource(t, `echo 1
+|
+`)
 					files := map[string][]byte{kind.filename: []byte(source)}
 					if kind.filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
@@ -150,9 +152,20 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 		name, source, wantPath string
 		wantKind               CompletionItemKind
 	}{
-		{"ExplicitOverride", "import helper \"example.com/alternate\"\necho helper.Value\n|\n", "example.com/alternate", ModuleCompletion},
-		{"LocalShadow", "func run() {\nhelper := 1\necho helper\n|\n}\n", "main", VariableCompletion},
-		{"MemberShadow", "var helper int\necho helper\n|\n", "main", VariableCompletion},
+		{"ExplicitOverride", `import helper "example.com/alternate"
+echo helper.Value
+|
+`, "example.com/alternate", ModuleCompletion},
+		{"LocalShadow", `func run() {
+helper := 1
+echo helper
+|
+}
+`, "main", VariableCompletion},
+		{"MemberShadow", `var helper int
+echo helper
+|
+`, "main", VariableCompletion},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.source)
@@ -174,7 +187,10 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 		assert.Contains(t, completionItemLabels(items), "accept")
 	})
 	t.Run("MultipleAliases", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "import explicit \"example.com/support/v2\"\necho explicit.Value\n|\n")
+		source, pos := typeDisplayTestSource(t, `import explicit "example.com/support/v2"
+echo explicit.Value
+|
+`)
 		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)},
 			&modfile.Import{Name: "helper", Path: importTestPkgPath},
 			&modfile.Import{Name: "other", Path: importTestPkgPath})
@@ -197,7 +213,9 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 		assert.Equal(t, "example.com/alternate", importsForFile(proj, file).named["helper"].Imported().Path())
 	})
 	t.Run("BlankAndDotDirectives", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "echo 1\n|\n")
+		source, pos := typeDisplayTestSource(t, `echo 1
+|
+`)
 		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)},
 			&modfile.Import{Name: ".", Path: importTestPkgPath},
 			&modfile.Import{Name: "_", Path: "example.com/alternate"})
@@ -213,7 +231,9 @@ func TestServerClassfileImportCompletion(t *testing.T) {
 func TestFileImportsIsolation(t *testing.T) {
 	t.Run("Files", func(t *testing.T) {
 		s := newImportTestServer(t, map[string][]byte{
-			"main_fixture.gox":   []byte("import helper \"example.com/alternate\"\necho helper.Value\n"),
+			"main_fixture.gox": []byte(`import helper "example.com/alternate"
+echo helper.Value
+`),
 			"Worker_fixture.gox": []byte("echo helper.Value\n"),
 			"plain.xgo":          []byte("func run() {}\n"),
 		}, &modfile.Import{Name: "helper", Path: importTestPkgPath})
@@ -241,8 +261,12 @@ func TestFileImportsIsolation(t *testing.T) {
 		config.Opt.Projects[0].Import = []*modfile.Import{{Name: "helper", Path: "example.com/second"}}
 		config.Opt.Projects[1].Import = []*modfile.Import{{Name: "helper", Path: "example.com/first"}}
 		s := newMultiFrameworkTestServerWithModule(t, map[string][]byte{
-			"First.first":   []byte("var value helper.Item\necho value\n"),
-			"Second.second": []byte("var value helper.Item\necho value\n"),
+			"First.first": []byte(`var value helper.Item
+echo value
+`),
+			"Second.second": []byte(`var value helper.Item
+echo value
+`),
 		}, config)
 		proj := s.requestProject()
 		_, err := proj.TypeInfo()
@@ -268,8 +292,16 @@ func TestCollectPredefinedNamesImports(t *testing.T) {
 		{"Dot", "import . \"example.com/support/v2\"\necho \"text\"\n", true},
 		{"Named", "import helper \"example.com/support/v2\"\necho helper.Value, \"text\"\n", false},
 		{"Automatic", "echo helper.Value, \"text\"\n", false},
-		{"Shadowed", "import . \"example.com/support/v2\"\nfunc run() {\nValue := 1\necho Value, \"text\"\n}\n", false},
-		{"Ambiguous", "import . \"example.com/support/v2\"\nimport . \"example.com/alternate\"\necho \"text\"\n", false},
+		{"Shadowed", `import . "example.com/support/v2"
+func run() {
+Value := 1
+echo Value, "text"
+}
+`, false},
+		{"Ambiguous", `import . "example.com/support/v2"
+import . "example.com/alternate"
+echo "text"
+`, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(tt.source)}, &modfile.Import{Name: "helper", Path: importTestPkgPath})
@@ -353,15 +385,46 @@ func TestServerCompletionImportNamespaces(t *testing.T) {
 
 func TestServerCompletionImportTypePositions(t *testing.T) {
 	for _, tt := range []struct{ name, source, globals string }{
-		{"LocalValue", "func run() {\nhelper := 1\nvar value |helper.Name\necho helper, value\n}\n", ""},
-		{"ClassField", "var (\nhelper int\nvalue |helper.Name\n)\necho value\n", ""},
+		{"LocalValue", `func run() {
+helper := 1
+var value |helper.Name
+echo helper, value
+}
+`, ""},
+		{"ClassField", `var (
+helper int
+value |helper.Name
+)
+echo value
+`, ""},
 		{"PackageValue", "var value |helper.Name\necho value\n", "var helper = 1\n"},
-		{"TypeArgument", "func run() {\nhelper := 1\nvar value Box[|helper.Name]\necho helper, value\n}\n", ""},
-		{"Initializer", "func run() {\nhelper := 1\nvar value |helper.Name = \"text\"\necho helper, value\n}\n", ""},
+		{"TypeArgument", `func run() {
+helper := 1
+var value Box[|helper.Name]
+echo helper, value
+}
+`, ""},
+		{"Initializer", `func run() {
+helper := 1
+var value |helper.Name = "text"
+echo helper, value
+}
+`, ""},
 		{"Parameter", "func run(helper int, value |helper.Name) { echo helper, value }\n", ""},
 		{"Result", "func run(helper int) |helper.Name { return \"text\" }\n", ""},
-		{"TypeAlias", "func run() {\nhelper := 1\ntype Name = |helper.Name\nvar value Name\necho helper, value\n}\n", ""},
-		{"CompositeLiteral", "func run() {\nhelper := 1\nvalue := []|helper.Name{}\necho helper, value\n}\n", ""},
+		{"TypeAlias", `func run() {
+helper := 1
+type Name = |helper.Name
+var value Name
+echo helper, value
+}
+`, ""},
+		{"CompositeLiteral", `func run() {
+helper := 1
+value := []|helper.Name{}
+echo helper, value
+}
+`, ""},
 		{"Assertion", "func run(helper int, value any) { echo value.(|helper.Name), helper }\n", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -401,7 +464,10 @@ func TestServerCompletionImportedCallbacks(t *testing.T) {
 					if kind.filename == "main.xgo" {
 						prefix = "import . \"example.com/support/v2\"\n"
 					}
-					source, pos := typeDisplayTestSource(t, prefix+"func run() {\n"+tt.local+"var fn func(Name) Name = |nil\necho fn\n}\n")
+					source, pos := typeDisplayTestSource(t, prefix+"func run() {\n"+tt.local+`var fn func(Name) Name = |nil
+echo fn
+}
+`)
 					s := newImportTestServer(t, map[string][]byte{kind.filename: []byte(source), "globals.xgo": []byte(tt.globals)})
 					if kind.filename != "main.xgo" {
 						config := testframework.NewModule(t).Module
@@ -438,7 +504,12 @@ func TestServerCompletionImportedCallbacks(t *testing.T) {
 		{"OverloadedMember", "main_fixture.gox", "Measure", "measure"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "import . \"example.com/callbacks\"\nfunc run() {\nvar fn func(string) string = |nil\necho fn\n}\n")
+			source, pos := typeDisplayTestSource(t, `import . "example.com/callbacks"
+func run() {
+var fn func(string) string = |nil
+echo fn
+}
+`)
 			files := map[string][]byte{"main_fixture.gox": nil}
 			files[tt.filename] = []byte(source)
 			s := newImportTestServer(t, files)
@@ -479,7 +550,10 @@ func TestServerCompletionImportedTypeShadowing(t *testing.T) {
 		{"HiddenOuterOnlyType", "type Outer int\n", "Outer := 1\necho Outer\n", "Outer", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\n"+tt.globals+"func run() {\n"+tt.local+"var value |bool\necho value\n}\n")
+			source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\n"+tt.globals+"func run() {\n"+tt.local+`var value |bool
+echo value
+}
+`)
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
@@ -504,7 +578,10 @@ func TestServerCompletionImportedTypeShadowing(t *testing.T) {
 		})
 	}
 	t.Run("BuiltinType", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\nvar value |error\necho value\n")
+		source, pos := typeDisplayTestSource(t, `import . "example.com/support/v2"
+var value |error
+echo value
+`)
 		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		_, err := s.requestProject().TypeInfo()
 		require.NoError(t, err)
@@ -547,7 +624,9 @@ func TestServerCompletionCallbackFactoryShadowing(t *testing.T) {
 						value = "factory()"
 						markedValue = "fac|tory()"
 					}
-					source, pos := typeDisplayTestSource(t, "import . \"example.com/callbacks\"\nfunc run() {\nvar fn "+tt.callback+" = "+markedValue+"\necho fn\n}\n")
+					source, pos := typeDisplayTestSource(t, `import . "example.com/callbacks"
+func run() {
+var fn `+tt.callback+" = "+markedValue+"\necho fn\n}\n")
 					files := map[string][]byte{filename: []byte(source), "globals.xgo": []byte(globals)}
 					if filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
@@ -614,7 +693,10 @@ func TestServerCompletionImportQualifierPrecedence(t *testing.T) {
 		{"PackageValue", "main_fixture.gox", "onStart", "var onStart = 1\n", "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "import "+tt.alias+" \"example.com/support/v2\"\nfunc run() {\n"+tt.local+"var value any = |nil\necho value\n}\n")
+			source, pos := typeDisplayTestSource(t, "import "+tt.alias+" \"example.com/support/v2\"\nfunc run() {\n"+tt.local+`var value any = |nil
+echo value
+}
+`)
 			files := map[string][]byte{tt.filename: []byte(source), "globals.xgo": []byte(tt.globals)}
 			if tt.filename == "Worker_fixture.gox" {
 				files["main_fixture.gox"] = nil
@@ -659,13 +741,22 @@ func TestServerCompletionImportQualifierPrecedence(t *testing.T) {
 		name, methods string
 		want          bool
 	}{
-		{"OverloadedProperty", "func (a *App) Label__0() string { return \"\" }\nfunc (a *App) Label__1(value int) string { return \"\" }\n", false},
-		{"OverloadedArguments", "func (a *App) Label__0(value string) string { return value }\nfunc (a *App) Label__1(value int) string { return \"\" }\n", true},
+		{"OverloadedProperty", `func (a *App) Label__0() string { return "" }
+func (a *App) Label__1(value int) string { return "" }
+`, false},
+		{"OverloadedArguments", `func (a *App) Label__0(value string) string { return value }
+func (a *App) Label__1(value int) string { return "" }
+`, true},
 		{"TemplateProperty", "func XGot_App_Label(a *App) string { return \"\" }\n", false},
 		{"TemplateArgument", "func XGot_App_Label(a *App, value int) string { return \"\" }\n", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "import label \"example.com/support/v2\"\nfunc run() {\nvar value any = |nil\necho value\n}\n")
+			source, pos := typeDisplayTestSource(t, `import label "example.com/support/v2"
+func run() {
+var value any = |nil
+echo value
+}
+`)
 			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 			setImportTestFrameworkMethods(t, s, tt.methods)
 			proj := s.requestProject()
@@ -713,7 +804,10 @@ func TestFileImportsDuplicateLookups(t *testing.T) {
 			for range tt.dot {
 				prefix += "import . \"example.com/support/v2\"\n"
 			}
-			source, pos := typeDisplayTestSource(t, prefix+"var value helper.Name\necho value, \"text\"\n|\n")
+			source, pos := typeDisplayTestSource(t, prefix+`var value helper.Name
+echo value, "text"
+|
+`)
 			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 			config := testframework.NewModule(t).Module
 			for range tt.lookups {
@@ -750,7 +844,11 @@ func TestFileImportsDuplicateLookups(t *testing.T) {
 }
 
 func TestServerCompletionAmbiguousImports(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\nimport . \"example.com/alternate\"\necho 1\n|\n")
+	source, pos := typeDisplayTestSource(t, `import . "example.com/support/v2"
+import . "example.com/alternate"
+echo 1
+|
+`)
 	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
@@ -759,7 +857,11 @@ func TestServerCompletionAmbiguousImports(t *testing.T) {
 		assert.NotContains(t, labels, name)
 	}
 	t.Run("FunctionAndType", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\nimport . \"example.com/types\"\necho 1\n|\n")
+		source, pos := typeDisplayTestSource(t, `import . "example.com/support/v2"
+import . "example.com/types"
+echo 1
+|
+`)
 		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		proj := s.getProj()
 		pkg := gotypes.NewPackage("example.com/types", "types")
@@ -784,7 +886,10 @@ func TestServerCompletionAmbiguousImports(t *testing.T) {
 			{"Type", "var value |int\necho value\n"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, pos := typeDisplayTestSource(t, "import . \"example.com/support/v2\"\nimport . \"example.com/types\"\nfunc run() {\n"+tt.source+"}\n")
+				source, pos := typeDisplayTestSource(t, `import . "example.com/support/v2"
+import . "example.com/types"
+func run() {
+`+tt.source+"}\n")
 				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: 2*i + 1}})
 				_, err := s.requestProject().TypeInfo()
 				require.NoError(t, err)
@@ -805,11 +910,25 @@ func TestFileImportsExtensionMethods(t *testing.T) {
 	for _, tt := range []struct {
 		name, source, wantPath string
 	}{
-		{"Unqualified", "import . \"example.com/extension\"\necho 1\n|\n", ""},
+		{"Unqualified", `import . "example.com/extension"
+echo 1
+|
+`, ""},
 		{"Qualified", "import ext \"example.com/extension\"\necho ext.|create(int, \"text\")\n", ""},
-		{"Receiver", "import ext \"example.com/extension\"\nvar value ext.Other\nvalue.|accept()\n", "example.com/extension"},
-		{"FunctionFirst", "import . \"example.com/support/v2\"\nimport . \"example.com/extension\"\necho accept(\"text\")\n|\n", importTestPkgPath},
-		{"FunctionLast", "import . \"example.com/extension\"\nimport . \"example.com/support/v2\"\necho accept(\"text\")\n|\n", importTestPkgPath},
+		{"Receiver", `import ext "example.com/extension"
+var value ext.Other
+value.|accept()
+`, "example.com/extension"},
+		{"FunctionFirst", `import . "example.com/support/v2"
+import . "example.com/extension"
+echo accept("text")
+|
+`, importTestPkgPath},
+		{"FunctionLast", `import . "example.com/extension"
+import . "example.com/support/v2"
+echo accept("text")
+|
+`, importTestPkgPath},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.source)
@@ -857,10 +976,14 @@ func XGox_Create[T any](value string) *T { return nil }
 		})
 	}
 	t.Run("GoPackage", func(t *testing.T) {
-		source, pos := typeDisplayTestSource(t, "import ext \"example.com/extension\"\next.|xGot_Other_Accept()\n")
+		source, pos := typeDisplayTestSource(t, `import ext "example.com/extension"
+ext.|xGot_Other_Accept()
+`)
 		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		proj := s.getProj()
-		file, err := goparser.ParseFile(proj.Fset, "extension.go", "package extension\nfunc XGot_Other_Accept() {}\n", 0)
+		file, err := goparser.ParseFile(proj.Fset, "extension.go", `package extension
+func XGot_Other_Accept() {}
+`, 0)
 		require.NoError(t, err)
 		pkg, err := new(gotypes.Config).Check("example.com/extension", proj.Fset, []*goast.File{file}, nil)
 		require.NoError(t, err)
@@ -909,11 +1032,30 @@ func TestTypeDisplayClassfileImports(t *testing.T) {
 	}{
 		{"Alias", "var value helper.Name\necho |value\n", "helper", "helper.Name", "helper.Name"},
 		{"DeclaredName", "var value support.Name\necho |value\n", "", "support.Name", "support.Name"},
-		{"ExplicitAlias", "import h \"example.com/support/v2\"\nvar value h.Name\necho |value\n", "helper", "h.Name", "h.Name"},
-		{"ExplicitOverride", "import helper \"example.com/alternate\"\nvar value helper.Name\necho |value\n", "helper", "helper.Name", "helper.Name"},
-		{"LocalShadow", "var value helper.Name\nfunc run() {\nhelper := 1\necho helper, |value\n}\n", "helper", "support.Name", ""},
-		{"MemberShadow", "var (\nvalue helper.Name\nhelper int\n)\necho |value\n", "helper", "helper.Name", ""},
-		{"DotImport", "import . \"example.com/support/v2\"\nvar value Name\necho |value\n", "helper", "Name", "Name"},
+		{"ExplicitAlias", `import h "example.com/support/v2"
+var value h.Name
+echo |value
+`, "helper", "h.Name", "h.Name"},
+		{"ExplicitOverride", `import helper "example.com/alternate"
+var value helper.Name
+echo |value
+`, "helper", "helper.Name", "helper.Name"},
+		{"LocalShadow", `var value helper.Name
+func run() {
+helper := 1
+echo helper, |value
+}
+`, "helper", "support.Name", ""},
+		{"MemberShadow", `var (
+value helper.Name
+helper int
+)
+echo |value
+`, "helper", "helper.Name", ""},
+		{"DotImport", `import . "example.com/support/v2"
+var value Name
+echo |value
+`, "helper", "Name", "Name"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.source)
@@ -1017,7 +1159,9 @@ func TestFileImportsCache(t *testing.T) {
 		assert.Contains(t, updated.named, "other")
 		assert.NotContains(t, updated.named, "helper")
 		assert.Same(t, original, importsForFile(before, file))
-		s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte("import local \"example.com/support/v2\"\necho local.Value\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte(`import local "example.com/support/v2"
+echo local.Value
+`), Version: 1}})
 		changed := s.requestProject()
 		changedFile, err := changed.ASTFile("main_fixture.gox")
 		require.NoError(t, err)

@@ -13,7 +13,9 @@ const testResourceInputType XGoInputType = "test-resource"
 
 func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 	t.Run("LiteralConversion", func(t *testing.T) {
-		const source = "type Asset string\necho Asset(\"Item\")\n"
+		const source = `type Asset string
+echo Asset("Item")
+`
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		result := newTestResourceAnalysis()
@@ -61,7 +63,10 @@ func TestResourceAnalysisCreateResourceInputSlot(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("const choice = \"other\"\nvar number int\necho \"Item\", \"Item\"\n")})
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`const choice = "other"
+var number int
+echo "Item", "Item"
+`)})
 			ctx := inputSlotTestContext(t, s, "main.xgo")
 			call := inputSlotCall(t, ctx, "echo")
 			require.Len(t, call.Args, 2)

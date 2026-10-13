@@ -37,42 +37,82 @@ func TestResourceReferences(t *testing.T) {
 		{"Assignment", "var asset Asset\nasset = \"assignment\"\n", []string{"assignment"}},
 		{"Return", "func current() Asset { return \"return\" }\nprintln current()\n", []string{"return"}},
 		{"FunctionVariable", "var consume = func(asset Asset) {}\nconsume \"value\"\n", []string{"value"}},
-		{"NamedFunction", "type Consumer func(asset Asset)\nvar consume Consumer\nconsume \"value\"\n", []string{"value"}},
-		{"FunctionField", "type Handler struct { Consume func(asset Asset) }\nvar handler Handler\nhandler.Consume \"value\"\n", []string{"value"}},
+		{"NamedFunction", `type Consumer func(asset Asset)
+var consume Consumer
+consume "value"
+`, []string{"value"}},
+		{"FunctionField", `type Handler struct { Consume func(asset Asset) }
+var handler Handler
+handler.Consume "value"
+`, []string{"value"}},
 		{"FunctionResult", "func consumer() func(asset Asset) { return nil }\nconsumer()(\"value\")\n", []string{"value"}},
 		{"ParenthesizedFunction", "(use)(\"value\")\n", []string{"value"}},
-		{"MethodExpression", "type Handler struct{}\nvar handler Handler\nfunc (h Handler) Consume(asset Asset) {}\nHandler.Consume(handler, \"value\")\n", []string{"value"}},
+		{"MethodExpression", `type Handler struct{}
+var handler Handler
+func (h Handler) Consume(asset Asset) {}
+Handler.Consume(handler, "value")
+`, []string{"value"}},
 		{"Tuple", "func consume(count int, asset Asset) {}\nconsume((1, \"value\"))\n", []string{"value"}},
 		{"TupleFunctionValue", "var consume = func(count int, asset Asset) {}\nconsume((1, \"value\"))\n", []string{"value"}},
 		{"TupleValue", "func consume(pair (int, Asset)) {}\nconsume((1, \"value\"))\n", []string{"value"}},
-		{"NestedTupleValue", "type Pair (int, Asset)\nfunc consume(pair (string, Pair)) {}\nconsume((\"ignored\", (1, Asset(\"value\"))))\n", []string{"value"}},
+		{"NestedTupleValue", `type Pair (int, Asset)
+func consume(pair (string, Pair)) {}
+consume(("ignored", (1, Asset("value"))))
+`, []string{"value"}},
 		{"TupleDeclaration", "var pair (string, Asset) = (\"ignored\", Asset(\"value\"))\n", []string{"value"}},
-		{"TupleReturn", "type Pair (string, Asset)\nfunc pair() Pair { return (\"ignored\", Asset(\"value\")) }\n", []string{"value"}},
+		{"TupleReturn", `type Pair (string, Asset)
+func pair() Pair { return ("ignored", Asset("value")) }
+`, []string{"value"}},
 		{"LambdaReturn", "func consume(callback func() Asset) {}\nconsume(() => { return \"value\" })\n", []string{"value"}},
 		{"ArrowResult", "func consume(callback func() Asset) {}\nconsume(() => \"value\")\n", []string{"value"}},
-		{"NestedLambdaReturn", "func consume(callback func() func() Asset) {}\nconsume(() => { return () => { return \"value\" } })\n", []string{"value"}},
+		{"NestedLambdaReturn", `func consume(callback func() func() Asset) {}
+consume(() => { return () => { return "value" } })
+`, []string{"value"}},
 		{"LambdaAssignment", "var callback func() Asset = () => { return \"value\" }\n", []string{"value"}},
-		{"LambdaBoundary", "func consume(callback func() Asset) {}\nconsume(() => { func() string { return \"ignored\" }(); return \"value\" })\n", []string{"value"}},
-		{"TupleVariadic", "func consume(assets ...Asset) {}\nconsume((\"first\", \"second\"))\n", []string{"first", "second"}},
-		{"Goto", "func Goto(asset Asset) {}\nconst target = \"value\"\ngoto target\n", []string{"value"}},
+		{"LambdaBoundary", `func consume(callback func() Asset) {}
+consume(() => { func() string { return "ignored" }(); return "value" })
+`, []string{"value"}},
+		{"TupleVariadic", `func consume(assets ...Asset) {}
+consume(("first", "second"))
+`, []string{"first", "second"}},
+		{"Goto", `func Goto(asset Asset) {}
+const target = "value"
+goto target
+`, []string{"value"}},
 		{"Call", "use \"call\"\n", []string{"call"}},
-		{"Kwarg", "type Options struct { Asset Asset }\nfunc option(opts Options?) {}\noption asset = \"kwarg\"\n", []string{"kwarg"}},
+		{"Kwarg", `type Options struct { Asset Asset }
+func option(opts Options?) {}
+option asset = "kwarg"
+`, []string{"kwarg"}},
 		{"Constant", "const asset = \"constant\"\nuse asset\n", []string{"constant"}},
 		{"ConstantExpression", "const asset Asset = \"prefix\" + \"suffix\"\nuse asset\n", []string{"prefixsuffix"}},
 		{"Parenthesized", "use (\"parenthesized\")\n", []string{"parenthesized"}},
 		{"Conversion", "println Asset(\"intrinsic\")\n", []string{"intrinsic"}},
 		{"NestedConversion", "println Asset(string(\"intrinsic\"))\n", []string{"intrinsic"}},
 		{"ConversionArgument", "use Asset(\"argument\")\n", []string{"argument"}},
-		{"ConversionInitializer", "const asset = Asset(\"initializer\")\nuse asset\n", []string{"initializer", "initializer"}},
+		{"ConversionInitializer", `const asset = Asset("initializer")
+use asset
+`, []string{"initializer", "initializer"}},
 		{"NumericConversion", "println Asset(65)\n", nil},
 		{"ConstantConversion", "const name = \"constant\"\nprintln Asset(name)\n", nil},
-		{"UnrelatedArgument", "func fromText(text string) Asset { return \"result\" }\nasset := fromText(\"unrelated\")\n", []string{"result"}},
+		{"UnrelatedArgument", `func fromText(text string) Asset { return "result" }
+asset := fromText("unrelated")
+`, []string{"result"}},
 		{"IncompleteCall", "use \"partial\", missing\n", []string{"partial"}},
 		{"Variadic", "func many(assets ...Asset) {}\nmany \"first\", \"second\"\n", []string{"first", "second"}},
 		{"Slice", "func many(assets []Asset) {}\nmany [\"first\", (\"second\")]\n", []string{"first", "second"}},
 		{"VariadicSlice", "func many(assets ...Asset) {}\nmany [\"first\", \"second\"]...\n", []string{"first", "second"}},
-		{"KwargSlice", "type Options struct { Assets []Asset }\nfunc option(opts Options?) {}\noption assets = ([\"first\", \"second\"])\n", []string{"first", "second"}},
-		{"OverloadKwarg", "type Worker struct{}\ntype Options struct { Assets []Asset }\nvar worker Worker\nfunc (w *Worker) useAssets(opts Options?) {}\nfunc (Worker).use = ((Worker).useAssets)\nworker.use assets = [\"first\", \"second\"]\n", []string{"first", "second"}},
+		{"KwargSlice", `type Options struct { Assets []Asset }
+func option(opts Options?) {}
+option assets = (["first", "second"])
+`, []string{"first", "second"}},
+		{"OverloadKwarg", `type Worker struct{}
+type Options struct { Assets []Asset }
+var worker Worker
+func (w *Worker) useAssets(opts Options?) {}
+func (Worker).use = ((Worker).useAssets)
+worker.use assets = ["first", "second"]
+`, []string{"first", "second"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, factory := range []struct {
@@ -84,7 +124,9 @@ func TestResourceReferences(t *testing.T) {
 				{"Classfile", "main_fixture.gox", newFrameworkTestServer},
 			} {
 				t.Run(factory.name, func(t *testing.T) {
-					s := factory.new(t, map[string][]byte{factory.filename: []byte(tt.source), "resources.xgo": []byte("type Asset string\nfunc use(asset Asset) {}\n")})
+					s := factory.new(t, map[string][]byte{factory.filename: []byte(tt.source), "resources.xgo": []byte(`type Asset string
+func use(asset Asset) {}
+`)})
 					proj := s.getProj()
 					info, err := proj.TypeInfo()
 					require.NotNil(t, info)
@@ -119,7 +161,11 @@ func TestResourceReferences(t *testing.T) {
 
 	t.Run("ContextTakesPrecedence", func(t *testing.T) {
 		for _, available := range []bool{false, true} {
-			s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("type Asset string\nconst asset Asset = \"item\"\nfunc use(value Asset) {}\nuse asset\n")})
+			s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(`type Asset string
+const asset Asset = "item"
+func use(value Asset) {}
+use asset
+`)})
 			proj := s.getProj()
 			resolve := testResourceResolver(t, proj)
 			call := resourceTestCall(t, proj, "main_fixture.gox")
@@ -157,13 +203,19 @@ func TestResourceReferences(t *testing.T) {
 		}{
 			{"Declarations", "var a Asset = \"first\"\nvar b Asset = \"second\"\n", false},
 			{"Builtin", "var values []Asset\nvalues = append(values, \"first\", \"second\")\n", false},
-			{"Send", "var values chan Asset\nvalues <- \"first\"\nvalues <- \"second\"\n", false},
+			{"Send", `var values chan Asset
+values <- "first"
+values <- "second"
+`, false},
 			{"Index", "var values map[Asset]int\necho values[\"first\"], values[\"second\"]\n", false},
 			{"Comparison", "var value Asset\necho value == \"first\", value != \"second\"\n", false},
 			{"Switch", "var value Asset\nswitch value {case \"first\", \"second\":}\n", false},
 			{"Min", "var value Asset\necho min(value, \"first\", \"second\")\n", false},
 			{"Calls", "use \"first\"\nuse \"second\"\n", false},
-			{"Intrinsic", "const a Asset = \"first\"\nconst b Asset = \"second\"\nprintln a, b\n", true},
+			{"Intrinsic", `const a Asset = "first"
+const b Asset = "second"
+println a, b
+`, true},
 			{"Conversion", "println Asset(\"first\"), Asset(\"second\")\n", true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -228,7 +280,9 @@ func TestResourceReferencesStringLiterals(t *testing.T) {
 		{"RawInterpolation", "`${name}`", "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var name = \"dynamic\"\nfunc use(value string) {}\nuse " + tt.literal + "\n")})
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var name = "dynamic"
+func use(value string) {}
+use ` + tt.literal + "\n")})
 			proj := s.getProj()
 			call := resourceTestCall(t, proj, "main.xgo")
 			refs := slices.Collect(resourceReferences(proj, func(value resourceValue) (resourceID, bool) {

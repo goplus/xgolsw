@@ -20,7 +20,9 @@ import (
 
 func TestServerTextDocumentFormatting(t *testing.T) {
 	t.Run("ConcurrentRequests", func(t *testing.T) {
-		const source = "var value int\nfunc Work() { value = measure(1) }\n"
+		const source = `var value int
+func Work() { value = measure(1) }
+`
 		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 		proj := s.getProj()
 		fallback := proj.Importer
@@ -81,11 +83,23 @@ func handle = (
 			},
 			{
 				name: "TupleOverload", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true,
-				declarations: "func handleEmpty(name string, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
+				declarations: `func handleEmpty(name string, callback func()) {}
+func handleValue(name string, callback func(int)) {}
+func handle = (
+handleEmpty
+handleValue
+)
+`,
 			},
 			{
 				name: "TupleOtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, tuple: true, wantUnused: 1,
-				declarations: "func handleEmpty(name int, callback func()) {}\nfunc handleValue(name string, callback func(int)) {}\nfunc handle = (\nhandleEmpty\nhandleValue\n)\n",
+				declarations: `func handleEmpty(name int, callback func()) {}
+func handleValue(name string, callback func(int)) {}
+func handle = (
+handleEmpty
+handleValue
+)
+`,
 			},
 			{
 				name: "OtherArgumentMismatch", filename: "main.xgo", call: "handle", newServer: newTestServer, wantUnused: 1,
@@ -109,11 +123,16 @@ func handle = (
 			{name: "WorkMethod", filename: "Worker_fixture.gox", call: "onEvent", newServer: newFrameworkTestServer},
 			{
 				name: "ImportedMethod", filename: "main.xgo", call: "item.onEvent", newServer: newFrameworkTestServer,
-				declarations: "import f \"example.com/framework\"\nvar item f.Item\n",
+				declarations: `import f "example.com/framework"
+var item f.Item
+`,
 			},
 			{
 				name: "EmbeddedMethod", filename: "main.xgo", call: "item.onEvent", newServer: newFrameworkTestServer,
-				declarations: "import \"example.com/framework\"\ntype Record struct { framework.Item }\nvar item Record\n",
+				declarations: `import "example.com/framework"
+type Record struct { framework.Item }
+var item Record
+`,
 			},
 			{
 				name: "WorkInstance", filename: "main_fixture.gox", call: "Worker.onEvent", newServer: newFrameworkTestServer,
@@ -172,44 +191,99 @@ func handle = (
 		}{
 			{
 				name: "XGo", filename: "main.xgo",
-				source:    "var first=1\nvar second=2\ntype Count int\necho first,second\n",
-				want:      "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				source: `var first=1
+var second=2
+type Count int
+echo first,second
+`,
+				want: `var first = 1
+var second = 2
+
+type Count int
+
+echo first, second
+`,
 				newServer: newTestServer,
 			},
 			{
 				name: "LegacyXGo", filename: "main.gop",
-				source:    "var first=1\nvar second=2\ntype Count int\necho first,second\n",
-				want:      "var first = 1\nvar second = 2\n\ntype Count int\n\necho first, second\n",
+				source: `var first=1
+var second=2
+type Count int
+echo first,second
+`,
+				want: `var first = 1
+var second = 2
+
+type Count int
+
+echo first, second
+`,
 				newServer: newTestServer,
 			},
 			{
 				name: "StandaloneClass", filename: "Record.gox",
-				source:    "var count Count\ntype Count int\n",
-				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source: `var count Count
+type Count int
+`,
+				want: `type Count int
+
+var (
+	count Count
+)
+`,
 				newServer: newTestServer,
 			},
 			{
 				name: "ProjectClass", filename: "main_fixture.gox",
-				source:    "var count Count\ntype Count int\n",
-				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source: `var count Count
+type Count int
+`,
+				want: `type Count int
+
+var (
+	count Count
+)
+`,
 				newServer: newFrameworkTestServer,
 			},
 			{
 				name: "WorkClass", filename: "Worker_fixture.gox",
-				source:    "var count Count\ntype Count int\n",
-				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source: `var count Count
+type Count int
+`,
+				want: `type Count int
+
+var (
+	count Count
+)
+`,
 				newServer: newFrameworkTestServer,
 			},
 			{
 				name: "RegisteredProjectExtension", filename: "First.first",
-				source:    "var count Count\ntype Count int\n",
-				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source: `var count Count
+type Count int
+`,
+				want: `type Count int
+
+var (
+	count Count
+)
+`,
 				newServer: newMultiFrameworkTestServer,
 			},
 			{
 				name: "RegisteredWorkExtension", filename: "Worker.firstwork",
-				source:    "var count Count\ntype Count int\n",
-				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
+				source: `var count Count
+type Count int
+`,
+				want: `type Count int
+
+var (
+	count Count
+)
+`,
 				newServer: newMultiFrameworkTestServer,
 			},
 		} {
@@ -232,7 +306,9 @@ func handle = (
 	})
 
 	t.Run("ClassFrameworkRegistration", func(t *testing.T) {
-		s := newFrameworkTestServer(t, map[string][]byte{"main.unit": []byte("var count Count\ntype Count int\n")})
+		s := newFrameworkTestServer(t, map[string][]byte{"main.unit": []byte(`var count Count
+type Count int
+`)})
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.unit"},
 		}
@@ -250,7 +326,12 @@ func handle = (
 		edits, err = s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Equal(t, "type Count int\n\nvar (\n\tcount Count\n)\n", edits[0].NewText)
+		assert.Equal(t, `type Count int
+
+var (
+	count Count
+)
+`, edits[0].NewText)
 	})
 
 	t.Run("AutoLambda", func(t *testing.T) {
@@ -259,7 +340,9 @@ func handle = (
 		require.True(t, ok)
 		framework.AutoLambdas = map[string]int{"onStart": 0}
 		s := newFrameworkTestServerWithModule(t, map[string][]byte{
-			"main_fixture.gox": []byte("onStart {echo \"ready\"}\nonEvent \"value\", (value)=>{echo \"value\"}\n"),
+			"main_fixture.gox": []byte(`onStart {echo "ready"}
+onEvent "value", (value)=>{echo "value"}
+`),
 		}, mod)
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -269,7 +352,13 @@ func handle = (
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Equal(t, "onStart {\n\techo \"ready\"\n}\nonEvent \"value\", () => {\n\techo \"value\"\n}\n", edits[0].NewText)
+		assert.Equal(t, `onStart {
+	echo "ready"
+}
+onEvent "value", () => {
+	echo "value"
+}
+`, edits[0].NewText)
 
 		s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte(edits[0].NewText), Version: 1}})
 		edits, err = s.textDocumentFormatting(params)
@@ -279,7 +368,10 @@ func handle = (
 
 	t.Run("FileUpdates", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox":   []byte("onStart => {\n\techo \"old\"\n}\n"),
+			"main_fixture.gox": []byte(`onStart => {
+	echo "old"
+}
+`),
 			"Worker_fixture.gox": nil,
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -287,7 +379,9 @@ func handle = (
 
 		s.ModifyFiles([]FileChange{
 			{Path: "main_fixture.gox", Content: []byte("var limit int = 2\n"), Version: 1},
-			{Path: "Worker_fixture.gox", Content: []byte("onEvent \"value\", (value)=>{echo limit}\nonValue (value)=>{echo \"ready\"}\n"), Version: 1},
+			{Path: "Worker_fixture.gox", Content: []byte(`onEvent "value", (value)=>{echo limit}
+onValue (value)=>{echo "ready"}
+`), Version: 1},
 		})
 		_, err = s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -297,7 +391,13 @@ func handle = (
 		edits, err := s.textDocumentFormatting(params)
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Equal(t, "onEvent \"value\", () => {\n\techo limit\n}\nonValue (value) => {\n\techo \"ready\"\n}\n", edits[0].NewText)
+		assert.Equal(t, `onEvent "value", () => {
+	echo limit
+}
+onValue (value) => {
+	echo "ready"
+}
+`, edits[0].NewText)
 	})
 
 	t.Run("FileSetIsolation", func(t *testing.T) {
@@ -307,14 +407,29 @@ func handle = (
 			want   string
 		}{
 			{
-				name:   "NoChangesNeeded",
-				source: "onStart => {\n\techo \"ready\"\n}\n",
-				want:   "onStart => {\n\techo \"ready\"\n}\n",
+				name: "NoChangesNeeded",
+				source: `onStart => {
+	echo "ready"
+}
+`,
+				want: `onStart => {
+	echo "ready"
+}
+`,
 			},
 			{
-				name:   "WithChanges",
-				source: "var count int\nonEvent \"value\", (value)=>{echo count}\n",
-				want:   "var (\n\tcount int\n)\n\nonEvent \"value\", () => {\n\techo count\n}\n",
+				name: "WithChanges",
+				source: `var count int
+onEvent "value", (value)=>{echo count}
+`,
+				want: `var (
+	count int
+)
+
+onEvent "value", () => {
+	echo count
+}
+`,
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -358,7 +473,10 @@ func handle = (
 
 	t.Run("OtherFileASTIsolation", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox":   []byte("onEvent \"value\", (value) => {\n\techo \"ready\"\n}\n"),
+			"main_fixture.gox": []byte(`onEvent "value", (value) => {
+	echo "ready"
+}
+`),
 			"Worker_fixture.gox": []byte("var count int\n"),
 		})
 		proj := s.workspaceRootFS
@@ -370,7 +488,10 @@ func handle = (
 		})
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Equal(t, "onEvent \"value\", () => {\n\techo \"ready\"\n}\n", edits[0].NewText)
+		assert.Equal(t, `onEvent "value", () => {
+	echo "ready"
+}
+`, edits[0].NewText)
 		assert.Len(t, workerAST.Decls, declCount)
 		cachedAST, err := proj.ASTFile("Worker_fixture.gox")
 		require.NoError(t, err)
@@ -379,7 +500,10 @@ func handle = (
 
 	t.Run("PlainXGoLambda", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main.xgo": []byte("import \"example.com/framework\"\nvar app framework.App\napp.onEvent \"value\", (value)=>{echo \"ready\"}\n"),
+			"main.xgo": []byte(`import "example.com/framework"
+var app framework.App
+app.onEvent "value", (value)=>{echo "ready"}
+`),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -388,7 +512,14 @@ func handle = (
 		})
 		require.NoError(t, err)
 		require.Len(t, edits, 1)
-		assert.Equal(t, "import \"example.com/framework\"\n\nvar app framework.App\n\napp.onEvent \"value\", () => {\n\techo \"ready\"\n}\n", edits[0].NewText)
+		assert.Equal(t, `import "example.com/framework"
+
+var app framework.App
+
+app.onEvent "value", () => {
+	echo "ready"
+}
+`, edits[0].NewText)
 	})
 
 	t.Run("LineEndingsAndUTF16", func(t *testing.T) {
@@ -569,7 +700,10 @@ var (
 
 	t.Run("NoChangesNeeded", func(t *testing.T) {
 		m := map[string][]byte{
-			"main_fixture.gox": []byte("onStart => {\n\techo \"ready\"\n}\n"),
+			"main_fixture.gox": []byte(`onStart => {
+	echo "ready"
+}
+`),
 		}
 		s := newFrameworkTestServer(t, m)
 		params := &DocumentFormattingParams{
@@ -1250,11 +1384,21 @@ onStart => {
 func TestFormatClassDecls(t *testing.T) {
 	t.Run("LineDirectives", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("func run() {\n// Inside.\n_ = 1\n//line virtual.xgo:1\n}\n"),
+			"main_fixture.gox": []byte(`func run() {
+// Inside.
+_ = 1
+//line virtual.xgo:1
+}
+`),
 		})
 		formatted, err := formatClassDecls(s.getProj(), "main_fixture.gox")
 		require.NoError(t, err)
-		assert.Equal(t, "func run() {\n\t// Inside.\n\t_ = 1\n//line virtual.xgo:1\n}\n", string(formatted))
+		assert.Equal(t, `func run() {
+	// Inside.
+	_ = 1
+//line virtual.xgo:1
+}
+`, string(formatted))
 	})
 }
 

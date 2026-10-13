@@ -17,7 +17,11 @@ func symbolBenchmarkSource(size int, sparse bool) []byte {
 			resultType = fmt.Sprintf("[%d]int", i+1)
 			resultValue = resultType + "{}"
 		}
-		fmt.Fprintf(&source, "type Reader%d interface { Read() %s }\ntype Item%d struct{}\nfunc (Item%d) Read() %s { return %s }\nfunc use%d(reader Reader%d) { println reader.Read(), Item%d{}.Read() }\n", i, resultType, i, i, resultType, resultValue, i, i, i)
+		fmt.Fprintf(&source, `type Reader%d interface { Read() %s }
+type Item%d struct{}
+func (Item%d) Read() %s { return %s }
+func use%d(reader Reader%d) { println reader.Read(), Item%d{}.Read() }
+`, i, resultType, i, i, resultType, resultValue, i, i, i)
 	}
 	return []byte(source.String())
 }
