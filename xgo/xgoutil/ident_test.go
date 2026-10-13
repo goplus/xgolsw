@@ -48,7 +48,9 @@ func TestIsSourceIdent(t *testing.T) {
 
 func TestIdentAtPosition(t *testing.T) {
 	t.Run("LineDirective", func(t *testing.T) {
-		fset, astFile, err := newTestFile("main.xgo", "//line virtual.xgo:100:20\nvar value = 1\n")
+		fset, astFile, err := newTestFile("main.xgo", `//line virtual.xgo:100:20
+var value = 1
+`)
 		require.NoError(t, err)
 		ident := findIdent(astFile, "value")
 		require.NotNil(t, ident)
@@ -60,7 +62,8 @@ func TestIdentAtPosition(t *testing.T) {
 	})
 
 	t.Run("ExactMatch", func(t *testing.T) {
-		fset, astFile, err := newTestFile("main.xgo", "var longVarName = 1\nvar short = 2")
+		fset, astFile, err := newTestFile("main.xgo", `var longVarName = 1
+var short = 2`)
 		require.NoError(t, err)
 
 		longVarIdent := findIdent(astFile, "longVarName")
@@ -197,7 +200,8 @@ func TestIdentAtPosition(t *testing.T) {
 	})
 
 	t.Run("OverlappingIdentifiers", func(t *testing.T) {
-		fset, astFile, err := newTestFile("main.xgo", "var i = 1\nvar ii = 2")
+		fset, astFile, err := newTestFile("main.xgo", `var i = 1
+var ii = 2`)
 		require.NoError(t, err)
 
 		iIdent, iPos := findIdentWithPos(fset, astFile, "i")

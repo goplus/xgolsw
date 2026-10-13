@@ -135,7 +135,9 @@ work
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newSpxTestServer(t, map[string][]byte{
-					"main.spx":                       []byte("play \"Known\"\nplay \"Missing\"\n"),
+					"main.spx": []byte(`play "Known"
+play "Missing"
+`),
 					"assets/index.json":              []byte(`{}`),
 					"assets/sounds/Known/index.json": []byte(`{}`),
 				})
@@ -200,7 +202,9 @@ work
 
 	t.Run("RequestContextAndImmutableResults", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                       []byte("play \"Known\"\nplay \"\"\n"),
+			"main.spx": []byte(`play "Known"
+play ""
+`),
 			"assets/index.json":              []byte(`{}`),
 			"assets/sounds/Known/index.json": []byte(`{}`),
 		})
@@ -228,7 +232,11 @@ work
 
 	t.Run("SnapshotRenameContext", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                         []byte("const Sound = \"Known\"\nplay Sound\nRunner.setCostume \"idle\"\nvar target *Runner\n"),
+			"main.spx": []byte(`const Sound = "Known"
+play Sound
+Runner.setCostume "idle"
+var target *Runner
+`),
 			"Runner.spx":                       []byte("setCostume \"idle\"\n"),
 			"assets/index.json":                []byte(`{}`),
 			"assets/sounds/Known/index.json":   []byte(`{}`),
@@ -263,7 +271,9 @@ work
 
 	t.Run("ConcurrentDiagnostics", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":          []byte("func show(name PropertyName) {}\nshow \"Missing\"\n"),
+			"main.spx": []byte(`func show(name PropertyName) {}
+show "Missing"
+`),
 			"assets/index.json": []byte(`{}`),
 		})
 		proj := s.getProj()

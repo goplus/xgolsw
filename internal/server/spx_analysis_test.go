@@ -288,9 +288,14 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				source: "func run(other *Other) { other.setCostume \"idle\" }\n",
 			},
 			{
-				name:   "OrdinaryCallbackReturn",
-				source: "func invoke(fn func() string) {}\nfunc current() SpriteCostumeName {\n\tinvoke => { return \"ordinary\" }\n\treturn \"idle\"\n}\n",
-				want:   []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
+				name: "OrdinaryCallbackReturn",
+				source: `func invoke(fn func() string) {}
+func current() SpriteCostumeName {
+	invoke => { return "ordinary" }
+	return "idle"
+}
+`,
+				want: []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
 			},
 			{
 				name:   "ComputedReturn",
@@ -387,7 +392,15 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 					"assets/sprites/Runner/index.json":  []byte(`{"costumes":[{"name":"runner"}],"fAnimations":{"walk":{}}}`),
 					"assets/sprites/virtual/index.json": []byte(`{"costumes":[{"name":"runner"}],"fAnimations":{"walk":{}}}`),
 				}
-				files[tt.filename] = []byte("func currentCostume() SpriteCostumeName {\n//line virtual.spx:100:20\n\treturn \"runner\"\n}\nfunc currentAnimation() SpriteAnimationName {\n//line virtual.spx:200:20\n\treturn \"walk\"\n}\n")
+				files[tt.filename] = []byte(`func currentCostume() SpriteCostumeName {
+//line virtual.spx:100:20
+	return "runner"
+}
+func currentAnimation() SpriteAnimationName {
+//line virtual.spx:200:20
+	return "walk"
+}
+`)
 				s := newSpxTestServer(t, files)
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)

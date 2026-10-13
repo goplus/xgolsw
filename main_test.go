@@ -99,11 +99,18 @@ func TestXGoLanguageServerInstanceConfiguration(t *testing.T) {
 	archive := testframework.NewPkgDataZip(t)
 	data := js.Global().Get("Uint8Array").New(len(archive))
 	js.CopyBytesToJS(data, archive)
-	plain, plainReplies := newTestServer(t, "main.xgo", "var Count = 1\nCount = 2\n", map[string]any{
+	plain, plainReplies := newTestServer(t, "main.xgo", `var Count = 1
+Count = 2
+`, map[string]any{
 		"classFrameworkConfig": "", "pkgDataZip": data,
 	})
-	framework, frameworkReplies := newTestServer(t, "main.actor", "onStart => {\n    measure 1\n}\n", map[string]any{
-		"classFrameworkConfig": "project main.actor App example.com/framework\nclass -embed *.actor Item\n", "pkgDataZip": data,
+	framework, frameworkReplies := newTestServer(t, "main.actor", `onStart => {
+    measure 1
+}
+`, map[string]any{
+		"classFrameworkConfig": `project main.actor App example.com/framework
+class -embed *.actor Item
+`, "pkgDataZip": data,
 	})
 	// Mutate caller-owned data before lazy imports exercise instance ownership.
 	data.Call("fill", 0)
@@ -164,7 +171,11 @@ func callTestServer(t *testing.T, handle js.Value, responses <-chan js.Value, me
 }
 
 func TestXGoLanguageServerSymbolRequests(t *testing.T) {
-	const source = "type Reader interface { Read() int }\ntype Item struct{}\nfunc (Item) Read() int { return 1 }\nfunc use(reader Reader) { println reader.Read(), Item{}.Read() }\n"
+	const source = `type Reader interface { Read() int }
+type Item struct{}
+func (Item) Read() int { return 1 }
+func use(reader Reader) { println reader.Read(), Item{}.Read() }
+`
 	archive := testframework.NewPkgDataZip(t)
 	data := js.Global().Get("Uint8Array").New(len(archive))
 	js.CopyBytesToJS(data, archive)
@@ -200,8 +211,10 @@ func TestXGoLanguageServerSymbolRequests(t *testing.T) {
 			"textDocument": map[string]any{"uri": uri, "languageId": "xgo", "version": 1, "text": source},
 		}},
 		{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": map[string]any{
-			"textDocument":   map[string]any{"uri": uri, "version": 2},
-			"contentChanges": []any{map[string]any{"text": "type Reader interface { Read() int }\nfunc use(reader Reader) { println reader.Read() }\n"}},
+			"textDocument": map[string]any{"uri": uri, "version": 2},
+			"contentChanges": []any{map[string]any{"text": `type Reader interface { Read() int }
+func use(reader Reader) { println reader.Read() }
+`}},
 		}},
 	} {
 		result := handle.Invoke(js.ValueOf(notification))

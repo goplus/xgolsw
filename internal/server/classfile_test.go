@@ -166,7 +166,9 @@ func TestFrameworkBaseTypes(t *testing.T) {
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
+			s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import f "example.com/first"
+var value f.App
+`)})
 			proj := s.getProj()
 			config := multiFrameworkTestModule()
 			tt.configure(config.Opt.Projects[0])
@@ -181,7 +183,9 @@ func TestFrameworkBaseTypes(t *testing.T) {
 	}
 
 	t.Run("ImportedPackagesOnly", func(t *testing.T) {
-		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import \"example.com/facade\"\nvar value facade.App\n")})
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import "example.com/facade"
+var value facade.App
+`)})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -203,7 +207,9 @@ func TestFrameworkBaseTypes(t *testing.T) {
 	})
 
 	t.Run("OverriddenRegistration", func(t *testing.T) {
-		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import f "example.com/first"
+var value f.App
+`)})
 		proj := s.getProj()
 		config := multiFrameworkTestModule()
 		config.Opt.Projects = append(config.Opt.Projects, &modfile.Project{
@@ -237,13 +243,19 @@ func TestFrameworkBaseTypes(t *testing.T) {
 }
 
 func TestServerFrameworkModuleUpdates(t *testing.T) {
-	source, position := typeDisplayTestSource(t, "import f \"example.com/first\"\ntype Target = f.App\nvar value Target\necho value.|score()\n")
+	source, position := typeDisplayTestSource(t, `import f "example.com/first"
+type Target = f.App
+var value Target
+echo value.|score()
+`)
 	s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	proj := s.getProj()
 	dir := t.TempDir()
 	metadataPath := filepath.Join(dir, "gox.mod")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/first\n"), 0o644))
-	require.NoError(t, os.WriteFile(metadataPath, []byte("project .first App example.com/first\nclass .firstwork Item\n"), 0o644))
+	require.NoError(t, os.WriteFile(metadataPath, []byte(`project .first App example.com/first
+class .firstwork Item
+`), 0o644))
 	file, err := gomodfile.Parse("go.mod", []byte("module example.com/project\nrequire example.com/first v0.0.0\nreplace example.com/first => "+strconv.Quote(dir)+"\n"), nil)
 	require.NoError(t, err)
 	config := modload.Module{File: file, Opt: &modfile.File{ClassMods: []string{"example.com/first"}}}
@@ -289,7 +301,9 @@ func TestServerFrameworkModuleUpdates(t *testing.T) {
 	check("example.com/first?App", []string{"App", "Item"})
 
 	// Disk changes do not change the loaded module or any source snapshot.
-	require.NoError(t, os.WriteFile(metadataPath, []byte("project .first Options example.com/first\nclass .firstwork IntBox\n"), 0o644))
+	require.NoError(t, os.WriteFile(metadataPath, []byte(`project .first Options example.com/first
+class .firstwork IntBox
+`), 0o644))
 	replacement := newTestModule(t, config)
 	check("example.com/first?App", []string{"App", "Item"})
 	require.NoError(t, os.Remove(metadataPath))
@@ -557,7 +571,9 @@ func TestClassTypeForFile(t *testing.T) {
 		{name: "WorkPrefix", filename: "Worker.firstwork", prefix: "Actor", want: "ActorWorker"},
 		{name: "ReservedName", filename: "type.firstwork", want: "_type"},
 		{name: "NestedFile", filename: "nested/Worker.firstwork", want: "Worker"},
-		{name: "LineDirective", filename: "Worker.firstwork", source: "//line other.firstwork:100:20\nvar Count int\n", want: "Worker"},
+		{name: "LineDirective", filename: "Worker.firstwork", source: `//line other.firstwork:100:20
+var Count int
+`, want: "Worker"},
 		{name: "StandaloneClass", filename: "Record.gox", want: "Record"},
 		{name: "PlainXGo", filename: "main.xgo"},
 	} {

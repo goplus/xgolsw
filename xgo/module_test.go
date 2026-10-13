@@ -122,8 +122,10 @@ func TestNewModule(t *testing.T) {
 func TestProjectSetModule(t *testing.T) {
 	config := testframework.NewModule(t).Module
 	proj := newFrameworkTestProject(t, map[string]*File{
-		"main_fixture.gox":   file("echo 1\n"),
-		"Worker_fixture.gox": file("// Count belongs to the worker.\nvar Count int\n"),
+		"main_fixture.gox": file("echo 1\n"),
+		"Worker_fixture.gox": file(`// Count belongs to the worker.
+var Count int
+`),
 	}, FeatAll)
 	uncachedSnapshot := proj.Snapshot()
 	oldAST, err := proj.ASTFile("Worker_fixture.gox")

@@ -33,10 +33,20 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			{"MultipleUses", "const derived = base + base\necho derived\n"},
 			{"Conversion", "const derived = Asset(base + \"Suffix\")\necho derived\n"},
 			{"Comparison", "const derived = base == \"Studio\"\necho derived\n"},
-			{"Repeated", "const (\nfirst = base + string('0' + iota)\nsecond\n)\necho first, second\n"},
+			{"Repeated", `const (
+first = base + string('0' + iota)
+second
+)
+echo first, second
+`},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				const prefix = "type Asset string\nfunc use(value Asset) {}\nconst base Asset = \"Studio\"\nuse base\nuse \"Other\"\n"
+				const prefix = `type Asset string
+func use(value Asset) {}
+const base Asset = "Studio"
+use base
+use "Other"
+`
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(prefix + tt.source)})
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
@@ -88,7 +98,10 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 					}
 					return s
 				}
-				source := tt.importLine + "const asset AssetName = \"Studio\"\nfunc other(value any) {}\nother asset\n"
+				source := tt.importLine + `const asset AssetName = "Studio"
+func other(value any) {}
+other asset
+`
 				s := newServer(source)
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
@@ -119,7 +132,10 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("DerivedConstant", func(t *testing.T) {
-		const source = "type Asset string\nconst asset = Asset(\"Studio\") + \"Suffix\"\necho asset\n"
+		const source = `type Asset string
+const asset = Asset("Studio") + "Suffix"
+echo asset
+`
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
@@ -135,16 +151,29 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("RepeatedRenameWithDefinedTypes", func(t *testing.T) {
-		const declarations = "type Asset string\ntype OtherAsset = Asset\nfunc use(value Asset) {}\nfunc other(value OtherAsset) {}\n"
-		source := "const asset Asset = \"Studio\"\nuse asset\nother asset\n"
+		const declarations = `type Asset string
+type OtherAsset = Asset
+func use(value Asset) {}
+func other(value OtherAsset) {}
+`
+		source := `const asset Asset = "Studio"
+use asset
+other asset
+`
 		for _, step := range []struct {
 			collection string
 			oldName    string
 			newName    string
 			want       string
 		}{
-			{"files", "Studio", "Park", "const asset Asset = \"Park\"\nuse asset\nother Asset(\"Studio\")\n"},
-			{"scenes", "Studio", "Evening", "const asset Asset = \"Park\"\nuse asset\nother Asset(\"Evening\")\n"},
+			{"files", "Studio", "Park", `const asset Asset = "Park"
+use asset
+other Asset("Studio")
+`},
+			{"scenes", "Studio", "Evening", `const asset Asset = "Park"
+use asset
+other Asset("Evening")
+`},
 		} {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source), "types.xgo": []byte(declarations)})
 			proj := s.getProj()
@@ -184,11 +213,22 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			wantType     string
 		}{
 			{"MissingImport", "const asset names.Name = \"Studio\"\n", "other asset\n", ""},
-			{"ImportAlias", "const asset names.Name = \"Studio\"\n", "import local \"example.com/names\"\nother asset\n", "local.Name"},
+			{"ImportAlias", "const asset names.Name = \"Studio\"\n", `import local "example.com/names"
+other asset
+`, "local.Name"},
 			{"DotImport", "const asset names.Name = \"Studio\"\n", "import . \"example.com/names\"\nother asset\n", "Name"},
 			{"LocalAlias", "type Asset = names.Name\nconst asset Asset = \"Studio\"\n", "other asset\n", "Asset"},
-			{"PrivateTypeAlias", "const asset names.Public = \"Studio\"\n", "import local \"example.com/names\"\nother asset\n", "local.Public"},
-			{"ShadowedImport", "const asset names.Name = \"Studio\"\n", "import names \"example.com/names\"\nfunc run() {\nnames := 1\nother asset\necho names\n}\nrun()\n", ""},
+			{"PrivateTypeAlias", "const asset names.Public = \"Studio\"\n", `import local "example.com/names"
+other asset
+`, "local.Public"},
+			{"ShadowedImport", "const asset names.Name = \"Studio\"\n", `import names "example.com/names"
+func run() {
+names := 1
+other asset
+echo names
+}
+run()
+`, ""},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				newServer := func(files map[string][]byte) *Server {
@@ -247,7 +287,15 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("ShadowedConversionType", func(t *testing.T) {
-		const source = "type Asset string\nconst asset Asset = \"Studio\"\nfunc other(value any) {}\nfunc run() {\ntype Asset int\nother asset\n}\nrun()\n"
+		const source = `type Asset string
+const asset Asset = "Studio"
+func other(value any) {}
+func run() {
+type Asset int
+other asset
+}
+run()
+`
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
@@ -268,71 +316,172 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("SharedConstants", func(t *testing.T) {
-		const declarations = "type Asset = string\ntype OtherAsset = string\nfunc use(name Asset) {}\nfunc other(name OtherAsset) {}\nfunc marked(note string, name Asset) {}\ntype Defined string\ntype OtherDefined = Defined\nfunc useDefined(name Defined) {}\nfunc otherDefined(name OtherDefined) {}\n"
+		const declarations = `type Asset = string
+type OtherAsset = string
+func use(name Asset) {}
+func other(name OtherAsset) {}
+func marked(note string, name Asset) {}
+type Defined string
+type OtherDefined = Defined
+func useDefined(name Defined) {}
+func otherDefined(name OtherDefined) {}
+`
 		for _, tt := range []struct {
 			name   string
 			source string
 			want   string
 		}{
 			{
-				name:   "OtherResource",
-				source: "const name = \"Shared\"\nuse name\nother name\n",
-				want:   "const name = \"Shared\"\nuse \"Renamed\"\nother name\n",
+				name: "OtherResource",
+				source: `const name = "Shared"
+use name
+other name
+`,
+				want: `const name = "Shared"
+use "Renamed"
+other name
+`,
 			},
 			{
-				name:   "TypedInitializer",
-				source: "const name Asset = \"Shared\"\nuse name\nother name\n",
-				want:   "const name Asset = \"Renamed\"\nuse name\nother \"Shared\"\n",
+				name: "TypedInitializer",
+				source: `const name Asset = "Shared"
+use name
+other name
+`,
+				want: `const name Asset = "Renamed"
+use name
+other "Shared"
+`,
 			},
 			{
-				name:   "DefinedType",
-				source: "const name Defined = \"Shared\"\nuseDefined name\notherDefined name\n",
-				want:   "const name Defined = \"Renamed\"\nuseDefined name\notherDefined Defined(\"Shared\")\n",
+				name: "DefinedType",
+				source: `const name Defined = "Shared"
+useDefined name
+otherDefined name
+`,
+				want: `const name Defined = "Renamed"
+useDefined name
+otherDefined Defined("Shared")
+`,
 			},
 			{
-				name:   "OrdinaryUse",
-				source: "const name = \"Shared\"\nuse name\nprintln name\n",
-				want:   "const name = \"Shared\"\nuse \"Renamed\"\nprintln name\n",
+				name: "OrdinaryUse",
+				source: `const name = "Shared"
+use name
+println name
+`,
+				want: `const name = "Shared"
+use "Renamed"
+println name
+`,
 			},
 			{
-				name:   "SharedExpression",
-				source: "const name = \"Sha\" + \"red\"\nuse name\nother name\n",
-				want:   "const name = \"Sha\" + \"red\"\nuse \"Renamed\"\nother name\n",
+				name: "SharedExpression",
+				source: `const name = "Sha" + "red"
+use name
+other name
+`,
+				want: `const name = "Sha" + "red"
+use "Renamed"
+other name
+`,
 			},
 			{
-				name:   "ConstantDependency",
-				source: "const base Asset = \"Shared\"\nconst name = base\nuse base\nother name\n",
-				want:   "const base Asset = \"Renamed\"\nconst name = base\nuse base\nother \"Shared\"\n",
+				name: "ConstantDependency",
+				source: `const base Asset = "Shared"
+const name = base
+use base
+other name
+`,
+				want: `const base Asset = "Renamed"
+const name = base
+use base
+other "Shared"
+`,
 			},
 			{
-				name:   "ExpressionDependency",
-				source: "const base = \"Shared\"\nconst name = base + \"Suffix\"\nuse base\nother name\n",
-				want:   "const base = \"Shared\"\nconst name = base + \"Suffix\"\nuse \"Renamed\"\nother name\n",
+				name: "ExpressionDependency",
+				source: `const base = "Shared"
+const name = base + "Suffix"
+use base
+other name
+`,
+				want: `const base = "Shared"
+const name = base + "Suffix"
+use "Renamed"
+other name
+`,
 			},
 			{
-				name:   "IndependentConstant",
-				source: "const base Asset = \"Shared\"\nconst name = base\nuse name\nother base\n",
-				want:   "const base Asset = \"Renamed\"\nconst name = base\nuse name\nother \"Shared\"\n",
+				name: "IndependentConstant",
+				source: `const base Asset = "Shared"
+const name = base
+use name
+other base
+`,
+				want: `const base Asset = "Renamed"
+const name = base
+use name
+other "Shared"
+`,
 			},
 			{
-				name:   "RepeatedInitializer",
-				source: "const (\nbase Asset = \"Shared\"\nname\n)\nuse base\nother name\n",
-				want:   "const (\nbase Asset = \"Renamed\"\nname\n)\nuse base\nother \"Shared\"\n",
+				name: "RepeatedInitializer",
+				source: `const (
+base Asset = "Shared"
+name
+)
+use base
+other name
+`,
+				want: `const (
+base Asset = "Renamed"
+name
+)
+use base
+other "Shared"
+`,
 			},
 			{
-				name:   "MultipleNames",
-				source: "const base, name = \"Other\", \"Shared\"\nuse name\nother name\n",
-				want:   "const base, name = \"Other\", \"Shared\"\nuse \"Renamed\"\nother name\n",
+				name: "MultipleNames",
+				source: `const base, name = "Other", "Shared"
+use name
+other name
+`,
+				want: `const base, name = "Other", "Shared"
+use "Renamed"
+other name
+`,
 			},
 			{
-				name:   "PrivateConstant",
-				source: "const name = \"Shared\"\nuse name\nuse name\n",
-				want:   "const name = \"Renamed\"\nuse name\nuse name\n",
+				name: "PrivateConstant",
+				source: `const name = "Shared"
+use name
+use name
+`,
+				want: `const name = "Renamed"
+use name
+use name
+`,
 			},
 			{
-				name:   "ShadowedName",
-				source: "const name = \"Shared\"\nfunc run() {\nconst name = \"Shared\"\nother(name)\n}\nuse name\nrun()\n",
-				want:   "const name = \"Renamed\"\nfunc run() {\nconst name = \"Shared\"\nother(name)\n}\nuse name\nrun()\n",
+				name: "ShadowedName",
+				source: `const name = "Shared"
+func run() {
+const name = "Shared"
+other(name)
+}
+use name
+run()
+`,
+				want: `const name = "Renamed"
+func run() {
+const name = "Shared"
+other(name)
+}
+use name
+run()
+`,
 			},
 			{
 				name:   "PhysicalUTF16Range",
@@ -377,7 +526,11 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 	})
 
 	t.Run("ParenthesizedConstantReferences", func(t *testing.T) {
-		const source = "type Asset string\nconst asset Asset = ((\"Studio\"))\nfunc use(value Asset) {}\nuse asset\n"
+		const source = `type Asset string
+const asset Asset = (("Studio"))
+func use(value Asset) {}
+use asset
+`
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
@@ -403,8 +556,11 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 
 	t.Run("LiteralsAndConstants", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo":      []byte("echo \"\U0001f600\", \"Studio\", Scene, TypedScene, Scene, \"Other\", PairScene\n"),
-			"resources.xgo": []byte("const Scene = \"Studio\"\nconst TypedScene string = \"Studio\"\nconst OtherScene, PairScene = \"Other\", \"Studio\"\n"),
+			"main.xgo": []byte("echo \"\U0001f600\", \"Studio\", Scene, TypedScene, Scene, \"Other\", PairScene\n"),
+			"resources.xgo": []byte(`const Scene = "Studio"
+const TypedScene string = "Studio"
+const OtherScene, PairScene = "Other", "Studio"
+`),
 		})
 		proj := s.getProj()
 		call := resourceTestCall(t, proj, "main.xgo")
@@ -440,11 +596,17 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			want   TextEdit
 		}{
 			{
-				name: "DefinedStringType", source: "type Name string\nconst Scene Name = \"Studio\"\necho Scene\n",
+				name: "DefinedStringType", source: `type Name string
+const Scene Name = "Studio"
+echo Scene
+`,
 				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 20}, End: Position{Line: 1, Character: 26}}, NewText: "Park"},
 			},
 			{
-				name: "Alias", source: "const Base = \"Studio\"\nconst Scene = Base\necho Scene\n",
+				name: "Alias", source: `const Base = "Studio"
+const Scene = Base
+echo Scene
+`,
 				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 14}, End: Position{Line: 1, Character: 18}}, NewText: `"Park"`},
 			},
 			{
@@ -468,7 +630,12 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 22}}, NewText: "Park"},
 			},
 			{
-				name: "ImplicitInitializer", source: "const (\n First = \"Studio\"\n Scene\n)\necho Scene\n",
+				name: "ImplicitInitializer", source: `const (
+ First = "Studio"
+ Scene
+)
+echo Scene
+`,
 				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 10}, End: Position{Line: 1, Character: 16}}, NewText: "Park"},
 			},
 		} {
@@ -561,7 +728,10 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 
 	t.Run("UneditableConstants", func(t *testing.T) {
 		t.Run("ImportedPositionCollision", func(t *testing.T) {
-			const source = "import . \"example.com/assets\"\nfunc local() { const Name = \"Local\" }\necho Name\n"
+			const source = `import . "example.com/assets"
+func local() { const Name = "Local" }
+echo Name
+`
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			proj := s.getProj()
 			file, err := proj.ASTFile("main.xgo")
@@ -599,7 +769,9 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 			source  string
 			oldName string
 		}{
-			{name: "ExternalDeclaration", source: "import . \"time\"\necho RFC3339, \"2006-01-02T15:04:05Z07:00\"\n", oldName: "2006-01-02T15:04:05Z07:00"},
+			{name: "ExternalDeclaration", source: `import . "time"
+echo RFC3339, "2006-01-02T15:04:05Z07:00"
+`, oldName: "2006-01-02T15:04:05Z07:00"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
@@ -623,7 +795,9 @@ func TestServerRenameResourceAtRefs(t *testing.T) {
 
 	t.Run("IdentifierAndSpriteContext", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("var Runner int\necho Runner, \"idle\", \"idle\"\n"),
+			"main.xgo": []byte(`var Runner int
+echo Runner, "idle", "idle"
+`),
 		})
 		proj := s.getProj()
 		call := resourceTestCall(t, proj, "main.xgo")

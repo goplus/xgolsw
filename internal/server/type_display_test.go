@@ -22,29 +22,44 @@ func TestNewTypeDisplay(t *testing.T) {
 		want      string
 	}{
 		{
-			name:   "LocalType",
-			source: "type Record struct{}\nvar value Record\necho |value\n",
-			want:   "Record",
+			name: "LocalType",
+			source: `type Record struct{}
+var value Record
+echo |value
+`,
+			want: "Record",
 		},
 		{
-			name:   "ImportAlias",
-			source: "import f \"example.com/framework\"\nvar value f.Item\necho |value\n",
-			want:   "f.Item",
+			name: "ImportAlias",
+			source: `import f "example.com/framework"
+var value f.Item
+echo |value
+`,
+			want: "f.Item",
 		},
 		{
-			name:   "UnsafeAlias",
-			source: "import raw \"unsafe\"\nvar value raw.Pointer\necho |value\n",
-			want:   "raw.Pointer",
+			name: "UnsafeAlias",
+			source: `import raw "unsafe"
+var value raw.Pointer
+echo |value
+`,
+			want: "raw.Pointer",
 		},
 		{
-			name:   "UnsafeDotImport",
-			source: "import . \"unsafe\"\nvar value Pointer\necho |value\n",
-			want:   "Pointer",
+			name: "UnsafeDotImport",
+			source: `import . "unsafe"
+var value Pointer
+echo |value
+`,
+			want: "Pointer",
 		},
 		{
-			name:   "DotImport",
-			source: "import . \"example.com/framework\"\nvar value Item\necho |value\n",
-			want:   "Item",
+			name: "DotImport",
+			source: `import . "example.com/framework"
+var value Item
+echo |value
+`,
+			want: "Item",
 		},
 		{
 			name:     "Classfile",
@@ -62,81 +77,141 @@ func TestNewTypeDisplay(t *testing.T) {
 		{
 			name:     "ClassfileWithAlias",
 			filename: "Worker_fixture.gox",
-			source:   "import f \"example.com/framework\"\nvar value f.Copy\necho |value\n",
-			want:     "Copy",
+			source: `import f "example.com/framework"
+var value f.Copy
+echo |value
+`,
+			want: "Copy",
 		},
 		{
 			name:     "ShadowedImplicitType",
 			filename: "main_fixture.gox",
-			source:   "import f \"example.com/framework\"\ntype Copy int\nvar value f.Copy\necho |value\n",
-			want:     "f.Copy",
+			source: `import f "example.com/framework"
+type Copy int
+var value f.Copy
+echo |value
+`,
+			want: "f.Copy",
 		},
 		{
 			name:     "UnshadowedImplicitType",
 			filename: "main_fixture.gox",
-			source:   "type Copy int\nvar value Item\necho |value\n",
-			want:     "Item",
+			source: `type Copy int
+var value Item
+echo |value
+`,
+			want: "Item",
 		},
 		{
-			name:   "ShadowedDotImport",
-			source: "import . \"example.com/framework\"\nfunc run() {\nvar value Item\ntype Item int\necho |value\n}\n",
-			want:   "framework.Item",
+			name: "ShadowedDotImport",
+			source: `import . "example.com/framework"
+func run() {
+var value Item
+type Item int
+echo |value
+}
+`,
+			want: "framework.Item",
 		},
 		{
-			name:   "ShadowedImportAlias",
-			source: "import f \"example.com/framework\"\nfunc run() {\nvar value f.Item\nf := 1\necho f, |value\n}\n",
-			want:   "framework.Item",
+			name: "ShadowedImportAlias",
+			source: `import f "example.com/framework"
+func run() {
+var value f.Item
+f := 1
+echo f, |value
+}
+`,
+			want: "framework.Item",
 		},
 		{
-			name:   "ShadowedPackageName",
-			source: "import \"example.com/framework\"\nfunc run() {\nvar value framework.Item\nframework := 1\necho framework, |value\n}\n",
-			want:   "example.com/framework.Item",
+			name: "ShadowedPackageName",
+			source: `import "example.com/framework"
+func run() {
+var value framework.Item
+framework := 1
+echo framework, |value
+}
+`,
+			want: "example.com/framework.Item",
 		},
 		{
-			name:   "ShadowedLocalType",
-			source: "type Record struct{}\nvar value Record\nfunc run() {\ntype Record int\necho |value\n}\n",
-			want:   "main.Record",
+			name: "ShadowedLocalType",
+			source: `type Record struct{}
+var value Record
+func run() {
+type Record int
+echo |value
+}
+`,
+			want: "main.Record",
 		},
 		{
-			name:   "TypeAlias",
-			source: "import f \"example.com/framework\"\ntype Local = f.Item\nvar value Local\necho |value\n",
-			want:   "Local",
+			name: "TypeAlias",
+			source: `import f "example.com/framework"
+type Local = f.Item
+var value Local
+echo |value
+`,
+			want: "Local",
 		},
 		{
-			name:   "GenericTypeArguments",
-			source: "import f \"example.com/framework\"\nvar value f.Box[f.Item]\necho |value\n",
-			want:   "f.Box[f.Item]",
+			name: "GenericTypeArguments",
+			source: `import f "example.com/framework"
+var value f.Box[f.Item]
+echo |value
+`,
+			want: "f.Box[f.Item]",
 		},
 		{
-			name:   "MapKeyAndValue",
-			source: "import f \"example.com/framework\"\nvar value map[f.Item][]*f.Box[f.Copy]\necho |value\n",
-			want:   "map[f.Item][]*f.Box[f.Copy]",
+			name: "MapKeyAndValue",
+			source: `import f "example.com/framework"
+var value map[f.Item][]*f.Box[f.Copy]
+echo |value
+`,
+			want: "map[f.Item][]*f.Box[f.Copy]",
 		},
 		{
-			name:   "ChannelsAndArrays",
-			source: "import f \"example.com/framework\"\nvar value chan<- [2]f.Item\necho |value\n",
-			want:   "chan<- [2]f.Item",
+			name: "ChannelsAndArrays",
+			source: `import f "example.com/framework"
+var value chan<- [2]f.Item
+echo |value
+`,
+			want: "chan<- [2]f.Item",
 		},
 		{
-			name:   "Function",
-			source: "import f \"example.com/framework\"\nvar value func(f.Item, ...f.Copy) (f.Group, error)\necho |value\n",
-			want:   "func(f.Item, ...f.Copy) (f.Group, error)",
+			name: "Function",
+			source: `import f "example.com/framework"
+var value func(f.Item, ...f.Copy) (f.Group, error)
+echo |value
+`,
+			want: "func(f.Item, ...f.Copy) (f.Group, error)",
 		},
 		{
-			name:   "Struct",
-			source: "import f \"example.com/framework\"\nvar value struct { Item f.Item }\necho |value\n",
-			want:   "struct{Item f.Item}",
+			name: "Struct",
+			source: `import f "example.com/framework"
+var value struct { Item f.Item }
+echo |value
+`,
+			want: "struct{Item f.Item}",
 		},
 		{
-			name:   "Interface",
-			source: "import f \"example.com/framework\"\nvar value interface { Accept(f.Item) f.Copy }\necho |value\n",
-			want:   "interface{Accept(f.Item) f.Copy}",
+			name: "Interface",
+			source: `import f "example.com/framework"
+var value interface { Accept(f.Item) f.Copy }
+echo |value
+`,
+			want: "interface{Accept(f.Item) f.Copy}",
 		},
 		{
 			name:     "CompositeShadowing",
 			filename: "main_fixture.gox",
-			source:   "import f \"example.com/framework\"\ntype Copy int\nvar value map[f.Item]f.Copy\necho |value\n",
-			want:     "map[f.Item]f.Copy",
+			source: `import f "example.com/framework"
+type Copy int
+var value map[f.Item]f.Copy
+echo |value
+`,
+			want: "map[f.Item]f.Copy",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,13 +267,40 @@ func TestTypeDisplaySourceTypeString(t *testing.T) {
 		source   string
 		want     string
 	}{
-		{"LocalAlias", "main.xgo", "type Name string\ntype Asset = Name\nvar value Asset\necho |value\n", "Asset"},
-		{"ShadowedLocalType", "main.xgo", "type Name string\nvar value Name\nfunc run() {\ntype Name int\necho |value\n}\nrun()\n", ""},
-		{"ImportAlias", "main.xgo", "import f \"example.com/framework\"\nvar value f.Item\necho |value\n", "f.Item"},
-		{"DotImport", "main.xgo", "import . \"example.com/framework\"\nvar value Item\necho |value\n", "Item"},
+		{"LocalAlias", "main.xgo", `type Name string
+type Asset = Name
+var value Asset
+echo |value
+`, "Asset"},
+		{"ShadowedLocalType", "main.xgo", `type Name string
+var value Name
+func run() {
+type Name int
+echo |value
+}
+run()
+`, ""},
+		{"ImportAlias", "main.xgo", `import f "example.com/framework"
+var value f.Item
+echo |value
+`, "f.Item"},
+		{"DotImport", "main.xgo", `import . "example.com/framework"
+var value Item
+echo |value
+`, "Item"},
 		{"Classfile", "main_fixture.gox", "var value Item\necho |value\n", "Item"},
-		{"Generic", "main.xgo", "import f \"example.com/framework\"\nvar value f.Box[int]\necho |value\n", "f.Box[int]"},
-		{"ShadowedTypeArgument", "main.xgo", "import f \"example.com/framework\"\nvar value f.Box[int]\nfunc run() {\ntype int string\necho |value\n}\nrun()\n", ""},
+		{"Generic", "main.xgo", `import f "example.com/framework"
+var value f.Box[int]
+echo |value
+`, "f.Box[int]"},
+		{"ShadowedTypeArgument", "main.xgo", `import f "example.com/framework"
+var value f.Box[int]
+func run() {
+type int string
+echo |value
+}
+run()
+`, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -220,9 +322,21 @@ func TestTypeDisplaySourceTypeString(t *testing.T) {
 
 func TestTypeDisplaySourceContexts(t *testing.T) {
 	s := newFrameworkTestServer(t, map[string][]byte{
-		"first.xgo":        []byte("import f \"example.com/framework\"\nfunc first() {\n f.use(nil)\n}\n"),
-		"second.xgo":       []byte("import g \"example.com/framework\"\nfunc second() {\n g.use(nil)\n}\n"),
-		"main_fixture.gox": []byte("onStart => {\n\n use(nil)\n}\n"),
+		"first.xgo": []byte(`import f "example.com/framework"
+func first() {
+ f.use(nil)
+}
+`),
+		"second.xgo": []byte(`import g "example.com/framework"
+func second() {
+ g.use(nil)
+}
+`),
+		"main_fixture.gox": []byte(`onStart => {
+
+ use(nil)
+}
+`),
 	})
 	for _, step := range []struct {
 		filename string
@@ -237,7 +351,11 @@ func TestTypeDisplaySourceContexts(t *testing.T) {
 		{filename: "second.xgo", alias: "g"},
 	} {
 		if step.change {
-			s.ModifyFiles([]FileChange{{Path: step.filename, Content: []byte("import renamed \"example.com/framework\"\nfunc first() {\n renamed.use(nil)\n}\n"), Version: 1}})
+			s.ModifyFiles([]FileChange{{Path: step.filename, Content: []byte(`import renamed "example.com/framework"
+func first() {
+ renamed.use(nil)
+}
+`), Version: 1}})
 		}
 		prefix := step.alias
 		line, start := uint32(2), uint32(1)
@@ -292,9 +410,16 @@ func TestTypeDisplaySourceContexts(t *testing.T) {
 
 func TestTypeDisplayProperties(t *testing.T) {
 	s := newFrameworkTestServer(t, map[string][]byte{
-		"first.xgo":        []byte("import f \"example.com/framework\"\ntype Record struct { Value f.Count }\nfunc (r *Record) Current() f.Count { return r.Value }\n"),
-		"second.xgo":       []byte("import g \"example.com/framework\"\ntype Other struct { Value g.Count }\n"),
-		"main_fixture.gox": []byte("var value Count\nfunc CurrentItem() Count { return value }\n"),
+		"first.xgo": []byte(`import f "example.com/framework"
+type Record struct { Value f.Count }
+func (r *Record) Current() f.Count { return r.Value }
+`),
+		"second.xgo": []byte(`import g "example.com/framework"
+type Other struct { Value g.Count }
+`),
+		"main_fixture.gox": []byte(`var value Count
+func CurrentItem() Count { return value }
+`),
 	})
 	for _, tt := range []struct{ target, prefix string }{
 		{target: "Record", prefix: "f."}, {target: "Other", prefix: "g."}, {target: "App"},
@@ -309,7 +434,10 @@ func TestTypeDisplayProperties(t *testing.T) {
 }
 
 func TestTypeDisplayUnits(t *testing.T) {
-	source, position := typeDisplayTestSource(t, "import clock \"time\"\nfunc wait(d clock.Duration) {}\nwait 1m|s\n")
+	source, position := typeDisplayTestSource(t, `import clock "time"
+func wait(d clock.Duration) {}
+wait 1m|s
+`)
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
@@ -335,7 +463,9 @@ func TestTypeDisplayPackageIdentity(t *testing.T) {
 		wantFirst string
 		wantOther string
 	}{
-		{name: "ExplicitAliases", imports: "import first \"example.com/framework\"\nimport other \"example.com/other\"\n", wantFirst: "first.Item", wantOther: "other.Item"},
+		{name: "ExplicitAliases", imports: `import first "example.com/framework"
+import other "example.com/other"
+`, wantFirst: "first.Item", wantOther: "other.Item"},
 		{name: "ImplicitCollision", implicit: true, wantFirst: "example.com/framework.Item", wantOther: "example.com/other.Item"},
 		{name: "ImplicitCollisionWithAlias", imports: "import other \"example.com/other\"\n", implicit: true, wantFirst: "example.com/framework.Item", wantOther: "other.Item"},
 		{name: "PackageAbsentFromFile", imports: "import first \"example.com/framework\"\n", wantFirst: "first.Item", wantOther: "example.com/other.Item"},
@@ -457,7 +587,9 @@ func TestTypeDisplayTypeString(t *testing.T) {
 }
 
 func TestTypeDisplayOverloadSignatures(t *testing.T) {
-	source, position := typeDisplayTestSource(t, "import client \"example.com/framework\"\nhandle |missing\n")
+	source, position := typeDisplayTestSource(t, `import client "example.com/framework"
+handle |missing
+`)
 	s := newFrameworkTestServer(t, map[string][]byte{
 		"main.xgo": []byte(source),
 		"functions.xgo": []byte(`import original "example.com/framework"
@@ -492,7 +624,11 @@ func TestTypeDisplayDefinitions(t *testing.T) {
 		doc      string
 	}{
 		{
-			name: "LocalAlias", source: "import f \"example.com/framework\"\n// Handle names an item.\ntype Handle = *f.Item\nvar value |Handle\n",
+			name: "LocalAlias", source: `import f "example.com/framework"
+// Handle names an item.
+type Handle = *f.Item
+var value |Handle
+`,
 			label: "Handle", overview: "type Handle = *f.Item", doc: "Handle names an item.",
 		},
 		{
@@ -516,7 +652,11 @@ func TestTypeDisplayDefinitions(t *testing.T) {
 			label: "Table", overview: "type Table[K comparable, V any] = map[K]V", doc: "Table names a generic map.",
 		},
 		{
-			name: "LocalTypedConst", source: "type Level int\n// Limit is documented.\nconst Limit Level = 3\necho |Limit\n",
+			name: "LocalTypedConst", source: `type Level int
+// Limit is documented.
+const Limit Level = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit Level = 3", doc: "Limit is documented.",
 		},
 		{
@@ -528,23 +668,39 @@ func TestTypeDisplayDefinitions(t *testing.T) {
 			label: "Limit", overview: "const Limit Level = 3", doc: "Limit is the default work level.",
 		},
 		{
-			name: "UntypedConst", source: "// Limit is documented.\nconst Limit = 3\necho |Limit\n",
+			name: "UntypedConst", source: `// Limit is documented.
+const Limit = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit = 3", doc: "Limit is documented.",
 		},
 		{
-			name: "BasicTypedConst", source: "// Limit is documented.\nconst Limit int = 3\necho |Limit\n",
+			name: "BasicTypedConst", source: `// Limit is documented.
+const Limit int = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit int = 3", doc: "Limit is documented.",
 		},
 		{
-			name: "AnyTypedConst", source: "// Limit is documented.\nconst Limit any = 3\necho |Limit\n",
+			name: "AnyTypedConst", source: `// Limit is documented.
+const Limit any = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit interface{} = 3", doc: "Limit is documented.",
 		},
 		{
-			name: "InterfaceTypedConst", source: "// Limit is documented.\nconst Limit interface{} = 3\necho |Limit\n",
+			name: "InterfaceTypedConst", source: `// Limit is documented.
+const Limit interface{} = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit interface{} = 3", doc: "Limit is documented.",
 		},
 		{
-			name: "NamedInterfaceTypedConst", source: "type Value interface{}\n// Limit is documented.\nconst Limit Value = 3\necho |Limit\n",
+			name: "NamedInterfaceTypedConst", source: `type Value interface{}
+// Limit is documented.
+const Limit Value = 3
+echo |Limit
+`,
 			label: "Limit", overview: "const Limit Value = 3", doc: "Limit is documented.",
 		},
 	} {

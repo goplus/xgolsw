@@ -114,7 +114,13 @@ func main() {
 	})
 
 	t.Run("TypeDeclarationShadowing", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var value int\nfunc run() {\nprintln value, 11\ntype value string\nprintln 22\n}\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var value int
+func run() {
+println value, 11
+type value string
+println 22
+}
+`)})
 		info, err := s.requestProject().TypeInfo()
 		require.NoError(t, err)
 		for ident, obj := range info.Uses {
@@ -135,8 +141,11 @@ func main() {
 
 	t.Run("CrossFileGlobals", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo":   []byte("println 5\n"),
-			"values.xgo": []byte("var exported int\nconst limit = 100\nvar message string\n"),
+			"main.xgo": []byte("println 5\n"),
+			"values.xgo": []byte(`var exported int
+const limit = 100
+var message string
+`),
 		})
 		ctx := inputSlotTestContext(t, s, "main.xgo")
 		assert.ElementsMatch(t, []string{"exported", "limit"}, collectPredefinedNames(ctx, XGoInputSlotKindValue, inputSlotLiteral(t, ctx, "5"), gotypes.Typ[gotypes.Int]))
@@ -144,8 +153,12 @@ func main() {
 
 	t.Run("ClassMembersAndCallback", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox":   nil,
-			"Worker_fixture.gox": []byte("var Count int\nonValue value => {\n\tprintln 5\n}\n"),
+			"main_fixture.gox": nil,
+			"Worker_fixture.gox": []byte(`var Count int
+onValue value => {
+	println 5
+}
+`),
 		})
 		ctx := inputSlotTestContext(t, s, "Worker_fixture.gox")
 		literal := inputSlotLiteral(t, ctx, "5")
@@ -190,7 +203,9 @@ func main() {
 	})
 
 	t.Run("UnavailableImplicitPackage", func(t *testing.T) {
-		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte("var Count int\nprintln 5\n")})
+		s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(`var Count int
+println 5
+`)})
 		importer := &completionTestImporter{Importer: s.getProj().Importer}
 		s.getProj().Importer = importer
 		ctx := inputSlotTestContext(t, s, "main_fixture.gox")
@@ -235,13 +250,22 @@ func TestServerClassfileCandidateShadowing(t *testing.T) {
 				{name: "Visible", signature: "()", body: "number(11)\n", visible: true},
 				{name: "Parameter", signature: "(zebra string)", body: "println zebra\nnumber(11)\n"},
 				{name: "NamedResult", signature: "() (zebra string)", body: "number(11)\nreturn \"\"\n"},
-				{name: "Local", signature: "()", body: "zebra := \"\"\nprintln zebra\nnumber(11)\n"},
+				{name: "Local", signature: "()", body: `zebra := ""
+println zebra
+number(11)
+`},
 				{name: "Constant", signature: "()", body: "const zebra = \"\"\nnumber(11)\n"},
 				{name: "Type", signature: "()", body: "type zebra string\nnumber(11)\n"},
-				{name: "Initializer", signature: "()", body: "zebra := label(11)\nprintln zebra\nnumber(22)\n", visible: true},
+				{name: "Initializer", signature: "()", body: `zebra := label(11)
+println zebra
+number(22)
+`, visible: true},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					source := "func Zebra() int { return 1 }\nfunc number(n int) {}\nfunc label(n int) string { return \"\" }\nfunc run" + tt.signature + " {\n" + tt.body + "}\n"
+					source := `func Zebra() int { return 1 }
+func number(n int) {}
+func label(n int) string { return "" }
+func run` + tt.signature + " {\n" + tt.body + "}\n"
 					files := map[string][]byte{filename: []byte(source)}
 					if filename == "Worker_fixture.gox" {
 						files["main_fixture.gox"] = nil
@@ -328,7 +352,11 @@ func TestServerComprehensionFilterScopes(t *testing.T) {
 				{name: "MultipleDeclarations", expr: "[number(11) for value <- [number(44)], limit, other := pair(number(22)); limit + other > number(33)]"},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
-					const prefix = "var limit string\nfunc number(n int) int { return n }\nfunc pair(n int) (int, int) { return n, n }\nfunc run() {\nprintln "
+					const prefix = `var limit string
+func number(n int) int { return n }
+func pair(n int) (int, int) { return n, n }
+func run() {
+println `
 					source := prefix + tt.expr + "\n}\n"
 					files := map[string][]byte{kind.filename: []byte(source)}
 					if kind.filename == "Worker_fixture.gox" {

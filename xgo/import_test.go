@@ -63,7 +63,9 @@ func TestProjectImport(t *testing.T) {
 				const midPath = "example.com/middle"
 				const depPath = "example.com/dependency"
 				proj := newTestProject(t, map[string]*File{
-					"main.xgo": file("import framework \"example.com/framework\"\necho framework.Value\n"),
+					"main.xgo": file(`import framework "example.com/framework"
+echo framework.Value
+`),
 				}, FeatAll)
 				framework := newImportTestPackage(t, testframework.PkgPath, fmt.Sprintf("XGoPackage = %q", midPath))
 				middle := newImportTestPackage(t, midPath, fmt.Sprintf("GopPackage = %q", depPath))
@@ -141,7 +143,10 @@ func TestProjectImport(t *testing.T) {
 		const extraPath = "example.com/extra"
 		packages[extraPath] = newImportTestPackage(t, extraPath, fmt.Sprintf("XGoPackage = %q", depPath))
 		clear(calls)
-		proj.PutFile("main.xgo", file("import root \"example.com/framework\"\nimport extra \"example.com/extra\"\necho root.Pick(1), extra.Pick(\"value\")\n"))
+		proj.PutFile("main.xgo", file(`import root "example.com/framework"
+import extra "example.com/extra"
+echo root.Pick(1), extra.Pick("value")
+`))
 		_, err = proj.TypeInfo()
 		require.NoError(t, err)
 		for path := range packages {

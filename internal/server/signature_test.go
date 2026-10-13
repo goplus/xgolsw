@@ -19,7 +19,10 @@ func TestServerTextDocumentSignatureHelp(t *testing.T) {
 		}{
 			{"BetweenArguments", "func use(first int, second string) {}\n", "use((1,| \"value\"))", "use(first int, second string)"},
 			{"FunctionValue", "var use = func(first int, second string) {}\n", "use((1, \"val|ue\"))", "use(first int, second string)"},
-			{"UnresolvedOverload", "func ints(first int, second int) {}\nfunc strings(first string, second string) {}\nfunc use = (ints, strings)\n", "use((1, mis|sing))", "use(first int, second int)"},
+			{"UnresolvedOverload", `func ints(first int, second int) {}
+func strings(first string, second string) {}
+func use = (ints, strings)
+`, "use((1, mis|sing))", "use(first int, second int)"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, tt.call+"\n")
@@ -55,7 +58,11 @@ func handle = (
 			{name: "Unresolved", argument: "missing", parameters: []string{"value int", "value string"}, wantError: true},
 			{
 				name: "UpdatedDeclaration", argument: "true", parameters: []string{"flag bool"},
-				declarations: "func handleFlag(flag bool) {}\nfunc handle = (\n    handleFlag\n)\n",
+				declarations: `func handleFlag(flag bool) {}
+func handle = (
+    handleFlag
+)
+`,
 			},
 		} {
 			changes := []FileChange{{Path: "main.xgo", Content: []byte("handle " + tt.argument + "\n"), Version: i + 1}}
@@ -126,17 +133,26 @@ func handle = (
 		}{
 			{
 				name: "ProjectOverload", filename: "main_fixture.gox",
-				source: "onStart => {\n    measure 1\n}\n", position: Position{Line: 1, Character: 12},
+				source: `onStart => {
+    measure 1
+}
+`, position: Position{Line: 1, Character: 12},
 				label: "measure(value int) int", doc: "Measure__0 is the integer overload of Measure.",
 			},
 			{
 				name: "WorkMethod", filename: "Worker_fixture.gox",
-				source: "onValue amount => {\n    apply amount\n}\n", position: Position{Line: 1, Character: 12},
+				source: `onValue amount => {
+    apply amount
+}
+`, position: Position{Line: 1, Character: 12},
 				label: "apply(value int)", doc: "Apply accepts a value on a work instance.",
 			},
 			{
 				name: "BoundWorkMethod", filename: "main_fixture.gox",
-				source: "onStart => {\n    Worker.apply 1\n}\n", position: Position{Line: 1, Character: 17},
+				source: `onStart => {
+    Worker.apply 1
+}
+`, position: Position{Line: 1, Character: 17},
 				label: "apply(value int)", doc: "Apply accepts a value on a work instance.",
 			},
 		} {
@@ -169,7 +185,9 @@ func handle = (
 
 	t.Run("ImportedFunction", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("import \"fmt\"\nfmt.Println \"value\"\n"),
+			"main.xgo": []byte(`import "fmt"
+fmt.Println "value"
+`),
 		})
 		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 			TextDocumentPositionParams: TextDocumentPositionParams{
@@ -240,7 +258,9 @@ func handle = (
 		require.NoError(t, err)
 
 		s.ModifyFiles([]FileChange{
-			{Path: "functions.xgo", Content: []byte("func combine(value int, label string) {}\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "functions.xgo", Content: []byte(`func combine(value int, label string) {}
+func broken() { missing() }
+`), Version: 1},
 			{Path: "main.xgo", Content: []byte("\ncombine 1, \"x\"\n"), Version: 1},
 		})
 		params.Position = Position{Line: 1, Character: 12}
@@ -277,13 +297,17 @@ func handle = (
 				Label: "use(value int)", Parameters: []ParameterInformation{{Label: "value int"}},
 			}}},
 		},
-		{name: "NonFunction", uri: "file:///main.xgo", source: "var value int\n_ = value\n", position: Position{Line: 1, Character: 4}},
+		{name: "NonFunction", uri: "file:///main.xgo", source: `var value int
+_ = value
+`, position: Position{Line: 1, Character: 4}},
 		{name: "StartWithInvalidChar", uri: "file:///main.xgo", source: "\n\u201c\u201dvar (\n    maps []int\n)\n", wantASTError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"main.xgo":  []byte(tt.source),
-				"notes.txt": []byte("func use(value int) {}\nuse 1\n"),
+				"main.xgo": []byte(tt.source),
+				"notes.txt": []byte(`func use(value int) {}
+use 1
+`),
 			})
 			help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{

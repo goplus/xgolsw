@@ -12,7 +12,9 @@ import (
 
 func TestNewProjectEmbeddedPkgData(t *testing.T) {
 	project, data, err := NewProject(map[string]*xgo.File{
-		"main.xgo": {Content: []byte("import \"strings\"\nvar Text = strings.ToUpper(\"hello\")\n")},
+		"main.xgo": {Content: []byte(`import "strings"
+var Text = strings.ToUpper("hello")
+`)},
 	}, Options{})
 	require.NoError(t, err)
 	_, err = project.TypeInfo()

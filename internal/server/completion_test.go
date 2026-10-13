@@ -25,7 +25,8 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
-					"main_fixture.gox": []byte("var worker *Worker\nworker.ap"), // Cursor at EOF.
+					"main_fixture.gox": []byte(`var worker *Worker
+worker.ap`), // Cursor at EOF.
 					"Worker_fixture.gox": []byte(`onValue value => {
 	worker.ap
 }
@@ -33,7 +34,10 @@ func TestServerTextDocumentCompletion(t *testing.T) {
 				}
 				if tt.autoBind {
 					files["main_fixture.gox"] = []byte("\nWorker.ap")
-					files["Worker_fixture.gox"] = []byte("onValue value => {\n\tWorker.ap\n}\n")
+					files["Worker_fixture.gox"] = []byte(`onValue value => {
+	Worker.ap
+}
+`)
 				}
 				s := newFrameworkTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, tt.position)

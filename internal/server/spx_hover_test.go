@@ -14,7 +14,9 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 		for _, tt := range []struct{ name, filename, source, label, wantName string }{
 			{"CameraInProject", "main.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
 			{"CameraInWork", "MySprite.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
-			{"PackageFunction", "main.xgo", "import spx \"github.com/goplus/spx/v3\"\nvar color = spx.|HSB(1, 2, 3)\n", "hSB", "hSB"},
+			{"PackageFunction", "main.xgo", `import spx "github.com/goplus/spx/v3"
+var color = spx.|HSB(1, 2, 3)
+`, "hSB", "hSB"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, tt.source)

@@ -279,7 +279,9 @@ func (r Record) Backend() string { return Mode }
 			t.Chdir(t.TempDir())
 			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
 			if tt.filename != "" {
-				require.NoError(t, os.WriteFile(tt.filename, []byte("package fixture\nconst Value = 1\n"), 0o644))
+				require.NoError(t, os.WriteFile(tt.filename, []byte(`package fixture
+const Value = 1
+`), 0o644))
 			}
 			const original = "previous package data"
 			require.NoError(t, os.WriteFile("pkgdata.zip", []byte(original), 0o644))
@@ -295,7 +297,9 @@ func (r Record) Backend() string { return Mode }
 		const pkgPath = "example.com/invalid"
 		t.Chdir(t.TempDir())
 		require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
-		require.NoError(t, os.WriteFile("invalid.go", []byte("package invalid\nconst Value int = \"invalid\"\n"), 0o644))
+		require.NoError(t, os.WriteFile("invalid.go", []byte(`package invalid
+const Value int = "invalid"
+`), 0o644))
 		err := generate([]string{pkgPath}, "pkgdata.zip")
 		require.ErrorContains(t, err, "failed to execute go command")
 		assert.ErrorContains(t, err, "cannot use")
@@ -304,10 +308,17 @@ func (r Record) Backend() string { return Mode }
 
 	t.Run("PackagePattern", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		require.NoError(t, os.WriteFile("go.mod", []byte("module example.com/fixture\n\ngo 1.26.0\n"), 0o644))
-		require.NoError(t, os.WriteFile("fixture.go", []byte("package fixture\nconst Value = 1\n"), 0o644))
+		require.NoError(t, os.WriteFile("go.mod", []byte(`module example.com/fixture
+
+go 1.26.0
+`), 0o644))
+		require.NoError(t, os.WriteFile("fixture.go", []byte(`package fixture
+const Value = 1
+`), 0o644))
 		require.NoError(t, os.Mkdir("child", 0o755))
-		require.NoError(t, os.WriteFile("child/child.go", []byte("package child\nconst Value = 2\n"), 0o644))
+		require.NoError(t, os.WriteFile("child/child.go", []byte(`package child
+const Value = 2
+`), 0o644))
 		const original = "previous package data"
 		require.NoError(t, os.WriteFile("pkgdata.zip", []byte(original), 0o644))
 		err := generate([]string{"./..."}, "pkgdata.zip")

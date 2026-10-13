@@ -47,7 +47,8 @@ func TestInnermostScopeAt(t *testing.T) {
 	})
 
 	t.Run("CanSeeGlobalVariable", func(t *testing.T) {
-		fset, astFile, err := newTestFile("main.xgo", "var x = 1\nfunc test() { println(x) }")
+		fset, astFile, err := newTestFile("main.xgo", `var x = 1
+func test() { println(x) }`)
 		require.NoError(t, err)
 		astPkg := newTestPackage(map[string]*ast.File{"main.xgo": astFile})
 

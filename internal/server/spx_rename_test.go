@@ -218,7 +218,9 @@ onStart => {
 func TestServerRenameSpxResourcesSprite(t *testing.T) {
 	t.Run("ClassfileTypeReference", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                         []byte("var pointer *((Runner))\nonStart => { echo pointer }\n"),
+			"main.spx": []byte(`var pointer *((Runner))
+onStart => { echo pointer }
+`),
 			"Runner.spx":                       nil,
 			"assets/index.json":                []byte(`{}`),
 			"assets/sprites/Runner/index.json": []byte(`{}`),

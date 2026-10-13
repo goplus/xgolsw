@@ -27,19 +27,43 @@ func TestServerTextDocumentDocumentHighlight(t *testing.T) {
 					source string
 					kinds  []protocol.DocumentHighlightKind
 				}{
-					{name: "ShortAssignment", source: "|value := 1\ncopy := |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "ValueInitializer", source: "var |value int\nvar copy = |value\necho copy", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "CompoundAssignment", source: "|value := 1\n|value += |value", kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
-					{name: "VariableWithLoopLabel", source: "value:\nfor {\n|value := 1\necho |value\nbreak value\n}", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "VariableWithGotoLabel", source: "var |value int\ngoto value\nvalue:\necho |value", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "ForPhrase", source: "for |value <- [1, 2] {\necho |value\n}", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "ForPhraseSource", source: "|value := [1, 2]\nfor item <- |value { echo item }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ShortAssignment", source: `|value := 1
+copy := |value
+echo copy`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ValueInitializer", source: `var |value int
+var copy = |value
+echo copy`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "CompoundAssignment", source: `|value := 1
+|value += |value`, kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
+					{name: "VariableWithLoopLabel", source: `value:
+for {
+|value := 1
+echo |value
+break value
+}`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "VariableWithGotoLabel", source: `var |value int
+goto value
+value:
+echo |value`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ForPhrase", source: `for |value <- [1, 2] {
+echo |value
+}`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "ForPhraseSource", source: `|value := [1, 2]
+for item <- |value { echo item }`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
 					{name: "Comprehension", source: "echo [|value * 2 for |value <- [1, 2]]", kinds: []protocol.DocumentHighlightKind{Read, Write}},
 					{name: "ComprehensionFilter", source: "echo [|value for |value <- [true] if |value]", kinds: []protocol.DocumentHighlightKind{Read, Write, Read}},
 					{name: "RangeExpression", source: "for |value <- 1:3 { echo |value }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "RangeBound", source: "|value := 3\nfor item <- 1:|value { echo item }", kinds: []protocol.DocumentHighlightKind{Write, Read}},
-					{name: "NestedClosure", source: "callbacks := [func() {\n|value := 1\n|value++\necho |value\n}]\ncallbacks[0]()", kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
-					{name: "LambdaCapture", source: "|value := 1\nvar apply func(int) int = item => |value + item\necho apply(2)", kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "RangeBound", source: `|value := 3
+for item <- 1:|value { echo item }`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
+					{name: "NestedClosure", source: `callbacks := [func() {
+|value := 1
+|value++
+echo |value
+}]
+callbacks[0]()`, kinds: []protocol.DocumentHighlightKind{Write, Write, Read}},
+					{name: "LambdaCapture", source: `|value := 1
+var apply func(int) int = item => |value + item
+echo apply(2)`, kinds: []protocol.DocumentHighlightKind{Write, Read}},
 				} {
 					t.Run(tt.name, func(t *testing.T) {
 						parts := strings.Split("func run() {\n"+tt.source+"\n}\n", "|")
@@ -84,7 +108,9 @@ func TestServerTextDocumentDocumentHighlight(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				tt.filename: []byte("var value int\nfunc use() { println(value) }\n"),
+				tt.filename: []byte(`var value int
+func use() { println(value) }
+`),
 			})
 			highlights, err := s.textDocumentDocumentHighlight(&DocumentHighlightParams{
 				TextDocumentPositionParams: TextDocumentPositionParams{
@@ -226,7 +252,9 @@ run()
 
 	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.xgo": []byte("var value int\nfunc use() { println(value) }\n"),
+			"main.xgo": []byte(`var value int
+func use() { println(value) }
+`),
 		}
 		s := newTestServer(t, files)
 		params := &DocumentHighlightParams{

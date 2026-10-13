@@ -65,7 +65,8 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 			{"ExtraKwarg", "sdk.HSB(12, 34, 56, extra=78)", nil},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				const prefix = "import sdk \"github.com/goplus/spx/v3\"\nvar color = "
+				const prefix = `import sdk "github.com/goplus/spx/v3"
+var color = `
 				source := prefix + tt.expression + "\n"
 				s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
 				slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}})
@@ -682,7 +683,10 @@ func TestCreateValueInputSlotFromIdentSpx(t *testing.T) {
 
 	t.Run("AliasDeclaredType", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                      []byte("type SoundAlias = SoundName\nconst sound = \"Beep\"\nplay sound\n"),
+			"main.spx": []byte(`type SoundAlias = SoundName
+const sound = "Beep"
+play sound
+`),
 			"assets/index.json":             []byte(`{}`),
 			"assets/sounds/Beep/index.json": []byte(`{}`),
 		})
@@ -710,7 +714,9 @@ func TestSpxAnalysisCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 	}{
 		{"HSB", "println HSB(12, 34, 56)\n", "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
 		{"HSBA", "println HSBA(12, 34, 56, 78)\n", "HSBA", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSBA, Args: []float64{12, 34, 56, 78}}},
-		{"Qualified", "import sdk \"github.com/goplus/spx/v3\"\nprintln sdk.HSB(12, 34, 56)\n", "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
+		{"Qualified", `import sdk "github.com/goplus/spx/v3"
+println sdk.HSB(12, 34, 56)
+`, "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
 		{"LocalFunction", "func HSB(h, s, b float64) int { return 0 }\nprintln HSB(12, 34, 56)\n", "HSB", nil},
 		{"OrdinaryFunction", "println 12, 34, 56\n", "println", nil},
 		{"UnknownFunction", "println unknown(12, 34, 56)\n", "unknown", nil},

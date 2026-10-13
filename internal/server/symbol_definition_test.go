@@ -110,7 +110,9 @@ echo value.|%[2]s
 }
 
 func TestServerBuiltinInterfaceMember(t *testing.T) {
-	source, position := typeDisplayTestSource(t, "var value error\necho value.|error()\n")
+	source, position := typeDisplayTestSource(t, `var value error
+echo value.|error()
+`)
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	_, err := s.getProj().TypeInfo()
 	require.NoError(t, err)

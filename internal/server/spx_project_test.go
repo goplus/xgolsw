@@ -13,8 +13,10 @@ import (
 func TestServerSpxProjectResources(t *testing.T) {
 	t.Run("ExplicitThisWithEscapedResourceName", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                         nil,
-			"Runner.spx":                       []byte("this.setCostume \"idle/front\"\nthis.setCostume \"idle\"\n"),
+			"main.spx": nil,
+			"Runner.spx": []byte(`this.setCostume "idle/front"
+this.setCostume "idle"
+`),
 			"assets/index.json":                []byte(`{}`),
 			"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"idle/front"},{"name":"idle"}]}`),
 		})
@@ -38,7 +40,10 @@ func TestServerSpxProjectResources(t *testing.T) {
 
 	t.Run("XGoStrings", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
-			"main.spx":                   []byte("var choice = \"Known\"\nplay \"${choice}\"\nplay \"$$\"\n"),
+			"main.spx": []byte(`var choice = "Known"
+play "${choice}"
+play "$$"
+`),
 			"assets/index.json":          []byte(`{}`),
 			"assets/sounds/$/index.json": []byte(`{}`),
 		})
@@ -65,8 +70,14 @@ func TestServerSpxProjectResources(t *testing.T) {
 		{name: "ProjectClass", filename: "main.spx"},
 		{name: "WorkClass", filename: "Runner.spx"},
 		{name: "WorkClassWithoutProject", filename: "Runner.spx", withoutProject: true},
-		{name: "PlainXGo", filename: "helper.xgo", prefix: "import \"github.com/goplus/spx/v3\"\nfunc play(sound spx.SoundName) {}\n"},
-		{name: "PlainXGoAlias", filename: "helper.xgo", prefix: "import \"github.com/goplus/spx/v3\"\ntype Sound = spx.SoundName\ntype Alias = Sound\nfunc play(sound Alias) {}\n"},
+		{name: "PlainXGo", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v3"
+func play(sound spx.SoundName) {}
+`},
+		{name: "PlainXGoAlias", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v3"
+type Sound = spx.SoundName
+type Alias = Sound
+func play(sound Alias) {}
+`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.prefix+"play \"K|nown\"\nplay \"Missing\"\n")
@@ -121,7 +132,10 @@ func TestServerSpxProjectResources(t *testing.T) {
 	}
 
 	t.Run("OrdinaryString", func(t *testing.T) {
-		source, position := typeDisplayTestSource(t, "type SoundName = string\nfunc play(sound SoundName) {}\nplay \"K|nown\"\n")
+		source, position := typeDisplayTestSource(t, `type SoundName = string
+func play(sound SoundName) {}
+play "K|nown"
+`)
 		s := newSpxTestServer(t, map[string][]byte{
 			"main.spx": nil, "helper.xgo": []byte(source),
 			"assets/index.json": []byte(`{}`), "assets/sounds/Known/index.json": []byte(`{}`),
@@ -146,7 +160,10 @@ func TestServerSpxProjectResources(t *testing.T) {
 
 func TestServerSpxProjectWithoutMainDiagnostics(t *testing.T) {
 	s := newSpxTestServer(t, map[string][]byte{
-		"Worker.spx":        []byte("println missing\nvalues := [1, 2]\nvalues = append(values)\n"),
+		"Worker.spx": []byte(`println missing
+values := [1, 2]
+values = append(values)
+`),
 		"assets/index.json": []byte(`{}`),
 	})
 	s.getProj().SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{{
@@ -179,7 +196,14 @@ func TestServerSpxProjectUnavailableMetadata(t *testing.T) {
 		{name: "InvalidSound", metadata: map[string][]byte{"assets/index.json": []byte(`{}`), "assets/sounds/Known/index.json": []byte(`{`)}, wantError: "failed to parse sound metadata"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, position := typeDisplayTestSource(t, "var Count = 1\nprintln Cou|nt\nprintln missing\nvalues := [1, 2]\nvalues = append(values)\nplay \"Known\"\nplay \"\"\n")
+			source, position := typeDisplayTestSource(t, `var Count = 1
+println Cou|nt
+println missing
+values := [1, 2]
+values = append(values)
+play "Known"
+play ""
+`)
 			files := map[string][]byte{"main.spx": []byte(source), "assets/sounds/Known/index.json": []byte(`{}`)}
 			for name, content := range tt.metadata {
 				files[name] = content

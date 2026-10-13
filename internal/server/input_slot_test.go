@@ -62,8 +62,10 @@ func TestServerXGoGetInputSlots(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				source := "echo(((" + tt.expr + ")))\n"
 				s := newTestServer(t, map[string][]byte{
-					"values.xgo": []byte("const choice = \"value\"\nvar dynamic = \"value\"\n"),
-					"main.xgo":   []byte(source),
+					"values.xgo": []byte(`const choice = "value"
+var dynamic = "value"
+`),
+					"main.xgo": []byte(source),
 				})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
@@ -126,7 +128,9 @@ func TestServerXGoGetInputSlots(t *testing.T) {
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
-					tt.filename: []byte("func HSB(h, s, b float64) float64 { return h }\nprintln HSB(12, 34, 56)\n"),
+					tt.filename: []byte(`func HSB(h, s, b float64) float64 { return h }
+println HSB(12, 34, 56)
+`),
 				}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
@@ -672,7 +676,12 @@ func main() {
 			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 5\nvar Message = \"Hello\"\nvar Visible = true\nprintln Count\n")}
+				files := map[string][]byte{tt.filename: []byte(`var Count int
+Count = 5
+var Message = "Hello"
+var Visible = true
+println Count
+`)}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
@@ -711,8 +720,10 @@ func main() {
 
 	t.Run("CrossFileKwargs", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo":    []byte("configure count = 5\n"),
-			"options.xgo": []byte("type Options struct { Count int }\nfunc configure(options Options?) {}\n"),
+			"main.xgo": []byte("configure count = 5\n"),
+			"options.xgo": []byte(`type Options struct { Count int }
+func configure(options Options?) {}
+`),
 		})
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
 		require.NoError(t, err)
@@ -729,7 +740,9 @@ func main() {
 		require.NoError(t, err)
 		require.Len(t, before, 1)
 		assert.Equal(t, int64(11), before[0].Input.Value)
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("println 22\nprintln missing\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`println 22
+println missing
+`), Version: 1}})
 		after, err := s.xgoGetInputSlots(params)
 		require.NoError(t, err)
 		_, err = s.workspaceRootFS.TypeInfo()

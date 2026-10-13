@@ -88,7 +88,10 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 func TestServerTextDocumentHoverSpxResourceDocumentation(t *testing.T) {
 	t.Run("PkgDocLookup", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.spx":                       []byte("import \"fmt\"\nfmt.Println(1)\nplay \"Sound\"\n"),
+			"main.spx": []byte(`import "fmt"
+fmt.Println(1)
+play "Sound"
+`),
 			"assets/index.json":              []byte(`{}`),
 			"assets/sounds/Sound/index.json": []byte(`{}`),
 		}

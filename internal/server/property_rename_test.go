@@ -152,7 +152,11 @@ func TestServerTextDocumentRenameRemovedProperties(t *testing.T) {
 		{"Internal", "XGo_title"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "type Record struct{}\nfunc (Record) La|bel() string { return \"\" }\nvar record Record\n_ = record.label\n")
+			source, pos := typeDisplayTestSource(t, `type Record struct{}
+func (Record) La|bel() string { return "" }
+var record Record
+_ = record.label
+`)
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			replier := newMockReplier()
 			s.replier = replier
@@ -176,10 +180,20 @@ func TestServerTextDocumentRenamePropertyVisibility(t *testing.T) {
 		name, source, newName string
 		want                  []string
 	}{
-		{name: "AliasField", source: "type Record struct { title string }\nfunc (Record) La|bel() string { return \"\" }\n", newName: "Title"},
-		{name: "AliasSliceField", source: "type Record struct { title []string }\nfunc (Record) La|bel() string { return \"\" }\n", newName: "Title"},
-		{name: "PromotedGetter", source: "type Base struct{}\nfunc (Base) La|bel() string { return \"\" }\ntype Record struct { Base; title string }\n", newName: "Title", want: []string{"Base"}},
-		{name: "PromotedField", source: "type Base struct { title string }\ntype Record struct { Base }\nfunc (Record) La|bel() string { return \"\" }\n", newName: "Title", want: []string{"Record"}},
+		{name: "AliasField", source: `type Record struct { title string }
+func (Record) La|bel() string { return "" }
+`, newName: "Title"},
+		{name: "AliasSliceField", source: `type Record struct { title []string }
+func (Record) La|bel() string { return "" }
+`, newName: "Title"},
+		{name: "PromotedGetter", source: `type Base struct{}
+func (Base) La|bel() string { return "" }
+type Record struct { Base; title string }
+`, newName: "Title", want: []string{"Base"}},
+		{name: "PromotedField", source: `type Base struct { title string }
+type Record struct { Base }
+func (Record) La|bel() string { return "" }
+`, newName: "Title", want: []string{"Record"}},
 		{name: "InternalField", source: "type Record struct { Va|lue string }\n", newName: "XGo_value"},
 		{name: "NoChange", source: "type Record struct { Va|lue string }\n", newName: "Value"},
 		{name: "UnicodeField", source: "type Record struct { /* \U0001f600 */ Va|lue string }\n", newName: "\u0393amma", want: []string{"Record"}},
@@ -239,7 +253,9 @@ type Alias = Derived
 			source, pos := typeDisplayTestSource(t, strings.ReplaceAll(declarations, "\n", lineEnding.value))
 			s := newImportTestServer(t, map[string][]byte{
 				"types.xgo": []byte(source),
-				"main.xgo":  []byte("var reader Reader = Record{}\nprintln reader.Label(), Record{}.label, Other{}.label\n"),
+				"main.xgo": []byte(`var reader Reader = Record{}
+println reader.Label(), Record{}.label, Other{}.label
+`),
 			})
 			replier := newMockReplier()
 			s.replier = replier

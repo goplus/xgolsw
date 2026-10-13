@@ -29,7 +29,9 @@ func TestAddEmptySpxResourceNameDiagnostic(t *testing.T) {
 			}{
 				{"Literal", "echo \"\"\n", Range{Start: Position{Character: 5}, End: Position{Character: 7}}},
 				{"RawLiteral", "echo `\r`\n", Range{Start: Position{Character: 5}, End: Position{Character: 8}}},
-				{"Constant", "const Empty = \"\"\necho Empty\n", Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 10}}},
+				{"Constant", `const Empty = ""
+echo Empty
+`, Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 10}}},
 			} {
 				t.Run(form.name, func(t *testing.T) {
 					s := newTestServer(t, map[string][]byte{"main.xgo": []byte(form.source)})
@@ -66,7 +68,9 @@ func TestAddSpxResourceNotFoundDiagnostic(t *testing.T) {
 		{"EscapedContext", "costume", "A\"B", `costume resource "Ghost" not found in sprite "A\"B"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("const Missing = \"Ghost\"\necho \"Ghost\", Missing, \"Ghost\"\n")})
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`const Missing = "Ghost"
+echo "Ghost", Missing, "Ghost"
+`)})
 			proj := s.getProj()
 			call := resourceTestCall(t, proj, "main.xgo")
 			require.Len(t, call.Args, 3)
@@ -172,8 +176,10 @@ func TestServerDiagnosticsAtSpx(t *testing.T) {
 			}}},
 		},
 		{
-			name:  "SyntaxErrorWithoutMain",
-			files: map[string][]byte{"Worker.spx": []byte("var (\n    x int\n"), "assets/index.json": []byte(`{}`)},
+			name: "SyntaxErrorWithoutMain",
+			files: map[string][]byte{"Worker.spx": []byte(`var (
+    x int
+`), "assets/index.json": []byte(`{}`)},
 			want: map[DocumentURI][]Diagnostic{"file:///Worker.spx": {
 				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
 				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
@@ -288,8 +294,10 @@ func run() {
 func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 	t.Run("MixedSourceFiles", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.spx":          []byte(`play "Missing"`),
-			"values.xgo":        []byte("var (\n    x int\n"),
+			"main.spx": []byte(`play "Missing"`),
+			"values.xgo": []byte(`var (
+    x int
+`),
 			"assets/index.json": []byte(`{}`),
 		}
 		s := newSpxTestServer(t, files)
@@ -329,7 +337,9 @@ func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 		{"Widget", "getWidget Monitor, VALUE", "widget resource name cannot be empty", `widget resource "Ghost" not found`},
 	} {
 		t.Run(resource.name, func(t *testing.T) {
-			source := "const Missing = \"Ghost\"\nvar dynamic string = \"dynamic\"\n"
+			source := `const Missing = "Ghost"
+var dynamic string = "dynamic"
+`
 			var want []Diagnostic
 			for i, arg := range []string{`""`, "Missing", `"Ghost"`, "dynamic"} {
 				source += strings.Replace(resource.call, "VALUE", arg, 1) + "\n"

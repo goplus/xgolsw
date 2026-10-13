@@ -139,7 +139,11 @@ func TestServerSpxSymbolDefinitions(t *testing.T) {
 		{"OtherInterface", "example.com/framework", "Sprite", true, "Sprite", "Read declaration.", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, position := typeDisplayTestSource(t, fmt.Sprintf("import sdk %q\ntype Target = sdk.%s\nvar value Target\necho value.|read(1)\n", tt.pkgPath, tt.typ))
+			source, position := typeDisplayTestSource(t, fmt.Sprintf(`import sdk %q
+type Target = sdk.%s
+var value Target
+echo value.|read(1)
+`, tt.pkgPath, tt.typ))
 			s := newSpxSymbolTestServer(t, map[string][]byte{"main.xgo": []byte(source)}, tt.pkgPath)
 			if tt.registered {
 				setSpxSymbolTestModule(t, s, tt.pkgPath)

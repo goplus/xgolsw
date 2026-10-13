@@ -39,7 +39,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 			{name: "Newline", source: "import\n"},
 			{name: "Alias", source: "import alias\n"},
 			{name: "InvalidPath", source: "import 123\n"},
-			{name: "Group", source: "import (\nalias\n)\n"},
+			{name: "Group", source: `import (
+alias
+)
+`},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
@@ -82,11 +85,20 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 			declarations []decodedSemanticToken
 		}{
 			{
-				name: "LocalTypeDeclaration", source: "func run() {\ntype Item int\nvar value Item\necho value\n}\n",
+				name: "LocalTypeDeclaration", source: `func run() {
+type Item int
+var value Item
+echo value
+}
+`,
 				declarations: []decodedSemanticToken{{line: 1, character: 5, length: 4, tokenType: TypeType}},
 			},
 			{
-				name: "FloatingComments", source: "func run() {\n// Note.\nprintln 1 // Tail.\n}\n",
+				name: "FloatingComments", source: `func run() {
+// Note.
+println 1 // Tail.
+}
+`,
 				want: []decodedSemanticToken{{line: 1, length: 8, tokenType: CommentType}, {line: 2, character: 10, length: 8, tokenType: CommentType}},
 			},
 			{
@@ -106,7 +118,12 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{line: 1, character: 24, length: 1, tokenType: OperatorType}},
 			},
 			{
-				name: "RangeAssignment", source: "var values [1]int\nfor values[func() int {\nfor range 1 {}\nreturn 0\n}()] = range []int{1} {}\n",
+				name: "RangeAssignment", source: `var values [1]int
+for values[func() int {
+for range 1 {}
+return 0
+}()] = range []int{1} {}
+`,
 				want: []decodedSemanticToken{{line: 4, character: 7, length: 5, tokenType: KeywordType}},
 			},
 			{
@@ -118,7 +135,9 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{character: 20, length: 7, tokenType: CommentType}, {character: 28, length: 1, tokenType: OperatorType}},
 			},
 			{
-				name: "LineDirective", source: "//line virtual.xgo:100:20\nvar value = 1\n",
+				name: "LineDirective", source: `//line virtual.xgo:100:20
+var value = 1
+`,
 				want: []decodedSemanticToken{{line: 1, length: 3, tokenType: KeywordType}, {line: 1, character: 10, length: 1, tokenType: OperatorType}},
 			},
 			{
@@ -139,7 +158,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{character: 8, length: 1, tokenType: NumberType}},
 			},
 			{
-				name: "RangeVariables", source: "for _, value := range []int{1} {\nprintln value\n}\n",
+				name: "RangeVariables", source: `for _, value := range []int{1} {
+println value
+}
+`,
 				want: []decodedSemanticToken{{character: 16, length: 5, tokenType: KeywordType}},
 			},
 			{
@@ -159,7 +181,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{line: 1, character: 10, length: 1, tokenType: OperatorType}, {line: 1, character: 31, length: 1, tokenType: OperatorType}},
 			},
 			{
-				name: "SelectorSpaces", source: "type Item struct { Value int }\nvar item Item\nprintln item. /* . */ Value\n",
+				name: "SelectorSpaces", source: `type Item struct { Value int }
+var item Item
+println item. /* . */ Value
+`,
 				want: []decodedSemanticToken{{line: 2, character: 12, length: 1, tokenType: OperatorType}},
 			},
 			{
@@ -191,7 +216,11 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{line: 1, character: 5, length: 1, tokenType: OperatorType}},
 			},
 			{
-				name: "Label", source: "start:\nfor {\nbreak start\n}\n",
+				name: "Label", source: `start:
+for {
+break start
+}
+`,
 				want: []decodedSemanticToken{{length: 5, tokenType: LabelType}},
 			},
 			{
@@ -199,7 +228,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 				want: []decodedSemanticToken{{character: 19, length: 1, tokenType: OperatorType}},
 			},
 			{
-				name: "Overload", source: "func consumeInt(int) {}\nfunc consumeString(string) {}\nfunc consume = (consumeInt, consumeString)\n",
+				name: "Overload", source: `func consumeInt(int) {}
+func consumeString(string) {}
+func consume = (consumeInt, consumeString)
+`,
 				want: []decodedSemanticToken{{line: 2, character: 5, length: 7, tokenType: FunctionType}},
 			},
 		} {
@@ -260,7 +292,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 			{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{tt.filename: []byte("func run() {\n\t_ = this\n}\n")}
+				files := map[string][]byte{tt.filename: []byte(`func run() {
+	_ = this
+}
+`)}
 				if tt.filename == "Worker_fixture.gox" {
 					files["main_fixture.gox"] = nil
 				}
@@ -283,7 +318,11 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 
 	t.Run("ExplicitReceiver", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("type Item struct{}\nfunc (item *Item) run() {\n\t_ = item\n}\n"),
+			"main.xgo": []byte(`type Item struct{}
+func (item *Item) run() {
+	_ = item
+}
+`),
 		})
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -363,8 +402,12 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newFrameworkTestServer(t, map[string][]byte{
-				"main_fixture.gox":   []byte("\nWorker.apply Low\n"),
-				"Worker_fixture.gox": []byte("\nonValue amount => {\n\tWorker.apply amount\n}\n"),
+				"main_fixture.gox": []byte("\nWorker.apply Low\n"),
+				"Worker_fixture.gox": []byte(`
+onValue amount => {
+	Worker.apply amount
+}
+`),
 			})
 			tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
@@ -385,22 +428,34 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 		newServer   testServerFactory
 	}{
 		{
-			name:      "ProjectField",
-			filename:  "main_fixture.gox",
-			source:    "var count int\nonStart => {\n\tcount = 1\n}\n",
+			name:     "ProjectField",
+			filename: "main_fixture.gox",
+			source: `var count int
+onStart => {
+	count = 1
+}
+`,
 			newServer: newFrameworkTestServer,
 		},
 		{
-			name:        "WorkField",
-			filename:    "Worker_fixture.gox",
-			source:      "var count int\nonValue amount => {\n\tcount = amount\n}\n",
+			name:     "WorkField",
+			filename: "Worker_fixture.gox",
+			source: `var count int
+onValue amount => {
+	count = amount
+}
+`,
 			projectFile: "main_fixture.gox",
 			newServer:   newFrameworkTestServer,
 		},
 		{
-			name:      "NormalClassField",
-			filename:  "Record.gox",
-			source:    "var count int\nfunc run() {\n\tcount = 1\n}\n",
+			name:     "NormalClassField",
+			filename: "Record.gox",
+			source: `var count int
+func run() {
+	count = 1
+}
+`,
 			newServer: newTestServer,
 		},
 	} {
@@ -426,7 +481,13 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 
 	t.Run("VariableKinds", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("var count int\nfunc use(value int) {\n\tlocal := value\n\tcount = local\n}\nuse count\n"),
+			"main.xgo": []byte(`var count int
+func use(value int) {
+	local := value
+	count = local
+}
+use count
+`),
 		})
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -454,8 +515,11 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 
 	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"enums.xgo": []byte("type Color const (\n\tRed = iota\n)\n"),
-			"main.xgo":  []byte("var color Color = Red\n"),
+			"enums.xgo": []byte(`type Color const (
+	Red = iota
+)
+`),
+			"main.xgo": []byte("var color Color = Red\n"),
 		})
 		params := &SemanticTokensParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
 		tokens, err := s.textDocumentSemanticTokensFull(params)
@@ -471,7 +535,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 		require.NoError(t, err)
 
 		s.ModifyFiles([]FileChange{
-			{Path: "enums.xgo", Content: []byte("type Color int\nconst Red Color = 1\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "enums.xgo", Content: []byte(`type Color int
+const Red Color = 1
+func broken() { missing() }
+`), Version: 1},
 			{Path: "main.xgo", Content: []byte("\nvar color Color = Red\n"), Version: 1},
 		})
 		tokens, err = s.textDocumentSemanticTokensFull(params)
@@ -494,7 +561,10 @@ func TestServerTextDocumentSemanticTokensFull(t *testing.T) {
 
 	t.Run("IncompleteSource", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("var count int\ncount = 1\nmissing(\n"),
+			"main.xgo": []byte(`var count int
+count = 1
+missing(
+`),
 		})
 		tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},

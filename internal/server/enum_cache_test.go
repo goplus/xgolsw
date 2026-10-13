@@ -61,8 +61,11 @@ work
 
 	t.Run("EditDuringTypeChecking", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo":  []byte("import _ \"example.com/paused\"\n"),
-			"enums.xgo": []byte("type Color const (\nRed = iota\n)\n"),
+			"main.xgo": []byte("import _ \"example.com/paused\"\n"),
+			"enums.xgo": []byte(`type Color const (
+Red = iota
+)
+`),
 		})
 		proj := s.getProj()
 		dependency := gotypes.NewPackage("example.com/paused", "paused")
@@ -87,7 +90,10 @@ work
 		var err error
 		wg.Go(func() { info, err = enumInfoForProject(proj) })
 		<-entered
-		proj.PutFile("enums.xgo", &xgo.File{Content: []byte("type Color const (\nBlue = iota\n)\n")})
+		proj.PutFile("enums.xgo", &xgo.File{Content: []byte(`type Color const (
+Blue = iota
+)
+`)})
 		release()
 		wg.Wait()
 		require.NoError(t, err)
@@ -147,7 +153,12 @@ work
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{
-					"main_fixture.gox": []byte("type Color const (\n// Red documentation.\nRed = iota\n)\nvar color Color = Red\n"),
+					"main_fixture.gox": []byte(`type Color const (
+// Red documentation.
+Red = iota
+)
+var color Color = Red
+`),
 				})
 				proj := s.syncProject()
 				_, err := tt.warm(proj)
@@ -169,8 +180,12 @@ work
 
 	t.Run("SharedAcrossRequests", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"enums.xgo": []byte("type Color const (\nRed = iota\nBlue\n)\n"),
-			"main.xgo":  []byte("var color Color = Red\n"),
+			"enums.xgo": []byte(`type Color const (
+Red = iota
+Blue
+)
+`),
+			"main.xgo": []byte("var color Color = Red\n"),
 		})
 		var builds int
 		s.getProj().RegisterCacheBuilder(enumInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
@@ -209,8 +224,11 @@ work
 
 	t.Run("DeclarationInAnotherFile", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"enums.xgo": []byte("type Color const (\nRed = iota\n)\n"),
-			"main.xgo":  []byte("var color Color = Red\n"),
+			"enums.xgo": []byte(`type Color const (
+Red = iota
+)
+`),
+			"main.xgo": []byte("var color Color = Red\n"),
 		})
 		position := Position{Character: 19}
 		require.NotNil(t, completionItemByLabel(completionItemsAt(t, s, "main.xgo", position), "Red"))
@@ -219,7 +237,10 @@ work
 		require.NoError(t, err)
 		snapshot := New(proj.Snapshot(), nil, s.fileMapGetter, &MockScheduler{}, s.listPkgs, s.lookupPkgDoc)
 		s.ModifyFiles([]FileChange{{
-			Path: "enums.xgo", Content: []byte("type Color const (\nRuby = iota\n)\n"), Version: 1,
+			Path: "enums.xgo", Content: []byte(`type Color const (
+Ruby = iota
+)
+`), Version: 1,
 		}})
 		items := completionItemsAt(t, s, "main.xgo", position)
 		assert.NotNil(t, completionItemByLabel(items, "Ruby"))
@@ -237,15 +258,25 @@ work
 
 	t.Run("EditsAndPartialTypes", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("type Color const (\nRed = iota\n)\n"),
+			"main.xgo": []byte(`type Color const (
+Red = iota
+)
+`),
 		})
 		proj := s.getProj()
 		original, err := enumInfoForProject(proj)
 		require.NoError(t, err)
 		snapshot := proj.Snapshot()
 		for version, source := range []string{
-			"type Color const (\nBlue = iota\n)\nvar broken = missing\n",
-			"type Color const (\nBlue = iota\n)\n",
+			`type Color const (
+Blue = iota
+)
+var broken = missing
+`,
+			`type Color const (
+Blue = iota
+)
+`,
 		} {
 			s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: version + 1}})
 			_, typeErr := proj.TypeInfo()
@@ -275,7 +306,10 @@ work
 	})
 
 	t.Run("ConcurrentAndIndependentProjects", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("type Color const (\nRed = iota\n)\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Color const (
+Red = iota
+)
+`)})
 		proj := s.getProj()
 		var builds atomic.Int32
 		proj.RegisterCacheBuilder(enumInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
@@ -294,7 +328,10 @@ work
 			assert.Same(t, results[0], results[i])
 		}
 		assert.EqualValues(t, 1, builds.Load())
-		other := newTestServer(t, map[string][]byte{"main.xgo": []byte("type Color const (\nRed = iota\n)\n")})
+		other := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Color const (
+Red = iota
+)
+`)})
 		independent, err := enumInfoForProject(other.getProj())
 		require.NoError(t, err)
 		require.Len(t, independent.members, 1)

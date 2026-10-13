@@ -193,7 +193,10 @@ func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
 					"Runner.spx": []byte("var hp int\n"),
 					"Other.spx":  []byte("var mana int\n"),
 				}
-				files[tt.filename] = append(files[tt.filename], []byte("func test() {\n\tvar property PropertyName = P\n}\n")...)
+				files[tt.filename] = append(files[tt.filename], []byte(`func test() {
+	var property PropertyName = P
+}
+`)...)
 				s := newSpxTestServer(t, files)
 				items := completionItemsAt(t, s, tt.filename, Position{Line: 2, Character: 30})
 				for _, label := range tt.want {
@@ -229,7 +232,11 @@ func test() {
 			{"Alias", "Target"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, "type Target = Sprite\nvar Runner "+tt.typ+"\nfunc test() {\n    var target Sprite = R|\n}\n")
+				source, position := typeDisplayTestSource(t, "type Target = Sprite\nvar Runner "+tt.typ+`
+func test() {
+    var target Sprite = R|
+}
+`)
 				files := map[string][]byte{
 					"main.spx":                         []byte(source),
 					"assets/index.json":                []byte(`{}`),
@@ -261,8 +268,14 @@ func test() {
 			wantSDK      bool
 		}{
 			{"Outside", "|onCustom => {}\n", true},
-			{"InsideSDKHandler", "onStart => {\n    |onCustom => {}\n}\n", false},
-			{"InsideUserHandler", "onCustom => {\n    |onStart => {}\n}\n", true},
+			{"InsideSDKHandler", `onStart => {
+    |onCustom => {}
+}
+`, false},
+			{"InsideUserHandler", `onCustom => {
+    |onStart => {}
+}
+`, true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, "func onCustom(fn func()) {}\n"+tt.source)
@@ -344,21 +357,48 @@ play "r"
 			want     []string
 			absent   []string
 		}{
-			{"Implicit", "Runner.spx", "onClick => {\n\tsetCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
+			{"Implicit", "Runner.spx", `onClick => {
+	setCostume "c|"
+}
+`, []string{"runner"}, []string{"other"}},
 			{"Explicit", "main.spx", "Runner.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
 			{"ExplicitThis", "Runner.spx", "this.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
-			{"CrossSprite", "Other.spx", "onClick => {\n\tRunner.setCostume \"c|\"\n}\n", []string{"runner"}, []string{"other"}},
+			{"CrossSprite", "Other.spx", `onClick => {
+	Runner.setCostume "c|"
+}
+`, []string{"runner"}, []string{"other"}},
 			{"ExplicitLineDirective", "main.spx", "//line virtual.spx:100:20\r\nRunner.setCostume \"\U0001f600r|suffix\"\r\n", []string{"runner"}, []string{"other"}},
-			{"ImplicitLineDirective", "Runner.spx", "//line virtual.spx:100:20\nsetCostume \"r|\"\n", []string{"runner"}, []string{"other"}},
-			{"FuncDecorator", "Runner.spx", "func withCostume(costume SpriteCostumeName, fn func()) {}\n@withCostume(\"r|\")\nfunc run() {}\n", []string{"runner"}, []string{"other"}},
-			{"ShadowedAutoBinding", "main.spx", "onStart => {\n\tRunner := Other\n\tRunner.setCostume \"r|\"\n}\n", []string{"runner", "other"}, nil},
+			{"ImplicitLineDirective", "Runner.spx", `//line virtual.spx:100:20
+setCostume "r|"
+`, []string{"runner"}, []string{"other"}},
+			{"FuncDecorator", "Runner.spx", `func withCostume(costume SpriteCostumeName, fn func()) {}
+@withCostume("r|")
+func run() {}
+`, []string{"runner"}, []string{"other"}},
+			{"ShadowedAutoBinding", "main.spx", `onStart => {
+	Runner := Other
+	Runner.setCostume "r|"
+}
+`, []string{"runner", "other"}, nil},
 			{"RawEndWithCR", "main.spx", "Runner.setCostume `re\r\rsource|`\n", []string{"runner"}, []string{"other"}},
 			{"RawUnterminatedCR", "main.spx", "Runner.setCostume `re\r\rsource|", []string{"runner"}, []string{"other"}},
 			{"Multiline", "Other.spx", "onClick => {\r\n\tRunner.setCostume `before\r\nre|source\r\nafter`\r\n}\r\n", []string{"runner"}, []string{"other"}},
-			{"Go", "Other.spx", "onClick => {\n\tgo Runner.setCostume(\"c|\")\n}\n", []string{"runner"}, []string{"other"}},
-			{"Defer", "Other.spx", "onClick => {\n\tdefer Runner.setCostume(\"c|\")\n}\n", []string{"runner"}, []string{"other"}},
-			{"ImplicitOutsideString", "Runner.spx", "onStart => {\n\tsetCostume C|\n}\n", []string{`"runner"`}, []string{`"other"`}},
-			{"ProjectDeclaration", "main.spx", "onStart => {\n\tvar costume SpriteCostumeName = C|\n}\n", []string{`"runner"`, `"other"`}, nil},
+			{"Go", "Other.spx", `onClick => {
+	go Runner.setCostume("c|")
+}
+`, []string{"runner"}, []string{"other"}},
+			{"Defer", "Other.spx", `onClick => {
+	defer Runner.setCostume("c|")
+}
+`, []string{"runner"}, []string{"other"}},
+			{"ImplicitOutsideString", "Runner.spx", `onStart => {
+	setCostume C|
+}
+`, []string{`"runner"`}, []string{`"other"`}},
+			{"ProjectDeclaration", "main.spx", `onStart => {
+	var costume SpriteCostumeName = C|
+}
+`, []string{`"runner"`, `"other"`}, nil},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{
@@ -410,12 +450,23 @@ play "r"
 			source   string
 			want     map[string]string
 		}{
-			{"Project", "main.spx", "onStart => {\n\tshowVar(x|)\n}\n", map[string]string{`"score"`: "xgo:main?Game.score", `"volume"`: ""}},
-			{"Sprite", "Runner.spx", "onStart => {\n\tshowVar(x|)\n}\n", map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
-			{"ExplicitReceiver", "main.spx", "onStart => {\n\tRunner.showVar(x|)\n}\n", map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
+			{"Project", "main.spx", `onStart => {
+	showVar(x|)
+}
+`, map[string]string{`"score"`: "xgo:main?Game.score", `"volume"`: ""}},
+			{"Sprite", "Runner.spx", `onStart => {
+	showVar(x|)
+}
+`, map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
+			{"ExplicitReceiver", "main.spx", `onStart => {
+	Runner.showVar(x|)
+}
+`, map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
 			{"EmbeddedMethod", "Runner.spx", "showVar(|\n", map[string]string{`"hp"`: "xgo:main?Runner.hp", `"xpos"`: "xgo:github.com/goplus/spx/v3?Sprite.xpos"}},
 			{"InsideString", "main.spx", "showVar(\"s|\n", map[string]string{"score": "xgo:main?Game.score"}},
-			{"LineDirective", "main.spx", "//line virtual.spx:100:20\nshowVar \"s|\"\n", map[string]string{"score": "xgo:main?Game.score"}},
+			{"LineDirective", "main.spx", `//line virtual.spx:100:20
+showVar "s|"
+`, map[string]string{"score": "xgo:main?Game.score"}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{

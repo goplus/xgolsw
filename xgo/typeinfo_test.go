@@ -141,7 +141,10 @@ type Separate interface { Separate }
 			{name: "IndirectCycle", source: "type First interface { Second }\ntype Second interface { First }", wantErr: true},
 			{name: "AliasCycle", source: "type Broken interface { Alias }\ntype Alias = Broken", wantErr: true},
 			{name: "LocalCycle", source: "func use() { type Broken interface { Broken } }", wantErr: true},
-			{name: "Diamond", source: "type Base interface { Run() }\ntype Left interface { Base }\ntype Right interface { Base }\ntype Both interface { Left; Right }"},
+			{name: "Diamond", source: `type Base interface { Run() }
+type Left interface { Base }
+type Right interface { Base }
+type Both interface { Left; Right }`},
 			{name: "RecursiveMethod", source: "type Node interface { Next() Node }"},
 			{name: "StructPointer", source: "type Node struct { Next *Node }"},
 		} {

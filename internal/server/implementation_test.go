@@ -28,7 +28,9 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 					source   string
 					position Position
 				}{
-					{"PlainXGo", "worker.xgo", "type Worker struct{}\nfunc (*Worker) Read(n int) int { return n }\n", Position{Line: 1, Character: 15}},
+					{"PlainXGo", "worker.xgo", `type Worker struct{}
+func (*Worker) Read(n int) int { return n }
+`, Position{Line: 1, Character: 15}},
 					{"NormalClass", "Worker.gox", "func Read(n int) int { return n }\n", Position{Character: 5}},
 					{"ProjectClass", "First.first", "func Read(n int) int { return n }\n", Position{Character: 5}},
 					{"WorkClass", "Worker.firstwork", "func Read(n int) int { return n }\n", Position{Character: 5}},
@@ -108,26 +110,49 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 			},
 			{
 				name: "PromotedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
-				source: "type Base struct{}\nfunc (Base) Run() {}\ntype Worker struct { Base }\nfunc (Worker) Stop() {}\n",
-				want:   []Position{{Line: 1, Character: 12}},
+				source: `type Base struct{}
+func (Base) Run() {}
+type Worker struct { Base }
+func (Worker) Stop() {}
+`,
+				want: []Position{{Line: 1, Character: 12}},
 			},
 			{
 				name: "PromotedPointerMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
-				source: "type Base struct{}\nfunc (*Base) Run() {}\ntype Worker struct { *Base }\nfunc (*Worker) Stop() {}\n",
-				want:   []Position{{Line: 1, Character: 13}},
+				source: `type Base struct{}
+func (*Base) Run() {}
+type Worker struct { *Base }
+func (*Worker) Stop() {}
+`,
+				want: []Position{{Line: 1, Character: 13}},
 			},
 			{
 				name: "LocalPromotedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
-				source: "type Base struct{}\nfunc (Base) Run() {}\ntype Stopper struct{}\nfunc (Stopper) Stop() {}\nfunc test() { type Worker struct { Base; Stopper } }\n",
-				want:   []Position{{Line: 1, Character: 12}},
+				source: `type Base struct{}
+func (Base) Run() {}
+type Stopper struct{}
+func (Stopper) Stop() {}
+func test() { type Worker struct { Base; Stopper } }
+`,
+				want: []Position{{Line: 1, Character: 12}},
 			},
 			{
 				name: "ShadowedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
-				source: "type Base struct{}\nfunc (Base) Run() {}\ntype Worker struct { Base; Run int }\nfunc (Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Worker struct { Base; Run int }
+func (Worker) Stop() {}
+`,
 			},
 			{
 				name: "AmbiguousMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
-				source: "type Base struct{}\nfunc (Base) Run() {}\ntype Other struct{}\nfunc (Other) Run() {}\ntype Worker struct { Base; Other }\nfunc (Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Other struct{}
+func (Other) Run() {}
+type Worker struct { Base; Other }
+func (Worker) Stop() {}
+`,
 			},
 			{
 				name: "InterfaceEmbedding", filename: "worker.xgo", newServer: newTestServer,
@@ -245,8 +270,12 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"types.xgo": []byte("type Worker struct{}\nfunc (Worker) Run() {}\n"),
-				tt.filename: []byte("var worker Worker\nworker.run()\n"),
+				"types.xgo": []byte(`type Worker struct{}
+func (Worker) Run() {}
+`),
+				tt.filename: []byte(`var worker Worker
+worker.run()
+`),
 			})
 			implementation, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
@@ -501,23 +530,38 @@ func TestServerAnonymousReceiverMethods(t *testing.T) {
 	}{
 		{name: "Variable", setup: "var worker struct { Base; Stopper }", call: "worker.|run()", implements: true},
 		{name: "Pointer", setup: "var worker *struct { *Base; *Stopper }", call: "worker.|run()", implements: true},
-		{name: "Alias", setup: "type Group = struct { Base; Stopper }\nvar worker Group", call: "worker.|run()", implements: true},
-		{name: "PointerAlias", setup: "type Group = *struct { Base; Stopper }\nvar worker Group", call: "worker.|run()", implements: true},
+		{name: "Alias", setup: `type Group = struct { Base; Stopper }
+var worker Group`, call: "worker.|run()", implements: true},
+		{name: "PointerAlias", setup: `type Group = *struct { Base; Stopper }
+var worker Group`, call: "worker.|run()", implements: true},
 		{name: "Literal", setup: "worker := struct { *Base; *Stopper }{}", call: "worker.|run()", implements: true},
 		{name: "Expression", call: "new(struct { Base; Stopper }).|run()", implements: true},
 		{name: "Field", setup: "var outer struct { Child struct { Base; Stopper } }", call: "outer.Child.|run()", implements: true},
 		{name: "MissingMethod", setup: "var worker struct { Base }", call: "worker.|run()"},
-		{name: "ShadowedMethod", setup: "var decoy struct { Base; Stopper; Run int }\necho decoy\nvar worker Base", call: "worker.|run()"},
-		{name: "AmbiguousMethod", setup: "var decoy struct { Base; Other; Stopper }\necho decoy\nvar worker Base", call: "worker.|run()"},
-		{name: "Interface", setup: "var decoy interface { Runner }\necho decoy\nvar worker Base", call: "worker.|run()"},
+		{name: "ShadowedMethod", setup: `var decoy struct { Base; Stopper; Run int }
+echo decoy
+var worker Base`, call: "worker.|run()"},
+		{name: "AmbiguousMethod", setup: `var decoy struct { Base; Other; Stopper }
+echo decoy
+var worker Base`, call: "worker.|run()"},
+		{name: "Interface", setup: `var decoy interface { Runner }
+echo decoy
+var worker Base`, call: "worker.|run()"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, worker := typeDisplayTestSource(t, "func use(runner Runner) {\n"+tt.setup+"\n"+tt.call+"\nrunner.run()\n}\n")
 			_, runner := typeDisplayTestSource(t, strings.Replace(source, "runner.run", "runner.|run", 1))
 			s := newTestServer(t, map[string][]byte{
 				"main.xgo": []byte(source),
-				"types.xgo": []byte("type Runner interface { Run(); Stop() }\ntype Base struct{}\nfunc (*Base) Run() {}\n" +
-					"type Stopper struct{}\nfunc (*Stopper) Stop() {}\ntype Other struct{}\nfunc (*Other) Run() {}\n"),
+				"types.xgo": []byte(`type Runner interface { Run(); Stop() }
+type Base struct{}
+func (*Base) Run() {}
+` +
+					`type Stopper struct{}
+func (*Stopper) Stop() {}
+type Other struct{}
+func (*Other) Run() {}
+`),
 			})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)

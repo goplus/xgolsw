@@ -51,12 +51,22 @@ show "Missing"
 			shadowed bool
 		}{
 			{name: "Inherited", members: "type Record struct { *Base }\n"},
-			{name: "Shadowed", members: "type Record struct { *Base; Count []int }\nfunc (r *Record) Size(n int) int { return n }\n", shadowed: true},
+			{name: "Shadowed", members: `type Record struct { *Base; Count []int }
+func (r *Record) Size(n int) int { return n }
+`, shadowed: true},
 			{name: "Restored", members: "type Record struct { *Base }\n"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := "type PropertyName string\ntype Base struct { Keep, Count int }\nfunc (b *Base) Size() int { return 1 }\n" + tt.members +
-					"func (r *Record) show(name PropertyName) {}\nvar item Record\nitem.show \"Keep\"\nitem.show \"Count\"\nitem.show \"size\"\n"
+				source := `type PropertyName string
+type Base struct { Keep, Count int }
+func (b *Base) Size() int { return 1 }
+` + tt.members +
+					`func (r *Record) show(name PropertyName) {}
+var item Record
+item.show "Keep"
+item.show "Count"
+item.show "size"
+`
 				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(source), Version: version + 1}})
 				proj := s.getProj()
 				info, err := proj.TypeInfo()
@@ -94,7 +104,11 @@ func TestSpxDiagnosticPassAutoPropertyReceiver(t *testing.T) {
 		t.Run(receiver.name, func(t *testing.T) {
 			s := newImportTestServer(t, map[string][]byte{
 				"main_fixture.gox": []byte("func Current() *Record { return nil }\n" + receiver.expression + ".Show(\"Count\")\n" + receiver.expression + ".Show(\"Missing\")\n"),
-				"types.xgo":        []byte("type PropertyName string\ntype Record struct { Count int }\nfunc (*Record) Show(name PropertyName) {}\nfunc (*Record) Next() *Record { return nil }\n"),
+				"types.xgo": []byte(`type PropertyName string
+type Record struct { Count int }
+func (*Record) Show(name PropertyName) {}
+func (*Record) Next() *Record { return nil }
+`),
 			})
 			proj := s.requestProject()
 			info, err := proj.TypeInfo()

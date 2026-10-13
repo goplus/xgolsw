@@ -54,8 +54,11 @@ func TestServerTextDocumentDefinition(t *testing.T) {
 		}, requireValueAs[Location](t, def))
 
 		s.ModifyFiles([]FileChange{{
-			Path:    "values.xgo",
-			Content: []byte("\nvar value int\nfunc broken() { missing() }\n"),
+			Path: "values.xgo",
+			Content: []byte(`
+var value int
+func broken() { missing() }
+`),
 			Version: 1,
 		}})
 		def, err = s.textDocumentDefinition(params)
@@ -219,7 +222,9 @@ const _ = 1
 	})
 
 	t.Run("ExplicitThis", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var this int\nprintln this\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var this int
+println this
+`)})
 		def, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
 			Position:     Position{Line: 1, Character: 8},
@@ -603,7 +608,9 @@ func TestServerTextDocumentTypeDefinition(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"types.xgo": []byte("type Value struct{}\ntype Alias = Value\n"),
+				"types.xgo": []byte(`type Value struct{}
+type Alias = Value
+`),
 				tt.filename: []byte("var value " + tt.typeExpr + "\n_ = value\n"),
 			})
 			def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
@@ -724,8 +731,12 @@ func main() {
 
 	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"types.xgo": []byte("type First struct{}\ntype Second struct{}\n"),
-			"main.xgo":  []byte("var value First\nprintln value\n"),
+			"types.xgo": []byte(`type First struct{}
+type Second struct{}
+`),
+			"main.xgo": []byte(`var value First
+println value
+`),
 		})
 		params := &TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -739,8 +750,11 @@ func main() {
 		}, requireValueAs[Location](t, def))
 
 		s.ModifyFiles([]FileChange{{
-			Path:    "main.xgo",
-			Content: []byte("var value Second\nprintln value\nmissing()\n"),
+			Path: "main.xgo",
+			Content: []byte(`var value Second
+println value
+missing()
+`),
 			Version: 1,
 		}})
 		def, err = s.textDocumentTypeDefinition(params)

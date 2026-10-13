@@ -879,14 +879,21 @@ func run() {
 				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
 			},
 			{
-				name:       "NamedFunctionValue",
-				body:       "type Consumer func(Second)\nvar use Consumer\nfunc run() { use(Un) }\n",
+				name: "NamedFunctionValue",
+				body: `type Consumer func(Second)
+var use Consumer
+func run() { use(Un) }
+`,
 				cursorText: "Un)", label: "Unknown",
 				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
 			},
 			{
-				name:       "MethodExpression",
-				body:       "type Handler struct{}\nvar handler Handler\nfunc (h Handler) use(Second) {}\nfunc run() { Handler.use(handler, Un) }\n",
+				name: "MethodExpression",
+				body: `type Handler struct{}
+var handler Handler
+func (h Handler) use(Second) {}
+func run() { Handler.use(handler, Un) }
+`,
 				cursorText: "Un)", label: "Unknown",
 				wantDoc: "Second member documentation.", unwantedDoc: "First member documentation.",
 			},

@@ -17,8 +17,14 @@ func TestNewXGo(t *testing.T) {
 		pkg := &ast.Package{Name: "main", Files: make(map[string]*ast.File)}
 		for name, source := range map[string]string{
 			"a.xgo": "package main\n",
-			"b.xgo": "// Package main provides the first description.\npackage main\nfunc First() {}\n",
-			"c.xgo": "// Package main provides the second description.\npackage main\nfunc Second() {}\n",
+			"b.xgo": `// Package main provides the first description.
+package main
+func First() {}
+`,
+			"c.xgo": `// Package main provides the second description.
+package main
+func Second() {}
+`,
 		} {
 			file, err := parser.ParseFile(fset, name, source, parser.ParseComments)
 			require.NoError(t, err)

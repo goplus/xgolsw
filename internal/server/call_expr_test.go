@@ -23,10 +23,15 @@ func TestServerCallExpressionKwargs(t *testing.T) {
 		call         string
 	}{
 		{"FunctionVariable", "var configure = func(opts Options?) {}\n", "configure(count = 1)"},
-		{"FunctionField", "type Handler struct { Configure func(opts Options) }\nvar handler Handler\n", "handler.Configure(count = 1)"},
+		{"FunctionField", `type Handler struct { Configure func(opts Options) }
+var handler Handler
+`, "handler.Configure(count = 1)"},
 		{"FunctionResult", "func factory() func(opts Options) { return nil }\n", "factory()(count = 1)"},
 		{"Parenthesized", "func configure(opts Options?) {}\n", "(configure)(count = 1)"},
-		{"MethodExpression", "type Handler struct{}\nvar handler Handler\nfunc (h Handler) Configure(opts Options?) {}\n", "Handler.Configure(handler, count = 1)"},
+		{"MethodExpression", `type Handler struct{}
+var handler Handler
+func (h Handler) Configure(opts Options?) {}
+`, "Handler.Configure(handler, count = 1)"},
 		{"VariadicFunctionValue", "var configure = func(opts Options?, values ...int) {}\n", "configure(7, 8, count = 1)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,8 +80,11 @@ func TestServerCallExpressionVariadics(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"functions.xgo": []byte("type Consumer func(values ...int)\nvar use Consumer\nvar values []int\n"),
-				"main.xgo":      []byte(tt.call + "\n"),
+				"functions.xgo": []byte(`type Consumer func(values ...int)
+var use Consumer
+var values []int
+`),
+				"main.xgo": []byte(tt.call + "\n"),
 			})
 			proj := s.requestProject()
 			info, err := proj.TypeInfo()
@@ -118,7 +126,12 @@ func TestServerGenericCallExpressions(t *testing.T) {
 		{"GenericBoundMethod", "box.Use(1)", "use(value int)", "int"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			const declarations = "package api\nfunc Use[T any](value T) {}\nfunc Pair[K, V any](key K, value V) {}\ntype Box[T any] struct{}\nfunc (b Box[T]) Use(value T) {}\n"
+			const declarations = `package api
+func Use[T any](value T) {}
+func Pair[K, V any](key K, value V) {}
+type Box[T any] struct{}
+func (b Box[T]) Use(value T) {}
+`
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("import api \"example.com/api\"\nvar box api.Box[int]\n" + tt.call + "\n")})
 			fset := token.NewFileSet()
 			file, err := goparser.ParseFile(fset, "api.go", declarations, 0)
@@ -170,23 +183,54 @@ func TestServerCallExpressions(t *testing.T) {
 			}{
 				{"FunctionVariable", "var use = func(value int) {}\n", "use(1)", "use(value int)", 0},
 				{"NamedFunction", "type Callback func(value int)\nvar use Callback\n", "use(1)", "use(value int)", 0},
-				{"FunctionField", "type Handler struct { Use func(value int) }\nvar handler Handler\n", "handler.Use(1)", "Use(value int)", 0},
+				{"FunctionField", `type Handler struct { Use func(value int) }
+var handler Handler
+`, "handler.Use(1)", "Use(value int)", 0},
 				{"Parenthesized", "func use(value int) {}\n", "((use))(1)", "use(value int)", 0},
 				{"FunctionResult", "func factory() func(value int) { return nil }\n", "factory()(1)", "func(value int)", 0},
 				{"FunctionLiteral", "", "(func(value int) {})(1)", "func(value int)", 0},
 				{"IndexedFunction", "var callbacks []func(value int)\n", "callbacks[0](1)", "callbacks(value int)", 0},
 				{"PointerFunction", "var callback = func(value int) {}\nvar use = &callback\n", "(*use)(1)", "func(value int)", 0},
-				{"MethodExpression", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\n", "Handler.Use(handler, 1)", "Use(Handler, value int)", 1},
-				{"PointerMethodExpression", "type Handler struct{}\nfunc (h *Handler) Use(value int) {}\nvar handler Handler\n", "(*Handler).Use(&handler, 1)", "Use(*Handler, value int)", 1},
-				{"PromotedMethodExpression", "type Base struct{}\nfunc (b Base) Use(value int) {}\ntype Handler struct { Base }\nvar handler Handler\n", "(Handler.Use)(handler, 1)", "Use(Handler, value int)", 1},
-				{"InterfaceMethodExpression", "type Handler interface { Use(value int) }\nvar handler Handler\n", "Handler.Use(handler, 1)", "Use(Handler, value int)", 1},
-				{"MethodExpressionValue", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\nvar use = Handler.Use\n", "use(handler, 1)", "use(Handler, value int)", 1},
-				{"MethodValue", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\nvar use = handler.Use\n", "use(1)", "use(value int)", 0},
+				{"MethodExpression", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+`, "Handler.Use(handler, 1)", "Use(Handler, value int)", 1},
+				{"PointerMethodExpression", `type Handler struct{}
+func (h *Handler) Use(value int) {}
+var handler Handler
+`, "(*Handler).Use(&handler, 1)", "Use(*Handler, value int)", 1},
+				{"PromotedMethodExpression", `type Base struct{}
+func (b Base) Use(value int) {}
+type Handler struct { Base }
+var handler Handler
+`, "(Handler.Use)(handler, 1)", "Use(Handler, value int)", 1},
+				{"InterfaceMethodExpression", `type Handler interface { Use(value int) }
+var handler Handler
+`, "Handler.Use(handler, 1)", "Use(Handler, value int)", 1},
+				{"MethodExpressionValue", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+var use = Handler.Use
+`, "use(handler, 1)", "use(Handler, value int)", 1},
+				{"MethodValue", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+var use = handler.Use
+`, "use(1)", "use(value int)", 0},
 				{"Tuple", "func use(first string, value int) {}\n", "use((\"first\", 1))", "use(first string, value int)", 1},
 				{"TupleFunctionValue", "var use = func(first string, value int) {}\n", "use((\"first\", 1))", "use(first string, value int)", 1},
-				{"TupleMethodExpression", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\n", "Handler.Use((handler, 1))", "Use(Handler, value int)", 1},
-				{"BoundMethod", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler Handler\n", "handler.Use(1)", "Use(value int)", 0},
-				{"DereferencedReceiver", "type Handler struct{}\nfunc (h Handler) Use(value int) {}\nvar handler *Handler\n", "(*handler).Use(1)", "Use(value int)", 0},
+				{"TupleMethodExpression", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+`, "Handler.Use((handler, 1))", "Use(Handler, value int)", 1},
+				{"BoundMethod", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler Handler
+`, "handler.Use(1)", "Use(value int)", 0},
+				{"DereferencedReceiver", `type Handler struct{}
+func (h Handler) Use(value int) {}
+var handler *Handler
+`, "(*handler).Use(1)", "Use(value int)", 0},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
 					files := map[string][]byte{"functions.xgo": []byte(tt.declarations), kind.filename: []byte(tt.call + "\n")}
@@ -230,10 +274,20 @@ func TestServerCallExpressionBoundaries(t *testing.T) {
 		{"FunctionValueIdentifier", "var use func(value int)\n_ = u|se\n", "use(value int)"},
 		{"DeclaredNoParameters", "func use() {}\nuse(|)\n", "use()"},
 		{"AnonymousNoParameters", "func factory() func() { return nil }\nfactory()(|)\n", "func()"},
-		{"MethodExpressionNoParameters", "type Handler struct{}\nvar handler Handler\nfunc (h Handler) Use() {}\nHandler.Use(|handler)\n", "Use(Handler)"},
+		{"MethodExpressionNoParameters", `type Handler struct{}
+var handler Handler
+func (h Handler) Use() {}
+Handler.Use(|handler)
+`, "Use(Handler)"},
 		{"BlankParameter", "var use func(_ int)\nuse(|1)\n", "use(_ int)"},
-		{"FunctionConversion", "type Callback func(value int)\nvar callback Callback\n_ = Callback(|callback)\n", ""},
-		{"ParenthesizedConversion", "type Callback func(value int)\nvar callback Callback\n_ = (Callback)(|callback)\n", ""},
+		{"FunctionConversion", `type Callback func(value int)
+var callback Callback
+_ = Callback(|callback)
+`, ""},
+		{"ParenthesizedConversion", `type Callback func(value int)
+var callback Callback
+_ = (Callback)(|callback)
+`, ""},
 		{"Builtin", "_ = len(|\"value\")\n", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -507,8 +561,11 @@ use []
 
 func TestServerGotoCall(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{
-		"functions.xgo": []byte("func Goto(value int) {}\nvar target int\nvar targetText string\n"),
-		"main.xgo":      []byte("goto target\n"),
+		"functions.xgo": []byte(`func Goto(value int) {}
+var target int
+var targetText string
+`),
+		"main.xgo": []byte("goto target\n"),
 	})
 	s.replier = newMockReplier()
 	_, err := s.requestProject().TypeInfo()
@@ -553,7 +610,10 @@ func TestServerGotoCall(t *testing.T) {
 	assert.NotContains(t, labels, "targetText")
 
 	// A new snapshot with a real label must not retain the previous call.
-	s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("goto target\ntarget:\nprintln 1\n"), Version: 2}})
+	s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`goto target
+target:
+println 1
+`), Version: 2}})
 	_, err = s.requestProject().TypeInfo()
 	require.NoError(t, err)
 	params.Position.Character = 7
@@ -576,9 +636,27 @@ func TestServerCallExpressionRename(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"Decorator", "func Re|try(times int, fn func()) {}\n@retry(2)\nfunc run() {}\n", "func attempt(times int, fn func()) {}\n@attempt(2)\nfunc run() {}\n"},
-		{"DecoratorWithoutArguments", "func Re|try(fn func()) {}\n@retry\nfunc run() {}\n", "func attempt(fn func()) {}\n@attempt\nfunc run() {}\n"},
-		{"Goto", "func Go|to(value int) {}\nvar target int\ngoto target\n", "func attempt(value int) {}\nvar target int\nattempt target\n"},
+		{"Decorator", `func Re|try(times int, fn func()) {}
+@retry(2)
+func run() {}
+`, `func attempt(times int, fn func()) {}
+@attempt(2)
+func run() {}
+`},
+		{"DecoratorWithoutArguments", `func Re|try(fn func()) {}
+@retry
+func run() {}
+`, `func attempt(fn func()) {}
+@attempt
+func run() {}
+`},
+		{"Goto", `func Go|to(value int) {}
+var target int
+goto target
+`, `func attempt(value int) {}
+var target int
+attempt target
+`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -607,10 +685,15 @@ func TestServerTupleCallBoundaries(t *testing.T) {
 		wantSlots    int
 	}{
 		{"SingleTupleParameter", "func use(pair (int, string)) {}\n", "use((1, \"value\"))", 1, 2},
-		{"TupleAndKwarg", "type Options struct { Count int }\nfunc use(pair (int, string), opts Options?) {}\n", "use((1, \"value\"), count = 2)", 1, 3},
+		{"TupleAndKwarg", `type Options struct { Count int }
+func use(pair (int, string), opts Options?) {}
+`, "use((1, \"value\"), count = 2)", 1, 3},
 		{"TupleAndOtherParameter", "func use(pair (int, string), count int) {}\n", "use((1, \"value\"), 2)", 2, 3},
 		{"Decorator", "func use(pair (int, string), fn func()) {}\n", "@use((1, \"value\"))\nfunc run() {}", 1, 2},
-		{"Overload", "func integers(first int, second int) {}\nfunc strings(first string, second string) {}\nfunc use = (integers, strings)\n", "use((1, 2))", 2, 2},
+		{"Overload", `func integers(first int, second int) {}
+func strings(first string, second string) {}
+func use = (integers, strings)
+`, "use((1, 2))", 2, 2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"functions.xgo": []byte(tt.declarations), "main.xgo": []byte(tt.call + "\n")})

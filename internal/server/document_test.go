@@ -70,7 +70,9 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 	})
 
 	t.Run("OtherFrameworkWithSpxExtension", func(t *testing.T) {
-		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte("var Count = 1\nCount = 2\n")})
+		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte(`var Count = 1
+Count = 2
+`)})
 		proj := s.workspaceRootFS
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -98,7 +100,9 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 			{name: "WorkClass", filename: "Worker_fixture.gox", owner: "Worker.", newServer: newFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{tt.filename: []byte("var Count int\nCount = 1\n")}
+				files := map[string][]byte{tt.filename: []byte(`var Count int
+Count = 1
+`)}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
@@ -120,8 +124,12 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 
 	t.Run("CrossFileClassSymbols", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox":   []byte("var Count int\n"),
-			"Worker_fixture.gox": []byte("onValue value => {\n    Count = value\n    apply Count\n}\n"),
+			"main_fixture.gox": []byte("var Count int\n"),
+			"Worker_fixture.gox": []byte(`onValue value => {
+    Count = value
+    apply Count
+}
+`),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -151,7 +159,11 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 		for _, name := range []string{"WithDocumentation", "MissingDocumentation"} {
 			t.Run(name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{
-					"main.xgo": []byte("import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\nvar number int128\n"),
+					"main.xgo": []byte(`import "example.com/framework"
+var item framework.Item
+item.apply 1
+var number int128
+`),
 				})
 				if name == "MissingDocumentation" {
 					s.lookupPkgDoc = func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist }
@@ -177,7 +189,11 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 
 	t.Run("FrameworkCalls", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("measure 1\nmeasure \"one\"\ncreate int, \"item\"\nrunWhen true, => {}\n"),
+			"main_fixture.gox": []byte(`measure 1
+measure "one"
+create int, "item"
+runWhen true, => {}
+`),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
 		require.NoError(t, err)
@@ -204,7 +220,10 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 
 	t.Run("CrossFileEnumMembers", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"types.xgo":        []byte("type Color const (\n    Red = iota\n)\n"),
+			"types.xgo": []byte(`type Color const (
+    Red = iota
+)
+`),
 			"main_fixture.gox": []byte("var color Color = Red\n"),
 		})
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -229,7 +248,10 @@ func TestServerTextDocumentDocumentLink(t *testing.T) {
 			newServer testServerFactory
 		}{
 			{
-				name: "Synthetic", filename: "main_fixture.gox", source: "onStart => {\n    _ = this\n}\n",
+				name: "Synthetic", filename: "main_fixture.gox", source: `onStart => {
+    _ = this
+}
+`,
 				want: []DocumentLink{{
 					Range: Range{Start: Position{}, End: Position{Character: 7}}, Target: toURI("xgo:example.com/framework?App.onStart"),
 				}},
@@ -317,8 +339,16 @@ func run() {
 	})
 
 	t.Run("OverloadKwargs", func(t *testing.T) {
-		const fields = "type Record struct { Count int }\ntype Adapter Record\n"
-		const overloads = "func configureInt(prefix int, opts Record?) {}\nfunc configureString(prefix string, opts Adapter?) {}\nfunc configure = (\nconfigureInt\nconfigureString\n)\n"
+		const fields = `type Record struct { Count int }
+type Adapter Record
+`
+		const overloads = `func configureInt(prefix int, opts Record?) {}
+func configureString(prefix string, opts Adapter?) {}
+func configure = (
+configureInt
+configureString
+)
+`
 		const methods = `type Params interface { Count(n int) Params }
 type Client struct{}
 func (c Client) Params() Params { return nil }
@@ -406,7 +436,9 @@ configure count = value
 
 	t.Run("MapKwarg", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("func configure(opts map[string]int?) {}\nconfigure count = 1\n"),
+			"main.xgo": []byte(`func configure(opts map[string]int?) {}
+configure count = 1
+`),
 		})
 		_, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
@@ -428,14 +460,19 @@ configure count = value
 	})
 
 	t.Run("DocumentUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("var Before int\nBefore = 1\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`var Before int
+Before = 1
+`)})
 		params := &DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
 		before, err := s.textDocumentDocumentLink(params)
 		require.NoError(t, err)
 		assert.Contains(t, before, DocumentLink{
 			Range: Range{Start: Position{Line: 1}, End: Position{Line: 1, Character: 6}}, Target: toURI("xgo:main?Before"),
 		})
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("\nvar After string\nAfter = missing\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`
+var After string
+After = missing
+`), Version: 1}})
 		after, err := s.textDocumentDocumentLink(params)
 		require.NoError(t, err)
 		typeInfo, err := s.workspaceRootFS.TypeInfo()
@@ -449,7 +486,9 @@ configure count = value
 	})
 
 	t.Run("ParseError", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("const (\n    Count = 1\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`const (
+    Count = 1
+`)})
 		astFile, err := s.workspaceRootFS.ASTFile("main.xgo")
 		require.Error(t, err)
 		require.NotNil(t, astFile)

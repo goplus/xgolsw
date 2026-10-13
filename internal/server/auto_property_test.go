@@ -89,7 +89,10 @@ func (a *App) Label__1() string { return "" }
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, "func run() {\nuse |\"text\"\n}\n")
+			source, pos := typeDisplayTestSource(t, `func run() {
+use |"text"
+}
+`)
 			s := newImportTestServer(t, map[string][]byte{
 				"main_fixture.gox": []byte(source),
 				"globals.xgo":      []byte("func Use(value string) {}\n"),
@@ -110,7 +113,10 @@ func (a *App) Label__1() string { return "" }
 					name = "Selector"
 					placeholder = "this.Label"
 					prefix = "this."
-					source, pos = typeDisplayTestSource(t, "func run() {\nuse this.|Label\n}\n")
+					source, pos = typeDisplayTestSource(t, `func run() {
+use this.|Label
+}
+`)
 					version++
 					s.ModifyFiles([]FileChange{{Path: "main_fixture.gox", Content: []byte(source), Version: version}})
 				}
@@ -190,7 +196,10 @@ func XGot_App_Label[T any](a interface{ Value() T }) T { return a.Value() }
 }
 
 func TestServerAutoPropertyAnalysisIsolation(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, "func run() {\nuse |\"text\"\n}\n")
+	source, pos := typeDisplayTestSource(t, `func run() {
+use |"text"
+}
+`)
 	s := newImportTestServer(t, map[string][]byte{
 		"main_fixture.gox": []byte(source),
 		"globals.xgo":      []byte("func Use(value string) {}\n"),
@@ -257,7 +266,10 @@ func XGot_App_Label[T any](a interface{ Value() T }) T { return a.Value() }
 }
 
 func TestServerCompletionAutoPropertyVoid(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, "func run() {\nthis.|label\n}\n")
+	source, pos := typeDisplayTestSource(t, `func run() {
+this.|label
+}
+`)
 	s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 	setImportTestFrameworkMethods(t, s, "func (a *App) Label() {}\n")
 	_, err := s.requestProject().TypeInfo()

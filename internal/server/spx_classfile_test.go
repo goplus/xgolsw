@@ -63,7 +63,11 @@ func TestServerSpxClassfileResources(t *testing.T) {
 	}
 
 	t.Run("CompletionProjectClass", func(t *testing.T) {
-		source, position := typeDisplayTestSource(t, "var Runner Sprite\nfunc choose() {\n    var target Sprite = R|\n}\n")
+		source, position := typeDisplayTestSource(t, `var Runner Sprite
+func choose() {
+    var target Sprite = R|
+}
+`)
 		s := newSpxTestServer(t, map[string][]byte{
 			"Stage.stage":                      []byte(source),
 			"assets/index.json":                []byte(`{}`),

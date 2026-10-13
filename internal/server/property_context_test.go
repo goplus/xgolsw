@@ -38,11 +38,18 @@ func TestServerCompletionAutoPropertyValueContexts(t *testing.T) {
 		{"Switch", "func Label() string { return \"\" }", "switch label { case |good: }"},
 		{"Index", "func Lookup() map[string]int { return nil }", "_ = lookup[|good]"},
 		{"Send", "func Stream() chan string { return nil }", "stream <- |good"},
-		{"MemberBinary", "type Record struct{}\nfunc (Record) Label() string { return \"\" }\nvar record Record", "_ = record.label == |good"},
-		{"MemberIndex", "type Record struct{}\nfunc (Record) Lookup() map[string]int { return nil }\nvar record Record", "_ = record.lookup[|good]"},
+		{"MemberBinary", `type Record struct{}
+func (Record) Label() string { return "" }
+var record Record`, "_ = record.label == |good"},
+		{"MemberIndex", `type Record struct{}
+func (Record) Lookup() map[string]int { return nil }
+var record Record`, "_ = record.lookup[|good]"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source, pos := typeDisplayTestSource(t, tt.declarations+"\nvar good string\nvar bad []int\nfunc run() { "+tt.body+" }\n")
+			source, pos := typeDisplayTestSource(t, tt.declarations+`
+var good string
+var bad []int
+func run() { `+tt.body+" }\n")
 			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
@@ -55,7 +62,10 @@ func TestServerCompletionAutoPropertyValueContexts(t *testing.T) {
 }
 
 func TestServerXGoGetInputSlotsFunctionVariableAlias(t *testing.T) {
-	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("var Label = func() string { return \"\" }\nfunc Use(value string) {}\nuse label\n")})
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`var Label = func() string { return "" }
+func Use(value string) {}
+use label
+`)})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
 	slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
@@ -66,7 +76,11 @@ func TestServerXGoGetInputSlotsFunctionVariableAlias(t *testing.T) {
 }
 
 func TestServerXGoGetInputSlotsWritableNames(t *testing.T) {
-	s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte("var count int\nconst Limit = 1\nfunc Value() int { return 1 }\nfunc run() { count = 2 }\n")})
+	s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(`var count int
+const Limit = 1
+func Value() int { return 1 }
+func run() { count = 2 }
+`)})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
 	slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}})
@@ -165,7 +179,11 @@ func TestCollectPredefinedNamesPropertyContexts(t *testing.T) {
 			name = "AddressFirst"
 		}
 		t.Run(name, func(t *testing.T) {
-			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte("var count int\nconst Limit = 1\nfunc Value() int { return 1 }\nfunc run() { use 2 }\n"), "types.xgo": []byte("func Use(value any) {}\n")})
+			s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(`var count int
+const Limit = 1
+func Value() int { return 1 }
+func run() { use 2 }
+`), "types.xgo": []byte("func Use(value any) {}\n")})
 			ctx := inputSlotTestContext(t, s, "main_fixture.gox")
 			expr := inputSlotLiteral(t, ctx, "2")
 			for _, kind := range []XGoInputSlotKind{first, XGoInputSlotKindValue, XGoInputSlotKindAddress, first} {
@@ -279,7 +297,8 @@ func TestServerCompletionFunctionVariableCalls(t *testing.T) {
 		{"ExplicitCall", `var Label = func() string { return "" }`, "La|bel()", "string", "Label"},
 		{"ExplicitCallbackCall", `var Label = func() func() string { return nil }`, "La|bel()", "func() string", "Label"},
 		{"ImplicitCallbackCall", `var Label = func() func() string { return nil }`, "|label", "func() string", "label"},
-		{"FunctionField", "type Record struct { Label func() string }\nvar record Record", "record.|Label", "func() string", "Label"},
+		{"FunctionField", `type Record struct { Label func() string }
+var record Record`, "record.|Label", "func() string", "Label"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.declarations+"\nfunc run() { use "+tt.expression+" }\n")

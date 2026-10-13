@@ -22,7 +22,11 @@ configureText value = "text"
 echo other.Value
 }
 `),
-		"other.xgo": []byte("import f \"example.com/first/internal/base\"\nfunc extra(c f.Box[bool]) {\necho c.Value\n}\n"),
+		"other.xgo": []byte(`import f "example.com/first/internal/base"
+func extra(c f.Box[bool]) {
+echo c.Value
+}
+`),
 	})
 	_, err := s.requestProject().TypeInfo()
 	require.NoError(t, err)
@@ -255,27 +259,49 @@ client.Params()
 			{
 				name: "PromotedMethod", filename: "worker.xgo", receiver: "Base", newServer: newTestServer, implements: true,
 				extraMethods: "Stop()",
-				source:       "type Base struct{}\nfunc (Base) Run() {}\ntype Worker struct { Base }\nfunc (Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Worker struct { Base }
+func (Worker) Stop() {}
+`,
 			},
 			{
 				name: "PromotedPointerMethod", filename: "worker.xgo", receiver: "*Base", newServer: newTestServer, implements: true,
 				extraMethods: "Stop()",
-				source:       "type Base struct{}\nfunc (*Base) Run() {}\ntype Worker struct { *Base }\nfunc (*Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (*Base) Run() {}
+type Worker struct { *Base }
+func (*Worker) Stop() {}
+`,
 			},
 			{
 				name: "LocalPromotedMethod", filename: "worker.xgo", receiver: "Base", newServer: newTestServer, implements: true,
 				extraMethods: "Stop()", localTypes: "type Worker struct { Base; Stopper }\n",
-				source: "type Base struct{}\nfunc (Base) Run() {}\ntype Stopper struct{}\nfunc (Stopper) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Stopper struct{}
+func (Stopper) Stop() {}
+`,
 			},
 			{
 				name: "ShadowedMethod", filename: "worker.xgo", receiver: "Base", newServer: newTestServer,
 				extraMethods: "Stop()",
-				source:       "type Base struct{}\nfunc (Base) Run() {}\ntype Worker struct { Base; Run int }\nfunc (Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Worker struct { Base; Run int }
+func (Worker) Stop() {}
+`,
 			},
 			{
 				name: "AmbiguousMethod", filename: "worker.xgo", receiver: "Base", newServer: newTestServer,
 				extraMethods: "Stop()",
-				source:       "type Base struct{}\nfunc (Base) Run() {}\ntype Other struct{}\nfunc (Other) Run() {}\ntype Worker struct { Base; Other }\nfunc (Worker) Stop() {}\n",
+				source: `type Base struct{}
+func (Base) Run() {}
+type Other struct{}
+func (Other) Run() {}
+type Worker struct { Base; Other }
+func (Worker) Stop() {}
+`,
 			},
 			{
 				name: "LocalInterface", filename: "worker.xgo", receiver: "*Worker", newServer: newTestServer, implements: true,
@@ -284,10 +310,16 @@ client.Params()
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := "func use(worker " + tt.receiver + ", runner Runner) {\n" + tt.localTypes + "worker.run()\nrunner.run()\n}\n"
+				source := "func use(worker " + tt.receiver + ", runner Runner) {\n" + tt.localTypes + `worker.run()
+runner.run()
+}
+`
 				// Use a local interface in place of the package interface.
 				if tt.name == "LocalInterface" {
-					source = "func use(worker " + tt.receiver + ") {\n" + tt.localTypes + "worker.run()\nrunner.run()\n}\n"
+					source = "func use(worker " + tt.receiver + ") {\n" + tt.localTypes + `worker.run()
+runner.run()
+}
+`
 				}
 				files := map[string][]byte{
 					tt.filename:     []byte(tt.source),
@@ -336,7 +368,9 @@ client.Params()
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				tt.filename: []byte("var value int\nfunc use() { println(value) }\n"),
+				tt.filename: []byte(`var value int
+func use() { println(value) }
+`),
 			})
 			uri := s.toDocumentURI(tt.filename)
 			refs, err := s.textDocumentReferences(&ReferenceParams{
@@ -394,7 +428,9 @@ client.Params()
 
 	t.Run("FileUpdatesWithTypeErrors", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.xgo": []byte("var value int\nfunc use() { println(value) }\n"),
+			"main.xgo": []byte(`var value int
+func use() { println(value) }
+`),
 		}
 		s := newTestServer(t, files)
 		params := &ReferenceParams{
@@ -773,9 +809,23 @@ func TestServerTextDocumentReferencesMethodRelations(t *testing.T) {
 	} {
 		t.Run(kind.name, func(t *testing.T) {
 			for _, marked := range []string{
-				"type Reader interface { Read() int }\ntype Other interface { Read() int }\nfunc use(reader Reader, other Other) { println reader.|Read(), other.|Read() }\n",
-				"type Reader interface { Read() int }\ntype Other interface { Reader; Read() int }\nfunc use(reader Reader, other Other) { println reader.|Read(), other.|Read() }\n",
-				"type Reader interface { Read() int }\ntype Closer interface { Read() int; Close() }\ntype Value struct{}\nfunc (Value) Read() int { return 1 }\nfunc (Value) Close() {}\ntype Other struct{}\nfunc (Other) Read() int { return 1 }\nfunc use(reader Reader, closer Closer) { println reader.|Read(), closer.|Read(), Value{}.|Read(), Other{}.|Read() }\n",
+				`type Reader interface { Read() int }
+type Other interface { Read() int }
+func use(reader Reader, other Other) { println reader.|Read(), other.|Read() }
+`,
+				`type Reader interface { Read() int }
+type Other interface { Reader; Read() int }
+func use(reader Reader, other Other) { println reader.|Read(), other.|Read() }
+`,
+				`type Reader interface { Read() int }
+type Closer interface { Read() int; Close() }
+type Value struct{}
+func (Value) Read() int { return 1 }
+func (Value) Close() {}
+type Other struct{}
+func (Other) Read() int { return 1 }
+func use(reader Reader, closer Closer) { println reader.|Read(), closer.|Read(), Value{}.|Read(), Other{}.|Read() }
+`,
 			} {
 				parts := strings.Split(marked, "|")
 				source := strings.Join(parts, "")

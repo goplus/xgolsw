@@ -33,7 +33,10 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 					{name: "BetweenArguments", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 12}, End: Position{Line: 2, Character: 14}}},
 					{name: "Empty", call: "combine \"\U0001f600\", 2", rng: Range{Start: Position{Line: 2, Character: 14}, End: Position{Line: 2, Character: 14}}},
 					{name: "NestedCall", call: "combine \"\U0001f600\", pick(2)", rng: Range{Start: Position{Line: 2, Character: 19}, End: Position{Line: 2, Character: 20}}, want: []InlayHint{{Position: Position{Line: 2, Character: 19}, Label: "index", Kind: Parameter}}},
-					{name: "MultipleLines", call: "combine(\n\"text\",\n2,\n)", rng: Range{Start: Position{Line: 4}, End: Position{Line: 5}}, want: []InlayHint{{Position: Position{Line: 4}, Label: "second", Kind: Parameter}}},
+					{name: "MultipleLines", call: `combine(
+"text",
+2,
+)`, rng: Range{Start: Position{Line: 4}, End: Position{Line: 5}}, want: []InlayHint{{Position: Position{Line: 4}, Label: "second", Kind: Parameter}}},
 				} {
 					t.Run(tt.name, func(t *testing.T) {
 						files := map[string][]byte{kind.filename: []byte("func combine(first string, second int) {}\nfunc pick(index int) int { return index }\n" + tt.call + "\n")}
@@ -81,8 +84,15 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 
 	t.Run("FrameworkMethods", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox":   []byte("onStart => {\n    Worker.apply 3\n    _ = create(Item, \"sample\")\n}\n"),
-			"Worker_fixture.gox": []byte("onValue amount => {\n    apply amount\n}\n"),
+			"main_fixture.gox": []byte(`onStart => {
+    Worker.apply 3
+    _ = create(Item, "sample")
+}
+`),
+			"Worker_fixture.gox": []byte(`onValue amount => {
+    apply amount
+}
+`),
 		})
 		for _, tt := range []struct {
 			filename string
@@ -116,7 +126,11 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 
 	t.Run("SpecificRange", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("func use(value int) {}\nuse 1\nuse 2\nuse 3\n"),
+			"main.xgo": []byte(`func use(value int) {}
+use 1
+use 2
+use 3
+`),
 		})
 		hints, err := s.textDocumentInlayHint(&InlayHintParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
@@ -165,7 +179,9 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 		require.NoError(t, err)
 
 		s.ModifyFiles([]FileChange{
-			{Path: "functions.xgo", Content: []byte("func combine(value int, label string) {}\nfunc broken() { missing() }\n"), Version: 1},
+			{Path: "functions.xgo", Content: []byte(`func combine(value int, label string) {}
+func broken() { missing() }
+`), Version: 1},
 			{Path: "main.xgo", Content: []byte("\ncombine 1, \"x\"\n"), Version: 1},
 		})
 		hints, err = s.textDocumentInlayHint(params)
@@ -193,8 +209,10 @@ func TestServerTextDocumentInlayHint(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
-				"main.xgo":  []byte(tt.source),
-				"notes.txt": []byte("func use(value int) {}\nuse 1\n"),
+				"main.xgo": []byte(tt.source),
+				"notes.txt": []byte(`func use(value int) {}
+use 1
+`),
 			})
 			hints, err := s.textDocumentInlayHint(&InlayHintParams{
 				TextDocument: TextDocumentIdentifier{URI: tt.uri},
@@ -404,8 +422,12 @@ func TestCollectInlayHints(t *testing.T) {
 		want   []InlayHint
 	}{
 		{
-			name:   "NamedParameters",
-			source: "func mix(count int, label string, enabled bool) {}\nfunc main() {\n    mix 1, \"text\", true\n}\n",
+			name: "NamedParameters",
+			source: `func mix(count int, label string, enabled bool) {}
+func main() {
+    mix 1, "text", true
+}
+`,
 			want: []InlayHint{
 				{Position: Position{Line: 2, Character: 8}, Label: "count", Kind: Parameter},
 				{Position: Position{Line: 2, Character: 11}, Label: "label", Kind: Parameter},
@@ -413,16 +435,26 @@ func TestCollectInlayHints(t *testing.T) {
 			},
 		},
 		{
-			name:   "BuiltinAndImportedFunctions",
-			source: "import \"fmt\"\nfunc main() {\n    println \"hello\"\n    fmt.Println(\"world\")\n}\n",
+			name: "BuiltinAndImportedFunctions",
+			source: `import "fmt"
+func main() {
+    println "hello"
+    fmt.Println("world")
+}
+`,
 			want: []InlayHint{
 				{Position: Position{Line: 2, Character: 12}, Label: "a...", Kind: Parameter},
 				{Position: Position{Line: 3, Character: 16}, Label: "a...", Kind: Parameter},
 			},
 		},
 		{
-			name:   "LambdaExpressionsSkipped",
-			source: "func visit(count int, callback func()) {}\nfunc main() {\n    visit 1, => {}\n    visit 2, () => {}\n}\n",
+			name: "LambdaExpressionsSkipped",
+			source: `func visit(count int, callback func()) {}
+func main() {
+    visit 1, => {}
+    visit 2, () => {}
+}
+`,
 			want: []InlayHint{
 				{Position: Position{Line: 2, Character: 10}, Label: "count", Kind: Parameter},
 				{Position: Position{Line: 3, Character: 10}, Label: "count", Kind: Parameter},
@@ -445,7 +477,11 @@ func TestCollectInlayHints(t *testing.T) {
 
 	t.Run("RangeFiltering", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
-			"main.xgo": []byte("func use(value int) {}\nuse 1\nuse 2\nuse 3\n"),
+			"main.xgo": []byte(`func use(value int) {}
+use 1
+use 2
+use 3
+`),
 		})
 		proj := s.syncProject()
 		astFile, err := proj.ASTFile("main.xgo")

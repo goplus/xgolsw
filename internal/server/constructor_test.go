@@ -55,8 +55,13 @@ func TestNew(t *testing.T) {
 			filename := "main_" + name + ".gox"
 			pkgPath := "example.com/" + name
 			files := map[string][]byte{
-				filename:      []byte("onStart => {\n\n}\n"),
-				"imports.xgo": []byte("import \"example.com/framework\"\nvar _ framework.Item\n"),
+				filename: []byte(`onStart => {
+
+}
+`),
+				"imports.xgo": []byte(`import "example.com/framework"
+var _ framework.Item
+`),
 			}
 			proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 			proj.PkgPath = "main"
@@ -135,7 +140,11 @@ func TestNew(t *testing.T) {
 func TestNewTestServer(t *testing.T) {
 	t.Run("NoFrameworkDependencies", func(t *testing.T) {
 		files := map[string][]byte{
-			"main.xgo": []byte("import \"strings\"\nvar Count = len(strings.ToUpper(\"text\"))\nCount = 2\n\n"),
+			"main.xgo": []byte(`import "strings"
+var Count = len(strings.ToUpper("text"))
+Count = 2
+
+`),
 		}
 		plain := newTestServer(t, files)
 		check := func(s *Server) {
@@ -169,8 +178,13 @@ func TestNewTestServer(t *testing.T) {
 		check(plain)
 
 		frameworkServer := newFrameworkTestServer(t, map[string][]byte{
-			"main_fixture.gox": []byte("onStart => {\n\n}\n"),
-			"imports.xgo":      []byte("import \"example.com/framework\"\nvar _ framework.Item\n"),
+			"main_fixture.gox": []byte(`onStart => {
+
+}
+`),
+			"imports.xgo": []byte(`import "example.com/framework"
+var _ framework.Item
+`),
 		})
 		_, err := frameworkServer.getProj().TypeInfo()
 		require.NoError(t, err)

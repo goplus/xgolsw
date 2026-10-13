@@ -21,8 +21,10 @@ func newAnalysisTestServer(t testing.TB) (*Server, *atomic.Int32) {
 	t.Helper()
 
 	s := newFrameworkTestServer(t, map[string][]byte{
-		"main_fixture.gox": []byte("func use(name string) {}\nuse \"Known\"\n"),
-		"resources.txt":    []byte("Known"),
+		"main_fixture.gox": []byte(`func use(name string) {}
+use "Known"
+`),
+		"resources.txt": []byte("Known"),
 	})
 	builds := new(atomic.Int32)
 	s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
@@ -142,7 +144,9 @@ func TestAnalyzeFrameworkCache(t *testing.T) {
 	t.Run("ReferencedConstantChanges", func(t *testing.T) {
 		s, _ := newAnalysisTestServer(t)
 		proj := s.getProj()
-		proj.PutFile("main_fixture.gox", &xgo.File{Content: []byte("func use(name string) {}\nuse Selected\n")})
+		proj.PutFile("main_fixture.gox", &xgo.File{Content: []byte(`func use(name string) {}
+use Selected
+`)})
 		proj.PutFile("names.xgo", &xgo.File{Content: []byte("const Selected = \"Known\"\n")})
 		files := maps.Collect(proj.Files())
 		files["names.xgo"] = &xgo.File{Content: files["names.xgo"].Content, ModTime: time.Unix(1, 0)}

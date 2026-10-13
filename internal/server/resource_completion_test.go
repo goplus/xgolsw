@@ -24,7 +24,9 @@ func TestCompletionContextCollectResourceNames(t *testing.T) {
 			{"RawWithBacktick", "echo `re|source`\n", "A`B"},
 			{"RawWithDollar", "echo `re|source`\n", "$name"},
 			{"UTF16", "echo \"\U0001f600\", \"re|source\"\r\n", "\U0001f600"},
-			{"LineDirective", "//line virtual.xgo:100:20\necho \"re|source\"\n", "Studio"},
+			{"LineDirective", `//line virtual.xgo:100:20
+echo "re|source"
+`, "Studio"},
 			{"RawCarriageReturn", "echo `re\rs|ource`\n", "Studio"},
 			{"RawUnterminated", "echo `re|", "Studio"},
 			{"RawUnterminatedCR", "echo `re\r\rsource|", "Studio"},

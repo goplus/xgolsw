@@ -138,7 +138,11 @@ type RecordList = []Record
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{
-					"main_fixture.gox": []byte("import \"fmt\"\nvar Count int\nCount = 1\n\n"),
+					"main_fixture.gox": []byte(`import "fmt"
+var Count int
+Count = 1
+
+`),
 				})
 				importer := &completionTestImporter{Importer: s.getProj().Importer}
 				s.getProj().Importer = importer
@@ -170,7 +174,11 @@ type RecordList = []Record
 			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", owner: "App.", newServer: newFrameworkTestServerWithSpxExtension},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				files := map[string][]byte{tt.filename: []byte("// Count documentation.\nvar Count int\nCount = 1\n\n")}
+				files := map[string][]byte{tt.filename: []byte(`// Count documentation.
+var Count int
+Count = 1
+
+`)}
 				if tt.name == "WorkClass" {
 					files["main_fixture.gox"] = nil
 				}
@@ -223,7 +231,10 @@ type RecordList = []Record
 			position Position
 		}{
 			{name: "ImplicitReceiver", filename: "main_fixture.gox", source: "onStart => {\n\n}\n", position: Position{Line: 1}},
-			{name: "ExplicitReceiver", filename: "main.xgo", source: "import \"example.com/framework\"\nvar app framework.App\napp.measure(1)\n", position: Position{Line: 2, Character: 5}},
+			{name: "ExplicitReceiver", filename: "main.xgo", source: `import "example.com/framework"
+var app framework.App
+app.measure(1)
+`, position: Position{Line: 2, Character: 5}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newFrameworkTestServer(t, map[string][]byte{tt.filename: []byte(tt.source)})
@@ -288,7 +299,10 @@ type RecordList = []Record
 				} {
 					t.Run(tt.name, func(t *testing.T) {
 						files := map[string][]byte{"main_fixture.gox": nil}
-						files[sourceKind.filename] = []byte("func run() {\n\n}\n")
+						files[sourceKind.filename] = []byte(`func run() {
+
+}
+`)
 						mod := testframework.NewModule(t)
 						if tt.withMath {
 							framework, ok := mod.LookupClass("_fixture.gox")
@@ -430,31 +444,48 @@ func main() {
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Doc: text}
 				}, newServer: newFrameworkTestServer},
-			{name: "PackageType", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "Item", pkgPath: testframework.PkgPath,
+			{name: "PackageType", source: `import "example.com/framework"
+framework.
+`, position: Position{Line: 1, Character: 10}, label: "Item", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Doc: text}}}
 				}, newServer: newFrameworkTestServer},
-			{name: "PackageConstant", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "Low", pkgPath: testframework.PkgPath,
+			{name: "PackageConstant", source: `import "example.com/framework"
+framework.
+`, position: Position{Line: 1, Character: 10}, label: "Low", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Consts: map[string]string{"Low": text}}
 				}, newServer: newFrameworkTestServer},
-			{name: "PackageFunction", source: "import \"example.com/framework\"\nframework.\n", position: Position{Line: 1, Character: 10}, label: "runWhen", pkgPath: testframework.PkgPath,
+			{name: "PackageFunction", source: `import "example.com/framework"
+framework.
+`, position: Position{Line: 1, Character: 10}, label: "runWhen", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Funcs: map[string]string{"RunWhen": text}}
 				}, newServer: newFrameworkTestServer},
-			{name: "StructField", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.\n", position: Position{Line: 2, Character: 5}, label: "Value", pkgPath: testframework.PkgPath,
+			{name: "StructField", source: `import "example.com/framework"
+var item framework.Item
+item.
+`, position: Position{Line: 2, Character: 5}, label: "Value", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Fields: map[string]string{"Value": text}}}}
 				}, newServer: newFrameworkTestServer},
-			{name: "StructMethod", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.\n", position: Position{Line: 2, Character: 5}, label: "apply", pkgPath: testframework.PkgPath,
+			{name: "StructMethod", source: `import "example.com/framework"
+var item framework.Item
+item.
+`, position: Position{Line: 2, Character: 5}, label: "apply", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Methods: map[string]string{"Apply": text}}}}
 				}, newServer: newFrameworkTestServer},
-			{name: "StructLiteralField", source: "import \"example.com/framework\"\nitem := framework.Item{}\n", position: Position{Line: 1, Character: 23}, label: "Value", pkgPath: testframework.PkgPath,
+			{name: "StructLiteralField", source: `import "example.com/framework"
+item := framework.Item{}
+`, position: Position{Line: 1, Character: 23}, label: "Value", pkgPath: testframework.PkgPath,
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Item": {Fields: map[string]string{"Value": text}}}}
 				}, newServer: newFrameworkTestServer},
-			{name: "InterfaceMethod", source: "import \"fmt\"\nvar s fmt.Stringer\ns.\n", position: Position{Line: 2, Character: 2}, label: "string", pkgPath: "fmt",
+			{name: "InterfaceMethod", source: `import "fmt"
+var s fmt.Stringer
+s.
+`, position: Position{Line: 2, Character: 2}, label: "string", pkgPath: "fmt",
 				newDoc: func(text string) *pkgdoc.PkgDoc {
 					return &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{"Stringer": {Methods: map[string]string{"String": text}}}}
 				}, newServer: newTestServer},
@@ -504,7 +535,11 @@ func main() {
 	})
 
 	t.Run("DocumentUpdates", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// Before update.\nvar count int\ncount = 1\n\n")})
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`// Before update.
+var count int
+count = 1
+
+`)})
 		items := completionItemsAt(t, s, "main.xgo", Position{Line: 3})
 		before := completionItemByLabel(items, "count")
 		require.NotNil(t, before)
@@ -512,7 +547,11 @@ func main() {
 		assert.Contains(t, beforeDoc.Value, "Before update.")
 		assert.Contains(t, beforeDoc.Value, "var count int")
 
-		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("// After update.\nvar count string\ncount = \"\"\n\n"), Version: 1}})
+		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(`// After update.
+var count string
+count = ""
+
+`), Version: 1}})
 		items = completionItemsAt(t, s, "main.xgo", Position{Line: 3})
 		after := completionItemByLabel(items, "count")
 		require.NotNil(t, after)
@@ -1030,7 +1069,12 @@ func TestServerTextDocumentCompletionComprehensionScopes(t *testing.T) {
 		{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
 	} {
 		t.Run(kind.name, func(t *testing.T) {
-			const source = "var shared int\nfunc label(n int) string { return \"\" }\nfunc run() {\nprintln [label(22) for shared <- []string{label(11)}]\n}\n"
+			const source = `var shared int
+func label(n int) string { return "" }
+func run() {
+println [label(22) for shared <- []string{label(11)}]
+}
+`
 			files := map[string][]byte{kind.filename: []byte(source)}
 			if kind.filename == "Worker_fixture.gox" {
 				files["main_fixture.gox"] = nil

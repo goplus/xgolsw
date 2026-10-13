@@ -31,9 +31,16 @@ func TestNewProject(t *testing.T) {
 	})
 
 	t.Run("ClassFrameworkAndAutoImports", func(t *testing.T) {
-		frameworkConfig := "project main.actor App example.com/framework\nclass -embed -prefix=Actor *.actor Item\nimport f example.com/framework\n"
+		frameworkConfig := `project main.actor App example.com/framework
+class -embed -prefix=Actor *.actor Item
+import f example.com/framework
+`
 		files := map[string]*xgo.File{
-			"main.actor":   {Content: []byte("var (\nCount = measure(1)\nLimit = f.Limit\n)\n")},
+			"main.actor": {Content: []byte(`var (
+Count = measure(1)
+Limit = f.Limit
+)
+`)},
 			"Worker.actor": {Content: []byte("var Count = 1\n")},
 		}
 		options := Options{ClassFrameworkConfig: frameworkConfig, PkgData: testPkgData(t)}
