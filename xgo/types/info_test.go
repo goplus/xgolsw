@@ -29,6 +29,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestInfoTypeOf(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		override gotypes.Type
+	}{
+		{name: "RecordedCallable"},
+		{name: "ImplicitCallResult", override: gotypes.Typ[gotypes.Int]},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ident := &ast.Ident{Name: "get"}
+			signature := gotypes.NewSignatureType(nil, nil, nil, nil,
+				gotypes.NewTuple(gotypes.NewVar(token.NoPos, nil, "", gotypes.Typ[gotypes.Int])), false)
+			function := gotypes.NewFunc(token.NoPos, nil, "get", signature)
+			info := &Info{
+				Info: typesutil.Info{
+					Types: map[ast.Expr]gotypes.TypeAndValue{ident: {Type: signature}},
+					Uses:  map[*ast.Ident]gotypes.Object{ident: function},
+				},
+				ImplicitCallTypes: map[ast.Expr]gotypes.Type{ident: tt.override},
+			}
+			want := gotypes.Type(signature)
+			if tt.override != nil {
+				want = tt.override
+			}
+			assert.Same(t, want, info.TypeOf(ident))
+			assert.Same(t, function, info.ObjectOf(ident))
+			assert.Same(t, signature, info.Types[ident].Type)
+		})
+	}
+
+	t.Run("IdentifierWithoutRecordedExpression", func(t *testing.T) {
+		ident := &ast.Ident{Name: "count"}
+		variable := gotypes.NewVar(token.NoPos, nil, "count", gotypes.Typ[gotypes.Int])
+		info := &Info{Info: typesutil.Info{Uses: map[*ast.Ident]gotypes.Object{ident: variable}}}
+		assert.Same(t, variable.Type(), info.TypeOf(ident))
+	})
+
+	t.Run("UnknownExpression", func(t *testing.T) {
+		assert.Nil(t, new(Info).TypeOf(&ast.Ident{Name: "missing"}))
+	})
+}
+
 func TestInfoRefIdentsFor(t *testing.T) {
 	xVar := gotypes.NewVar(0, nil, "x", gotypes.Typ[gotypes.Int])
 	yVar := gotypes.NewVar(0, nil, "y", gotypes.Typ[gotypes.Int])
@@ -175,6 +217,7 @@ func TestInfoSourceObjectOf(t *testing.T) {
 		assert.Equal(t, []*ast.Ident{candidateUse}, info.RefIdentsFor(candidate))
 		assert.Nil(t, info.SourceObjectOf(&ast.Ident{Name: "missing"}))
 	})
+
 	t.Run("EmbeddedField", func(t *testing.T) {
 		named := gotypes.NewNamed(gotypes.NewTypeName(1, nil, "Record", nil), gotypes.NewStruct(nil, nil), nil)
 		field := gotypes.NewField(10, nil, "Record", named, true)

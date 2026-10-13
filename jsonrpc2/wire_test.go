@@ -60,3 +60,58 @@ func TestIDKindsAreDistinct(t *testing.T) {
 	}
 	assert.Len(t, ids, 2)
 }
+
+func TestMakeID(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		value any
+		want  ID
+	}{
+		{name: "Null"},
+		{name: "Zero", value: float64(0), want: NewIntID(0)},
+		{name: "Number", value: float64(42), want: NewIntID(42)},
+		{name: "NegativeNumber", value: float64(-42), want: NewIntID(-42)},
+		{name: "String", value: "request", want: NewStringID("request")},
+		{name: "EmptyString", value: "", want: NewStringID("")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			id, err := MakeID(tt.value)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, id)
+		})
+	}
+
+	for _, tt := range []struct {
+		name  string
+		value any
+	}{
+		{name: "Bool", value: true},
+		{name: "Object", value: map[string]any{}},
+		{name: "Array", value: []any{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := MakeID(tt.value)
+			require.ErrorIs(t, err, ErrParse)
+		})
+	}
+}
+
+func TestIDFormat(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		id     ID
+		plain  string
+		quoted string
+	}{
+		{name: "Number", id: NewIntID(42), plain: "42", quoted: "#42"},
+		{name: "Zero", id: NewIntID(0), plain: "0", quoted: "#0"},
+		{name: "String", id: NewStringID("request"), plain: "request", quoted: `"request"`},
+		{name: "EmptyString", id: NewStringID(""), quoted: `""`},
+		{name: "EscapedString", id: NewStringID("a\nb"), plain: "a\nb", quoted: `"a\nb"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.plain, fmt.Sprintf("%v", tt.id))
+			assert.Equal(t, tt.quoted, fmt.Sprintf("%q", tt.id))
+		})
+	}
+}
