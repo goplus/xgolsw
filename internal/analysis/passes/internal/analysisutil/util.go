@@ -53,8 +53,7 @@ func MustExtractDoc(content, name string) string {
 //
 //	# Analyzer NAME
 //
-//	MARKER(DOC-FMT): NAME: SUMMARY format is required, where NAME matches
-//	                 the analyzer name and SUMMARY describes its function
+//	NAME: SUMMARY
 //
 //	Full description...
 //
@@ -77,7 +76,7 @@ func MustExtractDoc(content, name string) string {
 // for multiple analyzers, each in its own section.
 // The HTML anchors generated for each heading are predictable.
 //
-// It returns an error if the content was not a valid Go source file
+// It returns an error if the content is not a valid source file
 // containing a package doc comment with a heading of the required
 // form.
 //
@@ -97,10 +96,10 @@ func ExtractDoc(content, name string) (string, error) {
 	if f.Doc == nil {
 		return "", fmt.Errorf("an XGo source file has no package doc comment")
 	}
-	for section := range strings.SplitSeq(f.Doc.Text(), "\n# ") {
+	for section := range strings.SplitSeq(strings.TrimPrefix(f.Doc.Text(), "# "), "\n# ") {
 		if body := strings.TrimPrefix(section, "Analyzer "+name); body != section &&
 			body != "" &&
-			body[0] == '\r' || body[0] == '\n' {
+			(body[0] == '\r' || body[0] == '\n') {
 			body = strings.TrimSpace(body)
 			rest := strings.TrimPrefix(body, name+":")
 			if rest == body {
