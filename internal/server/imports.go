@@ -16,8 +16,8 @@ import (
 )
 
 // fileImports holds the effective package bindings for one source file. Named
-// imports include classfile auto-imports. Members come from classfile lookup
-// packages and explicit dot imports. Cached bindings must not be modified.
+// imports include class framework auto-imports. Members come from class framework
+// lookup packages and explicit dot imports. Cached bindings must not be modified.
 type fileImports struct {
 	named     map[string]*gotypes.PkgName
 	names     []*gotypes.PkgName
@@ -50,13 +50,13 @@ func buildFileImportsCache(proj *xgo.Project) (any, error) {
 func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, file *ast.File) *fileImports {
 	imports := &fileImports{named: make(map[string]*gotypes.PkgName)}
 	if file.IsClass && !file.IsNormalGox {
-		if class, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
-			for _, path := range class.PkgPaths {
+		if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
+			for _, path := range framework.PkgPaths {
 				if pkg, err := proj.Import(path); err == nil {
 					imports.members = append(imports.members, pkg)
 				}
 			}
-			for _, imp := range class.Import {
+			for _, imp := range framework.Import {
 				pkg, err := proj.Import(imp.Path)
 				if err != nil {
 					continue

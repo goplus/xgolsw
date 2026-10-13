@@ -61,10 +61,10 @@ func TestNew(t *testing.T) {
 			proj := xgo.NewProject(nil, newFileMap(files), xgo.FeatAll)
 			proj.PkgPath = "main"
 			mod := testframework.NewModule(t)
-			class := mod.Opt.Projects[0]
-			class.Ext = "_" + name + ".gox"
-			class.FullExt = filename
-			class.Works[0].Ext = class.Ext
+			registration := mod.Opt.Projects[0]
+			registration.Ext = "_" + name + ".gox"
+			registration.FullExt = filename
+			registration.Works[0].Ext = registration.Ext
 			proj.SetModule(newTestModule(t, mod.Module))
 			proj.Importer = testframework.NewImporter(t, proj.Fset)
 			framework, err := proj.Importer.Import(testframework.PkgPath)

@@ -5,7 +5,7 @@ import (
 	"github.com/goplus/xgolsw/xgo"
 )
 
-// buildFrameworkAdapterCache selects symbol semantics from classfile registrations.
+// buildFrameworkAdapterCache selects symbol semantics from class framework registrations.
 // The SDK package must resolve through the project's own importer.
 func buildFrameworkAdapterCache(proj *xgo.Project) (any, error) {
 	symbols := newSpxSymbols(proj)

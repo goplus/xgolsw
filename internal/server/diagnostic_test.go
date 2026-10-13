@@ -687,8 +687,8 @@ func TestServerDiagnosticsAt(t *testing.T) {
 			{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
 			{name: "WorkClass", filename: "Worker_fixture.gox", projectFile: "main_fixture.gox", newServer: newFrameworkTestServer},
 			{name: "OtherFrameworkWithSpxExtension", filename: "main.spx", newServer: newFrameworkTestServerWithSpxExtension},
-			{name: "RegisteredProjectExtension", filename: "First.first", newServer: newClassfileTestServer},
-			{name: "RegisteredWorkExtension", filename: "Worker.firstwork", projectFile: "First.first", newServer: newClassfileTestServer},
+			{name: "RegisteredProjectExtension", filename: "First.first", newServer: newMultiFrameworkTestServer},
+			{name: "RegisteredWorkExtension", filename: "Worker.firstwork", projectFile: "First.first", newServer: newMultiFrameworkTestServer},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{tt.filename: []byte("println missing\n")}

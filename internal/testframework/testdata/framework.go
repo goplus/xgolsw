@@ -1,4 +1,4 @@
-// Package framework provides a minimal classfile framework for language tests.
+// Package framework provides a minimal class framework for language tests.
 package framework
 
 const XGoPackage = true

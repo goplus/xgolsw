@@ -299,9 +299,9 @@ func WorkFunc() {
 func TestProjectIsSourceFile(t *testing.T) {
 	proj := newFrameworkTestProject(t, nil, FeatAll)
 	mod := testframework.NewModule(t)
-	class := mod.Opt.Projects[0]
-	class.Ext = ".fixture"
-	class.Works[0].Ext = ".worker"
+	framework := mod.Opt.Projects[0]
+	framework.Ext = ".fixture"
+	framework.Works[0].Ext = ".worker"
 	proj.SetModule(newTestModule(t, mod.Module))
 	for _, tt := range []struct {
 		name     string
@@ -328,9 +328,9 @@ func TestProjectIsSourceFile(t *testing.T) {
 
 func TestProjectRegisteredClassfiles(t *testing.T) {
 	mod := testframework.NewModule(t)
-	class := mod.Opt.Projects[0]
-	class.Ext = ".fixture"
-	class.Works[0].Ext = ".worker"
+	framework := mod.Opt.Projects[0]
+	framework.Ext = ".fixture"
+	framework.Works[0].Ext = ".worker"
 	require.NoError(t, mod.ImportClasses())
 	proj := newFrameworkTestProjectWithModule(t, map[string]*File{
 		"src/main.fixture":  file("// Count documentation.\nvar Count int\necho Count\n"),

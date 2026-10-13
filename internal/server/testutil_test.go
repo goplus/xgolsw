@@ -63,10 +63,10 @@ func newFrameworkTestServerWithSpxExtension(t testing.TB, files map[string][]byt
 	t.Helper()
 
 	mod := testframework.NewModule(t)
-	class := mod.Opt.Projects[0]
-	class.Ext = ".spx"
-	class.FullExt = "main.spx"
-	class.Works[0].Ext = ".spx"
+	framework := mod.Opt.Projects[0]
+	framework.Ext = ".spx"
+	framework.FullExt = "main.spx"
+	framework.Works[0].Ext = ".spx"
 	require.NoError(t, mod.ImportClasses())
 	return newFrameworkTestServerWithModule(t, files, mod)
 }

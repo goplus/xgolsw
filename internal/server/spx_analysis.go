@@ -69,7 +69,7 @@ func (r *spxAnalysis) hasSpxSpriteResourceAutoBinding(obj gotypes.Object) bool {
 func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
 	var hasSpxFile bool
 	for file := range proj.Files() {
-		if spxClassForFile(proj, file) != nil {
+		if spxFrameworkForFile(proj, file) != nil {
 			hasSpxFile = true
 			break
 		}
@@ -87,7 +87,7 @@ func analyzeSpx(proj *xgo.Project) (*spxAnalysis, error) {
 		return nil, err
 	}
 	for filename, astFile := range astPkg.Files {
-		if spxClassForFile(proj, filename) == nil {
+		if spxFrameworkForFile(proj, filename) == nil {
 			continue
 		}
 		if astFile.Name.Name != "main" && astFile.Pos().IsValid() {

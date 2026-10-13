@@ -80,10 +80,10 @@ func TestServerSpxClassfileResources(t *testing.T) {
 	})
 }
 
-func TestSpxClassForFile(t *testing.T) {
+func TestSpxFrameworkForFile(t *testing.T) {
 	t.Run("OtherFrameworkUsingSpxExtension", func(t *testing.T) {
 		s := newFrameworkTestServerWithSpxExtension(t, map[string][]byte{"main.spx": []byte("echo 1\n")})
-		assert.Nil(t, spxClassForFile(s.getProj(), "main.spx"))
+		assert.Nil(t, spxFrameworkForFile(s.getProj(), "main.spx"))
 		result, err := analyzeSpx(s.getProj())
 		require.NoError(t, err)
 		assert.Nil(t, result)
@@ -94,7 +94,7 @@ func TestSpxClassForFile(t *testing.T) {
 		proj.SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{{
 			Ext: ".spx", Class: "App", PkgPaths: []string{"example.com/framework", SpxPkgPath},
 		}}}}))
-		assert.Nil(t, spxClassForFile(proj, "main.spx"))
+		assert.Nil(t, spxFrameworkForFile(proj, "main.spx"))
 		ctx := newSpxSymbols(proj)
 		assert.Empty(t, ctx.spxTypeName(spxTestType(t, s, "SpriteImpl")))
 	})

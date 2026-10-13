@@ -9,7 +9,7 @@ import (
 )
 
 func TestServerGenericMemberReferences(t *testing.T) {
-	s := newClassfileTestServer(t, map[string][]byte{
+	s := newMultiFrameworkTestServer(t, map[string][]byte{
 		"main.xgo": []byte(`import f "example.com/first/internal/base"
 type Other struct { Value int }
 func configureInt(opts f.Box[int]?) {}
@@ -128,7 +128,7 @@ client.Params()
 					"type Reader interface { Read(n int) int; "+tt.extraMethods+" }\n"+
 					"func use("+tt.parameters+"reader Reader) {\n"+tt.call+"\nreader.read(1)\n}\n")
 				_, reader := typeDisplayTestSource(t, strings.Replace(source, "reader.read", "reader.|read", 1))
-				s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				_, err := s.requestProject().TypeInfo()
 				require.NoError(t, err)
 				for _, position := range []Position{worker, reader} {
@@ -192,7 +192,7 @@ client.Params()
 					"worker." + method + "(" + tt.workerArgs + ")\n" +
 					"runner." + method + "(" + tt.runnerArgs + ")\n" +
 					"runner." + method + "(" + tt.runnerArgs + ")\n" + tt.method + "()\n}\n"
-				s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				_, err := s.requestProject().TypeInfo()
 				require.NoError(t, err)
 				_, worker := typeDisplayTestSource(t, strings.Replace(source, "worker."+method, "worker.|"+method, 1))

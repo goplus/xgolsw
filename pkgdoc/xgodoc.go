@@ -30,8 +30,8 @@ import (
 // flags to resolve generated type names. Class fields and implicit methods are
 // omitted when their class cannot be resolved.
 //
-// lookupClass resolves classfile extensions using the package's module
-// registration. It may be nil when the package contains no framework classfiles.
+// lookupClass finds the class framework registered for a file extension.
+// It may be nil for packages that need no framework registration.
 func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*modfile.Project, bool)) *PkgDoc {
 	pkgDoc := &PkgDoc{
 		Path:   pkgPath,

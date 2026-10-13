@@ -12,7 +12,7 @@ import (
 
 func TestDefinitionContextMemberForObject(t *testing.T) {
 	t.Run("InstantiatedFields", func(t *testing.T) {
-		s := newClassfileTestServer(t, nil)
+		s := newMultiFrameworkTestServer(t, nil)
 		pkg, err := s.getProj().Importer.Import("example.com/first/internal/base")
 		require.NoError(t, err)
 		box := pkg.Scope().Lookup("Box").Type()
@@ -100,7 +100,7 @@ type Record struct { Base; Value string }
 	})
 
 	t.Run("InterfaceSelectors", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(`import f "example.com/first"
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(`import f "example.com/first"
 type CombinedFirst interface { f.CombinedReader; f.PublicReader }
 type PublicFirst interface { f.PublicReader; f.CombinedReader }
 `)})
@@ -132,7 +132,7 @@ func TestImportedInterfaceMembers(t *testing.T) {
 		{"StopAfterFirst", 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newClassfileTestServer(t, nil)
+			s := newMultiFrameworkTestServer(t, nil)
 			first, err := s.getProj().Importer.Import("example.com/first")
 			require.NoError(t, err)
 			second, err := s.getProj().Importer.Import("example.com/second")

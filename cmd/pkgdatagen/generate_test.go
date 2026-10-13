@@ -137,7 +137,7 @@ func (r Record) Backend() string { return Mode }
 		})
 	}
 
-	t.Run("ClassfileFramework", func(t *testing.T) {
+	t.Run("ClassFramework", func(t *testing.T) {
 		source, err := os.ReadFile(filepath.Join("..", "..", "internal", "testframework", "testdata", "framework.go"))
 		require.NoError(t, err)
 		t.Chdir(t.TempDir())

@@ -842,7 +842,7 @@ func (ctx *completionContext) collectGeneral() error {
 			!ctx.typeExpression && !(ctx.kind == completionKindDecl && ctx.declValueSpec.Values == nil) {
 			var defs []symbolDefinition
 			resolver := autoPropertyResolver{proj: ctx.proj, receiver: gotypes.NewPointer(classType)}
-			for member := range xgoutil.StructMembers(classType, ctx.isClassBaseType) {
+			for member := range xgoutil.StructMembers(classType, ctx.isFrameworkBaseType) {
 				if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(member.Member) {
 					continue
 				}

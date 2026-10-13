@@ -3,7 +3,9 @@ package server
 import (
 	gotypes "go/types"
 	"iter"
+	"strings"
 
+	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
@@ -41,6 +43,88 @@ type frameworkAnalysisCacheKind struct{}
 
 // frameworkAdapterCacheKind identifies cached framework symbol semantics.
 type frameworkAdapterCacheKind struct{}
+
+// frameworkBaseTypes resolves registered framework base types from packages used by
+// this project, including explicit imports and implicit class framework imports.
+func frameworkBaseTypes(proj *xgo.Project) map[*gotypes.Named]struct{} {
+	result := make(map[*gotypes.Named]struct{})
+	frameworksByPackage := make(map[string][]*modfile.Project)
+	for framework := range proj.Module().ClassFrameworks() {
+		if len(framework.PkgPaths) != 0 {
+			frameworksByPackage[framework.PkgPaths[0]] = append(frameworksByPackage[framework.PkgPaths[0]], framework)
+		}
+	}
+	implicitPackages := make(map[string]struct{})
+	if astPkg, _ := proj.ASTPackage(); astPkg != nil {
+		for filename, file := range astPkg.Files {
+			if file.IsClass {
+				if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok && len(framework.PkgPaths) != 0 {
+					implicitPackages[framework.PkgPaths[0]] = struct{}{}
+				}
+			}
+		}
+	}
+
+	seenPackages := make(map[*gotypes.Package]struct{})
+	var visitPackage func(*gotypes.Package)
+	visitPackage = func(pkg *gotypes.Package) {
+		if _, seen := seenPackages[pkg]; seen {
+			return
+		}
+		seenPackages[pkg] = struct{}{}
+		add := func(name string) {
+			obj, ok := pkg.Scope().Lookup(strings.TrimPrefix(name, "*")).(*gotypes.TypeName)
+			if !ok {
+				return
+			}
+			if named := resolvedNamedType(obj.Type()); named != nil {
+				result[named.Origin()] = struct{}{}
+			}
+		}
+		for _, framework := range frameworksByPackage[pkg.Path()] {
+			add(framework.Class)
+			if !framework.Flat {
+				for _, work := range framework.Works {
+					add(work.Class)
+				}
+			}
+		}
+		for _, imported := range pkg.Imports() {
+			visitPackage(imported)
+		}
+	}
+	if info, _ := proj.TypeInfo(); info != nil {
+		// XGo records explicit imports as package-name objects rather than
+		// populating info.Pkg.Imports(). Dependencies may re-export base types.
+		for _, obj := range info.Defs {
+			if name, ok := obj.(*gotypes.PkgName); ok {
+				visitPackage(name.Imported())
+			}
+		}
+		for _, obj := range info.Implicits {
+			if name, ok := obj.(*gotypes.PkgName); ok {
+				visitPackage(name.Imported())
+			}
+		}
+	}
+	for pkgPath := range implicitPackages {
+		if pkg, err := proj.Import(pkgPath); err == nil {
+			visitPackage(pkg)
+		}
+	}
+	return result
+}
+
+// isFrameworkBaseType reports whether named is a registered framework base type
+// available in this source snapshot. Type identity keeps unrelated same-named
+// types distinct.
+func (r *definitionContext) isFrameworkBaseType(named *gotypes.Named) bool {
+	if r.frameworkBaseTypes == nil {
+		r.frameworkBaseTypes = frameworkBaseTypes(r.proj)
+	}
+	_, ok := r.frameworkBaseTypes[named.Origin()]
+	return ok
+}
 
 // resolveFrameworkAdapter retrieves optional symbol semantics without scanning resources.
 func resolveFrameworkAdapter(proj *xgo.Project) frameworkAdapter {

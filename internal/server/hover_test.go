@@ -335,9 +335,9 @@ func TestServerTextDocumentHover(t *testing.T) {
 				want     string
 			}{
 				{name: "Import", source: "import \"example.com/framework\"\n", position: Position{Character: 8},
-					want: "Package framework provides a minimal classfile framework for language tests."},
+					want: "Package framework provides a minimal class framework for language tests."},
 				{name: "Package", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 10},
-					want: "Package framework provides a minimal classfile framework for language tests."},
+					want: "Package framework provides a minimal class framework for language tests."},
 				{name: "Type", source: "import \"example.com/framework\"\nvar item framework.Item\n", position: Position{Line: 1, Character: 19},
 					want: "Item is the work base class."},
 				{name: "Method", source: "import \"example.com/framework\"\nvar item framework.Item\nitem.apply 1\n", position: Position{Line: 2, Character: 5},
@@ -783,7 +783,7 @@ framework.RunWhen true, => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "Package framework provides a minimal classfile framework for language tests.",
+				Value: "Package framework provides a minimal class framework for language tests.",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 1},

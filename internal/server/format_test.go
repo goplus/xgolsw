@@ -204,13 +204,13 @@ func handle = (
 				name: "RegisteredProjectExtension", filename: "First.first",
 				source:    "var count Count\ntype Count int\n",
 				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
-				newServer: newClassfileTestServer,
+				newServer: newMultiFrameworkTestServer,
 			},
 			{
 				name: "RegisteredWorkExtension", filename: "Worker.firstwork",
 				source:    "var count Count\ntype Count int\n",
 				want:      "type Count int\n\nvar (\n\tcount Count\n)\n",
-				newServer: newClassfileTestServer,
+				newServer: newMultiFrameworkTestServer,
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
@@ -231,7 +231,7 @@ func handle = (
 		}
 	})
 
-	t.Run("ClassfileRegistration", func(t *testing.T) {
+	t.Run("ClassFrameworkRegistration", func(t *testing.T) {
 		s := newFrameworkTestServer(t, map[string][]byte{"main.unit": []byte("var count Count\ntype Count int\n")})
 		params := &DocumentFormattingParams{
 			TextDocument: TextDocumentIdentifier{URI: "file:///main.unit"},
@@ -241,11 +241,11 @@ func handle = (
 		assert.Nil(t, edits)
 
 		mod := testframework.NewModule(t)
-		class, ok := mod.LookupClass("_fixture.gox")
+		framework, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
-		class.Ext = ".unit"
-		class.FullExt = "main.unit"
-		class.Works[0].Ext = ".unit"
+		framework.Ext = ".unit"
+		framework.FullExt = "main.unit"
+		framework.Works[0].Ext = ".unit"
 		s.getProj().SetModule(newTestModule(t, mod.Module))
 		edits, err = s.textDocumentFormatting(params)
 		require.NoError(t, err)
@@ -255,9 +255,9 @@ func handle = (
 
 	t.Run("AutoLambda", func(t *testing.T) {
 		mod := testframework.NewModule(t)
-		class, ok := mod.LookupClass("_fixture.gox")
+		framework, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
-		class.AutoLambdas = map[string]int{"onStart": 0}
+		framework.AutoLambdas = map[string]int{"onStart": 0}
 		s := newFrameworkTestServerWithModule(t, map[string][]byte{
 			"main_fixture.gox": []byte("onStart {echo \"ready\"}\nonEvent \"value\", (value)=>{echo \"value\"}\n"),
 		}, mod)

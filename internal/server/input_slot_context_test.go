@@ -168,9 +168,9 @@ func main() {
 				files := map[string][]byte{"main_fixture.gox": nil}
 				files[tt.filename] = []byte("println 5\n")
 				mod := testframework.NewModule(t)
-				class, ok := mod.LookupClass("_fixture.gox")
+				framework, ok := mod.LookupClass("_fixture.gox")
 				require.True(t, ok)
-				class.PkgPaths = append(class.PkgPaths, "os", "io")
+				framework.PkgPaths = append(framework.PkgPaths, "os", "io")
 				s := newFrameworkTestServerWithModule(t, files, mod)
 				ctx := inputSlotTestContext(t, s, tt.filename)
 				literal := inputSlotLiteral(t, ctx, "5")

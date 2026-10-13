@@ -22,7 +22,7 @@ import (
 	gomodfile "golang.org/x/mod/modfile"
 )
 
-func classfileTestModule() modload.Module {
+func multiFrameworkTestModule() modload.Module {
 	config := modload.Module{Opt: &modfile.File{}}
 	for _, name := range []string{"first", "second"} {
 		config.Opt.Projects = append(config.Opt.Projects, &modfile.Project{
@@ -33,13 +33,13 @@ func classfileTestModule() modload.Module {
 	return config
 }
 
-func newClassfileTestServer(t testing.TB, files map[string][]byte) *Server {
+func newMultiFrameworkTestServer(t testing.TB, files map[string][]byte) *Server {
 	t.Helper()
 
-	return newClassfileTestServerWithModule(t, files, classfileTestModule())
+	return newMultiFrameworkTestServerWithModule(t, files, multiFrameworkTestModule())
 }
 
-func newClassfileTestServerWithModule(t testing.TB, files map[string][]byte, config modload.Module) *Server {
+func newMultiFrameworkTestServerWithModule(t testing.TB, files map[string][]byte, config modload.Module) *Server {
 	t.Helper()
 
 	s := newTestServer(t, files)
@@ -125,8 +125,8 @@ type Item = second.Item
 	return s
 }
 
-func TestClassBaseTypes(t *testing.T) {
-	s := newClassfileTestServer(t, map[string][]byte{
+func TestFrameworkBaseTypes(t *testing.T) {
+	s := newMultiFrameworkTestServer(t, map[string][]byte{
 		"First.first": nil, "Worker.firstwork": nil,
 		"Second.second": nil, "Helper.secondwork": nil,
 	})
@@ -137,42 +137,42 @@ func TestClassBaseTypes(t *testing.T) {
 		require.NoError(t, err)
 		for _, className := range []string{"App", "Item"} {
 			named := resolvedNamedType(pkg.Scope().Lookup(className).Type())
-			assert.True(t, ctx.isClassBaseType(named))
+			assert.True(t, ctx.isFrameworkBaseType(named))
 			duplicate := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, gotypes.NewPackage(pkg.Path(), pkg.Name()), className, nil), gotypes.NewStruct(nil, nil), nil)
-			assert.False(t, ctx.isClassBaseType(duplicate))
+			assert.False(t, ctx.isFrameworkBaseType(duplicate))
 		}
 		base, err := proj.Importer.Import("example.com/" + name + "/internal/base")
 		require.NoError(t, err)
-		assert.False(t, ctx.isClassBaseType(resolvedNamedType(base.Scope().Lookup("State").Type())))
+		assert.False(t, ctx.isFrameworkBaseType(resolvedNamedType(base.Scope().Lookup("State").Type())))
 	}
-	assert.Len(t, ctx.classTypes, 4)
+	assert.Len(t, ctx.frameworkBaseTypes, 4)
 
 	for _, tt := range []struct {
 		name      string
 		configure func(*modfile.Project)
 		want      []string
 	}{
-		{name: "Pointers", configure: func(class *modfile.Project) {
-			class.Class = "*App"
-			class.Works[0].Class = "*Item"
+		{name: "Pointers", configure: func(framework *modfile.Project) {
+			framework.Class = "*App"
+			framework.Works[0].Class = "*Item"
 		}, want: []string{"App", "Item"}},
-		{name: "Alias", configure: func(class *modfile.Project) { class.Class = "AppAlias" }, want: []string{"App", "Item"}},
-		{name: "Flat", configure: func(class *modfile.Project) { class.Flat = true }, want: []string{"App"}},
-		{name: "MissingClass", configure: func(class *modfile.Project) { class.Class = "Missing" }, want: []string{"Item"}},
-		{name: "NoPackages", configure: func(class *modfile.Project) { class.PkgPaths = nil }},
-		{name: "UnavailablePackage", configure: func(class *modfile.Project) { class.PkgPaths = []string{"example.com/missing"} }},
-		{name: "FirstPackageOnly", configure: func(class *modfile.Project) {
-			class.PkgPaths = []string{"example.com/first/internal/base", "example.com/first"}
+		{name: "Alias", configure: func(framework *modfile.Project) { framework.Class = "AppAlias" }, want: []string{"App", "Item"}},
+		{name: "Flat", configure: func(framework *modfile.Project) { framework.Flat = true }, want: []string{"App"}},
+		{name: "MissingClass", configure: func(framework *modfile.Project) { framework.Class = "Missing" }, want: []string{"Item"}},
+		{name: "NoPackages", configure: func(framework *modfile.Project) { framework.PkgPaths = nil }},
+		{name: "UnavailablePackage", configure: func(framework *modfile.Project) { framework.PkgPaths = []string{"example.com/missing"} }},
+		{name: "FirstPackageOnly", configure: func(framework *modfile.Project) {
+			framework.PkgPaths = []string{"example.com/first/internal/base", "example.com/first"}
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
+			s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
 			proj := s.getProj()
-			config := classfileTestModule()
+			config := multiFrameworkTestModule()
 			tt.configure(config.Opt.Projects[0])
 			proj.SetModule(newTestModule(t, config))
 			var names []string
-			for named := range classBaseTypes(proj) {
+			for named := range frameworkBaseTypes(proj) {
 				assert.Equal(t, "example.com/first", named.Obj().Pkg().Path())
 				names = append(names, named.Obj().Name())
 			}
@@ -181,7 +181,7 @@ func TestClassBaseTypes(t *testing.T) {
 	}
 
 	t.Run("ImportedPackagesOnly", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte("import \"example.com/facade\"\nvar value facade.App\n")})
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import \"example.com/facade\"\nvar value facade.App\n")})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestClassBaseTypes(t *testing.T) {
 			assert.Fail(t, "unexpected import after type checking", pkgPath)
 			return nil, fmt.Errorf("unexpected import: %s", pkgPath)
 		})
-		bases := classBaseTypes(proj)
+		bases := frameworkBaseTypes(proj)
 		require.Len(t, bases, 4)
 		for _, pkg := range []*gotypes.Package{first, second} {
 			for _, name := range []string{"App", "Item"} {
@@ -203,9 +203,9 @@ func TestClassBaseTypes(t *testing.T) {
 	})
 
 	t.Run("OverriddenRegistration", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import f \"example.com/first\"\nvar value f.App\n")})
 		proj := s.getProj()
-		config := classfileTestModule()
+		config := multiFrameworkTestModule()
 		config.Opt.Projects = append(config.Opt.Projects, &modfile.Project{
 			Ext: ".first", Class: "Options", PkgPaths: []string{"example.com/first"},
 			Works: []*modfile.Class{{Ext: ".firstwork", Class: "IntBox"}},
@@ -214,7 +214,7 @@ func TestClassBaseTypes(t *testing.T) {
 		registration, ok := proj.Module().LookupClass(".first")
 		require.True(t, ok)
 		var names []string
-		for named := range classBaseTypes(proj) {
+		for named := range frameworkBaseTypes(proj) {
 			names = append(names, named.Obj().Name())
 		}
 		assert.ElementsMatch(t, []string{"Options", "IntBox"}, names)
@@ -224,7 +224,7 @@ func TestClassBaseTypes(t *testing.T) {
 	})
 
 	t.Run("UnusedFramework", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n"), "Record.gox": nil})
+		s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n"), "Record.gox": nil})
 		proj := s.getProj()
 		_, err := proj.TypeInfo()
 		require.NoError(t, err)
@@ -232,13 +232,13 @@ func TestClassBaseTypes(t *testing.T) {
 			assert.Fail(t, "unexpected framework import", pkgPath)
 			return nil, fmt.Errorf("unexpected import: %s", pkgPath)
 		})
-		assert.Empty(t, classBaseTypes(proj))
+		assert.Empty(t, frameworkBaseTypes(proj))
 	})
 }
 
-func TestServerClassfileModuleUpdates(t *testing.T) {
+func TestServerFrameworkModuleUpdates(t *testing.T) {
 	source, position := typeDisplayTestSource(t, "import f \"example.com/first\"\ntype Target = f.App\nvar value Target\necho value.|score()\n")
-	s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+	s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 	proj := s.getProj()
 	dir := t.TempDir()
 	metadataPath := filepath.Join(dir, "gox.mod")
@@ -256,7 +256,7 @@ func TestServerClassfileModuleUpdates(t *testing.T) {
 		t.Helper()
 
 		var names []string
-		for named := range classBaseTypes(proj) {
+		for named := range frameworkBaseTypes(proj) {
 			names = append(names, named.Obj().Name())
 		}
 		assert.ElementsMatch(t, wantBaseNames, names)
@@ -307,7 +307,7 @@ func TestServerClassfileModuleUpdates(t *testing.T) {
 	proj.SetModule(replacement)
 	check("example.com/first/internal/base?State", []string{"Options", "IntBox"})
 	var oldNames []string
-	for named := range classBaseTypes(snapshot) {
+	for named := range frameworkBaseTypes(snapshot) {
 		oldNames = append(oldNames, named.Obj().Name())
 	}
 	assert.ElementsMatch(t, []string{"App", "Item"}, oldNames)
@@ -332,7 +332,7 @@ func TestServerRegisteredClassfileMembers(t *testing.T) {
 						"Second.second": nil, "SecondWorker.secondwork": nil,
 					}
 					files[class.filename] = []byte(source)
-					s := newClassfileTestServer(t, files)
+					s := newMultiFrameworkTestServer(t, files)
 					_, err := s.getProj().TypeInfo()
 					require.NoError(t, err)
 					wantID := "xgo:example.com/" + framework + "?" + class.owner + "." + member.label
@@ -360,7 +360,7 @@ func TestServerRegisteredClassfileMembers(t *testing.T) {
 }
 
 func TestServerRegisteredClassfileDefinition(t *testing.T) {
-	s := newClassfileTestServer(t, map[string][]byte{
+	s := newMultiFrameworkTestServer(t, map[string][]byte{
 		"First.first":      []byte("var Total int\n"),
 		"Worker.firstwork": []byte("echo Total\n"),
 		"ignored.spx":      []byte("invalid source {{{"),
@@ -407,7 +407,7 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 					source += "func configure(opts Record?) {}\nconfigure |" + label + " = 1\n"
 				}
 				source, position := typeDisplayTestSource(t, source)
-				s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
 				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
@@ -449,7 +449,7 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, "import f \"example.com/first\"\n"+tt.declaration+"var value "+tt.typ+"\necho value.|read(1)\n")
-			s := newClassfileTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			s := newMultiFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			_, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
 			wantID := "xgo:example.com/first?" + tt.owner + ".read"
@@ -480,7 +480,7 @@ func TestServerRegisteredClassfileProperties(t *testing.T) {
 			framework := strings.ToLower(name)
 			filename := name + "." + framework
 			source, position := typeDisplayTestSource(t, "echo |score()\n")
-			s := newClassfileTestServer(t, map[string][]byte{filename: []byte(source)})
+			s := newMultiFrameworkTestServer(t, map[string][]byte{filename: []byte(source)})
 			info, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
 			wantID := "xgo:example.com/" + framework + "?App.score"
@@ -529,7 +529,7 @@ func TestServerRegisteredClassfileLiteralMembers(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
-			s := newClassfileTestServer(t, map[string][]byte{"First.first": []byte(source)})
+			s := newMultiFrameworkTestServer(t, map[string][]byte{"First.first": []byte(source)})
 			_, err := s.getProj().TypeInfo()
 			require.NoError(t, err)
 			wantID := "xgo:example.com/first?" + tt.owner + ".Count"
@@ -566,9 +566,9 @@ func TestClassTypeForFile(t *testing.T) {
 			if strings.HasSuffix(tt.filename, ".firstwork") {
 				files["First.first"] = nil
 			}
-			s := newClassfileTestServer(t, files)
+			s := newMultiFrameworkTestServer(t, files)
 			proj := s.getProj()
-			config := classfileTestModule()
+			config := multiFrameworkTestModule()
 			config.Opt.Projects[0].Works[0].Prefix = tt.prefix
 			proj.SetModule(newTestModule(t, config))
 			info, err := proj.TypeInfo()
@@ -609,7 +609,7 @@ func TestServerImportedClassfileMembers(t *testing.T) {
 			t.Run(tt.name+member.name, func(t *testing.T) {
 				source, position := typeDisplayTestSource(t, "import f \""+tt.pkgPath+"\"\ntype Target = "+tt.typ+"\nvar value Target\necho value.|"+member.expression+"\n")
 				files := map[string][]byte{"main.xgo": []byte(source)}
-				s := newClassfileTestServer(t, files)
+				s := newMultiFrameworkTestServer(t, files)
 				wantID := "xgo:example.com/" + tt.framework + "?" + tt.owner + "." + member.label
 				wantDoc := strings.ToUpper(member.label[:1]) + member.label[1:] + " belongs to " + tt.framework + "."
 				for phase := range 3 {

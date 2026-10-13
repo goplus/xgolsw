@@ -22,8 +22,8 @@ func TestParseServerOptions(t *testing.T) {
 		{"Null", nil, "options must be an object"},
 		{"Array", []any{}, "options must be an object"},
 		{"String", "", "options must be an object"},
-		{"NullClasses", map[string]any{"classfileConfig": nil}, "classfileConfig must be a string"},
-		{"NumberClasses", map[string]any{"classfileConfig": 1}, "classfileConfig must be a string"},
+		{"NullFrameworkConfig", map[string]any{"classFrameworkConfig": nil}, "classFrameworkConfig must be a string"},
+		{"NumberFrameworkConfig", map[string]any{"classFrameworkConfig": 1}, "classFrameworkConfig must be a string"},
 		{"NullArchive", map[string]any{"pkgDataZip": nil}, "pkgDataZip must be a Uint8Array"},
 		{"ArrayArchive", map[string]any{"pkgDataZip": []any{}}, "pkgDataZip must be a Uint8Array"},
 	} {
@@ -35,15 +35,15 @@ func TestParseServerOptions(t *testing.T) {
 	t.Run("Omitted", func(t *testing.T) {
 		options, err := parseServerOptions(js.ValueOf(map[string]any{}))
 		require.NoError(t, err)
-		assert.Empty(t, options.ClassfileConfig)
+		assert.Empty(t, options.ClassFrameworkConfig)
 		assert.Nil(t, options.PkgData)
 	})
 	t.Run("ExplicitEmpty", func(t *testing.T) {
 		options, err := parseServerOptions(js.ValueOf(map[string]any{
-			"classfileConfig": "", "pkgDataZip": js.Global().Get("Uint8Array").New(0),
+			"classFrameworkConfig": "", "pkgDataZip": js.Global().Get("Uint8Array").New(0),
 		}))
 		require.NoError(t, err)
-		assert.Empty(t, options.ClassfileConfig)
+		assert.Empty(t, options.ClassFrameworkConfig)
 		require.NotNil(t, options.PkgData)
 		packages, err := options.PkgData.ListPkgs()
 		require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestNewXGoLanguageServer(t *testing.T) {
 		{"InvalidProvider", []js.Value{js.Null(), reply.Value}, "filesProvider argument must be a function"},
 		{"InvalidReply", []js.Value{provider.Value, js.Null()}, "messageReplier argument must be a function"},
 		{"InvalidOptions", []js.Value{provider.Value, reply.Value, js.Null()}, "options must be an object"},
-		{"InvalidConfig", []js.Value{provider.Value, reply.Value, js.ValueOf(map[string]any{"classfileConfig": "project"})}, "invalid classfile configuration"},
+		{"InvalidFrameworkConfig", []js.Value{provider.Value, reply.Value, js.ValueOf(map[string]any{"classFrameworkConfig": "project"})}, "invalid class framework configuration"},
 		{"InvalidArchive", []js.Value{provider.Value, reply.Value, js.ValueOf(map[string]any{"pkgDataZip": js.Global().Get("Uint8Array").New(1)})}, "invalid package data"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,10 +100,10 @@ func TestXGoLanguageServerInstanceConfiguration(t *testing.T) {
 	data := js.Global().Get("Uint8Array").New(len(archive))
 	js.CopyBytesToJS(data, archive)
 	plain, plainReplies := newTestServer(t, "main.xgo", "var Count = 1\nCount = 2\n", map[string]any{
-		"classfileConfig": "", "pkgDataZip": data,
+		"classFrameworkConfig": "", "pkgDataZip": data,
 	})
 	framework, frameworkReplies := newTestServer(t, "main.actor", "onStart => {\n    measure 1\n}\n", map[string]any{
-		"classfileConfig": "project main.actor App example.com/framework\nclass -embed *.actor Item\n", "pkgDataZip": data,
+		"classFrameworkConfig": "project main.actor App example.com/framework\nclass -embed *.actor Item\n", "pkgDataZip": data,
 	})
 	// Mutate caller-owned data before lazy imports exercise instance ownership.
 	data.Call("fill", 0)

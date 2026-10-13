@@ -30,13 +30,13 @@ func TestNewProject(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("ClassfilesAndAutoImports", func(t *testing.T) {
-		classes := "project main.actor App example.com/framework\nclass -embed -prefix=Actor *.actor Item\nimport f example.com/framework\n"
+	t.Run("ClassFrameworkAndAutoImports", func(t *testing.T) {
+		frameworkConfig := "project main.actor App example.com/framework\nclass -embed -prefix=Actor *.actor Item\nimport f example.com/framework\n"
 		files := map[string]*xgo.File{
 			"main.actor":   {Content: []byte("var (\nCount = measure(1)\nLimit = f.Limit\n)\n")},
 			"Worker.actor": {Content: []byte("var Count = 1\n")},
 		}
-		options := Options{ClassfileConfig: classes, PkgData: testPkgData(t)}
+		options := Options{ClassFrameworkConfig: frameworkConfig, PkgData: testPkgData(t)}
 		first, data, err := NewProject(files, options)
 		require.NoError(t, err)
 		second, _, err := NewProject(files, options)
@@ -56,7 +56,7 @@ func TestNewProject(t *testing.T) {
 		assert.Equal(t, testframework.NewPkgDoc(t), doc)
 		assert.False(t, first.Module().IsClass(".spx"))
 		snapshot := first.Snapshot()
-		options.ClassfileConfig = ""
+		options.ClassFrameworkConfig = ""
 		plain, _, err := NewProject(nil, options)
 		require.NoError(t, err)
 		assert.False(t, plain.Module().IsClass(".actor"))
@@ -75,8 +75,8 @@ func TestNewProject(t *testing.T) {
 		{"InvalidImport", "import alias example.com/framework"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			project, data, err := NewProject(nil, Options{ClassfileConfig: tt.source})
-			require.ErrorContains(t, err, "invalid classfile configuration")
+			project, data, err := NewProject(nil, Options{ClassFrameworkConfig: tt.source})
+			require.ErrorContains(t, err, "invalid class framework configuration")
 			assert.Nil(t, project)
 			assert.Nil(t, data)
 		})

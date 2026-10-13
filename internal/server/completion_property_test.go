@@ -213,13 +213,13 @@ func TestCompletionContextGetPropertyTarget(t *testing.T) {
 		{name: "InvalidReceiver", source: "var item string\nitem.show()", invalid: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newClassfileTestServer(t, map[string][]byte{
+			s := newMultiFrameworkTestServer(t, map[string][]byte{
 				"First.first":      nil,
 				"Worker.firstwork": []byte(tt.source + "\n"),
 				"types.xgo":        []byte("type Record struct { Count int }\nfunc (r *Record) show() {}\nfunc getRecord() *Record { return nil }\n"),
 			})
 			proj := s.getProj()
-			config := classfileTestModule()
+			config := multiFrameworkTestModule()
 			config.Opt.Projects[0].Works[0].Prefix = "Actor"
 			proj.SetModule(newTestModule(t, config))
 			info, err := proj.TypeInfo()

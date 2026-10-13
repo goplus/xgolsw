@@ -237,10 +237,10 @@ func TestFileImportsIsolation(t *testing.T) {
 		}
 	})
 	t.Run("Frameworks", func(t *testing.T) {
-		config := classfileTestModule()
+		config := multiFrameworkTestModule()
 		config.Opt.Projects[0].Import = []*modfile.Import{{Name: "helper", Path: "example.com/second"}}
 		config.Opt.Projects[1].Import = []*modfile.Import{{Name: "helper", Path: "example.com/first"}}
-		s := newClassfileTestServerWithModule(t, map[string][]byte{
+		s := newMultiFrameworkTestServerWithModule(t, map[string][]byte{
 			"First.first":   []byte("var value helper.Item\necho value\n"),
 			"Second.second": []byte("var value helper.Item\necho value\n"),
 		}, config)

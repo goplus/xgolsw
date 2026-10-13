@@ -40,7 +40,7 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 						if implementation.name == "WorkClass" {
 							files["First.first"] = nil
 						}
-						s := newClassfileTestServer(t, files)
+						s := newMultiFrameworkTestServer(t, files)
 						params := &ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
 							TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
 						}}
@@ -178,7 +178,7 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 	})
 
 	t.Run("ImportedPromotedPosition", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{
+		s := newMultiFrameworkTestServer(t, map[string][]byte{
 			"interface.xgo": []byte("type Runner interface { Score() int }\n"),
 			"worker.xgo":    []byte(strings.Repeat("// Padding.\n", 128) + "import \"example.com/first\"\ntype Worker struct { framework.App }\n"),
 		})
@@ -200,7 +200,7 @@ func TestServerTextDocumentImplementation(t *testing.T) {
 	})
 
 	t.Run("MixedFrameworkUpdates", func(t *testing.T) {
-		s := newClassfileTestServer(t, map[string][]byte{
+		s := newMultiFrameworkTestServer(t, map[string][]byte{
 			"interface.xgo": []byte("type Runner interface { Run() }\n"),
 			"First.first":   []byte("func Run() {}\n"),
 			"Second.second": []byte("func Run() {}\n"),

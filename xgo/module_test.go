@@ -42,40 +42,40 @@ func TestDefaultModule(t *testing.T) {
 func TestNewModule(t *testing.T) {
 	t.Run("RegistrationIsolation", func(t *testing.T) {
 		config := testframework.NewModule(t).Module
-		project := config.Opt.Projects[0]
-		project.AutoLambdas = map[string]int{"onStart": 0}
-		project.Import = []*modfile.Import{{Name: "fmt", Path: "fmt"}}
-		project.Pack = &modfile.Pack{Directory: "assets", IndexFile: "index.json"}
+		registration := config.Opt.Projects[0]
+		registration.AutoLambdas = map[string]int{"onStart": 0}
+		registration.Import = []*modfile.Import{{Name: "fmt", Path: "fmt"}}
+		registration.Pack = &modfile.Pack{Directory: "assets", IndexFile: "index.json"}
 		mod := newTestModule(t, config)
-		class, ok := mod.LookupClass("_fixture.gox")
+		framework, ok := mod.LookupClass("_fixture.gox")
 		require.True(t, ok)
-		assert.NotSame(t, project, class)
+		assert.NotSame(t, registration, framework)
 		for _, builtin := range []*modfile.Project{xgomod.TestProject, xgomod.GshProject} {
 			loaded, ok := mod.LookupClass(builtin.Ext)
 			require.True(t, ok)
 			assert.NotSame(t, builtin, loaded)
 		}
 
-		project.Ext = ".other"
-		project.Works[0].Ext = ".work"
-		project.Works[0].Prefix = "Other"
-		project.PkgPaths[0] = "example.com/other"
-		project.AutoLambdas["onStart"] = 1
-		project.Import[0].Path = "example.com/fmt"
-		project.Pack.Directory = "other"
+		registration.Ext = ".other"
+		registration.Works[0].Ext = ".work"
+		registration.Works[0].Prefix = "Other"
+		registration.PkgPaths[0] = "example.com/other"
+		registration.AutoLambdas["onStart"] = 1
+		registration.Import[0].Path = "example.com/fmt"
+		registration.Pack.Directory = "other"
 		config.Opt.Projects = nil
 		assert.True(t, mod.IsClass("_fixture.gox"))
 		assert.False(t, mod.IsClass(".other"))
-		assert.Equal(t, "_fixture.gox", class.Works[0].Ext)
-		assert.Empty(t, class.Works[0].Prefix)
-		assert.Equal(t, []string{testframework.PkgPath}, class.PkgPaths)
-		assert.Equal(t, "fmt", class.Import[0].Path)
-		assert.Equal(t, "assets", class.Pack.Directory)
+		assert.Equal(t, "_fixture.gox", framework.Works[0].Ext)
+		assert.Empty(t, framework.Works[0].Prefix)
+		assert.Equal(t, []string{testframework.PkgPath}, framework.PkgPaths)
+		assert.Equal(t, "fmt", framework.Import[0].Path)
+		assert.Equal(t, "assets", framework.Pack.Directory)
 		autoLambdas, isProject, ok := mod.ClassInfo("main_fixture.gox")
 		require.True(t, ok)
 		assert.True(t, isProject)
 		assert.Equal(t, map[string]int{"onStart": 0}, autoLambdas)
-		assert.Contains(t, slices.Collect(mod.ClassProjects()), class)
+		assert.Contains(t, slices.Collect(mod.ClassFrameworks()), framework)
 	})
 
 	t.Run("EffectiveRegistrations", func(t *testing.T) {
@@ -94,23 +94,23 @@ func TestNewModule(t *testing.T) {
 					{Ext: ".project", Class: "New", Works: []*modfile.Class{{Ext: tt.workExt, Class: "NewWork"}}},
 				}}})
 				var names []string
-				for project := range mod.ClassProjects() {
-					if project.Ext == ".project" {
-						names = append(names, project.Class)
+				for framework := range mod.ClassFrameworks() {
+					if framework.Ext == ".project" {
+						names = append(names, framework.Class)
 					}
 				}
 				assert.Equal(t, tt.want, names)
-				project, ok := mod.LookupClass(".project")
+				projectFramework, ok := mod.LookupClass(".project")
 				require.True(t, ok)
-				assert.Equal(t, "New", project.Class)
-				work, ok := mod.LookupClass(".work")
+				assert.Equal(t, "New", projectFramework.Class)
+				workFramework, ok := mod.LookupClass(".work")
 				require.True(t, ok)
-				assert.Equal(t, tt.wantWork, work.Class)
+				assert.Equal(t, tt.wantWork, workFramework.Class)
 			})
 		}
 	})
 
-	t.Run("InvalidClassModule", func(t *testing.T) {
+	t.Run("InvalidFrameworkModule", func(t *testing.T) {
 		mod, err := NewModule(modload.Module{
 			File: new(gomodfile.File), Opt: &modfile.File{ClassMods: []string{"example.com/missing"}},
 		})

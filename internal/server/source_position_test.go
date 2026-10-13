@@ -258,7 +258,7 @@ func TestServerLineDirectives(t *testing.T) {
 		}})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, "minimal classfile framework")
+		assert.Contains(t, hover.Contents.Value, "minimal class framework")
 		assert.Equal(t, Range{Start: Position{Line: 1, Character: 7}, End: Position{Line: 1, Character: 30}}, hover.Range)
 	})
 }

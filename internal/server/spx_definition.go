@@ -11,16 +11,16 @@ import (
 // SpxPkgPath is the path to the spx package.
 const SpxPkgPath = "github.com/goplus/spx/v3"
 
-// isSpxClass reports whether spx supplies the registration's base classes.
-func isSpxClass(class *modfile.Project) bool {
-	return len(class.PkgPaths) != 0 && class.PkgPaths[0] == SpxPkgPath
+// isSpxFramework reports whether spx supplies the registration's base classes.
+func isSpxFramework(framework *modfile.Project) bool {
+	return len(framework.PkgPaths) != 0 && framework.PkgPaths[0] == SpxPkgPath
 }
 
-// spxClassForFile returns the spx registration for filename, if any.
-func spxClassForFile(proj *xgo.Project, filename string) *modfile.Project {
-	class, ok := proj.Module().LookupClass(modfile.ClassExt(filename))
-	if ok && isSpxClass(class) {
-		return class
+// spxFrameworkForFile returns the spx class framework registration for filename, if any.
+func spxFrameworkForFile(proj *xgo.Project, filename string) *modfile.Project {
+	framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename))
+	if ok && isSpxFramework(framework) {
+		return framework
 	}
 	return nil
 }
@@ -36,8 +36,8 @@ type spxSymbols struct {
 // Missing registrations or exports leave the optional adapter inactive.
 func newSpxSymbols(proj *xgo.Project) *spxSymbols {
 	symbols := &spxSymbols{}
-	for class := range proj.Module().ClassProjects() {
-		if !isSpxClass(class) {
+	for framework := range proj.Module().ClassFrameworks() {
+		if !isSpxFramework(framework) {
 			continue
 		}
 		pkg, err := proj.Import(SpxPkgPath)
