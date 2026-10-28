@@ -14,7 +14,7 @@ func TestServerTextDocumentHoverSpx(t *testing.T) {
 		for _, tt := range []struct{ name, filename, source, label, wantName string }{
 			{"CameraInProject", "main.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
 			{"CameraInWork", "MySprite.spx", "Camera.|follow \"MySprite\"\n", "follow", "Camera.follow#1"},
-			{"PackageFunction", "main.xgo", `import spx "github.com/goplus/spx/v3"
+			{"PackageFunction", "main.xgo", `import spx "github.com/goplus/spx/v4"
 var color = spx.|HSB(1, 2, 3)
 `, "hSB", "hSB"},
 		} {
@@ -25,7 +25,7 @@ var color = spx.|HSB(1, 2, 3)
 				s := newSpxIntegrationTestServer(t, files)
 				_, err := s.getProj().TypeInfo()
 				require.NoError(t, err)
-				wantID := "xgo:github.com/goplus/spx/v3?" + tt.wantName
+				wantID := "xgo:github.com/goplus/spx/v4?" + tt.wantName
 				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
 				}})
@@ -119,7 +119,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v4?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 4, Character: 5},
@@ -138,7 +138,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v4?Game.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 5, Character: 0},
@@ -154,7 +154,7 @@ onTouchStart "MySprite", => {}
 		})
 		require.NoError(t, err)
 		require.NotNil(t, mainSpxCameraFollowHover)
-		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Camera.follow#1"`)
+		assert.Contains(t, mainSpxCameraFollowHover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v4?Camera.follow#1"`)
 		assert.Equal(t, Range{
 			Start: Position{Line: 6, Character: 7},
 			End:   Position{Line: 6, Character: 13},
@@ -171,7 +171,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v4?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 1, Character: 9},
@@ -190,7 +190,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v4?Sprite.onClick\" overview=\"func onClick(onClick func())\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 2, Character: 0},
@@ -209,7 +209,7 @@ onTouchStart "MySprite", => {}
 		assert.Equal(t, &Hover{
 			Contents: MarkupContent{
 				Kind:  Markdown,
-				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v3?Sprite.clone#0\" overview=\"func clone()\">\n</pre>\n",
+				Value: "<pre is=\"definition-item\" def-id=\"xgo:github.com/goplus/spx/v4?Sprite.clone#0\" overview=\"func clone()\">\n</pre>\n",
 			},
 			Range: Range{
 				Start: Position{Line: 5, Character: 1},
@@ -238,7 +238,7 @@ onStart => {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, hover)
-		assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v3?Game.getWidget"`)
+		assert.Contains(t, hover.Contents.Value, `def-id="xgo:github.com/goplus/spx/v4?Game.getWidget"`)
 		assert.Contains(t, hover.Contents.Value, `overview="func getWidget(T Type, name WidgetName) *T"`)
 		assert.Contains(t, hover.Contents.Value, `GetWidget returns the widget instance (in given type) with given name. It panics if not found.`)
 		assert.Equal(t, Range{

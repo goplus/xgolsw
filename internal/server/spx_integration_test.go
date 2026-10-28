@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:generate sh -c "GOTOOLCHAIN=\"go$(go list -m -f '{{.GoVersion}}')\" go tool pkgdatagen -no-defaults -o testdata/spx-pkgdata.zip github.com/goplus/spx/v3 github.com/goplus/spx/v3/pkg/spx/pkg/engine"
+//go:generate sh -c "GOTOOLCHAIN=\"go$(go list -m -f '{{.GoVersion}}')\" go tool pkgdatagen -no-defaults -o testdata/spx-pkgdata.zip github.com/goplus/spx/v4 github.com/goplus/spx/v4/pkg/spx/pkg/engine"
 
 //go:embed testdata/spx-pkgdata.zip
 var spxIntegrationPkgDataZip []byte
@@ -23,7 +23,7 @@ func newSpxIntegrationTestServer(t testing.TB, files map[string][]byte) *Server 
 	data, err := pkgdata.NewWithEmbedded(spxIntegrationPkgDataZip)
 	require.NoError(t, err)
 	proj, data, err := config.NewProject(newFileMap(files), config.Options{
-		ClassFrameworkConfig: `project main.spx Game github.com/goplus/spx/v3 math
+		ClassFrameworkConfig: `project main.spx Game github.com/goplus/spx/v4 math
 class -embed *.spx SpriteImpl
 `,
 		PkgData: data,

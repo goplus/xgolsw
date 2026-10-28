@@ -22,8 +22,8 @@ func TestCheckNonSpxDocumentation(t *testing.T) {
 		path string
 	}{
 		{name: "Spx", path: "github.com/goplus/spx"},
-		{name: "VersionedSpx", path: "github.com/goplus/spx/v3"},
-		{name: "SpxSubpackage", path: "github.com/goplus/spx/v3/internal/engine"},
+		{name: "VersionedSpx", path: "github.com/goplus/spx/v4"},
+		{name: "SpxSubpackage", path: "github.com/goplus/spx/v4/internal/engine"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := &testFailureRecorder{TB: t}
@@ -58,10 +58,10 @@ func TestServerHandleMessageRejectedTestDependencies(t *testing.T) {
 				message string
 			}{
 				{
-					name: "Import", source: "import \"github.com/goplus/spx/v3\"\nvar Count int\n",
+					name: "Import", source: "import \"github.com/goplus/spx/v4\"\nvar Count int\n",
 					method:  "textDocument/diagnostic",
 					params:  DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}},
-					message: "unexpected spx import: github.com/goplus/spx/v3",
+					message: "unexpected spx import: github.com/goplus/spx/v4",
 				},
 				{
 					name: "Documentation", source: "import \"strings\"\nvar _ strings.Builder\n",
@@ -69,13 +69,13 @@ func TestServerHandleMessageRejectedTestDependencies(t *testing.T) {
 					params: CompletionParams{TextDocumentPositionParams: TextDocumentPositionParams{
 						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: 8},
 					}},
-					message: "unexpected spx documentation lookup: github.com/goplus/spx/v3",
+					message: "unexpected spx documentation lookup: github.com/goplus/spx/v4",
 				},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
 					recorder := &testFailureRecorder{TB: t}
 					s := environment.newServer(recorder, map[string][]byte{"main.xgo": []byte(tt.source)})
-					s.listPkgs = func() ([]string, error) { return []string{"github.com/goplus/spx/v3"}, nil }
+					s.listPkgs = func() ([]string, error) { return []string{"github.com/goplus/spx/v4"}, nil }
 					replier := newMockReplier()
 					s.replier = replier
 					initializeServerForTest(t, s, replier)
@@ -92,7 +92,7 @@ func TestServerHandleMessageRejectedTestDependencies(t *testing.T) {
 					assert.Contains(t, strings.Join(messages, "\n"), tt.message)
 
 					if tt.name == "Documentation" {
-						doc, err := s.lookupPkgDoc("github.com/goplus/spx/v3")
+						doc, err := s.lookupPkgDoc("github.com/goplus/spx/v4")
 						assert.Nil(t, doc)
 						assert.EqualError(t, err, tt.message)
 						_, err = s.lookupPkgDoc("example.com/missing")

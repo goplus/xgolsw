@@ -98,7 +98,7 @@ func TestNewProjectDefaults(t *testing.T) {
 	packages, err := data.ListPkgs()
 	require.NoError(t, err)
 	assert.NotContains(t, packages, testframework.PkgPath)
-	assert.NotContains(t, packages, "github.com/goplus/spx/v3")
+	assert.NotContains(t, packages, "github.com/goplus/spx/v4")
 }
 
 func testPkgData(t *testing.T) *pkgdata.Data {

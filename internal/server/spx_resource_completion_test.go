@@ -105,7 +105,7 @@ func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
 			{"PartialName", "play sdk.BackdropName(\"B|\")\n", "Beep", "Studio"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, "import sdk \"github.com/goplus/spx/v3\"\n"+tt.source)
+				source, position := typeDisplayTestSource(t, "import sdk \"github.com/goplus/spx/v4\"\n"+tt.source)
 				s := newSpxTestServer(t, map[string][]byte{
 					"main.spx":                      []byte(source),
 					"assets/index.json":             []byte(`{"backdrops":[{"name":"Studio"}]}`),
@@ -213,7 +213,7 @@ func TestServerTextDocumentCompletionSpxResources(t *testing.T) {
 	})
 
 	t.Run("PropertyNamesForImportedReceiver", func(t *testing.T) {
-		files := map[string][]byte{"main.spx": []byte(`import "github.com/goplus/spx/v3"
+		files := map[string][]byte{"main.spx": []byte(`import "github.com/goplus/spx/v4"
 var score int
 func test() {
 	var sprite spx.SpriteImpl
@@ -462,7 +462,7 @@ func run() {}
 	Runner.showVar(x|)
 }
 `, map[string]string{`"hp"`: "xgo:main?Runner.hp"}},
-			{"EmbeddedMethod", "Runner.spx", "showVar(|\n", map[string]string{`"hp"`: "xgo:main?Runner.hp", `"xpos"`: "xgo:github.com/goplus/spx/v3?Sprite.xpos"}},
+			{"EmbeddedMethod", "Runner.spx", "showVar(|\n", map[string]string{`"hp"`: "xgo:main?Runner.hp", `"xpos"`: "xgo:github.com/goplus/spx/v4?Sprite.xpos"}},
 			{"InsideString", "main.spx", "showVar(\"s|\n", map[string]string{"score": "xgo:main?Game.score"}},
 			{"LineDirective", "main.spx", `//line virtual.spx:100:20
 showVar "s|"

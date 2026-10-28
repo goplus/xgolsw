@@ -195,7 +195,7 @@ func TestServerDiagnosticsAtSpx(t *testing.T) {
 			unavailablePackage: SpxPkgPath,
 			want: map[DocumentURI][]Diagnostic{"file:///main.spx": {{
 				Severity: SeverityError,
-				Message:  "failed to import package \"github.com/goplus/spx/v3\": file does not exist",
+				Message:  "failed to import package \"github.com/goplus/spx/v4\": file does not exist",
 			}}},
 		},
 	} {

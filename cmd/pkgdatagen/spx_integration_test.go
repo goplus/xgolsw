@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/goplus/spx/v3"
+	_ "github.com/goplus/spx/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateSpxEnginePackage(t *testing.T) {
-	pkgPath := "github.com/goplus/spx/v3/pkg/spx/pkg/engine"
+	pkgPath := "github.com/goplus/spx/v4/pkg/spx/pkg/engine"
 	outputFile := filepath.Join(t.TempDir(), "pkgdata.zip")
 	require.NoError(t, generate([]string{pkgPath}, outputFile))
 

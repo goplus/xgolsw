@@ -14,8 +14,8 @@ import (
 func TestSymbolDefinitionMemberPackage(t *testing.T) {
 	for _, tt := range []struct{ name, path string }{
 		{"Framework", "example.com/framework/internal/engine"},
-		{"SpxSubpackage", "github.com/goplus/spx/v3/internal/engine"},
-		{"SpxPackage", "github.com/goplus/spx/v3"},
+		{"SpxSubpackage", "github.com/goplus/spx/v4/internal/engine"},
+		{"SpxPackage", "github.com/goplus/spx/v4"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, typeName := range []string{"Game", "Sprite", "SpriteImpl"} {
