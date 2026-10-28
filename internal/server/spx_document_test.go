@@ -90,7 +90,7 @@ onStart => {
 					{Range: Range{Start: Position{Line: 1, Character: 6}, End: Position{Line: 1, Character: 15}},
 						Target: toURI("xgo:main?Backdrop1")},
 					{Range: Range{Start: Position{Line: 1, Character: 16}, End: Position{Line: 1, Character: 28}},
-						Target: toURI("xgo:github.com/goplus/spx/v3?BackdropName")},
+						Target: toURI("xgo:github.com/goplus/spx/v4?BackdropName")},
 					{Range: Range{Start: Position{Line: 1, Character: 31}, End: Position{Line: 1, Character: 42}},
 						Target: toURI("spx://resources/backdrops/backdrop1"), Data: XGoResourceRefDocumentLinkData{Kind: XGoResourceRefKindStringLiteral}},
 					{Range: Range{Start: Position{Line: 2, Character: 6}, End: Position{Line: 2, Character: 16}},
@@ -165,7 +165,7 @@ const (
 				Start: Position{Line: 3, Character: 9},
 				End:   Position{Line: 3, Character: 18},
 			},
-			Target: toURI("xgo:github.com/goplus/spx/v3?SoundName"),
+			Target: toURI("xgo:github.com/goplus/spx/v4?SoundName"),
 		})
 		assert.Contains(t, links, DocumentLink{
 			Range: Range{

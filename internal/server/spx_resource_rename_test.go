@@ -140,7 +140,7 @@ func TestServerRenameSpxResources(t *testing.T) {
 			{"Contextual", "play spx.BackdropName(\"Shared\")\n", "sounds"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := "import \"github.com/goplus/spx/v3\"\n" + tt.source
+				source := "import \"github.com/goplus/spx/v4\"\n" + tt.source
 				name := "Shared"
 				for _, newName := range []string{"Renamed", "Final"} {
 					files := map[string][]byte{"main.spx": []byte(source)}

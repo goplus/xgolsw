@@ -70,10 +70,10 @@ play "$$"
 		{name: "ProjectClass", filename: "main.spx"},
 		{name: "WorkClass", filename: "Runner.spx"},
 		{name: "WorkClassWithoutProject", filename: "Runner.spx", withoutProject: true},
-		{name: "PlainXGo", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v3"
+		{name: "PlainXGo", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v4"
 func play(sound spx.SoundName) {}
 `},
-		{name: "PlainXGoAlias", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v3"
+		{name: "PlainXGoAlias", filename: "helper.xgo", prefix: `import "github.com/goplus/spx/v4"
 type Sound = spx.SoundName
 type Alias = Sound
 func play(sound Alias) {}

@@ -9,7 +9,7 @@ import (
 )
 
 // SpxPkgPath is the path to the spx package.
-const SpxPkgPath = "github.com/goplus/spx/v3"
+const SpxPkgPath = "github.com/goplus/spx/v4"
 
 // isSpxFramework reports whether spx supplies the registration's base classes.
 func isSpxFramework(framework *modfile.Project) bool {

@@ -115,8 +115,8 @@ func TestImporterImport(t *testing.T) {
 		path string
 	}{
 		{name: "Spx", path: "github.com/goplus/spx"},
-		{name: "VersionedSpx", path: "github.com/goplus/spx/v3"},
-		{name: "SpxSubpackage", path: "github.com/goplus/spx/v3/internal/engine"},
+		{name: "VersionedSpx", path: "github.com/goplus/spx/v4"},
+		{name: "SpxSubpackage", path: "github.com/goplus/spx/v4/internal/engine"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := &failureRecorder{TB: t}

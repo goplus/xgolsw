@@ -17,7 +17,7 @@ func TestServerTextDocumentCompletionSpx(t *testing.T) {
 			{"Classfile", "main.spx", "spx.Sprite"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, `import spx "github.com/goplus/spx/v3"
+				source, position := typeDisplayTestSource(t, `import spx "github.com/goplus/spx/v4"
 type Target = spx.Sprite
 var sprite `+tt.typ+"\nsprite.|stepWith(1)\n")
 				s := newSpxIntegrationTestServer(t, map[string][]byte{tt.filename: []byte(source)})
@@ -33,7 +33,7 @@ var sprite `+tt.typ+"\nsprite.|stepWith(1)\n")
 				assert.Equal(t, 3, countCompletionItemLabel(items, "step"))
 				item := completionItemByLabel(items, "stepWith")
 				data := requireValueAs[*CompletionItemData](t, item.Data)
-				assert.Equal(t, "xgo:github.com/goplus/spx/v3?Sprite.stepWith", data.Definition.String())
+				assert.Equal(t, "xgo:github.com/goplus/spx/v4?Sprite.stepWith", data.Definition.String())
 				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
 					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
 				}})
@@ -197,7 +197,7 @@ onStart => {}
 		items := completionItemsAt(t, s, "main.spx", Position{Line: 8, Character: 9}) // After "n"
 		assert.Contains(t, completionItemLabels(items), "onClick")
 		assert.True(t, containsCompletionDefinitionID(items, XGoDefinitionIdentifier{
-			Package: new("github.com/goplus/spx/v3"),
+			Package: new("github.com/goplus/spx/v4"),
 			Name:    new("Sprite.onClick"),
 		}))
 		assert.Contains(t, completionItemLabels(items), "methodOne")

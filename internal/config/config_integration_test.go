@@ -26,6 +26,6 @@ var Text = strings.ToUpper("hello")
 	require.NoError(t, err)
 	assert.Contains(t, packages, "fmt")
 	assert.Contains(t, packages, "github.com/qiniu/x/xgo")
-	assert.NotContains(t, packages, "github.com/goplus/spx/v3")
-	assert.NotContains(t, packages, "github.com/goplus/spx/v3/pkg/spx/pkg/engine")
+	assert.NotContains(t, packages, "github.com/goplus/spx/v4")
+	assert.NotContains(t, packages, "github.com/goplus/spx/v4/pkg/spx/pkg/engine")
 }

@@ -26,7 +26,7 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 			{"StringContextual", "play string(sdk.BackdropName(\"Shared\"))\n", "sounds"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				source := "import sdk \"github.com/goplus/spx/v3\"\n" + tt.source
+				source := "import sdk \"github.com/goplus/spx/v4\"\n" + tt.source
 				files := map[string][]byte{
 					"main.spx":                        []byte(source),
 					"assets/index.json":               []byte(`{"backdrops":[{"name":"Shared"}]}`),
@@ -65,7 +65,7 @@ func TestServerSpxGetInputSlots(t *testing.T) {
 			{"ExtraKwarg", "sdk.HSB(12, 34, 56, extra=78)", nil},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				const prefix = `import sdk "github.com/goplus/spx/v3"
+				const prefix = `import sdk "github.com/goplus/spx/v4"
 var color = `
 				source := prefix + tt.expression + "\n"
 				s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
@@ -714,7 +714,7 @@ func TestSpxAnalysisCreateValueInputSlotFromColorFuncCall(t *testing.T) {
 	}{
 		{"HSB", "println HSB(12, 34, 56)\n", "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
 		{"HSBA", "println HSBA(12, 34, 56, 78)\n", "HSBA", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSBA, Args: []float64{12, 34, 56, 78}}},
-		{"Qualified", `import sdk "github.com/goplus/spx/v3"
+		{"Qualified", `import sdk "github.com/goplus/spx/v4"
 println sdk.HSB(12, 34, 56)
 `, "HSB", &XGoInputSpxColorValue{Constructor: XGoInputTypeSpxColorConstructorHSB, Args: []float64{12, 34, 56}}},
 		{"LocalFunction", "func HSB(h, s, b float64) int { return 0 }\nprintln HSB(12, 34, 56)\n", "HSB", nil},
@@ -722,7 +722,7 @@ println sdk.HSB(12, 34, 56)
 		{"UnknownFunction", "println unknown(12, 34, 56)\n", "unknown", nil},
 		{"TooFewArguments", "println HSB(12, 34)\n", "HSB", nil},
 		{"TooManyArguments", "println HSB(12, 34, 56, 78)\n", "HSB", nil},
-		{"QualifiedExtraArguments", "import sdk \"github.com/goplus/spx/v3\"\nprintln sdk.HSB(12, 34, 56, 78)\n", "HSB", nil},
+		{"QualifiedExtraArguments", "import sdk \"github.com/goplus/spx/v4\"\nprintln sdk.HSB(12, 34, 56, 78)\n", "HSB", nil},
 		{"ExtraExpression", "println HSB(12, 34, 56, rand(100))\n", "HSB", nil},
 		{"Kwargs", "println HSB(12, 34, 56, extra=78)\n", "HSB", nil},
 	} {
