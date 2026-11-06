@@ -119,6 +119,7 @@ func (r *spxSymbols) isMonitorValueType(typ gotypes.Type) bool {
 }
 
 // isPropertyTypeName recognizes the SDK's monitor containers.
+// Callers normalize typ; unalias SDK keys here while preserving aliases in the shared symbol cache.
 func (r *spxSymbols) isPropertyTypeName(typ gotypes.Type) bool {
 	for sdkType, name := range r.types {
 		switch name {
