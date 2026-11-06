@@ -25,6 +25,10 @@ func newSpxSymbolTestServer(t testing.TB, files map[string][]byte, pkgPath strin
 	const source = `package sdk
 const XGoPackage = true
 type Game struct{}
+type listStorage struct{}
+type List = listStorage
+type valueStorage struct{}
+type Value = valueStorage
 type Sprite interface {
     // Read declaration.
     Read(n int) int
@@ -234,6 +238,28 @@ func TestDefinitionContextSpxFunctionDocumentation(t *testing.T) {
 			}}
 			assert.Equal(t, tt.want, ctx.definitionForFunc(fun, "", doc).Detail)
 			assert.Equal(t, tt.want, ctx.functionDocumentation(fun))
+		})
+	}
+}
+
+func TestSpxSymbolsMonitorContainerAliases(t *testing.T) {
+	for _, name := range []string{"Value", "List"} {
+		t.Run(name, func(t *testing.T) {
+			s := newSpxSymbolTestServer(t, nil, SpxPkgPath)
+			setSpxSymbolTestModule(t, s, SpxPkgPath)
+			symbols := newSpxSymbols(s.getProj())
+			obj := symbols.pkg.Scope().Lookup(name)
+			require.NotNil(t, obj)
+			alias := requireValueAs[*gotypes.Alias](t, obj.Type())
+			assert.Equal(t, name, symbols.spxTypeName(alias))
+			assert.Empty(t, symbols.spxTypeName(gotypes.Unalias(alias)))
+			for _, typ := range []gotypes.Type{alias, gotypes.Unalias(alias), gotypes.NewPointer(alias)} {
+				field := gotypes.NewField(0, nil, "items", typ, false)
+				assert.True(t, symbols.isMonitorField(field))
+				assert.True(t, symbols.isMonitorValueType(typ))
+			}
+			other := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Other"+name, nil), gotypes.Unalias(alias).Underlying(), nil)
+			assert.False(t, symbols.isMonitorValueType(other))
 		})
 	}
 }
