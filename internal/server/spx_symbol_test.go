@@ -247,6 +247,8 @@ func TestSpxSymbolsMonitorListAlias(t *testing.T) {
 	obj := symbols.pkg.Scope().Lookup("List")
 	require.NotNil(t, obj)
 	alias := requireValueAs[*gotypes.Alias](t, obj.Type())
+	assert.Equal(t, "List", symbols.spxTypeName(alias))
+	assert.Empty(t, symbols.spxTypeName(gotypes.Unalias(alias)))
 	for _, typ := range []gotypes.Type{alias, gotypes.Unalias(alias), gotypes.NewPointer(alias)} {
 		field := gotypes.NewField(0, nil, "items", typ, false)
 		assert.True(t, symbols.isMonitorField(field))

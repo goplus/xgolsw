@@ -120,9 +120,13 @@ func (r *spxSymbols) isMonitorValueType(typ gotypes.Type) bool {
 
 // isPropertyTypeName recognizes the SDK's monitor containers.
 func (r *spxSymbols) isPropertyTypeName(typ gotypes.Type) bool {
-	switch r.spxTypeName(typ) {
-	case "Value", "List":
-		return true
+	for sdkType, name := range r.types {
+		switch name {
+		case "Value", "List":
+			if gotypes.Unalias(sdkType) == typ {
+				return true
+			}
+		}
 	}
 	return false
 }

@@ -53,10 +53,6 @@ func newSpxSymbols(proj *xgo.Project) *spxSymbols {
 		} {
 			if obj := pkg.Scope().Lookup(name); obj != nil {
 				symbols.types[obj.Type()] = name
-				// Monitor checks unalias containers before looking up their SDK identity.
-				if name == "Value" || name == "List" {
-					symbols.types[gotypes.Unalias(obj.Type())] = name
-				}
 			}
 		}
 		break
