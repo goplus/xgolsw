@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,6 +69,30 @@ func TestDataListPkgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEmbeddedScratchCompatPackage(t *testing.T) {
+	const pkgPath = "github.com/goplus/spx/v4/pkg/scratchcompat"
+
+	data, err := NewWithEmbedded(nil)
+	require.NoError(t, err)
+	packages, err := data.ListPkgs()
+	require.NoError(t, err)
+	if !slices.Contains(packages, pkgPath) {
+		t.Skip("embedded package data is disabled")
+	}
+
+	export, err := data.OpenExport(pkgPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, export.Close()) })
+
+	doc, err := data.GetPkgDoc(pkgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "scratchcompat", doc.Name)
+
+	pkg, err := internal.NewImporter(data.OpenExport).Import(pkgPath)
+	require.NoError(t, err)
+	assert.NotNil(t, pkg.Scope().Lookup("Rand"))
 }
 
 func TestDataOpenExport(t *testing.T) {

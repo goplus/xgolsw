@@ -146,6 +146,9 @@ var defaultPkgPaths = []string{
 	"github.com/qiniu/x/stringslice",
 	// Required for XGo's ? error handling operator
 	"github.com/qiniu/x/errors",
+
+	// Required by generated Scratch-compatible SPX code.
+	"github.com/goplus/spx/v4/pkg/scratchcompat",
 }
 
 // generate generates the package data file containing the exported symbols of
