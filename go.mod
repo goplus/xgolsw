@@ -5,14 +5,14 @@ go 1.26.0
 tool github.com/goplus/xgolsw/cmd/pkgdatagen
 
 require (
-	github.com/goplus/gogen v1.24.7
+	github.com/goplus/gogen v1.26.6
 	github.com/goplus/mod v0.22.1
 	github.com/goplus/spx/v4 v4.0.1
 	github.com/goplus/xgo v1.7.6-0.20260925200949-51a44c58fd65
-	github.com/qiniu/x v1.18.3
+	github.com/qiniu/x v1.19.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.42.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/tools v0.52.0
 )
 
