@@ -1847,10 +1847,12 @@ func completionTypesCompatible(got, want gotypes.Type) bool {
 		}
 		return true
 	}
-	_, gotFunction := got.Underlying().(*gotypes.Signature)
-	_, wantFunction := want.Underlying().(*gotypes.Signature)
+	gotUnderlying := got.Underlying()
+	wantUnderlying := want.Underlying()
+	_, gotFunction := gotUnderlying.(*gotypes.Signature)
+	_, wantFunction := wantUnderlying.(*gotypes.Signature)
 	if gotFunction || wantFunction {
-		return gotypes.AssignableTo(got, want)
+		return gotUnderlying != nil && wantUnderlying != nil && gotypes.AssignableTo(got, want)
 	}
 	return xgoutil.IsTypesCompatible(got, want)
 }

@@ -68,9 +68,13 @@ func IsTypeExpr(typeInfo *types.Info, expr ast.Expr) (isType, known bool) {
 	return false, obj != nil
 }
 
-// IsTypesCompatible reports whether two types are compatible.
+// IsTypesCompatible reports whether two types are compatible. Types without
+// an underlying type are incompatible.
 func IsTypesCompatible(got, want gotypes.Type) bool {
 	if got == nil || want == nil {
+		return false
+	}
+	if got.Underlying() == nil || want.Underlying() == nil {
 		return false
 	}
 
@@ -124,18 +128,24 @@ func IsTypesCompatible(got, want gotypes.Type) bool {
 	return false
 }
 
-// IsTypesConvertible reports whether a type can be explicitly converted to another.
+// IsTypesConvertible reports whether a type can be explicitly converted to
+// another, excluding numeric-to-string conversions. It returns false if either
+// type or its underlying type is nil.
 func IsTypesConvertible(from, to gotypes.Type) bool {
 	if from == nil || to == nil {
+		return false
+	}
+
+	// Incomplete declarations can leave named types without an underlying type.
+	fromUnderlying := from.Underlying()
+	toUnderlying := to.Underlying()
+	if fromUnderlying == nil || toUnderlying == nil {
 		return false
 	}
 
 	if !gotypes.ConvertibleTo(from, to) {
 		return false
 	}
-
-	fromUnderlying := from.Underlying()
-	toUnderlying := to.Underlying()
 
 	fromBasic, fromIsBasic := fromUnderlying.(*gotypes.Basic)
 	toBasic, toIsBasic := toUnderlying.(*gotypes.Basic)

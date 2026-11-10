@@ -12,6 +12,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestServerTextDocumentCompletionIncompleteTypeDeclaration(t *testing.T) {
+	for _, tt := range []struct{ name, source string }{
+		{"OpeningBracket", "type Box["},
+		{"ArrayLengthIdentifier", "type Box[T"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, kind := range []struct {
+				name, filename string
+				newServer      testServerFactory
+			}{
+				{"Plain", "main.xgo", newTestServer},
+				{"ProjectClass", "main_fixture.gox", newFrameworkTestServer},
+				{"WorkClass", "Worker_fixture.gox", newFrameworkTestServer},
+			} {
+				t.Run(kind.name, func(t *testing.T) {
+					files := map[string][]byte{
+						kind.filename: []byte(tt.source),
+					}
+					if kind.filename == "Worker_fixture.gox" {
+						files["main_fixture.gox"] = nil
+					}
+					s := kind.newServer(t, files)
+					items := completionItemsAt(t, s, kind.filename, Position{Character: uint32(len(tt.source))})
+					labels := completionItemLabels(items)
+					assert.Contains(t, labels, "int")
+					assert.NotContains(t, labels, "Box")
+				})
+			}
+		})
+	}
+}
+
 func TestServerTextDocumentCompletionTypeArguments(t *testing.T) {
 	for _, tt := range []struct {
 		name, source, want string
@@ -101,6 +133,32 @@ var value string = dict[candidate|Text]()`, "candidateText", "candidateLength"},
 			if tt.absent != "" {
 				assert.NotContains(t, labels, tt.absent)
 			}
+		})
+	}
+}
+
+func TestCompletionItemSetSetExpectedTypes(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		function bool
+	}{
+		{name: "Value"},
+		{name: "Function", function: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var complete gotypes.Type = gotypes.Typ[gotypes.Int]
+			if tt.function {
+				complete = gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+			}
+			incomplete := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Box", nil), nil, nil)
+			items := newCompletionItemSet(PlainText)
+			items.setExpectedTypes([]gotypes.Type{incomplete})
+			assert.False(t, items.isCompatibleWithExpectedTypes(complete))
+			assert.False(t, items.isCompatibleWithExpectedTypes(incomplete))
+
+			items.setExpectedTypes([]gotypes.Type{complete})
+			assert.False(t, items.isCompatibleWithExpectedTypes(incomplete))
+			assert.True(t, items.isCompatibleWithExpectedTypes(complete))
 		})
 	}
 }
