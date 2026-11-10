@@ -1,11 +1,10 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	gotypes "go/types"
-	"slices"
 
+	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -14,7 +13,7 @@ import (
 // notifyPropertiesRenamed reports properties that still resolve to the renamed
 // declarations after applying the edit. The preview uses the same property
 // lookup and framework policy as getProperties without changing project state.
-func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams, edit *WorkspaceEdit, objects ...gotypes.Object) error {
+func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams, preview *renamePreview, objects ...gotypes.Object) error {
 	info, _ := proj.TypeInfo()
 	renamed := make(map[gotypes.Object]bool, len(objects))
 	for _, obj := range objects {
@@ -76,15 +75,15 @@ func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams
 	if len(candidates) == 0 {
 		return nil
 	}
-	preview, declarations, err := s.propertyRenamePreview(proj, edit, renamed)
-	if err != nil {
-		return err
+	declarations := make(map[token.Pos]gotypes.Object, len(renamed))
+	for obj := range renamed {
+		declarations[preview.position(proj, info.ObjToDef[obj].Pos())] = obj
 	}
-	previewInfo, _ := preview.TypeInfo()
+	previewInfo, _ := preview.project.TypeInfo()
 	if previewInfo == nil {
 		return nil
 	}
-	ctx = &definitionContext{proj: preview}
+	ctx = &definitionContext{proj: preview.project}
 	properties := make(map[string]map[string]gotypes.Object)
 	for _, candidate := range candidates {
 		params := candidate.params
@@ -102,9 +101,8 @@ func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams
 				continue
 			}
 			for property := range ctx.propertyObjects(named) {
-				_, pos := objectSource(preview, previewInfo.ObjectDeclaration(property.Object))
-				position := preview.Fset.PositionFor(pos, false)
-				members[property.Name] = declarations[position.Filename][position.Offset]
+				_, pos := objectSource(preview.project, previewInfo.ObjectDeclaration(property.Object))
+				members[property.Name] = declarations[pos]
 			}
 		}
 		if members[params.NewName] != candidate.object {
@@ -119,44 +117,4 @@ func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams
 		}
 	}
 	return nil
-}
-
-// propertyRenamePreview applies the generated rename edits to an isolated
-// project and tracks declaration offsets for checking property identity. A
-// fresh file set keeps temporary source positions out of the current project.
-func (s *Server) propertyRenamePreview(proj *xgo.Project, edit *WorkspaceEdit, renamed map[gotypes.Object]bool) (*xgo.Project, map[string]map[int]gotypes.Object, error) {
-	info, _ := proj.TypeInfo()
-	locations := make(map[Location]gotypes.Object, len(renamed))
-	for obj := range renamed {
-		locations[s.locationForNode(proj, info.ObjToDef[obj])] = obj
-	}
-	preview := proj.Fork()
-	declarations := make(map[string]map[int]gotypes.Object)
-	for uri, edits := range edit.Changes {
-		filename, err := s.fromDocumentURI(uri)
-		if err != nil {
-			return nil, nil, err
-		}
-		file, _ := proj.File(filename)
-		astFile, _ := proj.ASTFile(filename)
-		updated := *file
-		edits = slices.Clone(edits)
-		slices.SortFunc(edits, func(a, b TextEdit) int { return comparePositions(a.Range.Start, b.Range.Start) })
-		var content bytes.Buffer
-		var offset int
-		declarations[filename] = make(map[int]gotypes.Object)
-		for _, edit := range edits {
-			start := ToPosition(proj, astFile, edit.Range.Start).Offset
-			content.Write(file.Content[offset:start])
-			if obj := locations[Location{URI: uri, Range: edit.Range}]; obj != nil {
-				declarations[filename][content.Len()] = obj
-			}
-			content.WriteString(edit.NewText)
-			offset = ToPosition(proj, astFile, edit.Range.End).Offset
-		}
-		content.Write(file.Content[offset:])
-		updated.Content = content.Bytes()
-		preview.PutFile(filename, &updated)
-	}
-	return preview, declarations, nil
 }

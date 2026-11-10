@@ -1012,6 +1012,391 @@ func main() {
 	})
 }
 
+func TestServerTextDocumentRenameExistingErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		source string
+	}{
+		{name: "Variable", source: `func use() {
+|count := 1
+var text string = count
+_ = text
+}
+`},
+		{name: "Field", source: `type Record struct { |Count int }
+var record Record
+func use() {
+var text string = record.Count
+_ = text
+}
+`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			_, err := s.requestProject().TypeInfo()
+			require.Error(t, err)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				Position:     position,
+				NewName:      "LongerTotal",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.xgo"])
+			s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
+			_, err = s.requestProject().TypeInfo()
+			assert.ErrorContains(t, err, "LongerTotal")
+		})
+	}
+}
+
+func TestServerTextDocumentRenameConflict(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		source  string
+		newName string
+	}{
+		{name: "Variable", source: "var |count = 1\nvar total = 2\necho count, total\n", newName: "total"},
+		{name: "UnusedVariable", source: "var |count, total int\n", newName: "total"},
+		{name: "UnusedConstant", source: "const |count = 1\nconst total = 2\n", newName: "total"},
+		{name: "UnusedFunction", source: "func |Count() {}\nfunc Total() {}\n", newName: "Total"},
+		{name: "InitSignature", source: "func |Count(int) {}\n", newName: "init"},
+		{name: "UnusedField", source: "type Record struct { |Count int; Total int }\n", newName: "Total"},
+		{name: "AnonymousField", source: "var record struct { |Count int; Total int }\necho record\n", newName: "Total"},
+		{name: "FieldAndMethod", source: "type Record struct { |Count int }\nfunc (Record) Total() int { return 1 }\n", newName: "Total"},
+		{name: "DerivedFieldAndMethod", source: `type Record struct { |Count int }
+type Adapter Record
+func (Adapter) Total() int { return 1 }
+`, newName: "Total"},
+		{name: "EmbeddedFieldAndMethod", source: `type |Count int
+type Record struct { Count }
+func (Record) Total() int { return 1 }
+`, newName: "Total"},
+		{name: "StructResult", source: `type Record struct { |Count int }
+func use() struct { Count int } { return Record{} }
+`, newName: "Total"},
+		{name: "StructConversion", source: `type Record struct { |Count int }
+_ = struct { Count int }(Record{})
+`, newName: "Total"},
+		{name: "PointerStructConversion", source: `type Record struct { |Count int }
+_ = (*struct { Count int })(&Record{})
+`, newName: "Total"},
+		{name: "Type", source: "type |Count int\ntype Total int\n", newName: "Total"},
+		{name: "Local", source: "func show() { |count := 1; total := 2; echo count, total }\n", newName: "total"},
+		{name: "Parameter", source: "func show(|count, total int) { echo count, total }\n", newName: "total"},
+		{name: "ReferenceCaptured", source: `var |count = 1
+func show() {
+    total := 2
+    echo count, total
+}
+show()
+`, newName: "total"},
+		{name: "ExistingReferenceCaptured", source: `var total = 1
+func show() {
+    |count := 2
+    echo count, total
+}
+show()
+`, newName: "total"},
+		{name: "BuiltinCaptured", source: `func show() {
+    |count := 2
+    echo count, len([1, 2])
+}
+`, newName: "len"},
+		{name: "ImportCaptured", source: `import "fmt"
+func show() {
+    |count := 2
+    fmt.Println(count)
+}
+`, newName: "fmt"},
+		{name: "PromotedReferenceCaptured", source: `type Base struct { |Count int }
+type Record struct { Base; Total int }
+var record Record
+echo record.Count, record.Total
+`, newName: "Total"},
+		{name: "ExistingPromotedReferenceCaptured", source: `type Base struct { Total int }
+type Record struct { Base; |Count int }
+var record Record
+echo record.Count, record.Total
+`, newName: "Total"},
+		{name: "EmbeddedField", source: `type |Count int
+type Record struct { Count; Total int }
+`, newName: "Total"},
+		{name: "AliasCaptured", source: `func |Count() int { return 1 }
+func show() {
+    total := 2
+    echo count, total
+}
+`, newName: "Total"},
+		{name: "ExistingAliasCaptured", source: `func Total() int { return 1 }
+func |Count() int { return 2 }
+func show() { echo total }
+`, newName: "total"},
+		{name: "ExistingPropertyCaptured", source: `type Record struct { |Count int }
+func (Record) Total() int { return 1 }
+var record = &Record{}
+echo record.total
+`, newName: "total"},
+		{name: "ExistingFieldCapturedByAlias", source: `type Record struct { total int }
+func (Record) |Count() int { return 1 }
+var record Record
+echo record.total
+`, newName: "Total"},
+		{name: "KwargField", source: `type Options struct { |Count int; Total int }
+func configure(opts Options?) {}
+configure count=1, total=2
+`, newName: "Total"},
+		{name: "ImplicitKwargType", source: `type Client struct{}
+type |Params interface { Limit(value int) Params }
+func (Client) Params() Params { return nil }
+func (Client) complete(text string, params Params?) {}
+var client Client
+client.complete "text", limit=2
+`, newName: "Options"},
+		{name: "ImplicitKwargFactory", source: `type Client struct{}
+type Params interface { Limit(value int) Params }
+func (Client) |Params() Params { return nil }
+func (Client) complete(text string, params Params?) {}
+var client Client
+client.complete "text", limit=2
+`, newName: "Options"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, incomplete := range []bool{false, true} {
+				name := "ValidProject"
+				if incomplete {
+					name = "IncompleteProject"
+				}
+				t.Run(name, func(t *testing.T) {
+					source, position := typeDisplayTestSource(t, tt.source)
+					files := map[string][]byte{"main.xgo": []byte(source)}
+					if incomplete {
+						files["broken.xgo"] = []byte("func broken() { missing() }\n")
+					}
+					s := newTestServer(t, files)
+					proj := s.requestProject()
+					info, err := proj.TypeInfo()
+					if incomplete {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+					base := proj.Fset.Base()
+					replier := newMockReplier()
+					s.replier = replier
+					edit, err := s.textDocumentRename(&RenameParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+						Position:     position,
+						NewName:      tt.newName,
+					})
+					assert.ErrorContains(t, err, "conflicts")
+					assert.Nil(t, edit)
+					assert.Empty(t, replier.getMessages())
+					file, ok := proj.File("main.xgo")
+					require.True(t, ok)
+					assert.Equal(t, source, string(file.Content))
+					assert.Equal(t, base, proj.Fset.Base())
+					after, _ := proj.TypeInfo()
+					assert.Same(t, info, after)
+				})
+			}
+		})
+	}
+}
+
+func TestServerTextDocumentRenameShadowing(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		source  string
+		newName string
+		want    string
+	}{
+		{name: "UnreferencedOuterVariable", source: `var |count = 1
+func show() { total := 2; echo total }
+echo count
+`, newName: "total", want: `var total = 1
+func show() { total := 2; echo total }
+echo total
+`},
+		{name: "ReferenceBeforeDeclaration", source: `var total = 1
+func show() {
+    echo total
+    |count := 2
+    echo count
+}
+`, newName: "total", want: `var total = 1
+func show() {
+    echo total
+    total := 2
+    echo total
+}
+`},
+		{name: "Initializer", source: `var total = 1
+func show() { |count := total; echo count }
+`, newName: "total", want: `var total = 1
+func show() { total := total; echo total }
+`},
+		{name: "RangeExpression", source: `var total = [1, 2]
+for _, |count := range total { echo count }
+`, newName: "total", want: `var total = [1, 2]
+for _, total := range total { echo total }
+`},
+		{name: "Comprehension", source: `var total = [1, 2]
+echo [count for |count <- total]
+`, newName: "total", want: `var total = [1, 2]
+echo [total for total <- total]
+`},
+		{name: "SiblingScope", source: `func show() {
+    { total := 1; echo total }
+    { |count := 2; echo count }
+}
+`, newName: "total", want: `func show() {
+    { total := 1; echo total }
+    { total := 2; echo total }
+}
+`},
+		{name: "PromotedField", source: `type Base struct { Total int }
+type Record struct { Base; |Count int }
+var record Record
+echo record.Count
+`, newName: "Total", want: `type Base struct { Total int }
+type Record struct { Base; Total int }
+var record Record
+echo record.Total
+`},
+		{name: "PropertyAlias", source: `type Record struct { |Count int }
+func (Record) Total() int { return 1 }
+var record Record
+echo record.total
+`, newName: "total", want: `type Record struct { total int }
+func (Record) Total() int { return 1 }
+var record Record
+echo record.total
+`},
+		{name: "ConversionArgument", source: "var |count = 1\n_ = int(count)\n", newName: "totalCount", want: "var totalCount = 1\n_ = int(totalCount)\n"},
+		{name: "StructConversion", source: `type Record struct { |Count int }
+type Copy Record
+_ = Copy(Record{})
+`, newName: "Total", want: `type Record struct { Total int }
+type Copy Record
+_ = Copy(Record{})
+`},
+		{name: "PointerStructConversion", source: `type Record struct { |Count int }
+type Copy Record
+_ = (*Copy)(&Record{})
+`, newName: "Total", want: `type Record struct { Total int }
+type Copy Record
+_ = (*Copy)(&Record{})
+`},
+		{name: "CustomConversion", source: `type Amount int
+type Record struct { |Count int }
+func (Record) XGo_Rcast() Amount { return 1 }
+var record Record
+_ = Amount(record)
+`, newName: "Total", want: `type Amount int
+type Record struct { Total int }
+func (Record) XGo_Rcast() Amount { return 1 }
+var record Record
+_ = Amount(record)
+`},
+		{name: "ShorterName", source: "var |count = 1; echo count, count\n", newName: "n", want: "var n = 1; echo n, n\n"},
+		{name: "LongerName", source: "var |n = 1; echo n, n\n", newName: "count", want: "var count = 1; echo count, count\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				Position:     position,
+				NewName:      tt.newName,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.xgo"])
+			assert.Equal(t, tt.want, updated)
+			s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
+			_, err = s.requestProject().TypeInfo()
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestServerTextDocumentRenameClassConflict(t *testing.T) {
+	for _, kind := range []struct {
+		name      string
+		filename  string
+		newServer testServerFactory
+	}{
+		{name: "NormalClass", filename: "Record.gox", newServer: newTestServer},
+		{name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer},
+		{name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer},
+	} {
+		t.Run(kind.name, func(t *testing.T) {
+			for _, tt := range []struct {
+				name    string
+				source  string
+				newName string
+			}{
+				{name: "DuplicateField", source: "var |Count, Total int\n", newName: "Total"},
+				{name: "FieldAndMethod", source: "var |Count int\nfunc Total() int { return 1 }\n", newName: "Total"},
+				{name: "FieldCaptured", source: "var |Count int\nfunc show() { total := 1; echo Count, total }\n", newName: "total"},
+				{name: "ExistingFieldCaptured", source: "var Total int\nfunc show() { |count := 1; echo count, Total }\n", newName: "Total"},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					source, position := typeDisplayTestSource(t, tt.source)
+					files := map[string][]byte{kind.filename: []byte(source)}
+					if kind.name == "WorkClass" {
+						files["main_fixture.gox"] = nil
+					}
+					s := kind.newServer(t, files)
+					_, err := s.requestProject().TypeInfo()
+					require.NoError(t, err)
+					edit, err := s.textDocumentRename(&RenameParams{
+						TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)},
+						Position:     position,
+						NewName:      tt.newName,
+					})
+					assert.ErrorContains(t, err, "conflicts")
+					assert.Nil(t, edit)
+				})
+			}
+		})
+	}
+}
+
+func TestServerTextDocumentRenameCrossFileConflict(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		source  string
+		use     string
+		newName string
+	}{
+		{name: "CapturedReference", source: "var |count = 1\n", use: "func show() { total := 2; echo count, total }\n", newName: "total"},
+		{name: "CapturedAlias", source: "func |Count() int { return 1 }\n", use: "func show() { total := 2; echo count, total }\n", newName: "Total"},
+		{name: "ExistingReferenceCaptured", source: "var |count = 1\n", use: "func Total() int { return 2 }\nfunc show() { echo count, total }\n", newName: "total"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{
+				"main.xgo": []byte(source),
+				"use.xgo":  []byte(tt.use),
+			})
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				Position:     position,
+				NewName:      tt.newName,
+			})
+			assert.ErrorContains(t, err, "conflicts")
+			assert.Nil(t, edit)
+		})
+	}
+}
+
 func assertRenameChanges(t *testing.T, edit *WorkspaceEdit, want map[DocumentURI][]TextEdit) {
 	t.Helper()
 
