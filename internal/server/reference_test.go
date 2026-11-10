@@ -99,8 +99,8 @@ client.Params()
 						assert.ElementsMatch(t, want, refs)
 					}
 					edit, err := s.textDocumentRename(&RenameParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: position, NewName: "Options"})
-					require.NoError(t, err)
-					assertRenameChanges(t, edit, map[DocumentURI][]TextEdit{uri: {{Range: declaration, NewText: "Options"}, {Range: use, NewText: "Options"}}})
+					assert.ErrorContains(t, err, "conflicts")
+					assert.Nil(t, edit, "the implicit factory call still requires a method named Params")
 				}
 				// The kwarg still refers to its interface method, independently of the factory.
 				refs, err := s.textDocumentReferences(&ReferenceParams{TextDocumentPositionParams: TextDocumentPositionParams{

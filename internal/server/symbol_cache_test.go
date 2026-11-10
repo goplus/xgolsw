@@ -38,12 +38,18 @@ func TestServerSymbolAnalysis(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(symbolCacheSource)})
 		s.replier = newMockReplier()
 		var sourceBuilds, methodBuilds atomic.Int32
-		s.getProj().RegisterCacheBuilder(sourceInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
-			sourceBuilds.Add(1)
+		project := s.requestProject()
+		fset := project.Fset
+		project.RegisterCacheBuilder(sourceInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
+			if proj.Fset == fset {
+				sourceBuilds.Add(1)
+			}
 			return buildSourceInfoCache(proj)
 		})
-		s.getProj().RegisterCacheBuilder(methodInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
-			methodBuilds.Add(1)
+		project.RegisterCacheBuilder(methodInfoCacheKind{}, func(proj *xgo.Project) (any, error) {
+			if proj.Fset == fset {
+				methodBuilds.Add(1)
+			}
 			return buildMethodInfoCache(proj)
 		})
 		position := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: 24}}
