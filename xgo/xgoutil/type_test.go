@@ -104,6 +104,13 @@ func TestIsTypesCompatible(t *testing.T) {
 		assert.False(t, IsTypesCompatible(nil, gotypes.Typ[gotypes.Int]))
 	})
 
+	t.Run("IncompleteNamedTypes", func(t *testing.T) {
+		incomplete := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Box", nil), nil, nil)
+		assert.False(t, IsTypesCompatible(incomplete, gotypes.Typ[gotypes.Int]))
+		assert.False(t, IsTypesCompatible(gotypes.Typ[gotypes.Int], incomplete))
+		assert.False(t, IsTypesCompatible(incomplete, incomplete))
+	})
+
 	t.Run("AssignableTypes", func(t *testing.T) {
 		assert.True(t, IsTypesCompatible(gotypes.Typ[gotypes.Int], gotypes.Typ[gotypes.Int]))
 		assert.True(t, IsTypesCompatible(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.String]))
@@ -322,6 +329,13 @@ func TestIsTypesConvertible(t *testing.T) {
 		assert.False(t, IsTypesConvertible(nil, gotypes.Typ[gotypes.Int]))
 		assert.False(t, IsTypesConvertible(gotypes.Typ[gotypes.Int], nil))
 		assert.False(t, IsTypesConvertible(nil, nil))
+	})
+
+	t.Run("IncompleteNamedTypes", func(t *testing.T) {
+		incomplete := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Box", nil), nil, nil)
+		assert.False(t, IsTypesConvertible(incomplete, gotypes.Typ[gotypes.Int]))
+		assert.False(t, IsTypesConvertible(gotypes.Typ[gotypes.Int], incomplete))
+		assert.False(t, IsTypesConvertible(incomplete, incomplete))
 	})
 
 	t.Run("AllowedConversions", func(t *testing.T) {

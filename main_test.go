@@ -170,6 +170,47 @@ func callTestServer(t *testing.T, handle js.Value, responses <-chan js.Value, me
 	}
 }
 
+func TestXGoLanguageServerCompletionIncompleteTypeDeclaration(t *testing.T) {
+	for _, tt := range []struct{ name, source string }{
+		{"OpeningBracket", "type Box["},
+		{"ArrayLengthIdentifier", "type Box[T"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			archive := testframework.NewPkgDataZip(t)
+			data := js.Global().Get("Uint8Array").New(len(archive))
+			js.CopyBytesToJS(data, archive)
+			handle, replies := newTestServer(t, "main.xgo", tt.source, map[string]any{"pkgDataZip": data})
+			callTestServer(t, handle, replies, "initialize", map[string]any{"capabilities": map[string]any{}})
+			callTestServer(t, handle, replies, "textDocument/completion", map[string]any{
+				"textDocument": map[string]any{"uri": "file:///main.xgo"},
+				"position":     map[string]any{"line": 0, "character": len(tt.source)},
+			})
+
+			result := handle.Invoke(js.ValueOf(map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "textDocument/didOpen",
+				"params": map[string]any{
+					"textDocument": map[string]any{
+						"uri":        "file:///main.xgo",
+						"languageId": "xgo",
+						"version":    1,
+						"text": `type Box[2]int
+var box Box
+echo box
+`,
+					},
+				},
+			}))
+			require.True(t, result.IsNull() || result.IsUndefined())
+			hover := callTestServer(t, handle, replies, "textDocument/hover", map[string]any{
+				"textDocument": map[string]any{"uri": "file:///main.xgo"},
+				"position":     map[string]any{"line": 2, "character": 5},
+			})
+			assert.Contains(t, js.Global().Get("JSON").Call("stringify", hover).String(), "var box Box")
+		})
+	}
+}
+
 func TestXGoLanguageServerSymbolRequests(t *testing.T) {
 	const source = `type Reader interface { Read() int }
 type Item struct{}
