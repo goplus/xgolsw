@@ -8,6 +8,13 @@ export interface XGoLanguageServer {
    * @param message - The message to process. Any required response will be sent via the `messageReplier` callback.
    */
   handleMessage(message: RequestMessage | NotificationMessage): Error | null
+
+  /**
+   * Disposes this instance and releases its project and callback references. Repeated calls have no effect.
+   * Queued requests are cancelled. Running analysis may finish without sending messages to the client.
+   * Calls to handleMessage after disposal return an Error, including previously obtained method references.
+   */
+  dispose(): void
 }
 
 /**

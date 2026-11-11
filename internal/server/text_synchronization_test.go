@@ -173,9 +173,7 @@ func TestServerModifyFiles(t *testing.T) {
 			proj := xgo.NewProject(nil, tt.initial, xgo.FeatAll)
 
 			// Create a server with versioned files
-			server := &Server{
-				workspaceRootFS: proj,
-			}
+			server := New(proj, nil, nil, nil, nil, nil)
 
 			// Apply changes
 			server.ModifyFiles(tt.changes)

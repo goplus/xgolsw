@@ -15,6 +15,9 @@ type providerSnapshot struct {
 // readProviderFiles invokes the provider outside projectMu so callbacks may
 // reenter the server. Sequence numbers keep delayed reads from undoing newer ones.
 func (s *Server) readProviderFiles() providerSnapshot {
+	if s.ctx.Err() != nil {
+		return providerSnapshot{}
+	}
 	sequence := s.providerSequence.Add(1)
 	return providerSnapshot{sequence: sequence, files: s.fileMapGetter()}
 }
