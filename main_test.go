@@ -271,6 +271,30 @@ func use(reader Reader) { println reader.Read() }
 	check(0)
 }
 
+func TestXGoLanguageServerInterfaceImplementation(t *testing.T) {
+	archive := testframework.NewPkgDataZip(t)
+	data := js.Global().Get("Uint8Array").New(len(archive))
+	js.CopyBytesToJS(data, archive)
+	handle, responses := newTestServer(t, "main.xgo", `type Reader interface { Read() int }
+type Item struct{}
+func (Item) Read() int { return 1 }
+`, map[string]any{"pkgDataZip": data})
+	callTestServer(t, handle, responses, "initialize", map[string]any{"capabilities": map[string]any{}})
+	result := callTestServer(t, handle, responses, "textDocument/implementation", map[string]any{
+		"textDocument": map[string]any{"uri": "file:///main.xgo"},
+		"position":     map[string]any{"line": 0, "character": 5},
+	})
+	require.True(t, result.InstanceOf(js.Global().Get("Array")))
+	require.Equal(t, 1, result.Length())
+	location := result.Index(0)
+	assert.Equal(t, "file:///main.xgo", location.Get("uri").String())
+	for _, boundary := range []string{"start", "end"} {
+		position := location.Get("range").Get(boundary)
+		assert.Equal(t, 1, position.Get("line").Int())
+		assert.Equal(t, 5, position.Get("character").Int())
+	}
+}
+
 func TestXGoLanguageServerDispose(t *testing.T) {
 	t.Run("CopiedCallbackRevoked", func(t *testing.T) {
 		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}

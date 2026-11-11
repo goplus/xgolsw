@@ -1,15 +1,218 @@
 package server
 
 import (
+	"errors"
 	gotypes "go/types"
 	"strings"
 	"testing"
 
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServerTextDocumentImplementation(t *testing.T) {
+	t.Run("InterfaceTypes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+		}{
+			{"Declaration", "type |Runner interface { Run() }\n"},
+			{"Reference", "type Runner interface { Run() }\nvar runner |Runner\n"},
+			{"Alias", "type Runner interface { Run() }\ntype |Alias = Runner\n"},
+			{"AnonymousAlias", "type |Runner = interface { Run() }\n"},
+			{"Imported", "import f \"example.com/first\"\nvar reader f.|PublicReader\n"},
+			{"ImportedAlias", "import f \"example.com/first\"\ntype |Runner = f.ReaderAlias\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.source)
+				s := newMultiFrameworkTestServer(t, map[string][]byte{
+					"main.xgo": []byte(source),
+					"worker.xgo": []byte(`type Worker struct{}
+func (Worker) Run() {}
+func (Worker) Read(n int) int { return n }
+type WorkerAlias = Worker
+var worker WorkerAlias
+`),
+				})
+				_, err := s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, []Location{{
+					URI: "file:///worker.xgo", Range: Range{Start: Position{Character: 5}, End: Position{Character: 5}},
+				}}, requireValueAs[[]Location](t, result))
+			})
+		}
+	})
+
+	t.Run("InterfaceTypeBoundaries", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			source  string
+			want    []Position
+			wantErr string
+		}{
+			{name: "Empty", source: "type |Empty interface{}\ntype Item struct{}\n"},
+			{name: "Any", source: "var item |any\n"},
+			{name: "NoMatch", source: "type |Runner interface { Run() }\ntype Item struct{}\n"},
+			{
+				name: "Interfaces",
+				source: `type |Runner interface { Run() }
+type Other interface { Run() }
+type Child interface { Runner; Stop() }
+type Unrelated interface { Stop() }
+`,
+				want: []Position{{Line: 1, Character: 5}, {Line: 2, Character: 5}},
+			},
+			{
+				name: "EmbeddedReference",
+				source: `type Runner interface { Run() }
+type Holder struct { |Runner }
+type Worker struct{}
+func (Worker) Run() {}
+`,
+				want: []Position{{Line: 1, Character: 5}, {Line: 2, Character: 5}},
+			},
+			{
+				name: "LocalInterface",
+				source: `type Worker struct{}
+func (Worker) Run() {}
+func use() {
+type |Runner interface { Run() }
+}
+`,
+				want: []Position{{Character: 5}},
+			},
+			{
+				name: "BuiltinError",
+				source: `type Failure struct{}
+func (Failure) Error() string { return "failed" }
+var err |error
+`,
+				want: []Position{{Character: 5}},
+			},
+			{
+				name: "AnonymousStruct",
+				source: `type |Runner interface { Run() }
+type Base struct{}
+func (Base) Run() {}
+var worker struct { Base }
+`,
+				want: []Position{{Line: 1, Character: 5}},
+			},
+			{
+				name: "MismatchedSignature",
+				source: `type |Runner interface { Run() int }
+type Worker struct{}
+func (Worker) Run() string { return "" }
+`,
+			},
+			{
+				name: "InvalidInterface", source: "type |Broken interface { Missing }\n",
+				wantErr: "Missing is not a type",
+			},
+			{
+				name:   "UTF16Positions",
+				source: "/*\U0001F600*/ type Worker struct{}\nfunc (Worker) Run() {}\ntype |Runner interface { Run() }\n",
+				want:   []Position{{Character: 12}},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.source)
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				_, err := s.requestProject().TypeInfo()
+				if tt.wantErr != "" {
+					require.ErrorContains(t, err, tt.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+				result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
+				}})
+				require.NoError(t, err)
+				var want []Location
+				for _, position := range tt.want {
+					want = append(want, Location{URI: "file:///main.xgo", Range: Range{Start: position, End: position}})
+				}
+				assert.ElementsMatch(t, want, requireValueAs[[]Location](t, result))
+			})
+		}
+	})
+
+	t.Run("InstantiatedInterfaceType", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			typ  string
+			line uint32
+		}{
+			{"Alias", "IntReader", 2},
+			{"Int", "Reader[int]", 2},
+			{"String", "Reader[string]", 4},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, "import f \"example.com/framework\"\nvar reader f.|"+tt.typ+`
+type Number struct{}
+func (Number) Read() int { return 1 }
+type Text struct{}
+func (Text) Read() string { return "" }
+`)
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				setImportTestFrameworkMethods(t, s, `type Reader[T any] interface { Read() T }
+type IntReader = Reader[int]
+`)
+				_, err := s.requestProject().TypeInfo()
+				require.NoError(t, err)
+				result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, []Location{{
+					URI: "file:///main.xgo", Range: Range{Start: Position{Line: tt.line, Character: 5}, End: Position{Line: tt.line, Character: 5}},
+				}}, requireValueAs[[]Location](t, result))
+			})
+		}
+	})
+
+	t.Run("InterfaceTypeUpdates", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo":   []byte("type Runner interface { Run() }\n"),
+			"worker.xgo": nil,
+		})
+		for version, state := range []struct {
+			source  string
+			matches bool
+			wantErr string
+		}{
+			{source: "type Worker struct{}\nfunc (Worker) Run() {}\n", matches: true},
+			{source: "type Worker struct{}\nfunc (Worker) Run(int) {}\n"},
+			{source: "type Worker struct{}\nfunc (Worker) Run() { missing() }\n", matches: true, wantErr: "undefined: missing"},
+			{},
+		} {
+			s.ModifyFiles([]FileChange{{Path: "worker.xgo", Content: []byte(state.source), Version: version + 1}})
+			_, err := s.requestProject().TypeInfo()
+			if state.wantErr != "" {
+				require.ErrorContains(t, err, state.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: 5},
+			}})
+			require.NoError(t, err)
+			locations := requireValueAs[[]Location](t, result)
+			if state.matches {
+				assert.Equal(t, []Location{{
+					URI: "file:///worker.xgo", Range: Range{Start: Position{Character: 5}, End: Position{Character: 5}},
+				}}, locations)
+			} else {
+				assert.Empty(t, locations)
+			}
+		}
+	})
+
 	t.Run("ImportedInterfaces", func(t *testing.T) {
 		for _, declaration := range []struct {
 			name   string
@@ -87,26 +290,32 @@ func (*Worker) Read(n int) int { return n }
 			wantTypeErr  bool
 			newServer    testServerFactory
 			want         []Position
+			wantTypes    []Position
 		}{
+			{
+				name: "ValueReceiver", filename: "worker.xgo", newServer: newTestServer,
+				source: "type Worker struct{}\nfunc (Worker) Run() {}\n",
+				want:   []Position{{Line: 1, Character: 14}}, wantTypes: []Position{{Character: 5}},
+			},
 			{
 				name: "PointerReceiver", filename: "worker.xgo", newServer: newTestServer,
 				source: "type Worker struct{}\nfunc (*Worker) Run() {}\n",
-				want:   []Position{{Line: 1, Character: 15}},
+				want:   []Position{{Line: 1, Character: 15}}, wantTypes: []Position{{Character: 5}},
 			},
 			{
 				name: "NormalClass", filename: "Worker.gox", newServer: newTestServer,
 				source: "func Run() {}\n",
-				want:   []Position{{Character: 5}},
+				want:   []Position{{Character: 5}}, wantTypes: []Position{{}},
 			},
 			{
 				name: "ProjectClass", filename: "main_fixture.gox", newServer: newFrameworkTestServer,
 				source: "func Run() {}\n",
-				want:   []Position{{Character: 5}},
+				want:   []Position{{Character: 5}}, wantTypes: []Position{{}},
 			},
 			{
 				name: "WorkClass", filename: "Worker_fixture.gox", newServer: newFrameworkTestServer,
 				source: "func Run() {}\n",
-				want:   []Position{{Character: 5}},
+				want:   []Position{{Character: 5}}, wantTypes: []Position{{}},
 			},
 			{
 				name: "PromotedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
@@ -115,7 +324,7 @@ func (Base) Run() {}
 type Worker struct { Base }
 func (Worker) Stop() {}
 `,
-				want: []Position{{Line: 1, Character: 12}},
+				want: []Position{{Line: 1, Character: 12}}, wantTypes: []Position{{Line: 2, Character: 5}},
 			},
 			{
 				name: "PromotedPointerMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
@@ -124,7 +333,7 @@ func (*Base) Run() {}
 type Worker struct { *Base }
 func (*Worker) Stop() {}
 `,
-				want: []Position{{Line: 1, Character: 13}},
+				want: []Position{{Line: 1, Character: 13}}, wantTypes: []Position{{Line: 2, Character: 5}},
 			},
 			{
 				name: "LocalPromotedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
@@ -134,7 +343,7 @@ type Stopper struct{}
 func (Stopper) Stop() {}
 func test() { type Worker struct { Base; Stopper } }
 `,
-				want: []Position{{Line: 1, Character: 12}},
+				want: []Position{{Line: 1, Character: 12}}, wantTypes: []Position{{Line: 4, Character: 19}},
 			},
 			{
 				name: "ShadowedMethod", filename: "worker.xgo", newServer: newTestServer, extraMethods: "Stop()",
@@ -156,7 +365,8 @@ func (Worker) Stop() {}
 			},
 			{
 				name: "InterfaceEmbedding", filename: "worker.xgo", newServer: newTestServer,
-				source: "type Other interface { Runner }\n",
+				source:    "type Other interface { Runner }\n",
+				wantTypes: []Position{{Character: 5}},
 			},
 			{
 				name: "InvalidType", filename: "worker.xgo", newServer: newTestServer,
@@ -165,6 +375,11 @@ func (Worker) Stop() {}
 			{
 				name: "InvalidEmbeddedType", filename: "worker.xgo", newServer: newTestServer,
 				source: "type Broken struct { Missing }\n", wantTypeErr: true,
+			},
+			{
+				name: "InvalidEmbeddedPartialMethods", filename: "worker.xgo", newServer: newTestServer,
+				extraMethods: "Stop()", wantTypeErr: true,
+				source: "type Broken struct { Missing }\nfunc (Broken) Run() {}\nfunc (Broken) Other() {}\n",
 			},
 			{
 				name: "RecursiveInterface", filename: "worker.xgo", newServer: newTestServer,
@@ -188,16 +403,55 @@ func (Worker) Stop() {}
 				} else {
 					require.NoError(t, err)
 				}
-				implementations, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///interface.xgo"},
-					Position:     Position{Character: 24},
-				}})
-				require.NoError(t, err)
-				var want []Location
-				for _, position := range tt.want {
-					want = append(want, Location{URI: s.toDocumentURI(tt.filename), Range: Range{Start: position, End: position}})
+				for _, query := range []struct {
+					position Position
+					want     []Position
+				}{
+					{Position{Character: 24}, tt.want},
+					{Position{Character: 5}, tt.wantTypes},
+				} {
+					implementations, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///interface.xgo"}, Position: query.position,
+					}})
+					require.NoError(t, err)
+					var want []Location
+					for _, position := range query.want {
+						want = append(want, Location{URI: s.toDocumentURI(tt.filename), Range: Range{Start: position, End: position}})
+					}
+					assert.ElementsMatch(t, want, requireValueAs[[]Location](t, implementations))
 				}
-				assert.ElementsMatch(t, want, requireValueAs[[]Location](t, implementations))
+			})
+		}
+	})
+
+	t.Run("MethodCacheError", func(t *testing.T) {
+		for _, query := range []struct {
+			name      string
+			character uint32
+		}{
+			{"Type", 5},
+			{"Method", 24},
+		} {
+			t.Run(query.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Runner interface { Run() }
+type Worker struct{}
+func (Worker) Run() {}
+`)})
+				_, err := s.getProj().TypeInfo()
+				require.NoError(t, err)
+				var builds int
+				s.getProj().RegisterCacheBuilder(methodInfoCacheKind{}, func(*xgo.Project) (any, error) {
+					builds++
+					return nil, errors.New("method cache failed")
+				})
+				for range 2 {
+					result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+						TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: Position{Character: query.character},
+					}})
+					require.NoError(t, err)
+					assert.Empty(t, requireValueAs[[]Location](t, result))
+				}
+				assert.Equal(t, 1, builds)
 			})
 		}
 	})
@@ -222,6 +476,13 @@ func (Worker) Stop() {}
 		}})
 		require.NoError(t, err)
 		assert.Empty(t, requireValueAs[[]Location](t, implementations))
+		implementations, err = s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///interface.xgo"}, Position: Position{Character: 5},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, []Location{{
+			URI: "file:///worker.xgo", Range: Range{Start: Position{Line: 129, Character: 5}, End: Position{Line: 129, Character: 5}},
+		}}, requireValueAs[[]Location](t, implementations))
 	})
 
 	t.Run("MixedFrameworkUpdates", func(t *testing.T) {

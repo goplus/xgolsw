@@ -21,6 +21,22 @@ type methodReceiver struct {
 	methods *gotypes.MethodSet
 }
 
+// implements checks both receiver forms and rejects missing methods hidden by
+// invalid embedded types, which go/types tolerates during implementation checks.
+func (r methodReceiver) implements(iface *gotypes.Interface) bool {
+	if !gotypes.Implements(r.typ, iface) && !gotypes.Implements(r.pointer, iface) {
+		return false
+	}
+	if !gotypes.IsInterface(r.typ) {
+		for method := range iface.Methods() {
+			if r.methods.Lookup(method.Pkg(), method.Name()) == nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // methodInfo shares method sets and computes implementation relationships on
 // demand. Its maps are immutable after construction and its lazy results use
 // sync.OnceValue so concurrent requests share the same analysis. Callers must
@@ -82,14 +98,13 @@ func (info *methodInfo) findImplementations(iface *gotypes.Interface) map[string
 	result := make(map[string][]*gotypes.Func)
 	seen := make(map[*gotypes.Func]bool)
 	for _, receiver := range info.receivers {
-		if !gotypes.Implements(receiver.typ, iface) && !gotypes.Implements(receiver.pointer, iface) {
+		if !receiver.implements(iface) {
 			continue
 		}
 		for target := range iface.Methods() {
 			selection := receiver.methods.Lookup(target.Pkg(), target.Name())
 			if selection == nil {
-				// Implements tolerates invalid types to suppress follow-on
-				// errors. Pointers to interfaces also have no methods.
+				// Pointers to interfaces have no methods.
 				continue
 			}
 			method := selection.Obj().(*gotypes.Func)
