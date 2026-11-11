@@ -21,9 +21,15 @@ import (
 // XGoLanguageServer implements a lightweight XGo language server that runs in
 // the browser using WebAssembly.
 type XGoLanguageServer struct {
-	id              int
-	messageReplier  js.Value
-	server          *server.Server
+	id             int
+	messageReplier js.Value
+	server         *server.Server
+
+	// filesMu protects the provider snapshot and its invocation order.
+	filesMu       sync.Mutex
+	filesSequence uint64
+	files         map[string]*xgo.File
+
 	revokeCallbacks []js.Value
 	disposed        atomic.Bool
 }
@@ -83,11 +89,18 @@ func (s *XGoLanguageServer) wrapCallback(callback js.Value) js.Value {
 	return wrapped.Get("proxy")
 }
 
-// readFiles ignores JavaScript errors during disposal and preserves other panics.
+// readFiles reuses unchanged provider files. JavaScript runs outside filesMu
+// so callbacks can reenter or dispose the server without blocking. JavaScript
+// errors are ignored only after disposal.
 func (s *XGoLanguageServer) readFiles(provider js.Value) (files map[string]*xgo.File) {
 	if s.disposed.Load() {
 		return nil
 	}
+	s.filesMu.Lock()
+	s.filesSequence++
+	sequence := s.filesSequence
+	previous := s.files
+	s.filesMu.Unlock()
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(js.Error); !ok || !s.disposed.Load() {
@@ -95,7 +108,13 @@ func (s *XGoLanguageServer) readFiles(provider js.Value) (files map[string]*xgo.
 			}
 		}
 	}()
-	return ConvertJSFilesToMap(provider.Invoke())
+	files = ConvertJSFilesToMap(provider.Invoke(), previous)
+	s.filesMu.Lock()
+	if sequence == s.filesSequence && !s.disposed.Load() {
+		s.files = files
+	}
+	s.filesMu.Unlock()
+	return files
 }
 
 // jsValue binds native JavaScript methods to an instance ID.
@@ -134,6 +153,9 @@ func (s *XGoLanguageServer) Dispose() {
 	if s.disposed.Swap(true) {
 		return
 	}
+	s.filesMu.Lock()
+	s.files = nil
+	s.filesMu.Unlock()
 	instanceMu.Lock()
 	delete(liveInstances, s.id)
 	instanceMu.Unlock()
@@ -260,8 +282,9 @@ func JSUint8ArrayToBytes(uint8Array js.Value) []byte {
 	return b
 }
 
-// ConvertJSFilesToMap converts a JavaScript object of files to a map.
-func ConvertJSFilesToMap(files js.Value) map[string]*xgo.File {
+// ConvertJSFilesToMap converts provider files, reusing immutable Go copies when
+// their paths and modification times match the previous provider snapshot.
+func ConvertJSFilesToMap(files js.Value, previous map[string]*xgo.File) map[string]*xgo.File {
 	if files.Type() != js.TypeObject {
 		return nil
 	}
@@ -271,9 +294,14 @@ func ConvertJSFilesToMap(files js.Value) map[string]*xgo.File {
 		key := keys.Index(i).String()
 		value := files.Get(key)
 		if value.InstanceOf(js.Global().Get("Object")) {
+			modTime := time.UnixMilli(int64(value.Get("modTime").Int()))
+			if old, ok := previous[key]; ok && old.ModTime.Equal(modTime) {
+				result[key] = old
+				continue
+			}
 			result[key] = &xgo.File{
 				Content: JSUint8ArrayToBytes(value.Get("content")),
-				ModTime: time.UnixMilli(int64(value.Get("modTime").Int())),
+				ModTime: modTime,
 			}
 		}
 	}

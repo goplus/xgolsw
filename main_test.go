@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"syscall/js"
 	"testing"
@@ -174,6 +175,268 @@ func callTestServer(t *testing.T, handle js.Value, responses <-chan js.Value, me
 	case <-time.After(10 * time.Second):
 		require.FailNow(t, "language server did not reply", "%s", method)
 		return js.Undefined()
+	}
+}
+
+func TestXGoLanguageServerReadFiles(t *testing.T) {
+	t.Run("UnchangedContent", func(t *testing.T) {
+		content := js.Global().Get("Uint8Array").New(3)
+		js.CopyBytesToJS(content, []byte("old"))
+		file := js.ValueOf(map[string]any{"modTime": 100})
+		var reads int
+		getter := js.FuncOf(func(js.Value, []js.Value) any {
+			reads++
+			return content
+		})
+		t.Cleanup(getter.Release)
+		js.Global().Get("Object").Call("defineProperty", file, "content", map[string]any{"get": getter})
+		provider := js.FuncOf(func(js.Value, []js.Value) any {
+			return map[string]any{"main.xgo": file}
+		})
+		t.Cleanup(provider.Release)
+		s := new(XGoLanguageServer)
+		first := s.readFiles(provider.Value)
+		js.CopyBytesToJS(content, []byte("new"))
+		second := s.readFiles(provider.Value)
+		assert.Same(t, first["main.xgo"], second["main.xgo"])
+		assert.Equal(t, []byte("old"), first["main.xgo"].Content)
+		assert.Equal(t, 1, reads)
+		file.Set("modTime", 99)
+		third := s.readFiles(provider.Value)
+		assert.NotSame(t, first["main.xgo"], third["main.xgo"])
+		assert.Equal(t, []byte("new"), third["main.xgo"].Content)
+		assert.Equal(t, []byte("old"), first["main.xgo"].Content)
+		assert.Equal(t, 2, reads)
+	})
+
+	t.Run("DeletedAndRecreated", func(t *testing.T) {
+		content := js.Global().Get("Uint8Array").New(1)
+		content.SetIndex(0, 1)
+		files := js.ValueOf(map[string]any{"main.xgo": map[string]any{"content": content, "modTime": 0}})
+		provider := js.FuncOf(func(js.Value, []js.Value) any { return files })
+		t.Cleanup(provider.Release)
+		s := new(XGoLanguageServer)
+		first := s.readFiles(provider.Value)
+		files.Delete("main.xgo")
+		assert.Empty(t, s.readFiles(provider.Value))
+		assert.Contains(t, first, "main.xgo")
+		content.SetIndex(0, 2)
+		files.Set("main.xgo", map[string]any{"content": content, "modTime": 0})
+		recreated := s.readFiles(provider.Value)
+		assert.NotSame(t, first["main.xgo"], recreated["main.xgo"])
+		assert.Equal(t, []byte{2}, recreated["main.xgo"].Content)
+	})
+
+	t.Run("FailedConversion", func(t *testing.T) {
+		content := js.Global().Get("Uint8Array").New(1)
+		content.SetIndex(0, 1)
+		original := js.ValueOf(map[string]any{"main.xgo": map[string]any{"content": content, "modTime": 0}})
+		provided := original
+		provider := js.FuncOf(func(js.Value, []js.Value) any { return provided })
+		t.Cleanup(provider.Release)
+		s := new(XGoLanguageServer)
+		first := s.readFiles(provider.Value)
+		provided = js.Global().Get("Object").New()
+		provided.Set("main.xgo", map[string]any{"content": content, "modTime": 1})
+		provided.Set("broken.xgo", map[string]any{"content": true, "modTime": 0})
+		assert.Panics(t, func() { s.readFiles(provider.Value) })
+		provided = original
+		current := s.readFiles(provider.Value)
+		assert.Same(t, first["main.xgo"], current["main.xgo"])
+		assert.NotContains(t, current, "broken.xgo")
+	})
+
+	for _, tt := range []struct {
+		name  string
+		value js.Value
+	}{
+		{"Empty", js.Global().Get("Object").New()},
+		{"Undefined", js.Undefined()},
+		{"MissingEntry", js.ValueOf(map[string]any{"main.xgo": js.Undefined()})},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			content := js.Global().Get("Uint8Array").New(1)
+			content.SetIndex(0, 1)
+			original := js.ValueOf(map[string]any{"main.xgo": map[string]any{"content": content, "modTime": 0}})
+			provided := original
+			provider := js.FuncOf(func(js.Value, []js.Value) any { return provided })
+			t.Cleanup(provider.Release)
+			s := new(XGoLanguageServer)
+			first := s.readFiles(provider.Value)
+			provided = tt.value
+			assert.Empty(t, s.readFiles(provider.Value))
+			content.SetIndex(0, 2)
+			provided = original
+			current := s.readFiles(provider.Value)
+			assert.NotSame(t, first["main.xgo"], current["main.xgo"])
+			assert.Equal(t, []byte{2}, current["main.xgo"].Content)
+		})
+	}
+
+	for _, tt := range []struct {
+		name      string
+		inContent bool
+		deleted   bool
+	}{
+		{name: "ReentrantProviderUpdate"},
+		{name: "ReentrantProviderDeletion", deleted: true},
+		{name: "ReentrantContentUpdate", inContent: true},
+		{name: "ReentrantContentDeletion", inContent: true, deleted: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := new(XGoLanguageServer)
+			oldContent := js.Global().Get("Uint8Array").New(1)
+			oldContent.SetIndex(0, 1)
+			newContent := js.Global().Get("Uint8Array").New(1)
+			newContent.SetIndex(0, 2)
+			staleFile := js.ValueOf(map[string]any{"content": oldContent, "modTime": 1})
+			stale := js.ValueOf(map[string]any{"main.xgo": staleFile})
+			latest := js.Global().Get("Object").New()
+			if !tt.deleted {
+				latest.Set("main.xgo", map[string]any{"content": newContent, "modTime": 2})
+			}
+			var provider js.Func
+			var nested map[string]*xgo.File
+			var entered bool
+			provider = js.FuncOf(func(js.Value, []js.Value) any {
+				if entered {
+					return latest
+				}
+				entered = true
+				if !tt.inContent {
+					nested = s.readFiles(provider.Value)
+				}
+				return stale
+			})
+			t.Cleanup(provider.Release)
+			if tt.inContent {
+				getter := js.FuncOf(func(js.Value, []js.Value) any {
+					nested = s.readFiles(provider.Value)
+					return oldContent
+				})
+				t.Cleanup(getter.Release)
+				js.Global().Get("Object").Call("defineProperty", staleFile, "content", map[string]any{"get": getter})
+			}
+			outer := s.readFiles(provider.Value)
+			assert.Equal(t, []byte{1}, outer["main.xgo"].Content)
+			if tt.deleted {
+				assert.Empty(t, nested)
+				latest.Set("main.xgo", map[string]any{"content": newContent, "modTime": 1})
+				current := s.readFiles(provider.Value)
+				assert.Equal(t, []byte{2}, current["main.xgo"].Content)
+			} else {
+				current := s.readFiles(provider.Value)
+				assert.Same(t, nested["main.xgo"], current["main.xgo"])
+				assert.Equal(t, []byte{2}, current["main.xgo"].Content)
+			}
+		})
+	}
+
+	t.Run("IndependentInstances", func(t *testing.T) {
+		content := js.Global().Get("Uint8Array").New(1)
+		provider := js.FuncOf(func(js.Value, []js.Value) any {
+			return map[string]any{"main.xgo": map[string]any{"content": content, "modTime": 0}}
+		})
+		t.Cleanup(provider.Release)
+		first := new(XGoLanguageServer).readFiles(provider.Value)
+		second := new(XGoLanguageServer).readFiles(provider.Value)
+		assert.NotSame(t, first["main.xgo"], second["main.xgo"])
+	})
+
+	t.Run("DisposeDuringConversion", func(t *testing.T) {
+		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+		value := s.jsValue()
+		t.Cleanup(func() { value.Call("dispose") })
+		content := js.Global().Get("Uint8Array").New(1)
+		file := js.ValueOf(map[string]any{"content": content, "modTime": 0})
+		provider := js.FuncOf(func(js.Value, []js.Value) any { return map[string]any{"main.xgo": file} })
+		t.Cleanup(provider.Release)
+		callback := s.wrapCallback(provider.Value)
+		oldPointer := func() weak.Pointer[xgo.File] {
+			files := s.readFiles(callback)
+			return weak.Make(files["main.xgo"])
+		}()
+		file.Set("modTime", 1)
+		getter := js.FuncOf(func(js.Value, []js.Value) any {
+			value.Call("dispose")
+			return content
+		})
+		t.Cleanup(getter.Release)
+		js.Global().Get("Object").Call("defineProperty", file, "content", map[string]any{"get": getter})
+		pointer := func() weak.Pointer[xgo.File] {
+			files := s.readFiles(callback)
+			return weak.Make(files["main.xgo"])
+		}()
+		assert.Nil(t, s.readFiles(callback))
+		require.Eventually(t, func() bool {
+			runtime.GC()
+			return oldPointer.Value() == nil && pointer.Value() == nil
+		}, 5*time.Second, time.Millisecond)
+		runtime.KeepAlive(s)
+	})
+}
+
+func TestXGoLanguageServerProviderUpdates(t *testing.T) {
+	content := js.Global().Get("Uint8Array").New(len("var Count = 1\n"))
+	js.CopyBytesToJS(content, []byte("var Count = 1\n"))
+	file := js.ValueOf(map[string]any{"content": content, "modTime": 0})
+	provider := js.FuncOf(func(js.Value, []js.Value) any { return map[string]any{"main.xgo": file} })
+	t.Cleanup(provider.Release)
+	responses := make(chan js.Value, 16)
+	reply := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if !args[0].Get("id").IsUndefined() {
+			responses <- args[0]
+		}
+		return nil
+	})
+	t.Cleanup(reply.Release)
+	archive := testframework.NewPkgDataZip(t)
+	data := js.Global().Get("Uint8Array").New(len(archive))
+	js.CopyBytesToJS(data, archive)
+	value, ok := NewXGoLanguageServer(js.Undefined(), []js.Value{provider.Value, reply.Value, js.ValueOf(map[string]any{"pkgDataZip": data})}).(js.Value)
+	require.True(t, ok)
+	t.Cleanup(func() { value.Call("dispose") })
+	callTestServer(t, value, responses, "initialize", map[string]any{"capabilities": map[string]any{}})
+	hover := func(want string) {
+		t.Helper()
+		response := callTestServer(t, value, responses, "textDocument/hover", map[string]any{
+			"textDocument": map[string]any{"uri": "file:///main.xgo"},
+			"position":     map[string]any{"line": 0, "character": 5},
+		})
+		assert.Contains(t, js.Global().Get("JSON").Call("stringify", response).String(), want)
+	}
+	notify := func(method string, params any) {
+		t.Helper()
+		result := value.Call("handleMessage", js.ValueOf(map[string]any{"jsonrpc": "2.0", "method": method, "params": params}))
+		require.True(t, result.IsNull() || result.IsUndefined())
+	}
+	hover("var Count int")
+	hover("var Count int")
+	source := "var Count = \"disk\"\n"
+	content = js.Global().Get("Uint8Array").New(len(source))
+	js.CopyBytesToJS(content, []byte(source))
+	file.Set("content", content)
+	file.Set("modTime", 1)
+	hover("var Count string")
+	for _, tt := range []struct {
+		source, want string
+		modTime      int
+	}{
+		{"var Count = \"disk\"\n", "var Count string", 1},
+		{"var Count = 2.5\n", "var Count float64", 0},
+		{"var Count = 2\n", "var Count int", 2},
+	} {
+		notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{
+			"uri": "file:///main.xgo", "languageId": "xgo", "version": 7, "text": "var Count = true\n",
+		}})
+		hover("var Count bool")
+		content = js.Global().Get("Uint8Array").New(len(tt.source))
+		js.CopyBytesToJS(content, []byte(tt.source))
+		file.Set("content", content)
+		file.Set("modTime", tt.modTime)
+		hover("var Count bool")
+		notify("textDocument/didClose", map[string]any{"textDocument": map[string]any{"uri": "file:///main.xgo"}})
+		hover(tt.want)
 	}
 }
 
@@ -461,4 +724,34 @@ func TestXGoLanguageServerDispose(t *testing.T) {
 		require.NoError(t, err)
 		assert.ErrorIs(t, s.ReplyMessage(notification), server.ErrClosed)
 	})
+}
+
+func BenchmarkXGoLanguageServerReadFiles(b *testing.B) {
+	for _, tt := range []struct {
+		name  string
+		files int
+		size  int
+	}{
+		{"Source4KiB", 1, 4 << 10},
+		{"TextProject512KiB", 128, 4 << 10},
+		{"Resource16MiB", 1, 16 << 20},
+	} {
+		b.Run(tt.name, func(b *testing.B) {
+			files := make(map[string]any, tt.files)
+			for i := range tt.files {
+				files[fmt.Sprintf("file%d.gox", i)] = map[string]any{
+					"content": js.Global().Get("Uint8Array").New(tt.size), "modTime": 100,
+				}
+			}
+			value := js.ValueOf(files)
+			provider := js.FuncOf(func(js.Value, []js.Value) any { return value })
+			b.Cleanup(provider.Release)
+			s := new(XGoLanguageServer)
+			s.readFiles(provider.Value)
+			b.ReportAllocs()
+			for b.Loop() {
+				s.readFiles(provider.Value)
+			}
+		})
+	}
 }
