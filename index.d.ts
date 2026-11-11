@@ -167,5 +167,5 @@ export type Files = {
  */
 export type File = {
   content: Uint8Array
-  modTime: number // Unix timestamp in milliseconds.
+  modTime: number // Unix timestamp in milliseconds. Must change with content. Values need not increase.
 }
