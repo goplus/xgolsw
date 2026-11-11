@@ -63,16 +63,19 @@ func requirePublishedDiagnosticReports(t *testing.T, replier *mockReplier, count
 func (s *Server) publishFileDiagnostics(path string) {
 	s.projectMu.Lock()
 	defer s.projectMu.Unlock()
-	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{})
 }
 
-// getDiagnostics collects syntax and type errors for a modified document.
-// Analyzers and framework-specific checks run through pull diagnostics.
-func (s *Server) getDiagnostics(path string) []Diagnostic {
+// getDiagnostics collects complete diagnostics for a modified document.
+func (s *Server) getDiagnostics(t testing.TB, path string) []Diagnostic {
+	t.Helper()
+
 	s.projectMu.Lock()
 	proj := s.projectSnapshotLocked()
 	s.projectMu.Unlock()
-	return s.diagnosticsForFile(proj, path)
+	result, err := s.diagnosticsAt(proj)
+	require.NoError(t, err)
+	return result.diagnostics[s.toDocumentURI(path)]
 }
 
 func TestServerModifyFiles(t *testing.T) {
@@ -198,7 +201,7 @@ func TestServerModifyFiles(t *testing.T) {
 func TestServerDocumentSynchronization(t *testing.T) {
 	t.Run("InvalidUTF8Recovery", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("// \xff\nvar value = 1\n")})
-		require.NotEmpty(t, s.getDiagnostics("main.xgo"))
+		require.NotEmpty(t, s.getDiagnostics(t, "main.xgo"))
 		replier := newMockReplier()
 		s.replier = replier
 		uri := DocumentURI("file:///main.xgo")
@@ -397,6 +400,68 @@ hello
 }
 
 func TestServerPublishFileDiagnostics(t *testing.T) {
+	t.Run("ResourceChangedDuringAnalysis", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx": []byte("play \"Missing\"\n"), "assets/index.json": []byte(`{}`),
+		})
+		provided := maps.Collect(s.getProj().Files())
+		s.fileMapGetter = func() map[string]*xgo.File { return maps.Clone(provided) }
+		replier := newMockReplier()
+		s.replier = replier
+		synctest.Test(t, func(t *testing.T) {
+			entered, resume := make(chan struct{}), make(chan struct{})
+			release := sync.OnceFunc(func() { close(resume) })
+			t.Cleanup(release)
+			pause := sync.OnceFunc(func() {
+				close(entered)
+				<-resume
+			})
+			s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
+				result, err := buildFrameworkAnalysisCache(proj)
+				pause()
+				return result, err
+			})
+			require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+				TextDocument: protocol.TextDocumentItem{URI: "file:///main.spx", Version: 1, Text: "play \"Missing\"\n"},
+			}))
+			<-entered
+			provided["assets/sounds/Missing/index.json"] = file(`{}`)
+			s.syncProject()
+			release()
+			synctest.Wait()
+			assert.Empty(t, requirePublishedDiagnostics(t, replier, "file:///main.spx"))
+
+			delete(provided, "assets/sounds/Missing/index.json")
+			s.syncProject()
+			synctest.Wait()
+			diagnostics := requirePublishedDiagnostics(t, replier, "file:///main.spx")
+			require.Len(t, diagnostics, 1)
+			assert.Equal(t, `sound resource "Missing" not found`, diagnostics[0].Message)
+			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})
+			require.NoError(t, err)
+			assert.Equal(t, diagnostics, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
+		})
+	})
+
+	t.Run("ResourceMetadataMoved", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"Sprite.spx": []byte("println 1\n"), "assets/index.json": []byte(`{`),
+		})
+		replier := newMockReplier()
+		s.replier = replier
+		require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+			TextDocument: protocol.TextDocumentItem{URI: "file:///assets/index.json", Version: 1, Text: `{`},
+		}))
+		require.NotEmpty(t, requirePublishedDiagnostics(t, replier, "file:///assets/index.json"))
+		require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+			TextDocument: protocol.TextDocumentItem{URI: "file:///main.spx", Version: 1, Text: "println 1\n"},
+		}))
+		reports := requirePublishedDiagnosticReports(t, replier, 2)
+		assert.Empty(t, reports["file:///assets/index.json"])
+		require.Len(t, reports["file:///main.spx"], 1)
+		assert.Contains(t, reports["file:///main.spx"][0].Message, "failed to create spx resource set:")
+	})
+
 	t.Run("DependencyChangedDuringAnalysis", func(t *testing.T) {
 		for _, tt := range []struct {
 			name    string
@@ -467,7 +532,7 @@ println paused.Value, shared
 						require.NoError(t, json.Unmarshal(notification.Params(), &params))
 						reports[params.URI] = params.Diagnostics
 					}
-					want := s.getDiagnostics("main.xgo")
+					want := s.getDiagnostics(t, "main.xgo")
 					require.Len(t, want, 1)
 					assert.Equal(t, "undefined: shared", want[0].Message)
 					assert.Equal(t, want, reports["file:///main.xgo"])

@@ -80,6 +80,7 @@ func New(
 	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
 	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)
 	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
+	proj.RegisterCacheBuilder(diagnosticCacheKind{}, buildDiagnosticCache)
 	return &Server{
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
@@ -426,6 +427,7 @@ func (s *Server) sendTelemetryEvent(data map[string]any) error {
 }
 
 // publishDiagnostics sends diagnostic notifications to the client.
+// The diagnostics slice is read-only and is marshaled before invoking the client.
 func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) error {
 	if diagnostics == nil {
 		diagnostics = []Diagnostic{}

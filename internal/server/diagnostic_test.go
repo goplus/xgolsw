@@ -6,7 +6,9 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/x/typesutil"
@@ -519,7 +521,7 @@ func TestServerGetDiagnostics(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.content)})
-			diagnostics := s.getDiagnostics("main.xgo")
+			diagnostics := s.getDiagnostics(t, "main.xgo")
 			assert.ElementsMatch(t, tt.want, diagnostics)
 			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 			require.NoError(t, err)
@@ -535,6 +537,155 @@ func TestServerGetDiagnostics(t *testing.T) {
 }
 
 func TestServerDiagnosticsAt(t *testing.T) {
+	t.Run("SharedAcrossRequests", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{
+			"main.xgo": []byte(`func first() {
+    values := [1, 2]
+    values = append(values)
+}
+`),
+			"other.xgo": []byte(`func second() {
+    values := [1, 2]
+    values = append(values)
+}
+`),
+		})
+		var runs atomic.Int32
+		s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
+			return &frameworkAnalysis{
+				resources: newTestResourceAnalysis(),
+				configurePass: func(*xgo.Project) func(string, *analysisprotocol.Pass) {
+					return func(string, *analysisprotocol.Pass) { runs.Add(1) }
+				},
+			}, nil
+		})
+		proj := s.requestProject()
+		var results [8]*diagnosticResult
+		var errs [8]error
+		var wg sync.WaitGroup
+		for i := range results {
+			wg.Go(func() { results[i], errs[i] = s.diagnosticsAt(proj) })
+		}
+		wg.Wait()
+		for i := range results {
+			require.NoError(t, errs[i])
+			assert.Same(t, results[0], results[i])
+		}
+		assert.Equal(t, int32(2), runs.Load())
+
+		replier := newMockReplier()
+		s.replier = replier
+		s.publishFileDiagnostics("main.xgo")
+		s.publishFileDiagnostics("other.xgo")
+		pushed := requirePublishedDiagnosticReports(t, replier, 2)
+		for uri, diagnostics := range pushed {
+			require.Len(t, diagnostics, 1)
+			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+			require.NoError(t, err)
+			full := requireRelatedFullDocumentDiagnosticReport(t, report)
+			require.Equal(t, diagnostics, full.Items)
+			full.Items[0].Message = "modified response"
+		}
+		workspace, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+		require.NoError(t, err)
+		require.Len(t, workspace.Items, 2)
+		for _, item := range workspace.Items {
+			full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+			require.Contains(t, pushed, full.URI)
+			require.Equal(t, pushed[full.URI], full.Items)
+			full.Items[0].Message = "modified response"
+			assert.Equal(t, pushed[full.URI], results[0].diagnostics[full.URI])
+		}
+		assert.Equal(t, int32(2), runs.Load())
+
+		require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+			TextDocument: protocol.VersionedTextDocumentIdentifier{
+				TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.xgo"}, Version: 1,
+			},
+			ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: "func first() {}\n"}},
+		}))
+		assert.Empty(t, requirePublishedDiagnostics(t, replier, "file:///main.xgo"))
+		assert.Equal(t, int32(4), runs.Load())
+
+		previous, err := s.diagnosticsAt(proj)
+		require.NoError(t, err)
+		assert.Same(t, results[0], previous)
+		current, err := s.diagnosticsAt(s.requestProject())
+		require.NoError(t, err)
+		assert.Empty(t, current.diagnostics["file:///main.xgo"])
+		assert.Equal(t, int32(4), runs.Load())
+	})
+
+	t.Run("PushAndPull", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			newServer testServerFactory
+			filename  string
+			files     map[string][]byte
+			message   string
+			fixed     string
+		}{
+			{
+				name: "Analyzer", newServer: newTestServer, filename: "main.xgo",
+				files:   map[string][]byte{"main.xgo": []byte("values := [1, 2]\nvalues = append(values)\n")},
+				message: "append with no values", fixed: "values := [1, 2]\nvalues = append(values, 3)\n",
+			},
+			{
+				name: "SpxResource", newServer: newSpxTestServer, filename: "main.spx",
+				files: map[string][]byte{
+					"main.spx": []byte("play \"Missing\"\n"), "assets/index.json": []byte(`{}`),
+				},
+				message: `sound resource "Missing" not found`, fixed: "println 1\n",
+			},
+			{
+				name: "SpxMetadata", newServer: newSpxTestServer, filename: "assets/index.json",
+				files: map[string][]byte{
+					"Sprite.spx": []byte("println 1\n"), "assets/index.json": []byte(`{`),
+				},
+				message: "failed to create spx resource set:", fixed: `{}`,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := tt.newServer(t, tt.files)
+				replier := newMockReplier()
+				s.replier = replier
+				uri := s.toDocumentURI(tt.filename)
+				require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+					TextDocument: protocol.TextDocumentItem{URI: uri, Version: 1, Text: string(tt.files[tt.filename])},
+				}))
+				pushed := requirePublishedDiagnostics(t, replier, uri)
+				require.NotEmpty(t, pushed)
+				assert.Contains(t, pushed[0].Message, tt.message)
+				checkPull := func(want []Diagnostic) {
+					t.Helper()
+					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+					require.NoError(t, err)
+					assert.Equal(t, want, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
+					workspace, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+					require.NoError(t, err)
+					var got []Diagnostic
+					for _, item := range workspace.Items {
+						full := requireWorkspaceFullDocumentDiagnosticReport(t, item)
+						if full.URI == uri {
+							got = full.Items
+						}
+					}
+					assert.ElementsMatch(t, want, got)
+				}
+				checkPull(pushed)
+				require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+					TextDocument: protocol.VersionedTextDocumentIdentifier{
+						TextDocumentIdentifier: TextDocumentIdentifier{URI: uri}, Version: 2,
+					},
+					ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: tt.fixed}},
+				}))
+				pushed = requirePublishedDiagnostics(t, replier, uri)
+				require.Empty(t, pushed)
+				checkPull(pushed)
+			})
+		}
+	})
+
 	t.Run("UnavailableFramework", func(t *testing.T) {
 		files := map[string][]byte{
 			"main_fixture.gox": []byte("println 1\n"),
@@ -563,7 +714,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 			},
 		}
 		for filename := range files {
-			assert.Equal(t, want[s.toDocumentURI(filename)], s.getDiagnostics(filename))
+			assert.Equal(t, want[s.toDocumentURI(filename)], s.getDiagnostics(t, filename))
 		}
 		replier := newMockReplier()
 		s.replier = replier
@@ -639,7 +790,7 @@ func TestServerDiagnosticsAt(t *testing.T) {
 				s := newTestServer(t, files)
 				replier := newMockReplier()
 				s.replier = replier
-				for _, filename := range []string{"main.spx", "nested/Unknown.spx", "Unknown.other", "notes.txt"} {
+				for i, filename := range []string{"main.spx", "nested/Unknown.spx", "Unknown.other", "notes.txt"} {
 					astFile, err := s.getProj().ASTFile(filename)
 					require.ErrorIs(t, err, parser.ErrUnknownFileKind)
 					require.Nil(t, astFile)
@@ -647,7 +798,9 @@ func TestServerDiagnosticsAt(t *testing.T) {
 					require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
 						TextDocument: protocol.TextDocumentItem{URI: uri, Version: 1, Text: string(files[filename])},
 					}))
-					assert.Empty(t, requirePublishedDiagnostics(t, replier, uri))
+					for _, diagnostics := range requirePublishedDiagnosticReports(t, replier, i+1) {
+						assert.Empty(t, diagnostics)
+					}
 					report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 					require.NoError(t, err)
 					assert.Empty(t, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
@@ -673,15 +826,32 @@ func TestServerDiagnosticsAt(t *testing.T) {
 		}
 	})
 
-	t.Run("UnavailableAST", func(t *testing.T) {
+	t.Run("UnavailableDiagnosticCache", func(t *testing.T) {
 		s := newTestServer(t, nil)
-		s.workspaceRootFS = xgo.NewProject(nil, nil, 0)
+		result, err := s.diagnosticsAt(xgo.NewProject(nil, nil, 0))
+		require.ErrorIs(t, err, xgo.ErrUnknownCacheKind)
+		assert.Nil(t, result)
+	})
+
+	t.Run("UnavailableAST", func(t *testing.T) {
+		s := New(xgo.NewProject(nil, nil, 0), newMockReplier(), fileMapGetter(nil), &MockScheduler{}, nil, nil)
 		documentReport, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}})
 		require.ErrorIs(t, err, xgo.ErrUnknownCacheKind)
 		assert.Nil(t, documentReport)
 		workspaceReport, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
 		require.ErrorIs(t, err, xgo.ErrUnknownCacheKind)
 		assert.Nil(t, workspaceReport)
+		replier := requireValueAs[*mockReplier](t, s.replier)
+		synctest.Test(t, func(t *testing.T) {
+			s.publishFileDiagnostics("main.xgo")
+			synctest.Wait()
+			assert.Empty(t, replier.getMessages())
+			require.NoError(t, s.didClose(&DidCloseTextDocumentParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+			}))
+			synctest.Wait()
+			assert.Empty(t, requirePublishedDiagnostics(t, replier, "file:///main.xgo"))
+		})
 	})
 
 	t.Run("Classfiles", func(t *testing.T) {
@@ -753,9 +923,9 @@ func TestServerDiagnosticsAt(t *testing.T) {
 				assert.Fail(t, "unexpected diagnostic document", "%s", full.URI)
 			}
 		}
-		diagnostics := s.getDiagnostics("main.xgo")
+		diagnostics := s.getDiagnostics(t, "main.xgo")
 		assert.Empty(t, diagnostics)
-		diagnostics = s.getDiagnostics("values.xgo")
+		diagnostics = s.getDiagnostics(t, "values.xgo")
 		assert.Equal(t, want, diagnostics)
 	})
 

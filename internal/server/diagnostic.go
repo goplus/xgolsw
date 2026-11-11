@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"iter"
 	"slices"
+	"sync"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/scanner"
@@ -21,6 +22,7 @@ import (
 )
 
 // diagnosticResult contains diagnostic messages for project documents.
+// Cached results are immutable after collection.
 type diagnosticResult struct {
 	// diagnostics stores diagnostic messages for each document.
 	diagnostics map[DocumentURI][]Diagnostic
@@ -31,6 +33,20 @@ type diagnosticResult struct {
 	// hasErrorSeverityDiagnostic is true if the result has any
 	// diagnostics with error severity.
 	hasErrorSeverityDiagnostic bool
+}
+
+// diagnosticCacheKind identifies cached diagnostics for a project state.
+type diagnosticCacheKind struct{}
+
+// diagnosticCache shares complete diagnostics for a project state by workspace root.
+type diagnosticCache struct {
+	mu      sync.Mutex
+	results map[DocumentURI]func() (*diagnosticResult, error)
+}
+
+// buildDiagnosticCache creates an empty cache without retaining a project or server.
+func buildDiagnosticCache(*xgo.Project) (any, error) {
+	return &diagnosticCache{results: make(map[DocumentURI]func() (*diagnosticResult, error))}, nil
 }
 
 // newDiagnosticResult creates an empty diagnostic result.
@@ -64,9 +80,28 @@ func (r *diagnosticResult) addDiagnostics(documentURI DocumentURI, diags ...Diag
 	}
 }
 
-// diagnosticsAt collects pull diagnostics from project syntax, types, analyzers,
-// and framework-specific checks.
+// diagnosticsAt reuses complete diagnostics for stable snapshots across push and pull requests.
+// Analysis runs outside projectMu so document updates can supersede its results.
 func (s *Server) diagnosticsAt(proj *xgo.Project) (*diagnosticResult, error) {
+	data, err := proj.Cache(diagnosticCacheKind{})
+	if err != nil {
+		return nil, err
+	}
+	cache := data.(*diagnosticCache)
+	cache.mu.Lock()
+	result := cache.results[s.workspaceRootURI]
+	if result == nil {
+		result = sync.OnceValues(func() (*diagnosticResult, error) { return s.collectDiagnostics(proj) })
+		cache.results[s.workspaceRootURI] = result
+	}
+	cache.mu.Unlock()
+	return result()
+}
+
+// collectDiagnostics collects syntax, type, analyzer, and framework diagnostics.
+func (s *Server) collectDiagnostics(proj *xgo.Project) (*diagnosticResult, error) {
+	// Finish compiler AST rewrites before inspecting syntax in unchecked push snapshots.
+	proj.TypeInfo()
 	result := newDiagnosticResult()
 	if _, err := s.collectPackageSyntaxDiagnostics(proj, &result); err != nil {
 		return nil, err
@@ -84,6 +119,7 @@ func (s *Server) diagnosticsAt(proj *xgo.Project) (*diagnosticResult, error) {
 		}
 	}
 	s.inspectDiagnosticsAnalyzers(proj, &result, configurePass)
+	result.seenDiagnostics = nil
 	return &result, nil
 }
 
@@ -223,7 +259,7 @@ func (s *Server) workspaceDiagnostic(params *WorkspaceDiagnosticParams) (*Worksp
 				URI: uri,
 				FullDocumentDiagnosticReport: FullDocumentDiagnosticReport{
 					Kind:  string(DiagnosticFull),
-					Items: diagnostics,
+					Items: append([]Diagnostic{}, diagnostics...),
 				},
 			},
 		})

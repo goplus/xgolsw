@@ -32,7 +32,7 @@ func (s *Server) didOpen(params *DidOpenTextDocumentParams) error {
 	s.putDocumentFileLocked(path, file)
 	s.openFiles[path] = file
 	s.queueOpenDiagnosticsLocked()
-	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{})
 	return nil
 }
 
@@ -55,7 +55,7 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 		Content: content,
 		Version: int(params.TextDocument.Version),
 	}})
-	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{})
 	return nil
 }
 
@@ -78,7 +78,7 @@ func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
 	}
 	s.putDocumentFileLocked(path, file)
 	s.queueOpenDiagnosticsLocked()
-	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
+	s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{})
 	return nil
 }
 
@@ -104,17 +104,14 @@ func (s *Server) didClose(params *DidCloseTextDocumentParams) error {
 
 // diagnosticRequest records the latest pending diagnostic action for a document.
 type diagnosticRequest struct {
-	path  string
 	clear bool
 }
 
-// queueOpenDiagnosticsLocked refreshes all open documents because source files
-// share a package. The caller holds projectMu.
+// queueOpenDiagnosticsLocked refreshes all open documents because source and
+// resource files affect project diagnostics. The caller holds projectMu.
 func (s *Server) queueOpenDiagnosticsLocked() {
 	for path := range s.openFiles {
-		if s.getProj().IsSourceFile(path) {
-			s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{path: path})
-		}
+		s.queueDiagnosticsLocked(s.toDocumentURI(path), &diagnosticRequest{})
 	}
 }
 
@@ -152,8 +149,13 @@ func (s *Server) publishPendingDiagnostics() {
 		s.projectMu.Unlock()
 
 		var diagnostics []Diagnostic
+		var err error
 		if !request.clear {
-			diagnostics = s.diagnosticsForFile(proj, request.path)
+			var result *diagnosticResult
+			result, err = s.diagnosticsAt(proj)
+			if err == nil {
+				diagnostics = result.diagnostics[uri]
+			}
 		}
 		s.projectMu.Lock()
 		// Discard superseded requests and results invalidated by edits to any source file.
@@ -163,7 +165,10 @@ func (s *Server) publishPendingDiagnostics() {
 		}
 		delete(s.pendingDiagnostics, uri)
 		s.projectMu.Unlock()
-		s.publishDiagnostics(uri, diagnostics)
+		// Failed analysis must not clear diagnostics from the last successful run.
+		if err == nil {
+			s.publishDiagnostics(uri, diagnostics)
+		}
 	}
 }
 
@@ -203,19 +208,6 @@ func (s *Server) changedText(path string, changes []protocol.TextDocumentContent
 	}
 
 	return content, nil
-}
-
-// diagnosticsForFile collects syntax and type errors from a stable project.
-func (s *Server) diagnosticsForFile(proj *xgo.Project, path string) []Diagnostic {
-	if !proj.IsSourceFile(path) {
-		return nil
-	}
-	proj.TypeInfo()
-	result := newDiagnosticResult()
-	if astFile := s.collectSyntaxDiagnostics(proj, path, &result); astFile != nil {
-		s.collectTypeDiagnostics(proj, &result)
-	}
-	return result.diagnostics[s.toDocumentURI(path)]
 }
 
 // FileChange represents a file change.

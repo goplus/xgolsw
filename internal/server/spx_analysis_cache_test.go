@@ -208,16 +208,17 @@ play ""
 			"assets/index.json":              []byte(`{}`),
 			"assets/sounds/Known/index.json": []byte(`{}`),
 		})
-		proj := s.getProj()
+		proj := s.requestProject()
 		cached := requireFrameworkAnalysis(t, proj)
 		for _, root := range []DocumentURI{"file:///first/", "file:///second/", "file:///first/"} {
 			s.workspaceRootURI = root
 			uri := s.toDocumentURI("main.spx")
-			report, err := s.diagnosticsAt(proj)
+			report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 			require.NoError(t, err)
-			require.Len(t, report.diagnostics[uri], 1)
-			assert.Equal(t, "sound resource name cannot be empty", report.diagnostics[uri][0].Message)
-			report.diagnostics[uri][0].Message = "changed response"
+			full := requireRelatedFullDocumentDiagnosticReport(t, report)
+			require.Len(t, full.Items, 1)
+			assert.Equal(t, "sound resource name cannot be empty", full.Items[0].Message)
+			full.Items[0].Message = "changed response"
 			edit, err := cached.renameResources(s, proj, []XGoRenameResourceParams{{
 				Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Known"}, NewName: "Other",
 			}})
