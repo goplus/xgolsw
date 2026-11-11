@@ -112,7 +112,7 @@ func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams
 		if err != nil {
 			return fmt.Errorf("failed to create property renamed notification: %w", err)
 		}
-		if err := s.replier.ReplyMessage(notification); err != nil {
+		if err := s.replyMessage(notification); err != nil {
 			return fmt.Errorf("failed to send property renamed notification: %w", err)
 		}
 	}

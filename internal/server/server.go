@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -41,6 +42,8 @@ type Scheduler interface {
 
 // Server is the core language server implementation that handles LSP messages.
 type Server struct {
+	ctx                context.Context
+	cancel             context.CancelCauseFunc
 	workspaceRootURI   DocumentURI
 	workspaceRootFS    *xgo.Project
 	replier            MessageReplier
@@ -73,6 +76,7 @@ func New(
 	listPkgs func() ([]string, error),
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
 ) *Server {
+	ctx, cancel := context.WithCancelCause(context.Background())
 	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
 	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
 	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
@@ -82,6 +86,8 @@ func New(
 	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
 	proj.RegisterCacheBuilder(diagnosticCacheKind{}, buildDiagnosticCache)
 	return &Server{
+		ctx:              ctx,
+		cancel:           cancel,
 		workspaceRootURI: "file:///",
 		workspaceRootFS:  proj,
 		replier:          replier,
@@ -91,6 +97,15 @@ func New(
 		listPkgs:         listPkgs,
 		lookupPkgDoc:     lookupPkgDoc,
 	}
+}
+
+// Close rejects new messages, cancels queued requests, and stops diagnostics.
+// Analysis already running may finish, but its messages are discarded.
+func (s *Server) Close() {
+	s.cancel(ErrClosed)
+	s.projectMu.Lock()
+	clear(s.pendingDiagnostics)
+	s.projectMu.Unlock()
 }
 
 // InitAnalyzers initializes the analyzers for the server.
@@ -104,6 +119,9 @@ func initAnalyzers(staticcheck bool) []*analysis.Analyzer {
 
 // HandleMessage handles an incoming LSP message.
 func (s *Server) HandleMessage(m jsonrpc2.Message) error {
+	if err := context.Cause(s.ctx); err != nil {
+		return err
+	}
 	switch m := m.(type) {
 	case *jsonrpc2.Call:
 		return s.handleCall(m)
@@ -423,7 +441,7 @@ func (s *Server) sendTelemetryEvent(data map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("failed to create telemetry notification: %v", err)
 	}
-	return s.replier.ReplyMessage(n)
+	return s.replyMessage(n)
 }
 
 // publishDiagnostics sends diagnostic notifications to the client.
@@ -440,7 +458,16 @@ func (s *Server) publishDiagnostics(uri DocumentURI, diagnostics []Diagnostic) e
 	if err != nil {
 		return fmt.Errorf("failed to create diagnostic notification: %w", err)
 	}
-	return s.replier.ReplyMessage(n)
+	return s.replyMessage(n)
+}
+
+// replyMessage delivers a message unless the server has been closed.
+// Client callbacks run without locks so they may close or reenter the server.
+func (s *Server) replyMessage(message jsonrpc2.Message) error {
+	if err := context.Cause(s.ctx); err != nil {
+		return err
+	}
+	return s.replier.ReplyMessage(message)
 }
 
 // wrapWithMetrics is a helper function to wrap a function with telemetry metrics
@@ -491,10 +518,11 @@ func (s *Server) runForCall(call *jsonrpc2.Call, fn func() (any, error)) {
 // the result or error. If beforeReply is not nil, it runs once after the
 // response outcome is known and before the response is sent to the client.
 func (s *Server) runForCallWithReplyHook(call *jsonrpc2.Call, fn func() (any, error), beforeReply func(error)) {
-	ctx, cancelCauseFunc := context.WithCancelCause(context.TODO())
+	ctx, cancelCauseFunc := context.WithCancelCause(s.ctx)
 	s.cancelCauseFuncs.Store(call.ID(), cancelCauseFunc)
 	wrap := s.wrapWithMetrics(call, fn)
 	go func() (err error) {
+		defer cancelCauseFunc(nil)
 		runBeforeReply := func(replyErr error) {
 			if beforeReply == nil {
 				return
@@ -511,6 +539,9 @@ func (s *Server) runForCallWithReplyHook(call *jsonrpc2.Call, fn func() (any, er
 			}
 		}()
 
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		s.scheduler.Sched() // Do scheduling to receive (cancel) notifications on the fly.
 		if ctx.Err() != nil {
 			err = context.Cause(ctx)
@@ -518,12 +549,15 @@ func (s *Server) runForCallWithReplyHook(call *jsonrpc2.Call, fn func() (any, er
 		}
 
 		result, callErr := wrap()
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		resp, err := jsonrpc2.NewResponse(call.ID(), result, callErr)
 		if err != nil {
 			return err
 		}
 		runBeforeReply(callErr)
-		return s.replier.ReplyMessage(resp)
+		return s.replyMessage(resp)
 	}()
 }
 
@@ -535,9 +569,12 @@ func (s *Server) runForNotification(notify *jsonrpc2.Notification, fn func() err
 }
 
 var (
+	// ErrClosed is returned when an operation targets a closed server.
+	ErrClosed = errors.New("language server is closed")
+
 	// serverNotInitialized is returned for requests received before initialize completes.
 	serverNotInitialized = jsonrpc2.NewError(int64(ServerNotInitialized), "Server not initialized")
-	// requestCancelled is returned when a request is cancelled before execution.
+	// requestCancelled is returned when a request is cancelled.
 	requestCancelled = jsonrpc2.NewError(int64(RequestCancelled), "Request cancelled")
 )
 
@@ -562,7 +599,7 @@ func (s *Server) replyError(id jsonrpc2.ID, err error) error {
 	if err != nil {
 		return err
 	}
-	return s.replier.ReplyMessage(resp)
+	return s.replyMessage(resp)
 }
 
 // replyMethodNotFound replies to the client with a method not found error response.

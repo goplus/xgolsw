@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/goplus/xgolsw/jsonrpc2"
@@ -429,6 +430,107 @@ println x
 				assert.Contains(t, err.Error(), "cancelRequest:")
 			})
 		}
+	})
+}
+
+func TestServerClose(t *testing.T) {
+	for _, stage := range []string{"BeforeScheduling", "DuringScheduling", "DuringAnalysis"} {
+		t.Run(stage, func(t *testing.T) {
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 1\n")})
+			replier := newMockReplier()
+			s.replier = replier
+			synctest.Test(t, func(t *testing.T) {
+				entered, resume := make(chan struct{}), make(chan struct{})
+				release := sync.OnceFunc(func() { close(resume) })
+				t.Cleanup(release)
+				if stage == "DuringScheduling" {
+					s.scheduler = &blockingScheduler{started: entered, release: resume}
+				}
+				call, err := jsonrpc2.NewCall(jsonrpc2.NewIntID(1), "shutdown", nil)
+				require.NoError(t, err)
+				var ran bool
+				var outcome error
+				s.runForCallWithReplyHook(call, func() (any, error) {
+					ran = true
+					if stage == "DuringAnalysis" {
+						close(entered)
+						<-resume
+					}
+					return nil, nil
+				}, func(err error) { outcome = err })
+				if stage != "BeforeScheduling" {
+					<-entered
+				}
+				s.Close()
+				s.Close()
+				release()
+				synctest.Wait()
+				assert.Equal(t, stage == "DuringAnalysis", ran)
+				assert.ErrorIs(t, outcome, ErrClosed)
+				assert.Empty(t, replier.getMessages())
+				require.ErrorIs(t, s.HandleMessage(call), ErrClosed)
+				notification, err := jsonrpc2.NewNotification("exit", nil)
+				require.NoError(t, err)
+				require.ErrorIs(t, s.HandleMessage(notification), ErrClosed)
+				providerCalls := 0
+				s.fileMapGetter = func() map[string]*xgo.File {
+					providerCalls++
+					return nil
+				}
+				s.readProviderFiles()
+				assert.Zero(t, providerCalls)
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("println 2\n"), Version: 1}})
+				current, ok := s.getProj().File("main.xgo")
+				require.True(t, ok)
+				assert.Equal(t, "println 1\n", string(current.Content))
+				s.publishFileDiagnostics("main.xgo")
+				synctest.Wait()
+				assert.Empty(t, replier.getMessages())
+			})
+		})
+	}
+
+	t.Run("ReentrantReply", func(t *testing.T) {
+		s := newTestServer(t, nil)
+		synctest.Test(t, func(t *testing.T) {
+			var messages int
+			delivered := make(chan struct{})
+			s.replier = diagnosticReplierFunc(func(jsonrpc2.Message) error {
+				messages++
+				s.Close()
+				close(delivered)
+				return nil
+			})
+			call, err := jsonrpc2.NewCall(jsonrpc2.NewIntID(1), "initialize", InitializeParams{})
+			require.NoError(t, err)
+			require.NoError(t, s.HandleMessage(call))
+			<-delivered
+			synctest.Wait()
+			assert.Equal(t, 1, messages)
+			assert.False(t, s.isInitialized())
+		})
+	})
+
+	t.Run("RunningDiagnostics", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println missing\n")})
+		replier := newMockReplier()
+		s.replier = replier
+		synctest.Test(t, func(t *testing.T) {
+			entered, resume := make(chan struct{}), make(chan struct{})
+			release := sync.OnceFunc(func() { close(resume) })
+			t.Cleanup(release)
+			s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
+				close(entered)
+				<-resume
+				return buildFrameworkAnalysisCache(proj)
+			})
+			s.publishFileDiagnostics("main.xgo")
+			<-entered
+			s.Close()
+			release()
+			synctest.Wait()
+			assert.Empty(t, replier.getMessages())
+		})
 	})
 }
 

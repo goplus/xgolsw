@@ -4,11 +4,16 @@ package main
 
 import (
 	"encoding/json"
+	"runtime"
 	"syscall/js"
 	"testing"
 	"time"
+	"weak"
 
+	"github.com/goplus/xgolsw/internal/server"
 	"github.com/goplus/xgolsw/internal/testframework"
+	"github.com/goplus/xgolsw/jsonrpc2"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,8 +95,9 @@ func TestNewXGoLanguageServer(t *testing.T) {
 		{provider.Value, reply.Value},
 		{provider.Value, reply.Value, js.Undefined()},
 	} {
-		_, ok := NewXGoLanguageServer(js.Undefined(), args).(js.Value)
-		assert.True(t, ok)
+		value, ok := NewXGoLanguageServer(js.Undefined(), args).(js.Value)
+		require.True(t, ok)
+		value.Call("dispose")
 	}
 }
 
@@ -151,12 +157,13 @@ func newTestServer(t *testing.T, filename, source string, options map[string]any
 	t.Cleanup(reply.Release)
 	value, ok := NewXGoLanguageServer(js.Undefined(), []js.Value{provider.Value, reply.Value, js.ValueOf(options)}).(js.Value)
 	require.True(t, ok)
-	return value.Get("handleMessage"), responses
+	t.Cleanup(func() { value.Call("dispose") })
+	return value, responses
 }
 
 func callTestServer(t *testing.T, handle js.Value, responses <-chan js.Value, method string, params any) js.Value {
 	t.Helper()
-	result := handle.Invoke(js.ValueOf(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
+	result := handle.Call("handleMessage", js.ValueOf(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
 	require.True(t, result.IsNull() || result.IsUndefined())
 	select {
 	case response := <-responses:
@@ -186,7 +193,7 @@ func TestXGoLanguageServerCompletionIncompleteTypeDeclaration(t *testing.T) {
 				"position":     map[string]any{"line": 0, "character": len(tt.source)},
 			})
 
-			result := handle.Invoke(js.ValueOf(map[string]any{
+			result := handle.Call("handleMessage", js.ValueOf(map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "textDocument/didOpen",
 				"params": map[string]any{
@@ -258,8 +265,176 @@ func use(reader Reader) { println reader.Read() }
 `}},
 		}},
 	} {
-		result := handle.Invoke(js.ValueOf(notification))
+		result := handle.Call("handleMessage", js.ValueOf(notification))
 		require.True(t, result.IsNull() || result.IsUndefined())
 	}
 	check(0)
+}
+
+func TestXGoLanguageServerDispose(t *testing.T) {
+	t.Run("CopiedCallbackRevoked", func(t *testing.T) {
+		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+		var calls int
+		callback := js.FuncOf(func(js.Value, []js.Value) any {
+			calls++
+			return nil
+		})
+		t.Cleanup(callback.Release)
+		copied := s.wrapCallback(callback.Value)
+		value := s.jsValue()
+		value.Call("dispose")
+		assert.Panics(t, func() { copied.Invoke() })
+		assert.Zero(t, calls)
+	})
+
+	for _, disposed := range []bool{false, true} {
+		name := "ActiveProviderError"
+		if disposed {
+			name = "DisposeDuringProviderError"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+			value := s.jsValue()
+			t.Cleanup(func() { value.Call("dispose") })
+			body := `throw new Error("provider failed")`
+			if disposed {
+				body = `dispose(); ` + body
+			}
+			callback := js.Global().Get("Function").New("dispose", body).Call("bind", js.Undefined(), value.Get("dispose"))
+			provider := s.wrapCallback(callback)
+			if disposed {
+				assert.Nil(t, s.readFiles(provider))
+				assert.Nil(t, s.readFiles(provider))
+			} else {
+				assert.Panics(t, func() { s.readFiles(provider) })
+			}
+		})
+	}
+
+	t.Run("GoPanicAfterDisposal", func(t *testing.T) {
+		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+		value := s.jsValue()
+		callback := js.FuncOf(func(js.Value, []js.Value) any {
+			value.Call("dispose")
+			return map[string]any{
+				"main.xgo": map[string]any{
+					"content": true,
+					"modTime": 0,
+				},
+			}
+		})
+		t.Cleanup(callback.Release)
+		t.Cleanup(func() { value.Call("dispose") })
+		provider := s.wrapCallback(callback.Value)
+		var panicValue any
+		func() {
+			defer func() { panicValue = recover() }()
+			s.readFiles(provider)
+		}()
+		assert.IsType(t, new(js.ValueError), panicValue)
+	})
+
+	t.Run("DisposeDuringReplyError", func(t *testing.T) {
+		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+		value := s.jsValue()
+		t.Cleanup(func() { value.Call("dispose") })
+		callback := js.Global().Get("Function").New("dispose", `dispose(); throw new Error("reply failed")`)
+		s.messageReplier = s.wrapCallback(callback.Call("bind", js.Undefined(), value.Get("dispose")))
+		notification, err := jsonrpc2.NewNotification("exit", nil)
+		require.NoError(t, err)
+		assert.ErrorIs(t, s.ReplyMessage(notification), server.ErrClosed)
+	})
+
+	t.Run("RepeatedInstancesAndSavedMethods", func(t *testing.T) {
+		for range 10 {
+			value, _ := newTestServer(t, "main.xgo", "var Count = 1\n", nil)
+			handle, dispose := value.Get("handleMessage"), value.Get("dispose")
+			js.Global().Get("Object").Call("freeze", value)
+			dispose.Invoke()
+			dispose.Invoke()
+			value.Call("dispose")
+			result := handle.Invoke(js.ValueOf(map[string]any{"jsonrpc": "2.0", "method": "exit"}))
+			require.True(t, result.InstanceOf(js.Global().Get("Error")))
+			assert.Contains(t, result.Get("message").String(), "language server is closed")
+		}
+	})
+
+	t.Run("InstanceIsolation", func(t *testing.T) {
+		first, _ := newTestServer(t, "main.xgo", "", nil)
+		second, replies := newTestServer(t, "main.xgo", "", nil)
+		first.Call("dispose")
+		callTestServer(t, second, replies, "initialize", map[string]any{"capabilities": map[string]any{}})
+	})
+
+	t.Run("ReleaseInstance", func(t *testing.T) {
+		create := func() (js.Value, weak.Pointer[XGoLanguageServer]) {
+			t.Helper()
+
+			s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+			value := s.jsValue()
+			pointer := weak.Make(s)
+			value.Call("dispose")
+			s.Dispose()
+			closedErr, ok := s.HandleMessage(js.Undefined(), nil).(error)
+			require.True(t, ok)
+			assert.ErrorIs(t, closedErr, server.ErrClosed)
+			notification, err := jsonrpc2.NewNotification("exit", nil)
+			require.NoError(t, err)
+			assert.ErrorIs(t, s.ReplyMessage(notification), server.ErrClosed)
+			return value, pointer
+		}
+		value, pointer := create()
+		require.Eventually(t, func() bool {
+			runtime.GC()
+			return pointer.Value() == nil
+		}, 5*time.Second, time.Millisecond)
+		runtime.KeepAlive(value)
+	})
+
+	t.Run("ReentrantReply", func(t *testing.T) {
+		provider := js.FuncOf(func(js.Value, []js.Value) any { return map[string]any{} })
+		t.Cleanup(provider.Release)
+		var value js.Value
+		var messages int
+		disposed := make(chan struct{})
+		reply := js.FuncOf(func(js.Value, []js.Value) any {
+			messages++
+			value.Call("dispose")
+			close(disposed)
+			return nil
+		})
+		t.Cleanup(reply.Release)
+		created, ok := NewXGoLanguageServer(js.Undefined(), []js.Value{provider.Value, reply.Value}).(js.Value)
+		require.True(t, ok)
+		value = created
+		t.Cleanup(func() { value.Call("dispose") })
+		value.Call("handleMessage", js.ValueOf(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"capabilities": map[string]any{}},
+		}))
+		select {
+		case <-disposed:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "dispose blocked inside the reply callback")
+		}
+		new(JSScheduler).Sched()
+		assert.Equal(t, 1, messages)
+	})
+
+	t.Run("DisposeDuringReplyConversion", func(t *testing.T) {
+		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+		value := s.jsValue()
+		t.Cleanup(func() { value.Call("dispose") })
+		jsonValue := js.Global().Get("JSON")
+		originalParse := jsonValue.Get("parse")
+		parse := js.FuncOf(func(_ js.Value, args []js.Value) any {
+			value.Call("dispose")
+			return originalParse.Invoke(args[0])
+		})
+		t.Cleanup(parse.Release)
+		t.Cleanup(func() { jsonValue.Set("parse", originalParse) })
+		jsonValue.Set("parse", parse)
+		notification, err := jsonrpc2.NewNotification("exit", nil)
+		require.NoError(t, err)
+		assert.ErrorIs(t, s.ReplyMessage(notification), server.ErrClosed)
+	})
 }

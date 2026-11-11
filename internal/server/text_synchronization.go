@@ -118,6 +118,9 @@ func (s *Server) queueOpenDiagnosticsLocked() {
 // queueDiagnosticsLocked replaces superseded work and starts a publisher when
 // needed. The caller holds projectMu.
 func (s *Server) queueDiagnosticsLocked(uri DocumentURI, request *diagnosticRequest) {
+	if s.ctx.Err() != nil {
+		return
+	}
 	if s.pendingDiagnostics == nil {
 		s.pendingDiagnostics = make(map[DocumentURI]*diagnosticRequest)
 	}
@@ -221,6 +224,9 @@ type FileChange struct {
 func (s *Server) ModifyFiles(changes []FileChange) {
 	s.projectMu.Lock()
 	defer s.projectMu.Unlock()
+	if s.ctx.Err() != nil {
+		return
+	}
 	s.modifyFilesLocked(changes)
 }
 

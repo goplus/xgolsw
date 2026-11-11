@@ -42,6 +42,11 @@ applications.
 
 For detailed API references, please check the [index.d.ts](index.d.ts) file.
 
+Call `server.dispose()` when the instance is no longer needed, such as when closing a project. It cancels queued
+requests, stops outgoing messages, and releases its project and callback references without waiting for running analysis
+to finish. Repeated calls have no effect. Calls to `handleMessage` after disposal return an `Error`, including
+previously obtained method references. Other instances in the same WASM runtime remain usable.
+
 ## Supported LSP methods
 
 | Category | Method | Purpose & Explanation |

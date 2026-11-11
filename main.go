@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"syscall/js"
 	"time"
 
@@ -19,9 +21,26 @@ import (
 // XGoLanguageServer implements a lightweight XGo language server that runs in
 // the browser using WebAssembly.
 type XGoLanguageServer struct {
-	messageReplier js.Value
-	server         *server.Server
+	id              int
+	messageReplier  js.Value
+	server          *server.Server
+	revokeCallbacks []js.Value
+	disposed        atomic.Bool
 }
+
+var (
+	// instanceMu guards liveInstances and nextInstanceID.
+	instanceMu sync.Mutex
+
+	// nextInstanceID identifies each newly created server.
+	nextInstanceID int
+
+	// liveInstances retains servers until their clients dispose them.
+	liveInstances = make(map[int]*XGoLanguageServer)
+
+	// instanceCallback is shared by all instances for the lifetime of the WASM runtime.
+	instanceCallback = JSFuncOfWithError(callInstance)
+)
 
 // NewXGoLanguageServer creates a new instance of [XGoLanguageServer].
 func NewXGoLanguageServer(this js.Value, args []js.Value) any {
@@ -42,22 +61,87 @@ func NewXGoLanguageServer(this js.Value, args []js.Value) any {
 			return fmt.Errorf("NewXGoLanguageServer: %w", err)
 		}
 	}
-	filesProvider := args[0]
-	s := &XGoLanguageServer{
-		messageReplier: args[1],
-	}
+	s := new(XGoLanguageServer)
+	filesProvider := s.wrapCallback(args[0])
+	s.messageReplier = s.wrapCallback(args[1])
 
 	fileMapGetter := func() map[string]*xgo.File {
-		return ConvertJSFilesToMap(filesProvider.Invoke())
+		return s.readFiles(filesProvider)
 	}
 	project, data, err := config.NewProject(fileMapGetter(), options)
 	if err != nil {
 		return fmt.Errorf("NewXGoLanguageServer: %w", err)
 	}
 	s.server = server.New(project, s, fileMapGetter, &JSScheduler{}, data.ListPkgs, data.GetPkgDoc)
+	return s.jsValue()
+}
+
+// wrapCallback creates a revocable host callback so disposal also stops copied callback references.
+func (s *XGoLanguageServer) wrapCallback(callback js.Value) js.Value {
+	wrapped := js.Global().Get("Proxy").Call("revocable", callback, js.ValueOf(map[string]any{}))
+	s.revokeCallbacks = append(s.revokeCallbacks, wrapped.Get("revoke"))
+	return wrapped.Get("proxy")
+}
+
+// readFiles ignores JavaScript errors during disposal and preserves other panics.
+func (s *XGoLanguageServer) readFiles(provider js.Value) (files map[string]*xgo.File) {
+	if s.disposed.Load() {
+		return nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(js.Error); !ok || !s.disposed.Load() {
+				panic(r)
+			}
+		}
+	}()
+	return ConvertJSFilesToMap(provider.Invoke())
+}
+
+// jsValue binds native JavaScript methods to an instance ID.
+// A single shared callback keeps disposed methods usable without retaining their server.
+func (s *XGoLanguageServer) jsValue() js.Value {
+	instanceMu.Lock()
+	nextInstanceID++
+	s.id = nextInstanceID
+	liveInstances[s.id] = s
+	instanceMu.Unlock()
 	return js.ValueOf(map[string]any{
-		"handleMessage": JSFuncOfWithError(s.HandleMessage),
+		"handleMessage": instanceCallback.Call("bind", js.Undefined(), s.id, "handleMessage"),
+		"dispose":       instanceCallback.Call("bind", js.Undefined(), s.id, "dispose"),
 	})
+}
+
+// callInstance dispatches bound methods and handles calls after disposal.
+func callInstance(this js.Value, args []js.Value) any {
+	instanceMu.Lock()
+	s := liveInstances[args[0].Int()]
+	instanceMu.Unlock()
+	if args[1].String() == "dispose" {
+		if s != nil {
+			s.Dispose()
+		}
+		return nil
+	}
+	if s == nil {
+		return server.ErrClosed
+	}
+	return s.HandleMessage(this, args[2:])
+}
+
+// Dispose removes the registered instance and closes its server without waiting for analysis.
+func (s *XGoLanguageServer) Dispose() {
+	if s.disposed.Swap(true) {
+		return
+	}
+	instanceMu.Lock()
+	delete(liveInstances, s.id)
+	instanceMu.Unlock()
+	for _, revoke := range s.revokeCallbacks {
+		revoke.Invoke()
+	}
+	s.revokeCallbacks = nil
+	s.server.Close()
 }
 
 // parseServerOptions validates the optional JavaScript instance configuration.
@@ -87,6 +171,9 @@ func parseServerOptions(value js.Value) (config.Options, error) {
 
 // HandleMessage handles incoming LSP messages from the client.
 func (s *XGoLanguageServer) HandleMessage(this js.Value, args []js.Value) any {
+	if s.disposed.Load() {
+		return server.ErrClosed
+	}
 	if len(args) != 1 {
 		return errors.New("XGoLanguageServer.HandleMessage: expected 1 argument")
 	}
@@ -106,6 +193,9 @@ func (s *XGoLanguageServer) HandleMessage(this js.Value, args []js.Value) any {
 
 // ReplyMessage sends a message back to the client via s.messageReplier.
 func (s *XGoLanguageServer) ReplyMessage(m jsonrpc2.Message) (err error) {
+	if s.disposed.Load() {
+		return server.ErrClosed
+	}
 	rawMessage, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -114,6 +204,10 @@ func (s *XGoLanguageServer) ReplyMessage(m jsonrpc2.Message) (err error) {
 	// Catch potential panics during JavaScript execution.
 	defer func() {
 		if r := recover(); r != nil {
+			if s.disposed.Load() {
+				err = server.ErrClosed
+				return
+			}
 			if jsErr, ok := r.(js.Error); ok {
 				err = fmt.Errorf("client error: %w", jsErr)
 			} else {
@@ -123,6 +217,9 @@ func (s *XGoLanguageServer) ReplyMessage(m jsonrpc2.Message) (err error) {
 	}()
 
 	message := js.Global().Get("JSON").Call("parse", string(rawMessage))
+	if s.disposed.Load() {
+		return server.ErrClosed
+	}
 	s.messageReplier.Invoke(message)
 	return nil
 }
