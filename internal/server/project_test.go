@@ -634,7 +634,7 @@ func TestServerDependencyDiagnostics(t *testing.T) {
 						synctest.Wait()
 						reports := requirePublishedDiagnosticReports(t, replier, len(open))
 						mainURI := s.toDocumentURI("main.xgo")
-						before := s.getDiagnostics("main.xgo")
+						before := s.getDiagnostics(t, "main.xgo")
 						assert.ElementsMatch(t, before, reports[mainURI])
 						switch change {
 						case "Document":
@@ -654,7 +654,7 @@ func TestServerDependencyDiagnostics(t *testing.T) {
 						}
 						synctest.Wait()
 						reports = requirePublishedDiagnosticReports(t, replier, len(open))
-						after := s.getDiagnostics("main.xgo")
+						after := s.getDiagnostics(t, "main.xgo")
 						require.NotEqual(t, len(before), len(after))
 						assert.ElementsMatch(t, after, reports[mainURI])
 						assert.Empty(t, reports["file:///helper.xgo"])

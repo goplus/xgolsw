@@ -8,6 +8,7 @@ import (
 
 	"github.com/goplus/xgolsw/internal/config"
 	"github.com/goplus/xgolsw/internal/pkgdata"
+	"github.com/goplus/xgolsw/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,4 +45,21 @@ func TestSpxIntegrationSymbols(t *testing.T) {
 			assert.Equal(t, name, ctx.spxTypeName(spxTestType(t, s, name)))
 		})
 	}
+}
+
+func TestSpxIntegrationDiagnostics(t *testing.T) {
+	s := newSpxIntegrationTestServer(t, map[string][]byte{
+		"main.spx": []byte("play \"Missing\"\n"), "assets/index.json": []byte(`{}`),
+	})
+	replier := newMockReplier()
+	s.replier = replier
+	require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: "file:///main.spx", Version: 1, Text: "play \"Missing\"\n"},
+	}))
+	diagnostics := requirePublishedDiagnostics(t, replier, "file:///main.spx")
+	require.Len(t, diagnostics, 1)
+	assert.Equal(t, `sound resource "Missing" not found`, diagnostics[0].Message)
+	report, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}})
+	require.NoError(t, err)
+	assert.Equal(t, diagnostics, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
 }
