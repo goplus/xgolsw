@@ -26,6 +26,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLineOffsets(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		want         []int
+	}{
+		{"Empty", "", []int{0}},
+		{"LF", "a\nb\n", []int{0, 2, 4}},
+		{"CRLF", "a\r\nb\r\n", []int{0, 3, 6}},
+		{"CR", "a\rb\r", []int{0, 2, 4}},
+		{"Mixed", "a\r\n\rb\n", []int{0, 3, 4, 6}},
+		{"Adjacent", "a\r\r\nb", []int{0, 2, 4}},
+		{"UTF8", "\U0001f680\r\u4e2d\n", []int{0, 5, 9}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, LineOffsets([]byte(tt.source)))
+		})
+	}
+}
+
 func TestPosFilename(t *testing.T) {
 	t.Run("Normal", func(t *testing.T) {
 		fset, astFile, err := newTestFile("main.xgo", "var x = 1")

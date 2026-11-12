@@ -362,18 +362,19 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	}
 
 	var (
-		lineLengths = semanticTokenLineLengths(astFile.Code)
+		lineOffsets = proj.ASTFileLineOffsets(astFile)
+		lineLengths = semanticTokenLineLengths(astFile.Code, lineOffsets)
 		segments    = make([]semanticTokenDataSegment, 0, len(tokenInfos))
 	)
 	for _, info := range tokenInfos {
-		start := fset.PositionFor(info.startPos, false)
-		end := fset.PositionFor(info.endPos, false)
+		start := file.Offset(info.startPos)
+		end := file.Offset(info.endPos)
 
 		typeIndex := getSemanticTokenTypeIndex(info.tokenType)
 		modifiersMask := getSemanticTokenModifiersMask(info.tokenModifiers)
 		for _, segment := range semanticTokenSegments(
-			FromPosition(proj, astFile, start),
-			FromPosition(proj, astFile, end),
+			positionForOffset(astFile.Code, lineOffsets, start),
+			positionForOffset(astFile.Code, lineOffsets, end),
 			lineLengths,
 		) {
 			segments = append(segments, semanticTokenDataSegment{
@@ -420,12 +421,10 @@ type semanticTokenSegment struct {
 }
 
 // semanticTokenLineLengths returns the UTF-16 lengths of all source lines.
-func semanticTokenLineLengths(content []byte) []uint32 {
-	lines := bytes.Split(content, []byte("\n"))
-	lengths := make([]uint32, len(lines))
-	for i, line := range lines {
-		line = trimLineEnding(line)
-		lengths[i] = uint32(UTF16Len(string(line)))
+func semanticTokenLineLengths(content []byte, offsets []int) []uint32 {
+	lengths := make([]uint32, len(offsets))
+	for i := range offsets {
+		lengths[i] = uint32(UTF16Len(string(sourceLine(content, offsets, i))))
 	}
 	return lengths
 }

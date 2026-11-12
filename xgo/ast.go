@@ -24,6 +24,7 @@ import (
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // astFileCacheKind is a cache kind type for [ast.File].
@@ -31,8 +32,9 @@ type astFileCacheKind struct{}
 
 // astFileCache is a cache for [ast.File].
 type astFileCache struct {
-	astFile   *ast.File
-	parserErr error
+	astFile     *ast.File
+	parserErr   error
+	lineOffsets []int
 }
 
 // buildASTFileCache implements [FileCacheBuilder] to build an [astFileCache]
@@ -47,7 +49,12 @@ func buildASTFileCache(proj *Project, path string, file *File) (cache any, err e
 		ClassInfo: proj.Module().ClassInfo,
 		Mode:      parser.ParseComments | parser.AllErrors,
 	})
-	cache = &astFileCache{astFile, parserErr}
+	// ParseEntry retains file.Content as astFile.Code when it returns an AST.
+	cache = &astFileCache{
+		astFile:     astFile,
+		parserErr:   parserErr,
+		lineOffsets: xgoutil.LineOffsets(file.Content),
+	}
 	return
 }
 
@@ -63,6 +70,24 @@ func (p *Project) ASTFile(path string) (*ast.File, error) {
 	}
 	cache := cacheIface.(*astFileCache)
 	return cache.astFile, cache.parserErr
+}
+
+// ASTFileLineOffsets returns source line offsets for file, recognizing LF,
+// CRLF, and CR independently of the compiler's line table. Cached offsets
+// are reused only while the AST belongs to the same source version.
+// The returned slice must not be modified.
+func (p *Project) ASTFileLineOffsets(file *ast.File) []int {
+	if tokenFile := xgoutil.NodeTokenFile(p.Fset, file); tokenFile != nil {
+		if cacheIface, err := p.FileCache(astFileCacheKind{}, tokenFile.Name()); err == nil {
+			cache := cacheIface.(*astFileCache)
+			if cache.astFile == file {
+				return cache.lineOffsets
+			}
+		}
+	}
+
+	// Retained ASTs still describe their original source after edits or deletion.
+	return xgoutil.LineOffsets(file.Code)
 }
 
 // astPackageCacheKind is a cache kind type for [ast.Package].

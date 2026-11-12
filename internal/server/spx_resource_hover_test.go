@@ -15,7 +15,7 @@ func TestServerSpxResourceSourceRanges(t *testing.T) {
 		value   string
 		end     Position
 	}{
-		{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Character: 14}},
+		{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 4}},
 		{"MultilineUnicode", "`Stu\r\n\U0001f600dio`", "Stu\n\U0001f600dio", Position{Line: 1, Character: 6}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

@@ -15,6 +15,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBuildUTF16ColumnIndex(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		want         []uint32
+	}{
+		{"MixedAndUTF16", "a\r\n\U0001f600\rb", []uint32{0, 1, 1, 0, 0, 0, 0, 2, 0, 1}},
+		{"EmptyLines", "a\r\rb", []uint32{0, 1, 0, 0, 1}},
+		{"Empty", "", []uint32{0}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, buildUTF16ColumnIndex([]byte(tt.source)))
+		})
+	}
+}
+
 func TestServerXGoGetInputSlots(t *testing.T) {
 	t.Run("StringConversions", func(t *testing.T) {
 		for _, tt := range []struct {
@@ -187,7 +202,7 @@ println HSB(12, 34, 56)
 				require.NotNil(t, slot)
 				assert.Equal(t, Range{
 					Start: Position{Line: 1, Character: 18},
-					End:   Position{Line: 1, Character: 27},
+					End:   Position{Line: 2, Character: 4},
 				}, slot.Range)
 				start := PositionOffset([]byte(source), slot.Range.Start)
 				end := PositionOffset([]byte(source), slot.Range.End)
@@ -207,13 +222,13 @@ println HSB(12, 34, 56)
 			{"Quoted", `"Studio"`, "Studio", Position{Character: 22}, ""},
 			{"Escaped", `"Stu\x64io"`, "Studio", Position{Character: 25}, ""},
 			{"Raw", "`Studio`", "Studio", Position{Character: 22}, ""},
-			{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Character: 23}, ""},
-			{"MultipleCarriageReturns", "`S\rtu\r\rdio\r`", "Studio", Position{Character: 26}, ""},
+			{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 4}, ""},
+			{"MultipleCarriageReturns", "`S\rtu\r\rdio\r`", "Studio", Position{Line: 4, Character: 1}, ""},
 			{"Multiline", "`Long first line\nx`", "Long first line\nx", Position{Line: 1, Character: 2}, ""},
 			{"CRLFAndUnicode", "`Stu\r\n\r\n\U0001f600dio`", "Stu\n\n\U0001f600dio", Position{Line: 2, Character: 6}, ""},
 			{"TrailingNewline", "`Studio\n`", "Studio\n", Position{Line: 1, Character: 1}, ""},
-			{"LineDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 23}, "//line virtual.xgo:100\n"},
-			{"ColumnDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 23}, "//line virtual.xgo:100:20\n"},
+			{"LineDirective", "`Stu\rdio`", "Studio", Position{Line: 2, Character: 4}, "//line virtual.xgo:100\n"},
+			{"ColumnDirective", "`Stu\rdio`", "Studio", Position{Line: 2, Character: 4}, "//line virtual.xgo:100:20\n"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				prefix := tt.prefix + "println \"\U0001f600\", "

@@ -137,12 +137,12 @@ func TestResourceRefSourceRanges(t *testing.T) {
 		{"Quoted", `"Studio"`, "Studio", Position{Character: 19}, ""},
 		{"Escaped", `"Stu\x64io"`, "Studio", Position{Character: 22}, ""},
 		{"Raw", "`Studio`", "Studio", Position{Character: 19}, ""},
-		{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Character: 20}, ""},
-		{"MultipleCarriageReturns", "`S\rtu\r\rdio\r`", "Studio", Position{Character: 23}, ""},
+		{"CarriageReturn", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 4}, ""},
+		{"MultipleCarriageReturns", "`S\rtu\r\rdio\r`", "Studio", Position{Line: 4, Character: 1}, ""},
 		{"Multiline", "`Long first line\nx`", "Long first line\nx", Position{Line: 1, Character: 2}, ""},
 		{"CRLFAndUnicode", "`Stu\r\n\r\n\U0001f600dio`", "Stu\n\n\U0001f600dio", Position{Line: 2, Character: 6}, ""},
-		{"LineDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 20}, "//line virtual.xgo:100\n"},
-		{"ColumnDirective", "`Stu\rdio`", "Studio", Position{Line: 1, Character: 20}, "//line virtual.xgo:100:20\n"},
+		{"LineDirective", "`Stu\rdio`", "Studio", Position{Line: 2, Character: 4}, "//line virtual.xgo:100\n"},
+		{"ColumnDirective", "`Stu\rdio`", "Studio", Position{Line: 2, Character: 4}, "//line virtual.xgo:100:20\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
@@ -235,7 +235,7 @@ func TestResourceRefSourceRanges(t *testing.T) {
 				assert.Empty(t, result.resourceDocumentLinks(s.getProj(), "main.xgo"))
 				assert.Nil(t, result.resourceHover(s.getProj(), position, PlainText))
 				// A resolved reference retains the source used to calculate its range.
-				assert.Equal(t, Range{Start: Position{Character: 5}, End: Position{Character: 14}}, resourceRange(proj, file, ref.Node))
+				assert.Equal(t, Range{Start: Position{Character: 5}, End: Position{Line: 1, Character: 4}}, resourceRange(proj, file, ref.Node))
 				addResourceDiagnostic(s.getProj(), result, call.Args[0], "resource not found")
 				addResourceDiagnostic(s.getProj(), result, call.Args[1], "resource name cannot be empty")
 				assert.Empty(t, resourceDiagnostics(s, result).diagnostics)

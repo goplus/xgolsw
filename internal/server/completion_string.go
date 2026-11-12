@@ -55,9 +55,8 @@ func (ctx *completionContext) setCompletionStringValue(item *CompletionItem, val
 		item.AdditionalTextEdits = append(item.AdditionalTextEdits, TextEdit{Range: Range{Start: startPosition, End: edit.Range.Start}})
 	}
 	if endPosition.Line > position.Line {
-		lineStart := ctx.tokenFile.Offset(ctx.tokenFile.LineStart(int(position.Line) + 1))
-		lineEnd := ctx.tokenFile.Offset(ctx.tokenFile.LineStart(int(position.Line) + 2))
-		lineContent := trimLineEnding(ctx.astFile.Code[lineStart:lineEnd])
+		offsets := ctx.proj.ASTFileLineOffsets(ctx.astFile)
+		lineContent := sourceLine(ctx.astFile.Code, offsets, int(position.Line))
 		edit.Range.End = Position{Line: position.Line, Character: uint32(UTF16Len(string(lineContent)))}
 		item.AdditionalTextEdits = append(item.AdditionalTextEdits, TextEdit{Range: Range{Start: edit.Range.End, End: endPosition}})
 	}

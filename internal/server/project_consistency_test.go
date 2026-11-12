@@ -63,6 +63,56 @@ func run() { println missing.`,
 	}
 }
 
+func TestServerRequestsWithLineEndings(t *testing.T) {
+	for _, ending := range []struct{ name, first, second, last string }{
+		{"LF", "\n", "\n", "\n"},
+		{"CRLF", "\r\n", "\r\n", "\r\n"},
+		{"CR", "\r", "\r", "\r"},
+		{"Mixed", "\r\n", "\r", "\n"},
+	} {
+		t.Run(ending.name, func(t *testing.T) {
+			for _, kind := range []struct{ name, filename string }{
+				{"XGo", "main.xgo"},
+				{"NormalClass", "Record.gox"},
+				{"ProjectClass", "main_fixture.gox"},
+				{"WorkClass", "Worker_fixture.gox"},
+			} {
+				t.Run(kind.name, func(t *testing.T) {
+					source, pos := typeDisplayTestSource(t, "var value = 1;"+ending.first+"println `\U0001f680`;"+ending.second+"println |value;"+ending.last)
+					files := map[string][]byte{kind.filename: []byte(source)}
+					if kind.name == "WorkClass" {
+						files["main_fixture.gox"] = nil
+					}
+					s := newImportTestServer(t, files)
+					t.Cleanup(s.Close)
+					_, err := s.requestProject().TypeInfo()
+					require.NoError(t, err)
+					p := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)}, Position: pos}
+					want := projectRequestObservations(t, s, p, false)
+					assert.Equal(t, want, projectRequestObservations(t, s, p, true))
+					hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: p})
+					require.NoError(t, err)
+					require.NotNil(t, hover)
+					assert.Equal(t, Range{Start: Position{Line: 2, Character: 8}, End: Position{Line: 2, Character: 13}}, hover.Range)
+					assert.Contains(t, hover.Contents.Value, "value int")
+					definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: p})
+					require.NoError(t, err)
+					assert.Equal(t, Position{Character: 4}, requireValueAs[Location](t, definition).Range.Start)
+					tokens, err := s.textDocumentSemanticTokensFull(&SemanticTokensParams{TextDocument: p.TextDocument})
+					require.NoError(t, err)
+					assert.Contains(t, decodeSemanticTokens(tokens.Data), decodedSemanticToken{line: 1, character: 8, length: 4, tokenType: StringType})
+
+					s.ModifyFiles([]FileChange{{Path: kind.filename, Content: []byte(strings.Replace(source, "println value;", "println missing;", 1)), Version: 1}})
+					diagnostics := s.getDiagnostics(t, kind.filename)
+					require.Len(t, diagnostics, 1)
+					assert.Contains(t, diagnostics[0].Message, "undefined: missing")
+					assert.Equal(t, Range{Start: Position{Line: 2, Character: 8}, End: Position{Line: 2, Character: 15}}, diagnostics[0].Range)
+				})
+			}
+		})
+	}
+}
+
 func TestServerRequestsWithIncompleteTypeInfo(t *testing.T) {
 	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("var Good = 1\nBox\n")})
 	t.Cleanup(s.Close)

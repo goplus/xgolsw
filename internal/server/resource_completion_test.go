@@ -35,14 +35,14 @@ echo "re|source"
 			{"MultilineMiddle", "echo `before\r\nre|source\r\nafter`\n", "A`B"},
 			{"MultilineEnd", "echo `before\r\nresource|`\n", "Studio"},
 			{"MultilineReplacement", "echo `before\r\nre|source\r\nafter`\n", "A\nB"},
+			{"CRMultilineMiddle", "echo `before\rre|source\rafter`;\r", "A`B"},
+			{"MixedMultilineEnd", "echo `before\r\nnext\rresource|`;\n", "Studio"},
 			{"EmptyName", "echo \"re|source\"\n", ""},
 			{"Controls", "echo \"re|source\"\n", "A\n\r\t\x00B"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				cursor := strings.IndexByte(tt.source, '|')
-				source := strings.Replace(tt.source, "|", "", 1)
-				prefix := source[:cursor]
-				position := Position{Line: uint32(strings.Count(prefix, "\n")), Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:]))}
+				source, position := typeDisplayTestSource(t, tt.source)
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 				ctx := newCompletionTestContext(t, s, "main.xgo", position)
 				ctx.collectResourceNames([]resourceID{testResourceID{"scenes", tt.resource}})
@@ -54,7 +54,7 @@ echo "re|source"
 				} else if ctx.stringLit != nil {
 					delimiter := string(ctx.stringLit.Value[0])
 					wantFilter := delimiter + tt.resource + delimiter
-					if tt.name == "MultilineMiddle" || tt.name == "MultilineEnd" || tt.name == "MultilineReplacement" {
+					if strings.ContainsAny(source[ctx.tokenFile.Offset(ctx.stringLit.Pos()):cursor], "\r\n") {
 						wantFilter = tt.resource
 					}
 					assert.Equal(t, wantFilter, item.FilterText)

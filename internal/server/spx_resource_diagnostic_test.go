@@ -28,7 +28,7 @@ func TestAddEmptySpxResourceNameDiagnostic(t *testing.T) {
 				wantRange Range
 			}{
 				{"Literal", "echo \"\"\n", Range{Start: Position{Character: 5}, End: Position{Character: 7}}},
-				{"RawLiteral", "echo `\r`\n", Range{Start: Position{Character: 5}, End: Position{Character: 8}}},
+				{"RawLiteral", "echo `\r`\n", Range{Start: Position{Character: 5}, End: Position{Line: 1, Character: 1}}},
 				{"Constant", `const Empty = ""
 echo Empty
 `, Range{Start: Position{Line: 1, Character: 5}, End: Position{Line: 1, Character: 10}}},
@@ -181,8 +181,8 @@ func TestServerDiagnosticsAtSpx(t *testing.T) {
     x int
 `), "assets/index.json": []byte(`{}`)},
 			want: map[DocumentURI][]Diagnostic{"file:///Worker.spx": {
-				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
-				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 				{Severity: SeverityError, Message: " undefined (type *main.Game has no field or method Worker)"},
 			}},
 		},
@@ -316,8 +316,8 @@ func TestServerWorkspaceDiagnosticSpx(t *testing.T) {
 				Range: Range{Start: Position{Character: 5}, End: Position{Character: 14}},
 			}},
 			"file:///values.xgo": {
-				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
-				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 			},
 		}, got)
 	})

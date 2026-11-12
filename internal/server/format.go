@@ -41,16 +41,11 @@ func (s *Server) textDocumentFormatting(params *DocumentFormattingParams) ([]Tex
 	}
 
 	// Simply replace the entire document.
-	lines := bytes.Count(original, []byte("\n"))
-	lastLineContent := original[bytes.LastIndexByte(original, '\n')+1:]
 	return []TextEdit{
 		{
 			Range: Range{
 				Start: Position{Line: 0, Character: 0},
-				End: Position{
-					Line:      uint32(lines),
-					Character: uint32(UTF16Len(string(lastLineContent))),
-				},
+				End:   positionForOffset(original, xgoutil.LineOffsets(original), len(original)),
 			},
 			NewText: string(formatted),
 		},

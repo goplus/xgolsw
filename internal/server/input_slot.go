@@ -65,6 +65,7 @@ type inputSlotContext struct {
 	scopeObjects             map[*gotypes.Scope][]gotypes.Object
 	scopeBoundaries          map[*gotypes.Scope][]token.Pos
 	predefinedNames          map[predefinedNamesCacheKey][]string
+	lineOffsets              []int
 	utf16ColumnsByByteOffset []uint32
 }
 
@@ -96,6 +97,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 		scopeObjects:             make(map[*gotypes.Scope][]gotypes.Object),
 		scopeBoundaries:          make(map[*gotypes.Scope][]token.Pos),
 		predefinedNames:          make(map[predefinedNamesCacheKey][]string),
+		lineOffsets:              proj.ASTFileLineOffsets(astFile),
 		utf16ColumnsByByteOffset: buildUTF16ColumnIndex(astFile.Code),
 	}
 }
@@ -125,17 +127,15 @@ func buildUTF16ColumnIndex(code []byte) []uint32 {
 	for offset := 0; offset < len(code); {
 		columns[offset] = column
 		switch code[offset] {
-		case '\n':
+		case '\r', '\n':
+			if code[offset] == '\r' && offset+1 < len(code) && code[offset+1] == '\n' {
+				offset++
+				columns[offset] = column
+			}
 			offset++
 			column = 0
 			columns[offset] = column
 			continue
-		case '\r':
-			if offset+1 < len(code) && code[offset+1] == '\n' {
-				offset++
-				columns[offset] = column
-				continue
-			}
 		}
 
 		r, size := utf8.DecodeRune(code[offset:])
@@ -150,12 +150,12 @@ func buildUTF16ColumnIndex(code []byte) []uint32 {
 }
 
 // position converts pos to an LSP position using the precomputed UTF-16
-// column index.
+// column index and source line offsets.
 func (c *inputSlotContext) position(pos token.Pos) Position {
 	filePosition := c.proj.Fset.PositionFor(pos, false)
 	offset := min(max(filePosition.Offset, 0), len(c.astFile.Code))
 	return Position{
-		Line:      uint32(max(filePosition.Line, 1) - 1),
+		Line:      uint32(lineForOffset(c.lineOffsets, offset)),
 		Character: c.utf16ColumnsByByteOffset[offset],
 	}
 }

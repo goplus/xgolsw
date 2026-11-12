@@ -615,7 +615,7 @@ echo Scene
 			},
 			{
 				name: "RawConcatenation", source: "const Scene = \"Stu\" + `d\rio`\necho Scene\n",
-				want: TextEdit{Range: Range{Start: Position{Character: 14}, End: Position{Character: 28}}, NewText: `"Park"`},
+				want: TextEdit{Range: Range{Start: Position{Character: 14}, End: Position{Line: 1, Character: 3}}, NewText: `"Park"`},
 			},
 			{
 				name: "Parentheses", source: "const Scene = (\"Studio\")\necho Scene\n",
@@ -627,7 +627,7 @@ echo Scene
 			},
 			{
 				name: "LineDirective", source: "//line virtual.xgo:100:20\nconst Scene = `Stu\rdio`\necho Scene\n",
-				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 22}}, NewText: "Park"},
+				want: TextEdit{Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 2, Character: 3}}, NewText: "Park"},
 			},
 			{
 				name: "ImplicitInitializer", source: `const (

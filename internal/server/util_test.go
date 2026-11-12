@@ -2,6 +2,7 @@ package server
 
 import (
 	gotypes "go/types"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -298,6 +299,31 @@ func TestPositionOffset(t *testing.T) {
 	}
 }
 
+func TestPositionForOffset(t *testing.T) {
+	content := []byte("a\r\n\r\U0001f600\rb\n")
+	for _, tt := range []struct {
+		name   string
+		offset int
+		want   Position
+	}{
+		{"Negative", -1, Position{}},
+		{"Start", 0, Position{}},
+		{"CRLFStart", 1, Position{Character: 1}},
+		{"CRLFMiddle", 2, Position{Character: 1}},
+		{"EmptyLine", 3, Position{Line: 1}},
+		{"UTF16Start", 4, Position{Line: 2}},
+		{"UTF16End", 8, Position{Line: 2, Character: 2}},
+		{"AfterCR", 9, Position{Line: 3}},
+		{"BeforeLF", 10, Position{Line: 3, Character: 1}},
+		{"TrailingLine", 11, Position{Line: 4}},
+		{"BeyondEnd", 99, Position{Line: 4}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, positionForOffset(content, []int{0, 3, 4, 9, 11}, tt.offset))
+		})
+	}
+}
+
 func TestToPosition(t *testing.T) {
 	t.Run("EndOfFile", func(t *testing.T) {
 		for _, tt := range []struct {
@@ -349,6 +375,48 @@ func TestToPosition(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, ToPosition(proj, astFile, tt.position))
+		})
+	}
+}
+
+func TestPositionConversionsLineEndings(t *testing.T) {
+	for _, tt := range []struct{ name, first, second, last string }{
+		{"LF", "\n", "\n", "\n"},
+		{"CRLF", "\r\n", "\r\n", "\r\n"},
+		{"CR", "\r", "\r", "\r"},
+		{"Mixed", "\r\n", "\r", "\n"},
+		{"NoTrailingNewline", "\r", "\n", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const second = "var b = `\U0001f680`;"
+			source := "var a = 1;" + tt.first + second + tt.second + "println b;" + tt.last
+			proj, astFile := testProjectFile(t, source)
+			file := proj.Fset.File(astFile.Pos())
+			for _, check := range []struct {
+				position Position
+				offset   int
+				want     Position
+			}{
+				{Position{Line: 1, Character: 4}, strings.Index(source, "b ="), Position{Line: 1, Character: 4}},
+				{Position{Line: 1, Character: 9}, strings.Index(source, "\U0001f680"), Position{Line: 1, Character: 9}},
+				{Position{Line: 1, Character: 11}, strings.Index(source, "\U0001f680") + 4, Position{Line: 1, Character: 11}},
+				{Position{Line: 1, Character: 99}, len("var a = 1;" + tt.first + second), Position{Line: 1, Character: 13}},
+				{Position{Line: 2, Character: 8}, strings.LastIndex(source, "b;"), Position{Line: 2, Character: 8}},
+			} {
+				physical := file.PositionFor(file.Pos(check.offset), false)
+				assert.Equal(t, check.offset, PositionOffset([]byte(source), check.position))
+				assert.Equal(t, physical, ToPosition(proj, astFile, check.position))
+				assert.Equal(t, file.Pos(check.offset), PosAt(proj, astFile, check.position))
+				assert.Equal(t, check.want, FromPosition(proj, astFile, physical))
+			}
+			wantEnd := Position{Line: 3}
+			if tt.last == "" {
+				wantEnd = Position{Line: 2, Character: 10}
+			}
+			physicalEnd := file.PositionFor(file.End(), false)
+			assert.Equal(t, wantEnd, FromPosition(proj, astFile, physicalEnd))
+			assert.Equal(t, physicalEnd, ToPosition(proj, astFile, Position{Line: 99, Character: 99}))
+			assert.Equal(t, file.End(), PosAt(proj, astFile, Position{Line: 99}))
 		})
 	}
 }

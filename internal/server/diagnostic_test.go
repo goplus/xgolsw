@@ -281,16 +281,16 @@ var (
 			Severity: SeverityError,
 			Message:  "expected ')', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 14},
-				End:   Position{Line: 3, Character: 14},
+				Start: Position{Line: 4},
+				End:   Position{Line: 4},
 			},
 		})
 		assert.Contains(t, fullReport.Items, Diagnostic{
 			Severity: SeverityError,
 			Message:  "expected ';', found 'EOF'",
 			Range: Range{
-				Start: Position{Line: 3, Character: 14},
-				End:   Position{Line: 3, Character: 14},
+				Start: Position{Line: 4},
+				End:   Position{Line: 4},
 			},
 		})
 	})
@@ -444,16 +444,16 @@ var (
 					Severity: SeverityError,
 					Message:  "expected ')', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 14},
-						End:   Position{Line: 3, Character: 14},
+						Start: Position{Line: 4},
+						End:   Position{Line: 4},
 					},
 				})
 				assert.Contains(t, fullReport.Items, Diagnostic{
 					Severity: SeverityError,
 					Message:  "expected ';', found 'EOF'",
 					Range: Range{
-						Start: Position{Line: 3, Character: 14},
-						End:   Position{Line: 3, Character: 14},
+						Start: Position{Line: 4},
+						End:   Position{Line: 4},
 					},
 				})
 			} else {
@@ -495,12 +495,12 @@ func TestServerGetDiagnostics(t *testing.T) {
 		{name: "SyntaxError", content: `var (
     x int
 `, want: []Diagnostic{
-			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
-			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 		}},
 		{name: "UTF16SyntaxError", content: "var (\n    x int // \U0001f600\n", want: []Diagnostic{
-			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 15}}},
-			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 15}, End: Position{Line: 1, Character: 15}}},
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 		}},
 		{name: "MultipleTypeErrors", content: "var x int = \"string\"\nvar y bool = 42\n", want: []Diagnostic{
 			{Severity: SeverityError, Message: "cannot use \"string\" (type untyped string) as type int in assignment", Range: Range{Start: Position{Character: 12}, End: Position{Character: 20}}},
@@ -515,8 +515,8 @@ func TestServerGetDiagnostics(t *testing.T) {
 			Range: Range{Start: Position{Line: 1, Character: 14}, End: Position{Line: 1, Character: 21}},
 		}}},
 		{name: "LineDirectiveSyntaxError", content: "//line virtual.xgo:100:20\nvar (\n    x int // \U0001f600\n", want: []Diagnostic{
-			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2, Character: 15}, End: Position{Line: 2, Character: 15}}},
-			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2, Character: 15}, End: Position{Line: 2, Character: 15}}},
+			{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 3}, End: Position{Line: 3}}},
+			{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 3}, End: Position{Line: 3}}},
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -708,8 +708,8 @@ func TestServerDiagnosticsAt(t *testing.T) {
 		want := map[DocumentURI][]Diagnostic{
 			"file:///main_fixture.gox": {{Severity: SeverityError, Message: importFailure}},
 			"file:///broken.xgo": {
-				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
-				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+				{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+				{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 				{Severity: SeverityError, Message: importFailure},
 			},
 		}
@@ -783,8 +783,8 @@ func TestServerDiagnosticsAt(t *testing.T) {
 `)
 					want["file:///helper.xgo"] = []Diagnostic{}
 					want["file:///broken.xgo"] = []Diagnostic{
-						{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
-						{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 9}}},
+						{Severity: SeverityError, Message: "expected ')', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
+						{Severity: SeverityError, Message: "expected ';', found 'EOF'", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2}}},
 					}
 				}
 				s := newTestServer(t, files)

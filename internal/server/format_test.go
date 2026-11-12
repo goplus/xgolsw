@@ -541,6 +541,18 @@ app.onEvent "value", () => {
 				name: "CRLFWithUTF16LastLine", source: "echo \"ready\"\r\necho   \"\U0001f680\"", want: "echo \"ready\"\necho \"\U0001f680\"\n",
 				end: Position{Line: 1, Character: 11},
 			},
+			{
+				name: "CROnly", source: "echo \"ready\";\r", want: "echo \"ready\"\n",
+				end: Position{Line: 1},
+			},
+			{
+				name: "CRWithUTF16LastLine", source: "echo \"ready\";\recho   \"\U0001f680\"", want: "echo \"ready\"\necho \"\U0001f680\"\n",
+				end: Position{Line: 1, Character: 11},
+			},
+			{
+				name: "Mixed", source: "echo \"ready\";\r\necho \"\U0001f680\";\recho \"done\";\n", want: "echo \"ready\"\necho \"\U0001f680\"\necho \"done\"\n",
+				end: Position{Line: 3},
+			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				s := newTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})

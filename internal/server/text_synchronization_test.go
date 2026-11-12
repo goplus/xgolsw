@@ -779,6 +779,29 @@ func TestServerChangedText(t *testing.T) {
 			{Text: ""},
 			{Range: &Range{}, Text: "println 2\n"},
 		}, want: "println 2\n"},
+		{name: "CRSecondLine", changes: []protocol.TextDocumentContentChangeEvent{
+			{Text: "var a = 1;\rvar b = 2;\r"},
+			{Range: &Range{Start: Position{Line: 1, Character: 8}, End: Position{Line: 1, Character: 9}}, Text: "3"},
+		}, want: "var a = 1;\rvar b = 3;\r"},
+		{name: "MixedLineEndings", changes: []protocol.TextDocumentContentChangeEvent{
+			{Text: "var a = 1;\r\nvar b = 2;\rvar c = 3;\n"},
+			{Range: &Range{Start: Position{Line: 2, Character: 8}, End: Position{Line: 2, Character: 9}}, Text: "4"},
+			{Range: &Range{Start: Position{Line: 1, Character: 8}, End: Position{Line: 1, Character: 9}}, Text: "5"},
+		}, want: "var a = 1;\r\nvar b = 5;\rvar c = 4;\n"},
+		{name: "CRUTF16", changes: []protocol.TextDocumentContentChangeEvent{
+			{Text: "println \"\U0001f600\";\rprintln \"\U0001f680\";\r"},
+			{Range: &Range{Start: Position{Line: 1, Character: 9}, End: Position{Line: 1, Character: 11}}, Text: "B"},
+		}, want: "println \"\U0001f600\";\rprintln \"B\";\r"},
+		{name: "ChangeLineEndings", changes: []protocol.TextDocumentContentChangeEvent{
+			{Text: "a\rb\r\nc\n"},
+			{Range: &Range{Start: Position{Character: 1}, End: Position{Line: 1}}, Text: "\r\n"},
+			{Range: &Range{Start: Position{Line: 1, Character: 1}, End: Position{Line: 2}}, Text: "\r"},
+			{Range: &Range{Start: Position{Line: 3}, End: Position{Line: 3}}, Text: "end"},
+		}, want: "a\r\nb\rc\nend"},
+		{name: "DeleteCRLF", changes: []protocol.TextDocumentContentChangeEvent{
+			{Text: "a\r\nb"},
+			{Range: &Range{Start: Position{Character: 1}, End: Position{Line: 1}}},
+		}, want: "ab"},
 		{name: "Beginning", changes: []protocol.TextDocumentContentChangeEvent{{Range: &Range{}, Text: "// hello\n"}}, want: `// hello
 println "hello"
 `},
