@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -216,6 +217,254 @@ onStart => {
 }
 
 func TestServerRenameSpxResourcesSprite(t *testing.T) {
+	t.Run("PreservedBindings", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, source, sprite string
+		}{
+			{"AutoBinding", "onStart => { echo Runner }\n", ""},
+			{"QualifiedBinding", "onStart => { Player := 123; echo this.Runner; echo Player }\n", ""},
+			{"SpriteMembers", "onStart => { Runner.work() }\n", "var health int\nfunc Work() { echo health; echo Runner }\n"},
+			{"TypeAlias", "type Alias = Runner\nvar target *Alias\nonStart => { echo target }\n", ""},
+			{"TypeReference", "var target *Runner\nonStart => { echo target }\n", ""},
+			{"Labels", `onStart => {
+Loop:
+	for i := 0; i < 1; i++ {
+		echo Runner
+		break Loop
+	}
+}
+`, ""},
+			{"UTF16", "onStart => { echo \"\U0001f600\"; echo Runner }\n", ""},
+			{"ResourceConstant", "const target = \"Runner\"\nonStart => { Runner.turnTo target; echo target }\n", ""},
+			{"ConstantConversion", "const target = \"Run\" + string(\"ner\")\nonStart => { Runner.turnTo target }\n", ""},
+			{"ParenthesizedConversion", "const target = \"Run\" + (string)(\"ner\")\nonStart => { Runner.turnTo target }\n", ""},
+			{"ResourceTypeConversion", "const target = SpriteName(\"Runner\")\nonStart => { Runner.turnTo target }\n", ""},
+			{"TypeAliasConversion", "type Alias = Runner\nvar target = (*Alias)(nil)\nonStart => { echo target }\n", ""},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				files := map[string][]byte{
+					"main.spx":                         []byte(tt.source),
+					"Runner.spx":                       []byte(tt.sprite),
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+				}
+				s := newSpxTestServer(t, files)
+				t.Cleanup(s.Close)
+				requireNoDiagnostics(t, s)
+				edit, err := s.renameResources([]XGoRenameResourceParams{{
+					Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player",
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, edit)
+				for uri, edits := range edit.Changes {
+					filename, err := s.fromDocumentURI(uri)
+					require.NoError(t, err)
+					files[filename] = []byte(applyResourceRenameTestEdits(t, string(files[filename]), edits))
+				}
+				files["Player.spx"] = files["Runner.spx"]
+				delete(files, "Runner.spx")
+				files["assets/sprites/Player/index.json"] = files["assets/sprites/Runner/index.json"]
+				delete(files, "assets/sprites/Runner/index.json")
+				updated := newSpxTestServer(t, files)
+				t.Cleanup(updated.Close)
+				requireNoDiagnostics(t, updated)
+				class := spxSpriteTypeForFile(updated.requestProject(), "Player.spx")
+				require.NotNil(t, class)
+				assert.Equal(t, "Player", class.Obj().Name())
+				if tt.name == "QualifiedBinding" {
+					assert.Contains(t, string(files["main.spx"]), "echo this.Player; echo Player")
+				}
+				if tt.name == "ResourceConstant" {
+					assert.Contains(t, string(files["main.spx"]), `Player.turnTo "Player"; echo target`)
+					assert.Contains(t, string(files["main.spx"]), `const target = "Runner"`)
+				}
+			})
+		}
+	})
+
+	t.Run("CommandAliases", func(t *testing.T) {
+		for _, tt := range []struct{ name, command string }{
+			{"XGo", CommandXGoRenameResources},
+			{"Spx", CommandSpxRenameResources},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newSpxTestServer(t, map[string][]byte{
+					"main.spx":                         []byte("onStart => { Player := 123; echo Runner; echo Player }\n"),
+					"Runner.spx":                       nil,
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+				})
+				t.Cleanup(s.Close)
+				argument, err := json.Marshal(XGoRenameResourceParams{
+					Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player",
+				})
+				require.NoError(t, err)
+				edit, err := s.workspaceExecuteCommand(&ExecuteCommandParams{Command: tt.command, Arguments: []json.RawMessage{argument}})
+				assert.ErrorContains(t, err, "binding would change")
+				assert.Nil(t, edit)
+			})
+		}
+	})
+
+	t.Run("ConflictingBatch", func(t *testing.T) {
+		source := "play \"Beep\"\nonStart => { Player := 123; echo Runner; echo Player }\n"
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":                         []byte(source),
+			"Runner.spx":                       nil,
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+			"assets/sounds/Beep/index.json":    []byte(`{}`),
+		})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		edit, err := s.renameResources([]XGoRenameResourceParams{
+			{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Beep"}, NewName: "Chime"},
+			{Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player"},
+		})
+		assert.ErrorContains(t, err, "binding would change")
+		assert.Nil(t, edit)
+		file, ok := s.getProj().File("main.spx")
+		require.True(t, ok)
+		assert.Equal(t, source, string(file.Content))
+	})
+
+	t.Run("MixedResources", func(t *testing.T) {
+		files := map[string][]byte{
+			"main.spx":                         []byte("const sound = \"Be\" + string(\"ep\")\nonStart => { echo Runner; echo Other; play sound }\n"),
+			"Runner.spx":                       []byte("var health int\nfunc Work() { echo health; echo Other }\n"),
+			"Other.spx":                        []byte("onStart => { Runner.work() }\n"),
+			"types.xgo":                        []byte("func castSprite(sprite Runner) Runner { return Runner(sprite) }\n"),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+			"assets/sprites/Other/index.json":  []byte(`{}`),
+			"assets/sounds/Beep/index.json":    []byte(`{}`),
+		}
+		s := newSpxTestServer(t, files)
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		edit, err := s.renameResources([]XGoRenameResourceParams{
+			{Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player"},
+			{Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Other"}, NewName: "Target"},
+			{Resource: XGoResourceIdentifier{URI: "spx://resources/sounds/Beep"}, NewName: "Chime"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, edit)
+		for uri, edits := range edit.Changes {
+			filename, err := s.fromDocumentURI(uri)
+			require.NoError(t, err)
+			files[filename] = []byte(applyResourceRenameTestEdits(t, string(files[filename]), edits))
+		}
+		for oldName, newName := range map[string]string{"Runner": "Player", "Other": "Target"} {
+			files[newName+".spx"] = files[oldName+".spx"]
+			delete(files, oldName+".spx")
+			files["assets/sprites/"+newName+"/index.json"] = files["assets/sprites/"+oldName+"/index.json"]
+			delete(files, "assets/sprites/"+oldName+"/index.json")
+		}
+		files["assets/sounds/Chime/index.json"] = files["assets/sounds/Beep/index.json"]
+		delete(files, "assets/sounds/Beep/index.json")
+		updated := newSpxTestServer(t, files)
+		t.Cleanup(updated.Close)
+		requireNoDiagnostics(t, updated)
+		assert.Contains(t, string(files["main.spx"]), `const sound = "Chime"`)
+	})
+
+	t.Run("InvalidClassName", func(t *testing.T) {
+		for _, tt := range []struct{ name, newName string }{
+			{"Empty", ""},
+			{"NonIdentifier", "Player-Name"},
+			{"Keyword", "type"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newSpxTestServer(t, map[string][]byte{
+					"main.spx":                         nil,
+					"Runner.spx":                       nil,
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+				})
+				t.Cleanup(s.Close)
+				edit, err := s.renameResources([]XGoRenameResourceParams{{
+					Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: tt.newName,
+				}})
+				assert.ErrorContains(t, err, "invalid class name")
+				assert.Nil(t, edit)
+			})
+		}
+	})
+
+	t.Run("ChangedClassRole", func(t *testing.T) {
+		s := newSpxTestServer(t, map[string][]byte{
+			"Runner.spx":                       nil,
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+		})
+		t.Cleanup(s.Close)
+		edit, err := s.renameResources([]XGoRenameResourceParams{{
+			Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "main",
+		}})
+		assert.ErrorContains(t, err, "classfile")
+		assert.Nil(t, edit)
+	})
+
+	t.Run("MissingClassfile", func(t *testing.T) {
+		source := "var Runner Sprite\nonStart => { echo Runner }\n"
+		s := newSpxTestServer(t, map[string][]byte{
+			"main.spx":                         []byte(source),
+			"assets/index.json":                []byte(`{}`),
+			"assets/sprites/Runner/index.json": []byte(`{}`),
+		})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		proj := s.requestProject()
+		revision := proj.Revision()
+		edit, err := s.renameResources([]XGoRenameResourceParams{{
+			Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player",
+		}})
+		assert.ErrorContains(t, err, "unresolved binding")
+		assert.Nil(t, edit)
+		assert.Equal(t, revision, proj.Revision())
+		file, ok := proj.File("main.spx")
+		require.True(t, ok)
+		assert.Equal(t, source, string(file.Content))
+	})
+
+	t.Run("BindingConflicts", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, source, declarations, newName string
+		}{
+			{"LocalVariable", "onStart => {\nPlayer := 123\necho Runner\necho Player\n}\n", "", "Player"},
+			{"LocalType", "onStart => {\ntype Player int\nvar target *Runner\necho target\n}\n", "", "Player"},
+			{"ImportedConstant", "onStart => { echo Runner; echo Mouse }\n", "", "Mouse"},
+			{"ProjectField", "var Player int\nonStart => { echo Runner }\n", "", "Player"},
+			{"ProjectMethod", "func Player() {}\nonStart => { echo Runner }\n", "", "Player"},
+			{"PackageType", "onStart => { echo Runner }\n", "type Player struct{}\n", "Player"},
+			{"PackageVariable", "onStart => { echo Runner }\n", "var Player int\n", "Player"},
+			{"BuiltinType", "onStart => { var target *int; echo target; echo Runner }\n", "", "int"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newSpxTestServer(t, map[string][]byte{
+					"main.spx":                         []byte(tt.source),
+					"Runner.spx":                       nil,
+					"types.xgo":                        []byte(tt.declarations),
+					"assets/index.json":                []byte(`{}`),
+					"assets/sprites/Runner/index.json": []byte(`{}`),
+				})
+				t.Cleanup(s.Close)
+				requireNoDiagnostics(t, s)
+				proj := s.requestProject()
+				revision := proj.Revision()
+				edit, err := s.renameResources([]XGoRenameResourceParams{{
+					Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: tt.newName,
+				}})
+				assert.ErrorContains(t, err, "conflict")
+				assert.Nil(t, edit)
+				assert.Equal(t, revision, proj.Revision())
+				file, ok := proj.File("main.spx")
+				require.True(t, ok)
+				assert.Equal(t, tt.source, string(file.Content))
+			})
+		}
+	})
+
 	t.Run("ClassfileTypeReference", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
 			"main.spx": []byte(`var pointer *((Runner))

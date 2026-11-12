@@ -63,3 +63,46 @@ func TestSpxIntegrationDiagnostics(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, diagnostics, requireRelatedFullDocumentDiagnosticReport(t, report).Items)
 }
+
+func TestSpxIntegrationSpriteRename(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		conflict     bool
+	}{
+		{"Safe", "onStart => { echo Runner }\n", false},
+		{"ConstantConversion", "const target = \"Run\" + string(\"ner\")\nonStart => { Runner.turnTo target }\n", false},
+		{"CapturedVariable", "onStart => { Player := 123; echo Runner; echo Player }\n", true},
+		{"CapturedType", "onStart => { type Player int; var target *Runner; echo target }\n", true},
+		{"Qualified", "onStart => { Player := 123; echo this.Runner; echo Player }\n", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string][]byte{
+				"main.spx":                         []byte(tt.source),
+				"Runner.spx":                       nil,
+				"assets/index.json":                []byte(`{}`),
+				"assets/sprites/Runner/index.json": []byte(`{}`),
+			}
+			s := newSpxIntegrationTestServer(t, files)
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+			edit, err := s.renameResources([]XGoRenameResourceParams{{
+				Resource: XGoResourceIdentifier{URI: "spx://resources/sprites/Runner"}, NewName: "Player",
+			}})
+			if tt.conflict {
+				assert.ErrorContains(t, err, "binding would change")
+				assert.Nil(t, edit)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			files["main.spx"] = []byte(applyResourceRenameTestEdits(t, tt.source, edit.Changes["file:///main.spx"]))
+			files["Player.spx"] = files["Runner.spx"]
+			delete(files, "Runner.spx")
+			files["assets/sprites/Player/index.json"] = files["assets/sprites/Runner/index.json"]
+			delete(files, "assets/sprites/Runner/index.json")
+			updated := newSpxIntegrationTestServer(t, files)
+			t.Cleanup(updated.Close)
+			requireNoDiagnostics(t, updated)
+		})
+	}
+}
