@@ -114,6 +114,11 @@ func test() {
 	})
 }
 
+func TestHasInterfaceEmbeddingCycle(t *testing.T) {
+	// Type names left by failed alias declarations have no type to inspect.
+	assert.False(t, hasInterfaceEmbeddingCycle(nil, make(map[*gotypes.Interface]bool)))
+}
+
 func TestProjectTypeInfo(t *testing.T) {
 	t.Run("InterfaceEmbeddingDiagnosticOrder", func(t *testing.T) {
 		for range 20 {

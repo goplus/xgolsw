@@ -11,6 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFieldDocumentation(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/types", "types")
+	require.Nil(t, pkg.Scope().Insert(gotypes.NewTypeName(token.NoPos, pkg, "Broken", nil)))
+	field := gotypes.NewField(token.NoPos, pkg, "Value", gotypes.Typ[gotypes.Int], false)
+	named := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Record", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
+	require.Nil(t, pkg.Scope().Insert(named.Obj()))
+	doc := &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{
+		"Broken": {Fields: map[string]string{"Value": "Unresolved documentation."}},
+		"Record": {Fields: map[string]string{"Value": "Field documentation."}},
+	}}
+	assert.Equal(t, "Field documentation.", fieldDocumentation(field, doc))
+}
+
 func TestSymbolDefinitionMemberPackage(t *testing.T) {
 	for _, tt := range []struct{ name, path string }{
 		{"Framework", "example.com/framework/internal/engine"},

@@ -3,10 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	gotypes "go/types"
 	"maps"
 	"strings"
 	"testing"
 
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,6 +59,82 @@ func run() { println missing.`,
 				want := projectRequestObservations(t, s, p, false)
 				assert.Equal(t, want, projectRequestObservations(t, s, p, true), source)
 			}
+		})
+	}
+}
+
+func TestServerRequestsWithIncompleteTypeInfo(t *testing.T) {
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("var Good = 1\nBox\n")})
+	t.Cleanup(s.Close)
+	proj := s.requestProject()
+	info, err := proj.TypeInfo()
+	require.NotNil(t, info)
+	require.Error(t, err)
+	// A failed declaration can leave a type name without its type in scope.
+	typeName := gotypes.NewTypeName(token.NoPos, info.Pkg, "Box", nil)
+	require.Nil(t, info.Pkg.Scope().Insert(typeName))
+	p := TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")},
+		Position:     Position{Line: 1, Character: 1},
+	}
+	astFile, err := proj.ASTFile("main.xgo")
+	require.NoError(t, err)
+	ast.Inspect(astFile, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok && ident.Name == "Box" {
+			info.Uses[ident] = typeName
+		}
+		return true
+	})
+	want := projectRequestObservations(t, s, p, false)
+	assert.Equal(t, want, projectRequestObservations(t, s, p, true))
+	items := completionItemsAt(t, s, "main.xgo", p.Position)
+	assert.Contains(t, completionItemLabels(items), "Good")
+	assert.Contains(t, completionItemLabels(items), "int")
+	item := completionItemByLabel(items, "Box")
+	require.NotNil(t, item)
+	assert.Equal(t, ClassCompletion, item.Kind)
+	assert.Equal(t, "Box", item.InsertText)
+	data := requireValueAs[*CompletionItemData](t, item.Data)
+	assert.Equal(t, "xgo:main?Box", data.Definition.String())
+	doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+	assert.Contains(t, doc.Value, "type Box")
+	implementation, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: p})
+	require.NoError(t, err)
+	assert.Nil(t, implementation)
+
+	s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("var Good = 1\ntype Box struct{}\n\n"), Version: 1}})
+	_, err = s.requestProject().TypeInfo()
+	require.NoError(t, err)
+	item = completionItemByLabel(completionItemsAt(t, s, "main.xgo", Position{Line: 2}), "Box")
+	require.NotNil(t, item)
+	assert.Equal(t, StructCompletion, item.Kind)
+}
+
+func TestServerRequestsWithInvalidAliases(t *testing.T) {
+	for _, tt := range []struct{ name, source string }{
+		{"Self", "type Box = Box\n"},
+		{"Mutual", "type Box = Other\ntype Other = Box\n"},
+		{"Missing", "type Box = Missing\n"},
+		{"StructSelf", "type Box = struct { Value Box }\n"},
+		{"LocalSelf", "func run() { type Box = Box }\n"},
+		{"LocalMutual", "func run() { type Box = Other; type Other = Box }\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, "var Good = 1\n"+tt.source+"echo |Good\n")
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			info, err := s.requestProject().TypeInfo()
+			require.NotNil(t, info)
+			require.Error(t, err)
+			p := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos}
+			want := projectRequestObservations(t, s, p, false)
+			assert.Equal(t, want, projectRequestObservations(t, s, p, true))
+			assert.Contains(t, completionItemLabels(completionItemsAt(t, s, "main.xgo", pos)), "Good")
+			p.Position = Position{Character: 4}
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: p})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, "var Good int")
 		})
 	}
 }
