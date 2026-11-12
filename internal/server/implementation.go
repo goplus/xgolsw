@@ -41,6 +41,11 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 	}
 	if name, ok := target.(*gotypes.TypeName); ok {
 		typ := name.Type()
+		// Instantiated types are recorded on identifiers for unqualified names.
+		// Prefer the selector's type for qualified names.
+		if valueType := typeInfo.TypeOf(ident); xgoutil.IsValidType(valueType) {
+			typ = valueType
+		}
 		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
 			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel == ident {
 				if valueType := typeInfo.TypeOf(selector); xgoutil.IsValidType(valueType) {

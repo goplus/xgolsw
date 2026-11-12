@@ -143,35 +143,66 @@ func (Worker) Run() string { return "" }
 	})
 
 	t.Run("InstantiatedInterfaceType", func(t *testing.T) {
-		for _, tt := range []struct {
-			name string
-			typ  string
-			line uint32
+		for _, kind := range []struct {
+			name, filename, prefix, qualifier string
 		}{
-			{"Alias", "IntReader", 2},
-			{"Int", "Reader[int]", 2},
-			{"String", "Reader[string]", 4},
+			{"Qualified", "main.xgo", "import f \"example.com/framework\"\n", "f."},
+			{"DotImport", "main.xgo", "import . \"example.com/framework\"\n", ""},
+			{"ProjectLookup", "main_fixture.gox", "\n", ""},
+			{"WorkLookup", "Worker_fixture.gox", "\n", ""},
 		} {
-			t.Run(tt.name, func(t *testing.T) {
-				source, position := typeDisplayTestSource(t, "import f \"example.com/framework\"\nvar reader f.|"+tt.typ+`
+			t.Run(kind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name    string
+					typ     string
+					line    uint32
+					matches bool
+				}{
+					{"Alias", "|IntReader", 2, true},
+					{"GenericAlias", "|GenericReader[int]", 2, true},
+					{"Int", "|Reader[int]", 2, true},
+					{"String", "|Reader[string]", 4, true},
+					{"MultipleTypeArguments", "|PairReader[int, string]", 6, true},
+					{"NoMatch", "|Reader[bool]", 0, false},
+					{"ReversedTypeArguments", "|PairReader[string, int]", 0, false},
+					{"TypeArgument", "Reader[|int]", 0, false},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						source, position := typeDisplayTestSource(t, kind.prefix+"var reader "+kind.qualifier+tt.typ+`
 type Number struct{}
 func (Number) Read() int { return 1 }
 type Text struct{}
 func (Text) Read() string { return "" }
-`)
-				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
-				setImportTestFrameworkMethods(t, s, `type Reader[T any] interface { Read() T }
+type Pair struct{}
+func (Pair) Read() (int, string) { return 1, "" }
+`+"func use(integers "+kind.qualifier+"Reader[int], texts "+kind.qualifier+"Reader[string]) {}\n")
+						files := map[string][]byte{kind.filename: []byte(source)}
+						if kind.name == "WorkLookup" {
+							files["main_fixture.gox"] = nil
+						}
+						s := newImportTestServer(t, files)
+						t.Cleanup(s.Close)
+						setImportTestFrameworkMethods(t, s, `type Reader[T any] interface { Read() T }
 type IntReader = Reader[int]
+type GenericReader[T any] = Reader[T]
+type PairReader[T, U any] interface { Read() (T, U) }
 `)
-				_, err := s.requestProject().TypeInfo()
-				require.NoError(t, err)
-				result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
-					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Position: position,
-				}})
-				require.NoError(t, err)
-				assert.Equal(t, []Location{{
-					URI: "file:///main.xgo", Range: Range{Start: Position{Line: tt.line, Character: 5}, End: Position{Line: tt.line, Character: 5}},
-				}}, requireValueAs[[]Location](t, result))
+						_, err := s.requestProject().TypeInfo()
+						require.NoError(t, err)
+						result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+							TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)}, Position: position,
+						}})
+						require.NoError(t, err)
+						if !tt.matches {
+							assert.Empty(t, result)
+							return
+						}
+						assert.Equal(t, []Location{{
+							URI:   s.toDocumentURI(kind.filename),
+							Range: Range{Start: Position{Line: tt.line, Character: 5}, End: Position{Line: tt.line, Character: 5}},
+						}}, requireValueAs[[]Location](t, result))
+					})
+				}
 			})
 		}
 	})
