@@ -1,6 +1,7 @@
 package server
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/goplus/mod/modfile"
@@ -19,12 +20,14 @@ func TestServerSpxClassfileResources(t *testing.T) {
 		{"GoxExtension", "Stage_stage.gox", "Runner_actor.gox", "_stage.gox", "_actor.gox", "", "Runner"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newSpxTestServer(t, map[string][]byte{
+			files := map[string][]byte{
 				tt.project:          []byte(tt.className + ".setCostume \"known\"\nvar target *" + tt.className + "\n"),
 				tt.sprite:           []byte("setCostume \"known\"\n"),
 				"assets/index.json": []byte(`{}`),
 				"assets/sprites/" + tt.className + "/index.json": []byte(`{"costumes":[{"name":"known"}]}`),
-			})
+			}
+			s := newSpxTestServer(t, files)
+			t.Cleanup(s.Close)
 			fullExt := "*" + tt.projectExt
 			if tt.project == "main.spx" {
 				fullExt = "main.spx"
@@ -53,12 +56,47 @@ func TestServerSpxClassfileResources(t *testing.T) {
 				require.NotEmpty(t, slots)
 				assert.Equal(t, new(FormatSpxSpriteCostumeResourceContextURI(tt.className)), slots[0].Accept.ResourceContext)
 			}
-			changes, err := s.renameSpxResource(s.getProj(), result, SpxSpriteResourceID{SpriteName: tt.className}, "Renamed")
+			newName := tt.prefix + "Renamed"
+			originalFiles := maps.Clone(files)
+			changes, err := s.renameSpxResource(s.getProj(), result, SpxSpriteResourceID{SpriteName: tt.className}, newName)
 			require.NoError(t, err)
 			assert.Contains(t, changes[s.toDocumentURI(tt.project)], TextEdit{
 				Range:   Range{Start: Position{Line: 1, Character: 12}, End: Position{Line: 1, Character: uint32(12 + len(tt.className))}},
-				NewText: "Renamed",
+				NewText: newName,
 			})
+			for uri, edits := range changes {
+				filename, err := s.fromDocumentURI(uri)
+				require.NoError(t, err)
+				files[filename] = []byte(applyResourceRenameTestEdits(t, string(files[filename]), edits))
+			}
+			files["Renamed"+tt.workExt] = files[tt.sprite]
+			delete(files, tt.sprite)
+			files["assets/sprites/"+newName+"/index.json"] = files["assets/sprites/"+tt.className+"/index.json"]
+			delete(files, "assets/sprites/"+tt.className+"/index.json")
+			updated := newSpxTestServer(t, files)
+			updated.getProj().SetModule(s.getProj().Module())
+			t.Cleanup(updated.Close)
+			requireNoDiagnostics(t, updated)
+			class := spxSpriteTypeForFile(updated.requestProject(), "Renamed"+tt.workExt)
+			require.NotNil(t, class)
+			assert.Equal(t, newName, class.Obj().Name())
+			if tt.prefix != "" {
+				for _, invalid := range []struct{ name, newName string }{
+					{"MissingPrefix", "Renamed"},
+					{"EmptyClassName", tt.prefix},
+				} {
+					t.Run(invalid.name, func(t *testing.T) {
+						original := newSpxTestServer(t, originalFiles)
+						original.getProj().SetModule(s.getProj().Module())
+						t.Cleanup(original.Close)
+						edit, err := original.renameResources([]XGoRenameResourceParams{{
+							Resource: XGoResourceIdentifier{URI: XGoResourceURI("spx://resources/sprites/" + tt.className)}, NewName: invalid.newName,
+						}})
+						assert.ErrorContains(t, err, "class prefix")
+						assert.Nil(t, edit)
+					})
+				}
+			}
 		})
 	}
 

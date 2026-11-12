@@ -1489,3 +1489,38 @@ configure count=1
 		})
 	}
 }
+
+func TestServerCheckRenameConflicts(t *testing.T) {
+	// Type checking accepts both edits. Bindings must still be preserved when
+	// keyword targets change or an unused declaration disappears.
+	for _, tt := range []struct {
+		name    string
+		source  string
+		newName string
+	}{
+		{name: "KeywordBinding", source: `type Options struct { Count int; Total int }
+func configure(opts Options?) {}
+configure |count=1
+`, newName: "total"},
+		{name: "DiscardedDeclaration", source: "var |count = 1\n", newName: "_"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			proj := s.requestProject()
+			_, err := proj.TypeInfo()
+			require.NoError(t, err)
+			end := position
+			end.Character += uint32(len("count"))
+			preview, err := s.checkRenameConflicts(proj, &WorkspaceEdit{Changes: map[DocumentURI][]TextEdit{
+				"file:///main.xgo": {{Range: Range{Start: position, End: end}, NewText: tt.newName}},
+			}})
+			assert.ErrorContains(t, err, "identifier binding would change")
+			assert.Nil(t, preview)
+			file, ok := proj.File("main.xgo")
+			require.True(t, ok)
+			assert.Equal(t, source, string(file.Content))
+		})
+	}
+}

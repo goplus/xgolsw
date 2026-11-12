@@ -173,10 +173,23 @@ func (s *Server) checkRenameConflicts(proj *xgo.Project, edit *WorkspaceEdit) (*
 	if err != nil {
 		return nil, err
 	}
+	before, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	if err := preview.checkConflicts(proj, before, renameConversions(proj)); err != nil {
+		return nil, err
+	}
+	return preview, nil
+}
+
+// checkConflicts verifies type errors, source bindings, and conversions against
+// the original project. Resource renames omit expressions replaced by literals.
+func (p *renamePreview) checkConflicts(proj *xgo.Project, before *sourceInfo, beforeConversions map[token.Pos]bool) error {
 	_, beforeErr := proj.TypeInfo()
-	_, afterErr := preview.project.TypeInfo()
+	_, afterErr := p.project.TypeInfo()
 	if beforeErr == nil && afterErr != nil {
-		return nil, fmt.Errorf("rename conflicts with existing code: %w", afterErr)
+		return fmt.Errorf("rename conflicts with existing code: %w", afterErr)
 	}
 	if afterErr != nil {
 		type errorKey struct {
@@ -189,7 +202,7 @@ func (s *Server) checkRenameConflicts(proj *xgo.Project, edit *WorkspaceEdit) (*
 		for err := range renameTypeErrors(proj) {
 			pos := err.Pos
 			if pos.IsValid() {
-				pos = preview.position(proj, pos)
+				pos = p.position(proj, pos)
 			}
 			key := errorKey{
 				position: pos,
@@ -197,41 +210,37 @@ func (s *Server) checkRenameConflicts(proj *xgo.Project, edit *WorkspaceEdit) (*
 			}
 			existing[key]++
 		}
-		for err := range renameTypeErrors(preview.project) {
+		for err := range renameTypeErrors(p.project) {
 			key := errorKey{
 				position: err.Pos,
 				code:     err.Code,
 			}
 			if existing[key] == 0 {
-				return nil, fmt.Errorf("rename conflicts with existing code: %w", err)
+				return fmt.Errorf("rename conflicts with existing code: %w", err)
 			}
 			existing[key]--
 		}
 	}
-	before, err := sourceInfoForProject(proj)
+	after, err := sourceInfoForProject(p.project)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	after, err := sourceInfoForProject(preview.project)
-	if err != nil {
-		return nil, err
+	if err := p.checkBindings(proj, before.references, after.references); err != nil {
+		return err
 	}
-	if err := preview.checkBindings(proj, before.references, after.references); err != nil {
-		return nil, err
+	if err := p.checkBindings(proj, before.kwargs, after.kwargs); err != nil {
+		return err
 	}
-	if err := preview.checkBindings(proj, before.kwargs, after.kwargs); err != nil {
-		return nil, err
+	if err := p.checkBindings(proj, before.highlights, after.highlights); err != nil {
+		return err
 	}
-	if err := preview.checkBindings(proj, before.highlights, after.highlights); err != nil {
-		return nil, err
-	}
-	conversions := renameConversions(preview.project)
-	for pos, convertible := range renameConversions(proj) {
-		if after, ok := conversions[preview.position(proj, pos)]; !ok || after != convertible {
-			return nil, fmt.Errorf("rename conflicts with a type conversion at %s", proj.Fset.PositionFor(pos, false))
+	conversions := renameConversions(p.project)
+	for pos, convertible := range beforeConversions {
+		if after, ok := conversions[p.position(proj, pos)]; !ok || after != convertible {
+			return fmt.Errorf("rename conflicts with a type conversion at %s", proj.Fset.PositionFor(pos, false))
 		}
 	}
-	return preview, nil
+	return nil
 }
 
 // renameConversions records whether source conversions use Go's conversion rules.
@@ -495,8 +504,10 @@ type renameOffset struct {
 
 // renamePreview checks edits without changing the source project or file set.
 type renamePreview struct {
-	project *xgo.Project
-	offsets map[string][]renameOffset
+	project      *xgo.Project
+	offsets      map[string][]renameOffset
+	renamedFiles map[string]string
+	objects      map[gotypes.Object]gotypes.Object
 }
 
 // newRenamePreview applies edits to an isolated project and records byte
@@ -549,20 +560,30 @@ func (p *renamePreview) position(proj *xgo.Project, pos token.Pos) token.Pos {
 	if i > 0 {
 		offset += edits[i-1].delta
 	}
-	astFile, _ := p.project.ASTFile(file.Name())
+	filename := file.Name()
+	if renamed, ok := p.renamedFiles[filename]; ok {
+		filename = renamed
+	}
+	astFile, _ := p.project.ASTFile(filename)
 	return p.project.Fset.File(astFile.Pos()).Pos(offset)
 }
 
-// sameObject compares source declarations across file sets. Imported objects
-// are shared, while compiler-generated objects retain their kind and name.
+// sameObject compares source declarations across file sets. Imported and builtin
+// objects are shared. Generated objects use explicit mappings when renamed.
 func (p *renamePreview) sameObject(proj *xgo.Project, before, after gotypes.Object) bool {
 	info, _ := proj.TypeInfo()
 	previewInfo, _ := p.project.TypeInfo()
 	before, after = info.ObjectDeclaration(before), previewInfo.ObjectDeclaration(after)
+	if renamed, ok := p.objects[before]; ok {
+		return renamed == after
+	}
 	beforeFile, beforePos := objectSource(proj, before)
 	afterFile, afterPos := objectSource(p.project, after)
 	if beforeFile != nil || afterFile != nil {
 		return beforeFile != nil && afterFile != nil && p.position(proj, beforePos) == afterPos
+	}
+	if before.Parent() == gotypes.Universe || after.Parent() == gotypes.Universe {
+		return before == after
 	}
 	if before.Pkg() != nil && before.Pkg() != info.Pkg && before.Pkg().Path() != "" ||
 		after.Pkg() != nil && after.Pkg() != previewInfo.Pkg && after.Pkg().Path() != "" {
