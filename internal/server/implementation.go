@@ -54,6 +54,9 @@ func (s *Server) textDocumentImplementation(params *ImplementationParams) (any, 
 				break
 			}
 		}
+		if typ == nil {
+			return nil, nil
+		}
 		if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
 			locations := s.findImplementingTypeDefinitions(proj, typeInfo, iface, name)
 			return DedupeLocations(locations), nil

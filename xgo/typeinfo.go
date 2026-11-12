@@ -145,6 +145,9 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 // The memo tracks interfaces being visited as cyclic until all their embedded
 // types have been checked. Method signatures are not embedding edges.
 func hasInterfaceEmbeddingCycle(typ gotypes.Type, memo map[*gotypes.Interface]bool) bool {
+	if typ == nil {
+		return false
+	}
 	iface, ok := typ.Underlying().(*gotypes.Interface)
 	if !ok {
 		return false

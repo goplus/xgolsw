@@ -214,7 +214,11 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 }
 
 // typeCompletionKind classifies a type by its underlying representation.
+// Incomplete types use the generic class kind.
 func typeCompletionKind(typ gotypes.Type) CompletionItemKind {
+	if typ == nil {
+		return ClassCompletion
+	}
 	switch typ.Underlying().(type) {
 	case *gotypes.Interface:
 		return InterfaceCompletion
@@ -334,7 +338,7 @@ func fieldDocumentation(field *gotypes.Var, doc *pkgdoc.PkgDoc) string {
 			continue
 		}
 		typ, ok := pkg.Scope().Lookup(name).(*gotypes.TypeName)
-		if !ok {
+		if !ok || typ.Type() == nil {
 			continue
 		}
 		st, ok := typ.Type().Underlying().(*gotypes.Struct)
