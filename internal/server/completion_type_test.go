@@ -44,6 +44,27 @@ func TestServerTextDocumentCompletionIncompleteTypeDeclaration(t *testing.T) {
 	}
 }
 
+func TestServerTextDocumentCompletionLineEndings(t *testing.T) {
+	for _, ending := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"}} {
+		t.Run(ending.name, func(t *testing.T) {
+			t.Run("OverloadDeclaration", func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, "func impl(value int) {};"+ending.value+"func R|ead = (\nimpl\n)\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				assert.Empty(t, completionItemsAt(t, s, "main.xgo", pos))
+			})
+
+			t.Run("ImportGroup", func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, "import ("+ending.value+"\"example.com/s|upport/v2\""+ending.value+")\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				ctx := newCompletionTestContext(t, s, "main.xgo", pos)
+				assert.True(t, ctx.isInImportStringLit())
+			})
+		})
+	}
+}
+
 func TestServerTextDocumentCompletionTypeArguments(t *testing.T) {
 	for _, tt := range []struct {
 		name, source, want string

@@ -254,9 +254,10 @@ func typeDisplayTestSource(t *testing.T, source string) (string, Position) {
 
 	require.Equal(t, 1, strings.Count(source, "|"))
 	before, after, _ := strings.Cut(source, "|")
+	prefix := strings.ReplaceAll(strings.ReplaceAll(before, "\r\n", "\n"), "\r", "\n")
 	return before + after, Position{
-		Line:      uint32(strings.Count(before, "\n")),
-		Character: uint32(UTF16Len(before[strings.LastIndex(before, "\n")+1:])),
+		Line:      uint32(strings.Count(prefix, "\n")),
+		Character: uint32(UTF16Len(prefix[strings.LastIndex(prefix, "\n")+1:])),
 	}
 }
 

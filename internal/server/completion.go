@@ -612,10 +612,10 @@ func (ctx *completionContext) isLineStart() bool {
 		return false
 	}
 
-	line := ctx.tokenFile.Line(ctx.pos)
-	lineStartPos := ctx.tokenFile.LineStart(line)
-	relLineStartPos := lineStartPos - fileBase
-	if relLineStartPos < 0 || int(relLineStartPos) >= len(ctx.astFile.Code) {
+	offsets := ctx.proj.ASTFileLineOffsets(ctx.astFile)
+	line := lineForOffset(offsets, int(relPos))
+	relLineStartPos := token.Pos(offsets[line])
+	if int(relLineStartPos) >= len(ctx.astFile.Code) {
 		return false
 	}
 

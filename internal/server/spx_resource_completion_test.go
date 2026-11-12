@@ -407,13 +407,9 @@ func run() {}
 					"assets/sprites/Runner/index.json": []byte(`{"costumes":[{"name":"runner"}]}`),
 					"assets/sprites/Other/index.json":  []byte(`{"costumes":[{"name":"other"}]}`),
 				}
-				before := tt.source[:strings.IndexByte(tt.source, '|')]
-				files[tt.filename] = []byte(strings.Replace(tt.source, "|", "", 1))
+				source, position := typeDisplayTestSource(t, tt.source)
+				files[tt.filename] = []byte(source)
 				s := newSpxTestServer(t, files)
-				position := Position{
-					Line:      uint32(strings.Count(before, "\n")),
-					Character: uint32(UTF16Len(before[strings.LastIndex(before, "\n")+1:])),
-				}
 				items := completionItemsAt(t, s, tt.filename, position)
 				for _, label := range tt.want {
 					assert.Equal(t, 1, countCompletionItemLabel(items, label))

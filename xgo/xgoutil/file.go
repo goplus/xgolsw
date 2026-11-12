@@ -21,6 +21,25 @@ import (
 	"github.com/goplus/xgo/token"
 )
 
+// LineOffsets returns the starting byte offset of each line, recognizing LF,
+// CRLF, and CR. A trailing line ending starts an empty final line.
+func LineOffsets(content []byte) []int {
+	offsets := []int{0}
+	for i := 0; i < len(content); i++ {
+		switch content[i] {
+		case '\r':
+			if i+1 < len(content) && content[i+1] == '\n' {
+				i++
+			}
+		case '\n':
+		default:
+			continue
+		}
+		offsets = append(offsets, i+1)
+	}
+	return offsets
+}
+
 // PosFilename returns the logical filename for pos, honoring line directives.
 // Use [PosTokenFile] for the physical file that contains the position.
 func PosFilename(fset *token.FileSet, pos token.Pos) string {

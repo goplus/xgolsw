@@ -103,11 +103,11 @@ func TestResourceAnalysisResourceRefAtPosition(t *testing.T) {
 			{
 				name: "CarriageReturns", source: "echo (`S\rtu\r\rdio\r`), \"Beep\"\n",
 				checks: []positionCheck{
-					{Position{Character: 15}, 1},
-					{Position{Character: 17}, 1},
-					{Position{Character: 18}, 1},
-					{Position{Character: 19}, 0},
-					{Position{Character: 20}, -1},
+					{Position{Line: 3, Character: 2}, 1},
+					{Position{Line: 4}, 1},
+					{Position{Line: 4, Character: 1}, 1},
+					{Position{Line: 4, Character: 2}, 0},
+					{Position{Line: 4, Character: 3}, -1},
 				},
 			},
 			{

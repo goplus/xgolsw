@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	gotypes "go/types"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -106,6 +108,14 @@ println 1 // Tail.
 				want: []decodedSemanticToken{{length: 8, tokenType: CommentType}, {line: 1, length: 9, tokenType: CommentType}},
 			},
 			{
+				name: "CRComment", source: "/* First\rSecond */\rvar value = 1;\r",
+				want: []decodedSemanticToken{{length: 8, tokenType: CommentType}, {line: 1, length: 9, tokenType: CommentType}},
+			},
+			{
+				name: "CRLineComment", source: "// First\rSecond\r",
+				want: []decodedSemanticToken{{length: 8, tokenType: CommentType}, {line: 1, length: 6, tokenType: CommentType}},
+			},
+			{
 				name: "HashComment", source: "println 1 # Note.\nprintln 2\n",
 				want: []decodedSemanticToken{{character: 10, length: 7, tokenType: CommentType}, {line: 1, character: 8, length: 1, tokenType: NumberType}},
 			},
@@ -152,6 +162,18 @@ var value = 1
 			{
 				name: "RawStringCRLF", source: "var text = `\U0001f600\r\nb`\n",
 				want: []decodedSemanticToken{{character: 11, length: 3, tokenType: StringType}, {line: 1, length: 2, tokenType: StringType}},
+			},
+			{
+				name: "RawStringCR", source: "var text = `\U0001f600\rb`;\r",
+				want: []decodedSemanticToken{{character: 11, length: 3, tokenType: StringType}, {line: 1, length: 2, tokenType: StringType}},
+			},
+			{
+				name: "RawStringMixed", source: "var text = `\U0001f600\r\nb\rc\n`;\r",
+				want: []decodedSemanticToken{{character: 11, length: 3, tokenType: StringType}, {line: 1, length: 1, tokenType: StringType}, {line: 2, length: 1, tokenType: StringType}, {line: 3, length: 1, tokenType: StringType}},
+			},
+			{
+				name: "RawStringEmptyLines", source: "var text = `\U0001f600\r\n\rb\n\n`;\r",
+				want: []decodedSemanticToken{{character: 11, length: 3, tokenType: StringType}, {line: 2, length: 1, tokenType: StringType}, {line: 4, length: 1, tokenType: StringType}},
 			},
 			{
 				name: "ShadowEntry", source: "println 1\n",
@@ -250,10 +272,11 @@ func consume = (consumeInt, consumeString)
 				for _, declaration := range tt.declarations {
 					assertSemanticTokenModifierMask(t, tokens.Data, declaration, getSemanticTokenModifiersMask([]SemanticTokenModifiers{ModDeclaration}))
 				}
-				lines := strings.Split(tt.source, "\n")
+				source := strings.ReplaceAll(strings.ReplaceAll(tt.source, "\r\n", "\n"), "\r", "\n")
+				lines := strings.Split(source, "\n")
 				for i, current := range decoded {
 					require.Less(t, int(current.line), len(lines))
-					assert.LessOrEqual(t, current.character+current.length, uint32(UTF16Len(strings.TrimSuffix(lines[current.line], "\r"))))
+					assert.LessOrEqual(t, current.character+current.length, uint32(UTF16Len(lines[current.line])))
 					if i > 0 && decoded[i-1].line == current.line {
 						assert.GreaterOrEqual(t, current.character, decoded[i-1].character+decoded[i-1].length, "overlapping tokens: %v", decoded)
 					}
@@ -1171,6 +1194,36 @@ var (
 	})
 }
 
+func BenchmarkServerTextDocumentSemanticTokensFull(b *testing.B) {
+	for _, ending := range []struct{ name, value string }{{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"}} {
+		b.Run(ending.name, func(b *testing.B) {
+			for _, lines := range []int{100, 1000} {
+				b.Run(fmt.Sprintf("Lines%d", lines), func(b *testing.B) {
+					var source strings.Builder
+					for i := range lines {
+						fmt.Fprintf(&source, "var value%d = `\U0001f680`;%s", i, ending.value)
+					}
+					s := newImportTestServer(b, map[string][]byte{"main.xgo": []byte(source.String())})
+					b.Cleanup(s.Close)
+					_, err := s.requestProject().TypeInfo()
+					require.NoError(b, err)
+					params := &SemanticTokensParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+					tokens, err := s.textDocumentSemanticTokensFull(params)
+					require.NoError(b, err)
+					require.NotNil(b, tokens)
+					require.NotEmpty(b, tokens.Data)
+
+					b.ReportAllocs()
+					for b.Loop() {
+						_, err := s.textDocumentSemanticTokensFull(params)
+						require.NoError(b, err)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestSemanticTokenSegments(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
@@ -1259,9 +1312,18 @@ func TestSemanticTokenLineLengths(t *testing.T) {
 			content: []byte("abc\r\n"),
 			want:    []uint32{3, 0},
 		},
+		{
+			name: "CR", content: []byte("abc\rdef\r\u4e2d\u6587"), want: []uint32{3, 3, 2},
+		},
+		{
+			name: "Mixed", content: []byte("abc\r\n\r\U0001f600\ndef\r"), want: []uint32{3, 0, 2, 3, 0},
+		},
+		{
+			name: "Empty", content: nil, want: []uint32{0},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, semanticTokenLineLengths(tt.content))
+			assert.Equal(t, tt.want, semanticTokenLineLengths(tt.content, xgoutil.LineOffsets(tt.content)))
 		})
 	}
 }

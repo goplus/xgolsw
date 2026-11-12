@@ -160,6 +160,45 @@ func Test() {
 	})
 }
 
+func TestProjectASTFileLineOffsets(t *testing.T) {
+	t.Run("SnapshotsAndEdits", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("var a = 1;\rvar b = 2;\r")}, FeatASTCache)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+		assert.Equal(t, []int{0, 11, 22}, proj.ASTFileLineOffsets(astFile))
+		assert.Equal(t, 1, proj.Fset.File(astFile.Pos()).LineCount())
+		snapshot, fork := proj.Snapshot(), proj.Fork()
+		proj.PutFile("main.xgo", file("var value = 1\n"))
+		current, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+		assert.Equal(t, []int{0, 14}, proj.ASTFileLineOffsets(current))
+		assert.Equal(t, []int{0, 11, 22}, proj.ASTFileLineOffsets(astFile))
+		for _, retained := range []*Project{snapshot, fork} {
+			original, err := retained.ASTFile("main.xgo")
+			require.NoError(t, err)
+			assert.Equal(t, []int{0, 11, 22}, retained.ASTFileLineOffsets(original))
+		}
+		require.NoError(t, proj.DeleteFile("main.xgo"))
+		assert.Equal(t, []int{0, 11, 22}, proj.ASTFileLineOffsets(astFile))
+	})
+
+	t.Run("ParseError", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("func {\r")}, FeatASTCache)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.Error(t, err)
+		require.NotNil(t, astFile)
+		assert.Equal(t, []int{0, 7}, proj.ASTFileLineOffsets(astFile))
+	})
+
+	t.Run("DifferentProject", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("var value = 1\r")}, FeatASTCache)
+		astFile, err := proj.ASTFile("main.xgo")
+		require.NoError(t, err)
+		other := newTestProject(t, nil, 0)
+		assert.Equal(t, []int{0, 14}, other.ASTFileLineOffsets(astFile))
+	})
+}
+
 func TestBuildASTPackageCache(t *testing.T) {
 	t.Run("ValidPackage", func(t *testing.T) {
 		proj := newTestProject(t, map[string]*File{

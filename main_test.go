@@ -376,6 +376,48 @@ func TestXGoLanguageServerReadFiles(t *testing.T) {
 	})
 }
 
+func TestXGoLanguageServerLineEndings(t *testing.T) {
+	for _, tt := range []struct{ name, first, second, last string }{
+		{"LF", "\n", "\n", "\n"},
+		{"CRLF", "\r\n", "\r\n", "\r\n"},
+		{"CR", "\r", "\r", "\r"},
+		{"Mixed", "\r\n", "\r", "\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			archive := testframework.NewPkgDataZip(t)
+			data := js.Global().Get("Uint8Array").New(len(archive))
+			js.CopyBytesToJS(data, archive)
+			source := "var First = 1;" + tt.first + "var Count = 2;" + tt.second + "echo Count;" + tt.last
+			handle, replies := newTestServer(t, "main.xgo", source, map[string]any{"classFrameworkConfig": "", "pkgDataZip": data})
+			callTestServer(t, handle, replies, "initialize", map[string]any{"capabilities": map[string]any{}})
+			handle.Call("handleMessage", js.ValueOf(map[string]any{
+				"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": map[string]any{
+					"textDocument": map[string]any{"uri": "file:///main.xgo", "version": 1, "languageId": "xgo", "text": source},
+				},
+			}))
+			handle.Call("handleMessage", js.ValueOf(map[string]any{
+				"jsonrpc": "2.0", "method": "textDocument/didChange", "params": map[string]any{
+					"textDocument": map[string]any{"uri": "file:///main.xgo", "version": 2},
+					"contentChanges": []any{
+						map[string]any{"range": map[string]any{"start": map[string]any{"line": 1, "character": 4}, "end": map[string]any{"line": 1, "character": 9}}, "text": "Amount"},
+						map[string]any{"range": map[string]any{"start": map[string]any{"line": 2, "character": 5}, "end": map[string]any{"line": 2, "character": 10}}, "text": "Amount"},
+					},
+				},
+			}))
+			params := map[string]any{
+				"textDocument": map[string]any{"uri": "file:///main.xgo"},
+				"position":     map[string]any{"line": 2, "character": 6},
+			}
+			hover := callTestServer(t, handle, replies, "textDocument/hover", params)
+			assert.Contains(t, js.Global().Get("JSON").Call("stringify", hover).String(), "var Amount int")
+			definition := callTestServer(t, handle, replies, "textDocument/definition", params)
+			require.False(t, definition.IsNull())
+			assert.Equal(t, 1, definition.Get("range").Get("start").Get("line").Int())
+			assert.Equal(t, 4, definition.Get("range").Get("start").Get("character").Int())
+		})
+	}
+}
+
 func TestXGoLanguageServerProviderUpdates(t *testing.T) {
 	content := js.Global().Get("Uint8Array").New(len("var Count = 1\n"))
 	js.CopyBytesToJS(content, []byte("var Count = 1\n"))
