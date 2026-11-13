@@ -621,10 +621,17 @@ println paused.Value, shared
 			return s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 		}, nil},
 		{"Deleted", func(s *Server, uri DocumentURI) error {
-			return s.getProj().DeleteFile("main.xgo")
+			provided := maps.Collect(s.getProj().Files())
+			delete(provided, "main.xgo")
+			s.fileMapGetter = func() map[string]*xgo.File { return provided }
+			return s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 		}, nil},
 		{"Renamed", func(s *Server, uri DocumentURI) error {
-			return s.getProj().RenameFile("main.xgo", "renamed.xgo")
+			provided := maps.Collect(s.getProj().Files())
+			provided["renamed.xgo"] = provided["main.xgo"]
+			delete(provided, "main.xgo")
+			s.fileMapGetter = func() map[string]*xgo.File { return provided }
+			return s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: uri}})
 		}, nil},
 		{"Reopened", func(s *Server, uri DocumentURI) error {
 			if err := s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: uri}}); err != nil {
