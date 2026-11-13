@@ -181,6 +181,171 @@ var item Record
 		}
 	})
 
+	t.Run("CallbackBindings", func(t *testing.T) {
+		for _, kind := range []struct {
+			name         string
+			filename     string
+			call         string
+			declarations string
+		}{
+			{
+				name: "Function", filename: "main.xgo", call: "handle",
+				declarations: `func handleEmpty(name string, callback func()) {}
+func handleValue(name string, callback func(int)) {}
+func handle = (
+	handleEmpty
+	handleValue
+)
+`,
+			},
+			{name: "ProjectMethod", filename: "main_fixture.gox", call: "onEvent"},
+		} {
+			t.Run(kind.name, func(t *testing.T) {
+				for _, tt := range []struct {
+					name       string
+					body       string
+					argument   string
+					param      string
+					repair     string
+					wantParams int
+				}{
+					{name: "UnknownCallee", body: "missing(value)", repair: "func missing(value int) {}\n", wantParams: 1},
+					{
+						name: "UnknownReceiver", body: "missing.call(value)",
+						repair:     "type Receiver struct{}\nfunc (Receiver) call(value int) {}\nvar missing Receiver\n",
+						wantParams: 1,
+					},
+					{
+						name: "UnknownSelectorBase", body: "echo missing(value).Value",
+						repair:     "func missing(value int) Options { return Options{Value: value} }\n",
+						wantParams: 1,
+					},
+					{name: "UnknownOperand", body: "echo missing + value", repair: "const missing = 1\n", wantParams: 1},
+					{name: "NestedClosure", body: "func() { missing(value) }()", repair: "func missing(value int) {}\n", wantParams: 1},
+					{name: "UnknownKwargValue", body: "configure value = missing + value", repair: "const missing = 1\n", wantParams: 1},
+					{name: "MissingParameterDefinition", body: "echo \"unused\"", argument: "missing", repair: "const missing = \"event\"\n", wantParams: 1},
+					{name: "UsedParameter", body: "echo value", wantParams: 1},
+					{name: "UnusedParameter", body: "echo \"value\""},
+					{name: "BlankParameter", body: "echo \"unused\"", param: "_"},
+					{name: "ShadowedLocal", body: "func() { value := 1; echo value }()"},
+					{name: "SelectorMember", body: "var record struct { value int }; echo record.value"},
+					{name: "StructField", body: "_ = struct { value int }{value: 1}"},
+					{name: "KwargName", body: "configure value = 1"},
+					{name: "Label", body: "value:\nfor {\n\tbreak value\n}"},
+				} {
+					t.Run(tt.name, func(t *testing.T) {
+						argument := tt.argument
+						if argument == "" {
+							argument = "\"event\""
+						}
+						param := tt.param
+						if param == "" {
+							param = "value"
+						}
+						const declarations = "type Options struct { Value int }\nfunc configure(opts Options?) {}\n"
+						source := kind.declarations + kind.call + " " + argument + ", (" + param + ") => {\n" + tt.body + "\n}\n" +
+							kind.call + " \"event\", value => { echo \"unused\" }\n"
+						s := newImportTestServer(t, map[string][]byte{
+							kind.filename:   []byte(source),
+							"functions.xgo": []byte(declarations),
+						})
+						t.Cleanup(s.Close)
+						_, err := s.getProj().TypeInfo()
+						if tt.repair != "" {
+							require.Error(t, err)
+						} else {
+							require.NoError(t, err)
+						}
+						params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(kind.filename)}}
+						edits, err := s.textDocumentFormatting(params)
+						require.NoError(t, err)
+						require.Len(t, edits, 1)
+						s.ModifyFiles([]FileChange{{Path: kind.filename, Content: []byte(edits[0].NewText), Version: 1}})
+						file, err := s.getProj().ASTFile(kind.filename)
+						require.NoError(t, err)
+						var paramsCount []int
+						ast.Inspect(file, func(node ast.Node) bool {
+							if lambda, ok := node.(*ast.LambdaExpr); ok {
+								paramsCount = append(paramsCount, len(lambda.Lhs))
+							}
+							return true
+						})
+						assert.Equal(t, []int{tt.wantParams, 0}, paramsCount)
+						edits, err = s.textDocumentFormatting(params)
+						require.NoError(t, err)
+						assert.Empty(t, edits)
+
+						// Defining the missing symbol must repair the formatted source too.
+						s.ModifyFiles([]FileChange{{Path: "functions.xgo", Content: []byte(declarations + tt.repair), Version: 1}})
+						requireNoDiagnostics(t, s)
+					})
+				}
+			})
+		}
+	})
+
+	t.Run("VariadicCallbacks", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			lambda       string
+			wantParams   int
+			invalid      bool
+			declarations string
+		}{
+			{
+				name: "VariadicOnly", lambda: "values => {}", invalid: true,
+				declarations: "func handleMany(callback func(...int)) {}\nfunc handleShort(callback func()) {}\n",
+			},
+			{
+				name: "FixedAndVariadic", lambda: "(first, rest) => { echo first }", wantParams: 1, invalid: true,
+				declarations: "func handleMany(callback func(int, ...string)) {}\nfunc handleShort(callback func(int)) {}\n",
+			},
+			{
+				name: "SliceAndVariadic", lambda: "(values, rest) => { echo values }", wantParams: 1, invalid: true,
+				declarations: "func handleMany(callback func([]int, ...string)) {}\nfunc handleShort(callback func([]int)) {}\n",
+			},
+			{
+				name: "SliceOverload", lambda: "values => {}", wantParams: 1,
+				declarations: "func handleMany(callback func(...int)) {}\nfunc handleShort(callback func([]int)) {}\n",
+			},
+			{
+				name: "UsedSliceOverload", lambda: "values => { echo values }", wantParams: 1,
+				declarations: "func handleMany(callback func(...int)) {}\nfunc handleShort(callback func([]int)) {}\n",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := tt.declarations + "func handle = (\nhandleMany\nhandleShort\n)\nhandle " + tt.lambda + "\n"
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				_, err := s.getProj().TypeInfo()
+				if tt.invalid {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+				edits, err := s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				require.Len(t, edits, 1)
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(edits[0].NewText), Version: 1}})
+				requireNoDiagnostics(t, s)
+				file, err := s.getProj().ASTFile("main.xgo")
+				require.NoError(t, err)
+				var paramsCount []int
+				ast.Inspect(file, func(node ast.Node) bool {
+					if lambda, ok := node.(*ast.LambdaExpr); ok {
+						paramsCount = append(paramsCount, len(lambda.Lhs))
+					}
+					return true
+				})
+				assert.Equal(t, []int{tt.wantParams}, paramsCount)
+				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string

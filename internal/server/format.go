@@ -473,7 +473,7 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 			// To simplify the implementation, we only check & process the last parameter,
 			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
-			if isIdentUsed(typeInfo, lambdaExpr.Lhs[lastParamIdx]) {
+			if isLambdaParamUsed(typeInfo, lambdaExpr, lambdaExpr.Lhs[lastParamIdx]) {
 				continue
 			}
 
@@ -485,7 +485,7 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 				slices.Collect(lambdaSig.TypeParams().TypeParams()),
 				gotypes.NewTuple(newParams...),
 				lambdaSig.Results(),
-				lambdaSig.Variadic(),
+				false, // Removing the final parameter also removes any variadic tail.
 			)
 			hasMatchedOverload := false
 			for _, overloadType := range funcOverloads {
@@ -695,16 +695,51 @@ func signatureType(typ gotypes.Type) *gotypes.Signature {
 	return sig
 }
 
-// isIdentUsed reports whether ident is referenced by any use in typeInfo.
-func isIdentUsed(typeInfo *types.Info, ident *ast.Ident) bool {
-	obj := typeInfo.ObjectOf(ident)
-	if obj == nil {
+// isLambdaParamUsed reports whether param is used or its use cannot be ruled out.
+func isLambdaParamUsed(typeInfo *types.Info, lambdaExpr *ast.LambdaExpr, param *ast.Ident) bool {
+	if param.Name == "_" {
 		return false
+	}
+	obj := typeInfo.ObjectOf(param)
+	if obj == nil {
+		return true
 	}
 	for _, usedObj := range typeInfo.Uses {
 		if usedObj == obj {
 			return true
 		}
 	}
-	return false
+
+	// Failed expression checking can leave source references out of Uses.
+	var used bool
+	var inspect func(ast.Node) bool
+	inspect = func(node ast.Node) bool {
+		if used {
+			return false
+		}
+		switch node := node.(type) {
+		case *ast.Ident:
+			if node.Name == param.Name && typeInfo.ObjectOf(node) == nil {
+				used = true
+			}
+		case *ast.SelectorExpr:
+			// Member names are not parameter references.
+			ast.Inspect(node.X, inspect)
+			return false
+		case *ast.KwargExpr:
+			// Keyword names are not parameter references.
+			ast.Inspect(node.Value, inspect)
+			return false
+		case *ast.LabeledStmt:
+			// Label names are not parameter references.
+			ast.Inspect(node.Stmt, inspect)
+			return false
+		case *ast.BranchStmt:
+			// Branch labels are not parameter references.
+			return false
+		}
+		return true
+	}
+	ast.Inspect(lambdaExpr.Body, inspect)
+	return used
 }
