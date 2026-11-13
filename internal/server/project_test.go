@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	gotypes "go/types"
 	"runtime"
@@ -663,6 +665,248 @@ func TestServerDependencyDiagnostics(t *testing.T) {
 							synctest.Wait()
 							reports = requirePublishedDiagnosticReports(t, replier, 1)
 							assert.Contains(t, reports, mainURI)
+						}
+					})
+				})
+			}
+		})
+	}
+}
+
+func TestServerDocumentProviderDiagnostics(t *testing.T) {
+	const source = "var result int = getValue()\nprintln result\n"
+	const good = "func getValue() int { return 1 }\n"
+	const bad = "func getValue() string { return \"text\" }\n"
+	for _, kind := range []struct{ name, filename string }{
+		{"XGo", "main.xgo"},
+		{"NormalClass", "Record.gox"},
+		{"ProjectClass", "main_fixture.gox"},
+		{"WorkClass", "Worker_fixture.gox"},
+	} {
+		t.Run(kind.name, func(t *testing.T) {
+			for _, change := range []struct{ name, before, after string }{
+				{"ClearTypeError", bad, good},
+				{"IntroduceTypeError", good, bad},
+				{"CreateDependency", "", good},
+				{"DeleteDependency", good, ""},
+			} {
+				t.Run(change.name, func(t *testing.T) {
+					for _, operation := range []string{"Change", "SaveWithText", "SaveWithoutText"} {
+						t.Run(operation, func(t *testing.T) {
+							files := map[string][]byte{kind.filename: []byte(source)}
+							if change.before != "" {
+								files["helper.xgo"] = []byte(change.before)
+							}
+							if kind.name == "WorkClass" {
+								files["main_fixture.gox"] = nil
+							}
+							s := newImportTestServer(t, files)
+							t.Cleanup(s.Close)
+							provided := newFileMap(files)
+							s.fileMapGetter = func() map[string]*xgo.File { return provided }
+							replier := newMockReplier()
+							s.replier = replier
+							uri := s.toDocumentURI(kind.filename)
+							synctest.Test(t, func(t *testing.T) {
+								require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+									TextDocument: protocol.TextDocumentItem{URI: uri, Version: 7, Text: source},
+								}))
+								synctest.Wait()
+								before := requirePublishedDiagnostics(t, replier, uri)
+								if change.after == "" {
+									delete(provided, "helper.xgo")
+								} else {
+									provided["helper.xgo"] = &xgo.File{Content: []byte(change.after), ModTime: time.Unix(1, 0)}
+								}
+								// Changed provider content must not replace the open document.
+								provided[kind.filename] = &xgo.File{Content: []byte("println missing\n"), ModTime: time.Unix(1, 0)}
+								edited := source + "\n"
+								version := 7
+								switch operation {
+								case "Change":
+									version++
+									require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+										TextDocument: protocol.VersionedTextDocumentIdentifier{
+											TextDocumentIdentifier: TextDocumentIdentifier{URI: uri}, Version: int32(version),
+										},
+										ContentChanges: []protocol.TextDocumentContentChangeEvent{{
+											Range: &Range{Start: Position{Line: 2}, End: Position{Line: 2}}, Text: "\n",
+										}},
+									}))
+								case "SaveWithText":
+									require.NoError(t, s.didSave(&DidSaveTextDocumentParams{
+										TextDocument: TextDocumentIdentifier{URI: uri}, Text: &edited,
+									}))
+								case "SaveWithoutText":
+									edited = source
+									require.NoError(t, s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: uri}}))
+								}
+								synctest.Wait()
+								pushed := requirePublishedDiagnostics(t, replier, uri)
+								effective := make(map[string][]byte, len(provided))
+								for name, file := range provided {
+									effective[name] = file.Content
+								}
+								effective[kind.filename] = []byte(edited)
+								fresh := newImportTestServer(t, effective)
+								t.Cleanup(fresh.Close)
+								want := fresh.getDiagnostics(t, kind.filename)
+								require.NotEqual(t, before, want)
+								assert.ElementsMatch(t, want, pushed)
+								current, ok := s.getProj().File(kind.filename)
+								require.True(t, ok)
+								assert.Equal(t, edited, string(current.Content))
+								assert.Equal(t, version, current.Version)
+								pull, err := s.textDocumentDiagnostic(&DocumentDiagnosticParams{TextDocument: TextDocumentIdentifier{URI: uri}})
+								require.NoError(t, err)
+								assert.ElementsMatch(t, want, requireRelatedFullDocumentDiagnosticReport(t, pull).Items)
+								synctest.Wait()
+							})
+						})
+					}
+				})
+			}
+		})
+	}
+
+	t.Run("UnchangedSave", func(t *testing.T) {
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("println 1\n")})
+		t.Cleanup(s.Close)
+		replier := newMockReplier()
+		s.replier = replier
+		synctest.Test(t, func(t *testing.T) {
+			require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+				TextDocument: protocol.TextDocumentItem{URI: "file:///main.xgo", Version: 1, Text: "println 1\n"},
+			}))
+			synctest.Wait()
+			assert.Empty(t, requirePublishedDiagnostics(t, replier, "file:///main.xgo"))
+			before := s.requestProject()
+			require.NoError(t, s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}))
+			synctest.Wait()
+			assert.Same(t, before, s.analysisSnapshot)
+			assert.Empty(t, replier.getMessages())
+		})
+	})
+
+	t.Run("SingleProviderRead", func(t *testing.T) {
+		const source = "println value\n"
+		files := map[string][]byte{
+			"main.xgo":   []byte(source),
+			"other.xgo":  []byte("func check() { println value }\n"),
+			"helper.xgo": []byte("const value = 1\n"),
+		}
+		s := newImportTestServer(t, files)
+		t.Cleanup(s.Close)
+		replier := newMockReplier()
+		s.replier = replier
+		synctest.Test(t, func(t *testing.T) {
+			for _, name := range []string{"main.xgo", "other.xgo"} {
+				require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+					TextDocument: protocol.TextDocumentItem{URI: s.toDocumentURI(name), Version: 1, Text: string(files[name])},
+				}))
+			}
+			synctest.Wait()
+			requirePublishedDiagnosticReports(t, replier, 2)
+			var reads atomic.Int32
+			s.fileMapGetter = func() map[string]*xgo.File {
+				provided := newFileMap(files)
+				provided["helper.xgo"].ModTime = time.Unix(int64(reads.Add(1)), 0)
+				return provided
+			}
+			require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+				TextDocument: protocol.VersionedTextDocumentIdentifier{
+					TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.xgo"}, Version: 2,
+				},
+				ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: source + "\n"}},
+			}))
+			synctest.Wait()
+			for _, diagnostics := range requirePublishedDiagnosticReports(t, replier, 2) {
+				assert.Empty(t, diagnostics)
+			}
+			assert.EqualValues(t, 1, reads.Load())
+		})
+	})
+}
+
+func TestServerDocumentProviderCallbacks(t *testing.T) {
+	const source = "var result int = getValue()\n"
+	const original = "func getValue() string { return \"text\" }\n"
+	const updated = "func getValue() int { return 1 }\n"
+	for _, operation := range []string{"Change", "SaveWithText", "SaveWithoutText"} {
+		t.Run(operation, func(t *testing.T) {
+			for _, callback := range []string{"Request", "Edit", "EditDocument", "ReopenDocument", "Close"} {
+				t.Run(callback, func(t *testing.T) {
+					files := map[string][]byte{"main.xgo": []byte(source), "helper.xgo": []byte(original)}
+					s := newImportTestServer(t, files)
+					t.Cleanup(s.Close)
+					replier := newMockReplier()
+					s.replier = replier
+					synctest.Test(t, func(t *testing.T) {
+						require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+							TextDocument: protocol.TextDocumentItem{URI: "file:///main.xgo", Version: 1, Text: source},
+						}))
+						synctest.Wait()
+						require.NotEmpty(t, requirePublishedDiagnostics(t, replier, "file:///main.xgo"))
+						older := newFileMap(files)
+						newer := newFileMap(files)
+						newer["helper.xgo"] = &xgo.File{Content: []byte(updated), ModTime: time.Unix(1, 0)}
+						var calls atomic.Int32
+						s.fileMapGetter = func() map[string]*xgo.File {
+							if calls.Add(1) == 1 {
+								switch callback {
+								case "Request":
+									s.requestProject()
+								case "Edit":
+									s.ModifyFiles([]FileChange{{Path: "helper.xgo", Content: []byte(updated), Version: 1}})
+								case "EditDocument":
+									s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte("const latest = 1\n"), Version: 3}})
+								case "ReopenDocument":
+									require.NoError(t, s.didClose(&DidCloseTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}))
+									require.NoError(t, s.didOpen(&DidOpenTextDocumentParams{
+										TextDocument: protocol.TextDocumentItem{URI: "file:///main.xgo", Version: 1, Text: "const latest = 1\n"},
+									}))
+								case "Close":
+									s.Close()
+								}
+								return older
+							}
+							return newer
+						}
+						switch operation {
+						case "Change":
+							require.NoError(t, s.didChange(&DidChangeTextDocumentParams{
+								TextDocument: protocol.VersionedTextDocumentIdentifier{
+									TextDocumentIdentifier: TextDocumentIdentifier{URI: "file:///main.xgo"}, Version: 2,
+								},
+								ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: source}},
+							}))
+						case "SaveWithText":
+							require.NoError(t, s.didSave(&DidSaveTextDocumentParams{
+								TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}, Text: new(source),
+							}))
+						case "SaveWithoutText":
+							require.NoError(t, s.didSave(&DidSaveTextDocumentParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}))
+						}
+						synctest.Wait()
+						messages := replier.getMessages()
+						if callback == "Close" {
+							assert.ErrorIs(t, context.Cause(s.ctx), ErrClosed)
+							assert.Empty(t, messages)
+							return
+						}
+						if callback == "EditDocument" || callback == "ReopenDocument" {
+							current, ok := s.getProj().File("main.xgo")
+							require.True(t, ok)
+							assert.Equal(t, "const latest = 1\n", string(current.Content))
+						}
+						require.NotEmpty(t, messages)
+						for _, message := range messages {
+							notification := requireValueAs[*jsonrpc2.Notification](t, message)
+							require.Equal(t, "textDocument/publishDiagnostics", notification.Method())
+							var report PublishDiagnosticsParams
+							require.NoError(t, json.Unmarshal(notification.Params(), &report))
+							assert.Equal(t, DocumentURI("file:///main.xgo"), report.URI)
+							assert.Empty(t, report.Diagnostics)
 						}
 					})
 				})

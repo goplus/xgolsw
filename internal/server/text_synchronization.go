@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"maps"
 
 	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/protocol"
@@ -60,14 +61,17 @@ func (s *Server) didChange(params *DidChangeTextDocumentParams) error {
 }
 
 // didSave handles the textDocument/didSave notification from the LSP client.
-// Included text replaces the document content without changing its version.
+// It refreshes provider files when text is omitted. Included text replaces the
+// document content without changing its version.
 func (s *Server) didSave(params *DidSaveTextDocumentParams) error {
-	if params.Text == nil {
-		return nil
-	}
 	path, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
 		return err
+	}
+
+	if params.Text == nil {
+		s.syncProject()
+		return nil
 	}
 
 	s.projectMu.Lock()
@@ -131,9 +135,9 @@ func (s *Server) queueDiagnosticsLocked(uri DocumentURI, request *diagnosticRequ
 	}
 }
 
-// publishPendingDiagnostics serializes publication so an older result cannot
-// arrive after a newer result or a close notification's empty report. Client
-// callbacks run without the queue lock and may schedule more work.
+// publishPendingDiagnostics refreshes provider files for each pending batch and
+// serializes publication so older results cannot follow newer results or clears.
+// Client callbacks run without the queue lock and may schedule more work.
 func (s *Server) publishPendingDiagnostics() {
 	for {
 		s.projectMu.Lock()
@@ -142,35 +146,39 @@ func (s *Server) publishPendingDiagnostics() {
 			s.projectMu.Unlock()
 			return
 		}
-		var uri DocumentURI
-		var request *diagnosticRequest
-		for uri, request = range s.pendingDiagnostics {
-			break
-		}
+		s.projectMu.Unlock()
+
+		files := s.readProviderFiles()
+		s.projectMu.Lock()
+		s.syncFilesLocked(files)
+		pending := maps.Clone(s.pendingDiagnostics)
 		revision := s.getProj().Revision()
 		proj := s.projectSnapshotLocked()
 		s.projectMu.Unlock()
 
-		var diagnostics []Diagnostic
-		var err error
-		if !request.clear {
-			var result *diagnosticResult
-			result, err = s.diagnosticsAt(proj)
-			if err == nil {
-				diagnostics = result.diagnostics[uri]
+		for uri, request := range pending {
+			var diagnostics []Diagnostic
+			var err error
+			if !request.clear {
+				// Diagnostics are cached per snapshot and reused across documents.
+				var result *diagnosticResult
+				result, err = s.diagnosticsAt(proj)
+				if err == nil {
+					diagnostics = result.diagnostics[uri]
+				}
 			}
-		}
-		s.projectMu.Lock()
-		// Discard superseded requests and results invalidated by edits to any source file.
-		if s.pendingDiagnostics[uri] != request || (!request.clear && s.getProj().Revision() != revision) {
+			s.projectMu.Lock()
+			// Discard superseded requests and results invalidated by edits to any source file.
+			if s.pendingDiagnostics[uri] != request || (!request.clear && s.getProj().Revision() != revision) {
+				s.projectMu.Unlock()
+				continue
+			}
+			delete(s.pendingDiagnostics, uri)
 			s.projectMu.Unlock()
-			continue
-		}
-		delete(s.pendingDiagnostics, uri)
-		s.projectMu.Unlock()
-		// Failed analysis must not clear diagnostics from the last successful run.
-		if err == nil {
-			s.publishDiagnostics(uri, diagnostics)
+			// Failed analysis must not clear diagnostics from the last successful run.
+			if err == nil {
+				s.publishDiagnostics(uri, diagnostics)
+			}
 		}
 	}
 }
