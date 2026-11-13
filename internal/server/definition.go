@@ -87,19 +87,26 @@ func (s *Server) textDocumentTypeDefinition(params *TypeDefinitionParams) (any, 
 		}
 	}
 
-	var typeName *gotypes.TypeName
-	switch objType := xgoutil.DerefType(typ).(type) {
-	case *gotypes.Named:
-		typeName = objType.Obj()
-	case *gotypes.Alias:
-		typeName = objType.Obj()
-	default:
-		return nil, nil
-	}
+	// Follow pointer and container elements without expanding named types or aliases.
+	// For maps, follow the value type.
+	for {
+		var typeName *gotypes.TypeName
+		switch objType := typ.(type) {
+		case *gotypes.Named:
+			typeName = objType.Obj()
+		case *gotypes.Alias:
+			typeName = objType.Obj()
+		case interface{ Elem() gotypes.Type }:
+			typ = objType.Elem()
+			continue
+		default:
+			return nil, nil
+		}
 
-	file, pos := objectSource(proj, typeName)
-	if file == nil {
-		return nil, nil
+		file, pos := objectSource(proj, typeName)
+		if file == nil {
+			return nil, nil
+		}
+		return s.locationForPos(proj, pos), nil
 	}
-	return s.locationForPos(proj, pos), nil
 }
