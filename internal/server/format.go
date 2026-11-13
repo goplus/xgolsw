@@ -497,10 +497,25 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 				if overloadLambdaSig == nil {
 					continue
 				}
-				if gotypes.AssignableTo(newLambdaSig, overloadLambdaSig) {
-					hasMatchedOverload = true
-					break
+				if !gotypes.AssignableTo(newLambdaSig, overloadLambdaSig) {
+					continue
 				}
+
+				sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
+				args, ellipsis := xgoutil.CallExprArgs(typeInfo, callExpr, params)
+				argCount := len(args)
+				if len(callExpr.Kwargs) > 0 {
+					argCount++ // Keyword arguments share one parameter slot.
+				}
+				if ellipsis && (!sig.Variadic() || argCount != params.Len()) {
+					continue
+				}
+				typeArgCount := xgoutil.NormalizedCallExprTypeArgCount(overloadType, params)
+				if argCount < xgoutil.RequiredParamCount(typeInfo, sig, params, typeArgCount) {
+					continue
+				}
+				hasMatchedOverload = true
+				break
 			}
 			if hasMatchedOverload {
 				lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]

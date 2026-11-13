@@ -2,17 +2,20 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	gotypes "go/types"
 	"io/fs"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/format"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/testframework"
+	"github.com/goplus/xgolsw/jsonrpc2"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -175,6 +178,305 @@ var item Record
 				})
 				assert.Equal(t, []int{tt.wantUnused, 1}, paramsCount)
 				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
+	t.Run("CallbackOverloadArity", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			filename     string
+			declarations string
+			call         string
+			methods      string
+			wantParams   int
+		}{
+			{
+				name: "Function", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), required int) {}
+`,
+				call:       "use value => {}",
+				wantParams: 1,
+			},
+			{
+				name: "LeadingArgument", filename: "main.xgo",
+				declarations: `func withValue(name string, callback func(int)) {}
+func withoutValue(name string, callback func(), required int) {}
+`,
+				call:       `use "event", value => {}`,
+				wantParams: 1,
+			},
+			{
+				name: "TupleExpansion", filename: "main.xgo",
+				declarations: `func withValue(name string, callback func(int)) {}
+func withoutValue(name string, callback func(), required int) {}
+`,
+				call:       `use(("event", value => {}))`,
+				wantParams: 1,
+			},
+			{
+				name: "ProjectMethod", filename: "main_fixture.gox",
+				call: "onEvent value => {}",
+				methods: `func (app *App) OnEvent__0(callback func(), required int) {}
+func (app *App) OnEvent__1(callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "ImportedMethod", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\nvar item f.Item\n",
+				call:         "item.onEvent value => {}",
+				methods: `func (item *Item) OnEvent__0(callback func(), required int) {}
+func (item *Item) OnEvent__1(callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "RequiredBeforeOptionalTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), required int, count int?) {}
+`,
+				call:       "use value => {}",
+				wantParams: 1,
+			},
+			{
+				name: "RequiredBeforeVariadicTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), required int, values ...int) {}
+`,
+				call:       "use value => {}",
+				wantParams: 1,
+			},
+			{
+				name: "OptionalTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), count int?) {}
+`,
+				call: "use value => {}",
+			},
+			{
+				name: "MultipleOptionalTails", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), count int?, name string?) {}
+`,
+				call: "use value => {}",
+			},
+			{
+				name: "TupleOptionalTail", filename: "main.xgo",
+				declarations: `func withValue(name string, callback func(int)) {}
+func withoutValue(name string, callback func(), count int?) {}
+`,
+				call: `use(("event", value => {}))`,
+			},
+			{
+				name: "VariadicTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), values ...int) {}
+`,
+				call: "use value => {}",
+			},
+			{
+				name: "VariadicEllipsis", filename: "main.xgo",
+				declarations: `var values []int
+func withValue(callback func(int), values ...int) {}
+func withoutValue(callback func(), values ...int) {}
+`,
+				call: "use value => {}, values...",
+			},
+			{
+				name: "NonVariadicEllipsis", filename: "main.xgo",
+				declarations: `var values []int
+func withValue(callback func(int), values ...int) {}
+func withoutValue(callback func(), values []int) {}
+`,
+				call:       "use value => {}, values...",
+				wantParams: 1,
+			},
+			{
+				name: "MissingEllipsisSlot", filename: "main.xgo",
+				declarations: `var values []int
+func withValue(callback func(int), values ...int) {}
+func withoutValue(callback func(), values []int?, rest ...string) {}
+`,
+				call:       "use value => {}, values...",
+				wantParams: 1,
+			},
+			{
+				name: "OptionalAndVariadicTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) {}
+func withoutValue(callback func(), count int?, values ...int) {}
+`,
+				call: "use value => {}",
+			},
+			{
+				name: "ProvidedRequiredTail", filename: "main.xgo",
+				declarations: `func withValue(callback func(int), required int) {}
+func withoutValue(callback func(), required int) {}
+`,
+				call: "use value => {}, 1",
+			},
+			{
+				name: "Keyword", filename: "main.xgo",
+				declarations: `type First struct { Handler func() }
+type Second struct { Handler func(int) }
+func withValue(opts Second?) {}
+func withoutValue(required int, opts First?) {}
+`,
+				call:       "use handler = value => {}",
+				wantParams: 1,
+			},
+			{
+				name: "KeywordAndOptionalTail", filename: "main.xgo",
+				declarations: `type First struct { Handler func() }
+type Second struct { Handler func(int) }
+func withValue(opts Second?) {}
+func withoutValue(opts First?, count int?) {}
+`,
+				call: "use handler = value => {}",
+			},
+			{
+				name: "TemplateMethod", filename: "main_fixture.gox",
+				call: "onEvent value => {}",
+				methods: `func XGot_App_OnEvent__0(app *App, callback func(), required int) {}
+func XGot_App_OnEvent__1(app *App, callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "TemplateMethodOptionalTail", filename: "main_fixture.gox",
+				call: "onEvent value => {}",
+				methods: `func XGot_App_OnEvent__0(app *App, callback func(), __xgo_optional_count int) {}
+func XGot_App_OnEvent__1(app *App, callback func(int)) {}
+`,
+			},
+			{
+				name: "ImportedOptionalTail", filename: "main_fixture.gox",
+				call: "onEvent value => {}",
+				methods: `func (app *App) OnEvent__0(callback func(), __xgo_optional_count int) {}
+func (app *App) OnEvent__1(callback func(int)) {}
+`,
+			},
+			{
+				name: "GenericOptional", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				call:         "f.use 1, value => {}",
+				methods: `func Use__0[T any](name T, callback func(), __xgo_optional_count int) {}
+func Use__1[T any](name T, callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "GenericOptionalSupplied", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				call:         "f.use 1, value => {}, 0",
+				methods: `func Use__0[T any](name T, callback func(), __xgo_optional_count int) {}
+func Use__1[T any](name T, callback func(int), count int) {}
+`,
+			},
+			{
+				name: "GenericVariadic", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				call:         "f.use 1, value => {}",
+				methods: `func Use__0[T any](name T, callback func(), values ...int) {}
+func Use__1[T any](name T, callback func(int)) {}
+`,
+			},
+			{
+				name: "GenericVariadicTypeParam", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				call:         "f.use 1, value => {}",
+				methods: `func Use__0[T any](name T, callback func(), values ...T) {}
+func Use__1[T any](name T, callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "GenericVariadicTypeParamSupplied", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				call:         "f.use 1, value => {}, 2",
+				methods: `func Use__0[T any](name T, callback func(), values ...T) {}
+func Use__1[T any](name T, callback func(int), values ...T) {}
+`,
+			},
+			{
+				name: "PartialXGoxOptional", filename: "main_fixture.gox",
+				call: "onEvent int, 1, \"event\", value => {}",
+				methods: `func XGot_App_XGox_OnEvent__0[T, U any](app *App, name T, other U, callback func(), __xgo_optional_count int) {}
+func XGot_App_XGox_OnEvent__1[T, U any](app *App, name T, other U, callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "PartialXGoxOptionalSupplied", filename: "main_fixture.gox",
+				call: "onEvent int, 1, \"event\", value => {}, 0",
+				methods: `func XGot_App_XGox_OnEvent__0[T, U any](app *App, name T, other U, callback func(), __xgo_optional_count int) {}
+func XGot_App_XGox_OnEvent__1[T, U any](app *App, name T, other U, callback func(int), count int) {}
+`,
+			},
+			{
+				name: "PartialXGoxVariadicTypeParam", filename: "main_fixture.gox",
+				call: "onEvent int, 1, \"event\", value => {}",
+				methods: `func XGot_App_XGox_OnEvent__0[T, U any](app *App, name T, other U, callback func(), values ...T) {}
+func XGot_App_XGox_OnEvent__1[T, U any](app *App, name T, other U, callback func(int)) {}
+`,
+				wantParams: 1,
+			},
+			{
+				name: "FullXGoxOptional", filename: "main_fixture.gox",
+				call: "onEvent int, string, 1, \"event\", value => {}",
+				methods: `func XGot_App_XGox_OnEvent__0[T, U any](app *App, name T, other U, callback func(), __xgo_optional_count int) {}
+func XGot_App_XGox_OnEvent__1[T, U any](app *App, name T, other U, callback func(int)) {}
+`,
+			},
+			{
+				name: "FullXGoxVariadicTypeParam", filename: "main_fixture.gox",
+				call: "onEvent int, 1, value => {}",
+				methods: `func XGot_App_XGox_OnEvent__0[T any](app *App, name T, callback func(), values ...T) {}
+func XGot_App_XGox_OnEvent__1[T any](app *App, name T, callback func(int)) {}
+`,
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source := tt.declarations
+				if tt.methods == "" {
+					source += "func use = (\nwithoutValue\nwithValue\n)\n"
+				}
+				source += tt.call + "\n"
+				s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source)})
+				if tt.methods != "" {
+					setImportTestFrameworkMethods(t, s, tt.methods)
+				}
+				t.Cleanup(s.Close)
+				requireNoDiagnostics(t, s)
+				replier, ok := s.replier.(*mockReplier)
+				require.True(t, ok)
+				initializeServerForTest(t, s, replier)
+				params := DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}}
+				call, err := jsonrpc2.NewCall(jsonrpc2.NewStringID("format"), "textDocument/formatting", params)
+				require.NoError(t, err)
+				require.NoError(t, s.HandleMessage(call))
+				response := replier.waitForResponse(call.ID(), 5*time.Second)
+				require.NotNil(t, response)
+				require.NoError(t, response.Err())
+				var edits []TextEdit
+				require.NoError(t, json.Unmarshal(response.Result(), &edits))
+				require.Len(t, edits, 1)
+				s.ModifyFiles([]FileChange{{Path: tt.filename, Content: []byte(edits[0].NewText), Version: 1}})
+				requireNoDiagnostics(t, s)
+				file, err := s.getProj().ASTFile(tt.filename)
+				require.NoError(t, err)
+				var paramCounts []int
+				ast.Inspect(file, func(node ast.Node) bool {
+					if lambda, ok := node.(*ast.LambdaExpr); ok {
+						paramCounts = append(paramCounts, len(lambda.Lhs))
+					}
+					return true
+				})
+				assert.Equal(t, []int{tt.wantParams}, paramCounts)
+				edits, err = s.textDocumentFormatting(&params)
 				require.NoError(t, err)
 				assert.Empty(t, edits)
 			})
