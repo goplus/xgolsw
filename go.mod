@@ -23,3 +23,6 @@ require (
 	golang.org/x/image v0.23.0 // indirect
 	golang.org/x/mobile v0.0.0-20220518205345-8578da9835fd // indirect
 )
+
+// Use the nil expression fix from goplus/xgo#2903 until it is available upstream.
+replace github.com/goplus/xgo => github.com/aofei/fork.goplus.xgo v0.0.0-20261113095436-0fb0134ace4d
