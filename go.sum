@@ -1,4 +1,6 @@
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/aofei/fork.goplus.xgo v0.0.0-20261113095436-0fb0134ace4d h1:nJz2kHVi6XR2FLBA2pidFy3rMJsJbiZWHlqJ1Z9GPVE=
+github.com/aofei/fork.goplus.xgo v0.0.0-20261113095436-0fb0134ace4d/go.mod h1:R8iud8GefvNwdUpshzfF8rtK1v5FUvdnWg8vR+9b7AM=
 github.com/goccy/go-yaml v1.19.2 h1:PmFC1S6h8ljIz6gMRBopkjP1TVT7xuwrButHID66PoM=
 github.com/goccy/go-yaml v1.19.2/go.mod h1:XBurs7gK8ATbW4ZPGKgcbrY1Br56PdM69F7LkFRi1kA=
 github.com/goplus/gogen v1.24.7 h1:pDmXgnrRHtz1gjmuqRuFPsOrxv3VBWXXeY/GoIlJGuI=
@@ -9,8 +11,6 @@ github.com/goplus/spbase v0.1.1 h1:dpA9BF3y5zgbbhsTcY/RKYqFbTDcal7VSD8jrZaGJyk=
 github.com/goplus/spbase v0.1.1/go.mod h1:brnD3OJnHtipqob2IsJ3/QzGBf+eOnqXNnHGKpv1irQ=
 github.com/goplus/spx/v4 v4.0.1 h1:DFAIXoyZs2AfTsfSbsbviHjJpe4JMmlFDCUHZ40zfKA=
 github.com/goplus/spx/v4 v4.0.1/go.mod h1:/4GX9pL89rJyhfbNkjlnUeG1FCtGxeCe4X+SgDHO044=
-github.com/goplus/xgo v1.7.6-0.20260925200949-51a44c58fd65 h1:jl4Zbt+S6ShDoqRTmAR4dKgerYjdylrhvHOrhvcqCCM=
-github.com/goplus/xgo v1.7.6-0.20260925200949-51a44c58fd65/go.mod h1:R8iud8GefvNwdUpshzfF8rtK1v5FUvdnWg8vR+9b7AM=
 github.com/qiniu/x v1.18.3 h1:trrBKBNszHGwV8XynnbddJr+A7Vca8/xlWP4F/Z4my8=
 github.com/qiniu/x v1.18.3/go.mod h1:Sx3Wy+0GI9OsX4a53mYj6A0o7mHJ94PUvraqGYb4EIs=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=

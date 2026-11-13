@@ -69,6 +69,46 @@ func TestInfoTypeOf(t *testing.T) {
 	t.Run("UnknownExpression", func(t *testing.T) {
 		assert.Nil(t, new(Info).TypeOf(&ast.Ident{Name: "missing"}))
 	})
+
+	t.Run("NilExpression", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			recorded bool
+			implicit bool
+		}{
+			{name: "EmptyMaps"},
+			{name: "RecordedTypes", recorded: true},
+			{name: "ImplicitCalls", implicit: true},
+			{name: "BothMaps", recorded: true, implicit: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				info := &Info{
+					Info:              typesutil.Info{Types: make(map[ast.Expr]gotypes.TypeAndValue)},
+					ImplicitCallTypes: make(map[ast.Expr]gotypes.Type),
+				}
+				// Grow enabled maps beyond one table to exercise nil interface hashing on wasm.
+				// EmptyMaps keeps both maps empty.
+				for range 2000 {
+					ident := &ast.Ident{Name: "value"}
+					if tt.recorded {
+						info.Types[ident] = gotypes.TypeAndValue{Type: gotypes.Typ[gotypes.Int]}
+					}
+					if tt.implicit {
+						info.ImplicitCallTypes[ident] = gotypes.Typ[gotypes.Int]
+					}
+				}
+				assert.Nil(t, info.TypeOf(nil))
+			})
+		}
+	})
+
+	t.Run("NilLiteral", func(t *testing.T) {
+		ident := &ast.Ident{Name: "nil"}
+		info := &Info{Info: typesutil.Info{Types: map[ast.Expr]gotypes.TypeAndValue{
+			ident: {Type: gotypes.Typ[gotypes.UntypedNil]},
+		}}}
+		assert.Same(t, gotypes.Typ[gotypes.UntypedNil], info.TypeOf(ident))
+	})
 }
 
 func TestInfoRefIdentsFor(t *testing.T) {
@@ -237,4 +277,27 @@ func TestInfoSourceObjectOf(t *testing.T) {
 		assert.Equal(t, []*ast.Ident{embedded}, info.RefIdentsFor(named.Obj()))
 		assert.Equal(t, []*ast.Ident{selection}, info.RefIdentsFor(field))
 	})
+}
+
+func TestInfoObjectDeclaration(t *testing.T) {
+	info := &Info{
+		Info:     typesutil.Info{Defs: make(map[*ast.Ident]gotypes.Object)},
+		ObjToDef: make(map[gotypes.Object]*ast.Ident),
+	}
+	assert.Nil(t, info.ObjectDeclaration(nil))
+	for range 2000 {
+		variable := gotypes.NewVar(token.NoPos, nil, "value", gotypes.Typ[gotypes.Int])
+		ident := &ast.Ident{Name: "value"}
+		info.ObjToDef[variable] = ident
+		info.Defs[ident] = variable
+	}
+	assert.Nil(t, info.ObjectDeclaration(nil))
+
+	variable := gotypes.NewVar(token.NoPos, nil, "known", gotypes.Typ[gotypes.Int])
+	ident := &ast.Ident{Name: "known"}
+	info.ObjToDef[variable] = ident
+	info.Defs[ident] = variable
+	assert.Same(t, variable, info.ObjectDeclaration(variable))
+	unknown := gotypes.NewVar(token.NoPos, nil, "unknown", gotypes.Typ[gotypes.Int])
+	assert.Same(t, unknown, info.ObjectDeclaration(unknown))
 }
