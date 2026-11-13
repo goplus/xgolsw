@@ -74,6 +74,12 @@ go generate ./internal/pkgdata ./internal/server
 
 # Testing conventions
 
+## Coverage
+
+Unit test coverage must not decrease. Compare the change against its base revision using the same coverage command and
+configuration, and add meaningful tests until coverage is unchanged or higher. Do not lower coverage thresholds, exclude
+production code, or remove tests to hide a regression.
+
 ## XGo fixtures
 
 Test snippets for XGo behavior should match the existing XGo and classfile fixture style used in this repository. Do not
