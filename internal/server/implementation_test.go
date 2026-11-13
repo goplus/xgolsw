@@ -207,6 +207,40 @@ type PairReader[T, U any] interface { Read() (T, U) }
 		}
 	})
 
+	t.Run("ParenthesizedGenericInterface", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			filename string
+			source   string
+		}{
+			{"Qualified", "main.xgo", "import f \"example.com/framework\"\nvar reader (f.|Reader[int])\n"},
+			{"DotImport", "main.xgo", "import . \"example.com/framework\"\nvar reader (|Reader[int])\n"},
+			{"ProjectLookup", "main_fixture.gox", "\nvar reader (|Reader[int])\n"},
+			{"WorkLookup", "Worker_fixture.gox", "\nvar reader (|Reader[int])\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, position := typeDisplayTestSource(t, tt.source+`type Number struct{}
+func (Number) Read() int { return 1 }
+`)
+				files := map[string][]byte{tt.filename: []byte(source)}
+				if tt.name == "WorkLookup" {
+					files["main_fixture.gox"] = nil
+				}
+				s := newImportTestServer(t, files)
+				t.Cleanup(s.Close)
+				setImportTestFrameworkMethods(t, s, "type Reader[T any] interface { Read() T }\n")
+				requireNoDiagnostics(t, s)
+				result, err := s.textDocumentImplementation(&ImplementationParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)}, Position: position,
+				}})
+				require.NoError(t, err)
+				assert.Equal(t, []Location{{
+					URI: s.toDocumentURI(tt.filename), Range: Range{Start: Position{Line: 2, Character: 5}, End: Position{Line: 2, Character: 5}},
+				}}, requireValueAs[[]Location](t, result))
+			})
+		}
+	})
+
 	t.Run("InterfaceTypeUpdates", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"main.xgo":   []byte("type Runner interface { Run() }\n"),

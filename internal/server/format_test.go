@@ -22,6 +22,46 @@ import (
 )
 
 func TestServerTextDocumentFormatting(t *testing.T) {
+	t.Run("ForPhrase", func(t *testing.T) {
+		for _, tt := range []struct {
+			name   string
+			source string
+			want   string
+		}{
+			{
+				name:   "OneLine",
+				source: "func run() { for value <- [1] { println value } }\n",
+				want:   "func run() {\n\tfor value in [1] {\n\t\tprintln value\n\t}\n}\n",
+			},
+			{
+				name: "Multiline",
+				source: `func run() {
+for value <- [1] {
+println value
+}
+}
+`,
+				want: "func run() {\n\tfor value in [1] {\n\t\tprintln value\n\t}\n}\n",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(tt.source)})
+				t.Cleanup(s.Close)
+				params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}
+				edits, err := s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				require.Len(t, edits, 1)
+				assert.Equal(t, tt.want, edits[0].NewText)
+
+				s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(edits[0].NewText), Version: 1}})
+				requireNoDiagnostics(t, s)
+				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
 	t.Run("ConcurrentRequests", func(t *testing.T) {
 		const source = `var value int
 func Work() { value = measure(1) }

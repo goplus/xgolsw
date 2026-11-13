@@ -17,11 +17,15 @@
 package xgo
 
 import (
+	"fmt"
 	gotypes "go/types"
+	"strings"
 	"testing"
 
 	"github.com/goplus/mod/xgomod"
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal"
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +124,45 @@ func TestHasInterfaceEmbeddingCycle(t *testing.T) {
 }
 
 func TestProjectTypeInfo(t *testing.T) {
+	t.Run("LargeInferredCompositeLiterals", func(t *testing.T) {
+		var source strings.Builder
+		source.WriteString("type Point struct { X int }\n")
+		for i := range 2000 {
+			fmt.Fprintf(&source, "var value%d = %d\n", i, i)
+		}
+		source.WriteString(`var points map[string]Point = {"origin": {X: 1}}
+var nullable map[string]*Point = {"empty": nil, "typed": (*Point)(nil)}
+`)
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(source.String())}, FeatAll)
+		data, err := pkgdata.New(testframework.NewPkgDataZip(t))
+		require.NoError(t, err)
+		proj.Importer = internal.NewImporter(data.OpenExport)
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		require.NotNil(t, info)
+		require.GreaterOrEqual(t, len(info.Types), 2000)
+		for expr := range info.Types {
+			assert.NotNil(t, expr, "type information must not contain an absent expression")
+		}
+		assert.Nil(t, info.TypeOf(nil))
+		assert.Nil(t, info.ObjectDeclaration(nil))
+
+		astPkg, err := proj.ASTPackage()
+		require.NoError(t, err)
+		var inferred int
+		ast.Inspect(astPkg.Files["main.xgo"], func(node ast.Node) bool {
+			if literal, ok := node.(*ast.CompositeLit); ok && literal.Type == nil {
+				inferred++
+				tv, ok := info.Types[literal]
+				require.True(t, ok)
+				assert.NotNil(t, tv.Type)
+				assert.True(t, tv.IsValue())
+			}
+			return true
+		})
+		assert.GreaterOrEqual(t, inferred, 3)
+	})
+
 	t.Run("InterfaceEmbeddingDiagnosticOrder", func(t *testing.T) {
 		for range 20 {
 			proj := newTestProject(t, map[string]*File{"main.xgo": file(`type Zebra interface { Alpha }

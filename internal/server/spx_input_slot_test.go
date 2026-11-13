@@ -177,7 +177,7 @@ var color = `
 		}{
 			{
 				inputType: XGoInputTypeSpxDirection, value: float64(-90),
-				accept: XGoInputSlotAccept{Type: XGoInputTypeDecimal},
+				accept: XGoInputSlotAccept{Type: XGoInputTypeSpxDirection},
 				start:  14, end: 18,
 			},
 			{
@@ -504,7 +504,7 @@ onStart => {
 			{
 				name:           "Direction",
 				value:          float64(-90),
-				wantAcceptType: SpxInputTypeDecimal,
+				wantAcceptType: SpxInputTypeDirection,
 				wantInputType:  SpxInputTypeDirection,
 			},
 			{
