@@ -386,6 +386,32 @@ func variadicValueType(typ gotypes.Type) gotypes.Type {
 	return typ
 }
 
+// RequiredParamCount returns the minimum argument count for the normalized params
+// returned by [ResolveFuncSignatureForCall]. typeArgCount is the number of
+// explicit XGox type-argument slots at the start of params.
+func RequiredParamCount(typeInfo *types.Info, sig *gotypes.Signature, params *gotypes.Tuple, typeArgCount int) int {
+	count := params.Len()
+	if sig.Variadic() {
+		count--
+	}
+
+	// XGo checks inference arity before filling optional arguments.
+	if sig.TypeParams().Len() > typeArgCount {
+		if sig.Variadic() {
+			// A type parameter tail also needs a value during inference.
+			if _, needsValue := variadicValueType(params.At(count).Type()).(*gotypes.TypeParam); needsValue {
+				count++
+			}
+		}
+		return count
+	}
+
+	for count > 0 && isOptionalParam(typeInfo, params.At(count-1)) {
+		count--
+	}
+	return count
+}
+
 // SourceParamName returns the source-facing spelling of param.
 func SourceParamName(param *gotypes.Var) string {
 	if name, ok := strings.CutPrefix(param.Name(), xgoAutoclosureParamPrefix); ok {

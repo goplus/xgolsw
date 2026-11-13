@@ -328,6 +328,69 @@ func TestFuncFromCallExpr(t *testing.T) {
 	})
 }
 
+func TestRequiredParamCount(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		params            []string
+		variadic          bool
+		optional          bool
+		typeParams        int
+		typeArgs          int
+		variadicTypeParam bool
+		want              int
+	}{
+		{name: "Empty"},
+		{name: "Required", params: []string{"first", "second"}, want: 2},
+		{name: "Optional", params: []string{"__xgo_optional_first", "__xgo_optional_second"}},
+		{name: "Mixed", params: []string{"first", "__xgo_optional_second", "__xgo_optional_third"}, want: 1},
+		{name: "LegacyOptional", params: []string{"first", "__gop_optional_second"}, want: 1},
+		{name: "LocalOptional", params: []string{"first", "second"}, optional: true, want: 1},
+		{name: "Variadic", params: []string{"first", "rest"}, variadic: true, want: 1},
+		{name: "VariadicOnly", params: []string{"rest"}, variadic: true},
+		{name: "OptionalAndVariadic", params: []string{"first", "__xgo_optional_second", "rest"}, variadic: true, want: 1},
+		{name: "GenericRequired", params: []string{"first", "second"}, typeParams: 1, want: 2},
+		{name: "GenericOptional", params: []string{"first", "__xgo_optional_second"}, typeParams: 1, want: 2},
+		{name: "GenericVariadic", params: []string{"first", "rest"}, variadic: true, typeParams: 1, want: 1},
+		{name: "GenericVariadicTypeParam", params: []string{"first", "rest"}, variadic: true, typeParams: 1, variadicTypeParam: true, want: 2},
+		{name: "ExplicitTypeArgs", params: []string{"T", "first", "__xgo_optional_second"}, typeParams: 1, typeArgs: 1, want: 2},
+		{name: "PartialTypeArgs", params: []string{"T", "first", "second", "__xgo_optional_third"}, typeParams: 2, typeArgs: 1, want: 4},
+		{name: "ExplicitVariadicTypeParam", params: []string{"T", "first", "rest"}, variadic: true, typeParams: 1, typeArgs: 1, variadicTypeParam: true, want: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("main", "main")
+			typeInfo := newTestTypeInfo(nil, nil)
+			var typeParams []*gotypes.TypeParam
+			for i := range tt.typeParams {
+				name := string(rune('T' + i))
+				typeParams = append(typeParams, gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, name, nil), newTestEmptyInterface()))
+			}
+			var params []*gotypes.Var
+			for i, name := range tt.params {
+				var typ gotypes.Type = gotypes.Typ[gotypes.Int]
+				if valueIndex := i - tt.typeArgs; valueIndex >= 0 && valueIndex < len(typeParams) {
+					typ = typeParams[valueIndex]
+				}
+
+				if tt.variadic && i == len(tt.params)-1 {
+					if tt.variadicTypeParam {
+						typ = typeParams[0]
+					}
+					typ = gotypes.NewSlice(typ)
+				}
+				params = append(params, gotypes.NewParam(token.NoPos, pkg, name, typ))
+			}
+			if tt.optional {
+				typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
+					params[len(params)-1]: {Obj: &ast.Object{Decl: &ast.Field{Optional: token.Pos(1)}}},
+				}
+			}
+			normalizedParams := gotypes.NewTuple(params...)
+			sig := gotypes.NewSignatureType(nil, nil, typeParams, gotypes.NewTuple(params[tt.typeArgs:]...), nil, tt.variadic)
+			assert.Equal(t, tt.want, RequiredParamCount(typeInfo, sig, normalizedParams, tt.typeArgs))
+		})
+	}
+}
+
 func TestResolveCallExprKwarg(t *testing.T) {
 	t.Run("NilCallExpr", func(t *testing.T) {
 		assert.Nil(t, ResolveCallExprKwarg(nil, nil))
