@@ -603,16 +603,33 @@ func TestServerTextDocumentTypeDefinition(t *testing.T) {
 		{name: "Gop", filename: "main.gop", typeExpr: "Value"},
 		{name: "NormalClass", filename: "Record.gox", typeExpr: "Value"},
 		{name: "Pointer", filename: "main.xgo", typeExpr: "*Value"},
+		{name: "MultiplePointers", filename: "main.xgo", typeExpr: "***Value"},
+		{name: "Slice", filename: "main.xgo", typeExpr: "[]Value"},
+		{name: "Array", filename: "main.xgo", typeExpr: "[2]Value"},
+		{name: "Map", filename: "main.xgo", typeExpr: "map[Alias]Value"},
+		{name: "Channel", filename: "main.xgo", typeExpr: "chan Value"},
+		{name: "SendChannel", filename: "main.xgo", typeExpr: "chan<- Value"},
+		{name: "ReceiveChannel", filename: "main.xgo", typeExpr: "<-chan Value"},
+		{name: "NestedContainers", filename: "main.xgo", typeExpr: "*[][2]map[string]chan **Value"},
 		{name: "AliasAcrossFiles", filename: "main.xgo", typeExpr: "Alias", wantLine: 1},
 		{name: "PointerToAlias", filename: "main.xgo", typeExpr: "*Alias", wantLine: 1},
+		{name: "NestedAlias", filename: "main.xgo", typeExpr: "chan []**Alias", wantLine: 1},
+		{name: "NamedContainer", filename: "main.xgo", typeExpr: "[]Collection", wantLine: 2},
+		{name: "AliasToContainer", filename: "main.xgo", typeExpr: "**CollectionAlias", wantLine: 3},
+		{name: "RecursiveContainer", filename: "main.xgo", typeExpr: "[]Recursive", wantLine: 4},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
 				"types.xgo": []byte(`type Value struct{}
 type Alias = Value
+type Collection []*Value
+type CollectionAlias = []*Value
+type Recursive []Recursive
 `),
 				tt.filename: []byte("var value " + tt.typeExpr + "\n_ = value\n"),
 			})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
 			def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
 				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(tt.filename)},
 				Position:     Position{Line: 1, Character: 4},
@@ -626,6 +643,35 @@ type Alias = Value
 			assert.NoError(t, err)
 		})
 	}
+
+	t.Run("UnnamedTypes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name     string
+			typeExpr string
+		}{
+			{name: "Builtin", typeExpr: "int"},
+			{name: "PointerToBuiltin", typeExpr: "**int"},
+			{name: "SliceOfBuiltin", typeExpr: "[]int"},
+			{name: "NamedMapKey", typeExpr: "map[Value]int"},
+			{name: "AnonymousStruct", typeExpr: "*struct { Item Value }"},
+			{name: "Function", typeExpr: "func() Value"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := newTestServer(t, map[string][]byte{
+					"types.xgo": []byte("type Value struct{}\n"),
+					"main.xgo":  []byte("var value " + tt.typeExpr + "\n_ = value\n"),
+				})
+				t.Cleanup(s.Close)
+				requireNoDiagnostics(t, s)
+				def, err := s.textDocumentTypeDefinition(&TypeDefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+					Position:     Position{Line: 1, Character: 4},
+				}})
+				require.NoError(t, err)
+				assert.Nil(t, def)
+			})
+		}
+	})
 
 	t.Run("AliasType", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
