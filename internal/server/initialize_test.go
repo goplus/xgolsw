@@ -61,6 +61,7 @@ func TestServerInitialize(t *testing.T) {
 						Hover: &protocol.HoverClientCapabilities{
 							ContentFormat: []protocol.MarkupKind{protocol.Markdown},
 						},
+						CodeAction: codeActionClientCapabilitiesForTest().TextDocument.CodeAction,
 						Rename: &protocol.RenameClientCapabilities{
 							PrepareSupport: true,
 						},
@@ -120,6 +121,11 @@ func TestServerInitialize(t *testing.T) {
 		diagnosticProvider := requireValueAs[map[string]any](t, capabilities["diagnosticProvider"])
 		assert.Equal(t, true, diagnosticProvider["interFileDependencies"])
 		assert.Equal(t, false, diagnosticProvider["workspaceDiagnostics"])
+
+		codeActionProvider := requireValueAs[map[string]any](t, capabilities["codeActionProvider"])
+		assert.Equal(t, []any{"quickfix.xgo.mergeVarDeclarations"}, codeActionProvider["codeActionKinds"])
+		assert.NotContains(t, codeActionProvider, "resolveProvider")
+
 		assert.Equal(t, true, capabilities["documentFormattingProvider"])
 
 		renameProvider := requireValueAs[map[string]any](t, capabilities["renameProvider"])
@@ -145,12 +151,23 @@ func TestServerInitialize(t *testing.T) {
 
 		assert.NotContains(t, capabilities, "documentSymbolProvider")
 		assert.NotContains(t, capabilities, "workspaceSymbolProvider")
-		assert.NotContains(t, capabilities, "codeActionProvider")
 		assert.NotContains(t, capabilities, "codeLensProvider")
 		assert.NotContains(t, capabilities, "documentRangeFormattingProvider")
 		assert.NotContains(t, capabilities, "documentOnTypeFormattingProvider")
 		assert.NotContains(t, capabilities, "foldingRangeProvider")
 		assert.NotContains(t, capabilities, "selectionRangeProvider")
+	})
+
+	t.Run("CodeActionWithoutLiteralSupport", func(t *testing.T) {
+		capabilities := requireCapabilityMap(t, serverCapabilities(&InitializeParams{}))
+		assert.NotContains(t, capabilities, "codeActionProvider")
+	})
+
+	t.Run("CodeActionWithEmptyKindSet", func(t *testing.T) {
+		capabilities := codeActionClientCapabilitiesForTest()
+		capabilities.TextDocument.CodeAction.CodeActionLiteralSupport.CodeActionKind.ValueSet = []protocol.CodeActionKind{}
+		result := serverCapabilities(&InitializeParams{XInitializeParams: protocol.XInitializeParams{Capabilities: capabilities}})
+		assert.Contains(t, requireCapabilityMap(t, result), "codeActionProvider")
 	})
 
 	t.Run("RenameWithoutPrepareSupport", func(t *testing.T) {

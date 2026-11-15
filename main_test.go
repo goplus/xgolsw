@@ -140,6 +140,88 @@ class -embed *.actor Item
 	}
 }
 
+func TestXGoLanguageServerCodeAction(t *testing.T) {
+	const uri = "file:///main.actor"
+	const source = "var score int\nvar speed int = 10\n"
+	archive := testframework.NewPkgDataZip(t)
+	data := js.Global().Get("Uint8Array").New(len(archive))
+	js.CopyBytesToJS(data, archive)
+	handle, replies := newTestServer(t, "main.actor", source, map[string]any{
+		"classFrameworkConfig": "project main.actor App example.com/framework\nclass -embed *.actor Item\n",
+		"pkgDataZip":           data,
+	})
+	initialized := callTestServer(t, handle, replies, "initialize", map[string]any{
+		"capabilities": map[string]any{
+			"workspace": map[string]any{"workspaceEdit": map[string]any{"documentChanges": true}},
+			"textDocument": map[string]any{
+				"codeAction": map[string]any{
+					"codeActionLiteralSupport": map[string]any{
+						"codeActionKind": map[string]any{"valueSet": []any{"quickfix"}},
+					},
+				},
+			},
+		},
+	})
+	provider := initialized.Get("capabilities").Get("codeActionProvider")
+	require.False(t, provider.IsUndefined())
+	assert.Equal(t, "quickfix.xgo.mergeVarDeclarations", provider.Get("codeActionKinds").Index(0).String())
+	opened := handle.Call("handleMessage", js.ValueOf(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": uri, "languageId": "xgo", "version": 0, "text": source},
+		},
+	}))
+	require.True(t, opened.IsNull() || opened.IsUndefined())
+	params := map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+		"range": map[string]any{
+			"start": map[string]any{"line": 1, "character": 0},
+			"end":   map[string]any{"line": 1, "character": 0},
+		},
+		"context": map[string]any{"diagnostics": []any{}, "only": []any{"quickfix"}},
+	}
+	result := callTestServer(t, handle, replies, "textDocument/codeAction", params)
+	var actions []struct {
+		Kind string `json:"kind"`
+		Edit struct {
+			DocumentChanges []struct {
+				TextDocument struct {
+					URI     string `json:"uri"`
+					Version *int32 `json:"version"`
+				} `json:"textDocument"`
+				Edits []server.TextEdit `json:"edits"`
+			} `json:"documentChanges"`
+		} `json:"edit"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(js.Global().Get("JSON").Call("stringify", result).String()), &actions))
+	require.Len(t, actions, 1)
+	assert.Equal(t, "quickfix.xgo.mergeVarDeclarations", actions[0].Kind)
+	require.Len(t, actions[0].Edit.DocumentChanges, 1)
+	change := actions[0].Edit.DocumentChanges[0]
+	assert.Equal(t, uri, change.TextDocument.URI)
+	require.NotNil(t, change.TextDocument.Version)
+	assert.Zero(t, *change.TextDocument.Version)
+	edits := change.Edits
+	require.Len(t, edits, 2)
+	const want = "var (\n\tscore int\n\n\tspeed int = 10\n)\n"
+	assert.Equal(t, want, edits[0].NewText)
+	assert.Empty(t, edits[1].NewText)
+	changed := handle.Call("handleMessage", js.ValueOf(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didChange",
+		"params": map[string]any{
+			"textDocument":   map[string]any{"uri": uri, "version": 1},
+			"contentChanges": []any{map[string]any{"text": want}},
+		},
+	}))
+	require.True(t, changed.IsNull() || changed.IsUndefined())
+	result = callTestServer(t, handle, replies, "textDocument/codeAction", params)
+	assert.True(t, result.IsNull(), "the applied fix must not be offered again")
+	result = callTestServer(t, handle, replies, "textDocument/diagnostic", map[string]any{"textDocument": map[string]any{"uri": uri}})
+	assert.Zero(t, result.Get("items").Length())
+}
+
 func newTestServer(t *testing.T, filename, source string, options map[string]any) (js.Value, <-chan js.Value) {
 	t.Helper()
 	content := js.Global().Get("Uint8Array").New(len(source))

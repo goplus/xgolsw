@@ -32,6 +32,9 @@ type (
 	DocumentHighlightParams = protocol.DocumentHighlightParams
 	DocumentHighlight       = protocol.DocumentHighlight
 
+	CodeActionParams = protocol.CodeActionParams
+	CodeAction       = protocol.CodeAction
+
 	DocumentFormattingParams = protocol.DocumentFormattingParams
 
 	PrepareRenameParams = protocol.PrepareRenameParams

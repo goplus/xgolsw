@@ -58,9 +58,10 @@ type sourceFormatter func(snapshot *xgo.Project, filename string) (formatted []b
 // formatSource applies a series of formatters to a source file in order.
 //
 // The formatters are applied in the following order:
-//  1. XGo formatter
-//  2. Lambda parameter elimination
-//  3. Classfile declaration reordering
+//  1. Classfile field grouping
+//  2. XGo formatter
+//  3. Lambda parameter elimination
+//  4. Classfile declaration reordering
 func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, error) {
 	// Type checking can modify other classfiles too. Use fresh caches for all
 	// files and a fresh file set so temporary source positions are not retained
@@ -69,6 +70,7 @@ func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, 
 	snapshot.PutFile(filename, &xgo.File{Content: original})
 	formatted := original
 	for _, formatter := range []sourceFormatter{
+		formatClassFields,
 		formatXGo,
 		formatLambda,
 		formatClassDecls,
@@ -85,13 +87,50 @@ func formatSource(proj *xgo.Project, filename string, original []byte) ([]byte, 
 	return formatted, nil
 }
 
+// formatClassFields groups a single classfile var declaration before printing.
+func formatClassFields(snapshot *xgo.Project, filename string) ([]byte, error) {
+	file, err := snapshot.ASTFile(filename)
+	if err != nil || file == nil || !file.IsClass {
+		return nil, nil
+	}
+	var fields *ast.GenDecl
+	for _, decl := range file.Decls {
+		if decl, ok := decl.(*ast.GenDecl); ok && decl.Tok == token.VAR {
+			if fields != nil {
+				return nil, nil
+			}
+			fields = decl
+		}
+	}
+	if fields == nil || fields.Lparen.IsValid() {
+		return nil, nil
+	}
+	sources, commentEnds := classVarSources(snapshot, file, []*ast.GenDecl{fields})
+	grouped, err := formatClassVarDecls(snapshot, filename, file, sources, commentEnds)
+	if err != nil {
+		return nil, err
+	}
+	start, end := classVarEditOffsets(file.Code, sources[0].start, sources[0].end)
+	var formatted bytes.Buffer
+	formatted.Write(file.Code[:start])
+	formatted.Write(grouped)
+	formatted.Write(file.Code[end:])
+	return formatted.Bytes(), nil
+}
+
 // formatXGo formats a source file with XGo formatter.
 func formatXGo(snapshot *xgo.Project, filename string) ([]byte, error) {
 	file, ok := snapshot.File(filename)
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
-	formatted, err := format.Source(file.Content, snapshot.Module().ClassInfo, filename)
+	var formatted []byte
+	var err error
+	if astFile, parseErr := snapshot.ASTFile(filename); parseErr == nil && astFile != nil && astFile.IsClass {
+		formatted, err = formatFileWithClassTags(snapshot, filename, astFile)
+	} else {
+		formatted, err = format.Source(file.Content, snapshot.Module().ClassInfo, filename)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -112,19 +151,17 @@ func formatLambda(snapshot *xgo.Project, filename string) ([]byte, error) {
 	eliminateUnusedLambdaParams(snapshot, astFile)
 
 	// Format the modified AST.
-	var formattedBuf bytes.Buffer
-	if err := format.Node(&formattedBuf, snapshot.Fset, astFile); err != nil {
+	formatted, err := formatFileWithClassTags(snapshot, filename, astFile)
+	if err != nil {
 		return nil, err
 	}
-
-	formatted := formattedBuf.Bytes()
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
 	return formatted, nil
 }
 
-// formatClassDecls reorders classfile declarations and groups class fields.
+// formatClassDecls reorders classfile declarations after field grouping.
 func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 	astFile, _ := snapshot.ASTFile(filename)
 	if astFile == nil || !astFile.IsClass {
@@ -230,15 +267,15 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 		}
 	}
 
-	// Reorder declarations: imports -> types -> methods -> consts -> vars -> funcs -> others.
+	// Class fields must precede all functions, including explicit receiver methods.
 	sortedDecls := make([]ast.Decl, 0, len(astFile.Decls))
 	sortedDecls = append(sortedDecls, importDecls...)
 	sortedDecls = append(sortedDecls, typeDecls...)
-	sortedDecls = append(sortedDecls, methodDecls...)
 	sortedDecls = append(sortedDecls, constDecls...)
 	if varDecl != nil {
 		sortedDecls = append(sortedDecls, varDecl)
 	}
+	sortedDecls = append(sortedDecls, methodDecls...)
 	sortedDecls = append(sortedDecls, funcDecls...)
 	sortedDecls = append(sortedDecls, otherDecls...)
 
@@ -275,86 +312,21 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 
 	// Handle declarations and floating comments in order of their position.
 	processDecl := func(decl ast.Decl) {
-		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.VAR {
-			ensureTrailingNewlines(2)
-
-			var doc []byte
-			if genDecl.Doc != nil && len(genDecl.Doc.List) > 0 {
-				docStart := fset.Position(genDecl.Doc.Pos()).Offset
-				docEnd := fset.Position(genDecl.Doc.End()).Offset
-				doc = astFile.Code[docStart:docEnd]
-			}
-
-			if doc != nil && genDecl.Lparen.IsValid() {
-				formattedBuf.Write(doc)
-				formattedBuf.WriteByte('\n')
-				doc = nil
-			}
-
-			formattedBuf.WriteString("var (")
-			if doc != nil {
-				formattedBuf.WriteByte('\n')
-				formattedBuf.Write(doc)
-				formattedBuf.WriteByte('\n')
-			}
-
-			var bodyStartPos token.Pos
-			if genDecl.Lparen.IsValid() {
-				if cg := findInlineComments(genDecl.Lparen); cg != nil {
-					cgStart := fset.Position(cg.Pos()).Offset
-					cgEnd := fset.Position(cg.End()).Offset
-					formattedBuf.Write(astFile.Code[cgStart:cgEnd])
-					formattedBuf.WriteByte('\n')
-					bodyStartPos = cg.End() + 1
-				} else {
-					bodyStartPos = genDecl.Lparen + 1
-				}
-			} else {
-				bodyStartPos = genDecl.Pos() + token.Pos(len(genDecl.Tok.String())) + 1
-			}
-			var bodyEndPos token.Pos
-			if genDecl.Rparen.IsValid() {
-				bodyEndPos = genDecl.Rparen - 1
-			} else {
-				bodyEndPos = genDecl.End()
-				if cg := findInlineComments(bodyEndPos); cg != nil {
-					bodyEndPos = cg.End()
-				}
-			}
-			bodyStart := fset.Position(bodyStartPos).Offset
-			bodyEnd := fset.Position(bodyEndPos).Offset
-			if bodyStart < bodyEnd {
-				formattedBuf.Write(astFile.Code[bodyStart:bodyEnd])
-			}
-			formattedBuf.WriteByte('\n')
-
-			formattedBuf.WriteString(")")
-			if genDecl.Rparen.IsValid() {
-				if cg := findInlineComments(genDecl.Rparen); cg != nil {
-					cgStart := fset.Position(cg.Pos()).Offset
-					cgEnd := fset.Position(cg.End()).Offset
-					formattedBuf.WriteByte(' ')
-					formattedBuf.Write(astFile.Code[cgStart:cgEnd])
-				}
-			}
-			formattedBuf.WriteByte('\n')
-		} else {
-			startPos := decl.Pos()
-			if doc := getDeclDoc(decl); doc != nil {
-				startPos = doc.Pos()
-			}
-
-			endPos := decl.End()
-			if cg := findInlineComments(endPos); cg != nil {
-				endPos = cg.End()
-			}
-
-			ensureTrailingNewlines(2)
-			start := fset.Position(startPos).Offset
-			end := fset.Position(endPos).Offset
-			formattedBuf.Write(astFile.Code[start:end])
-			ensureTrailingNewlines(1)
+		startPos := decl.Pos()
+		if doc := getDeclDoc(decl); doc != nil {
+			startPos = doc.Pos()
 		}
+
+		endPos := decl.End()
+		if cg := findInlineComments(endPos); cg != nil {
+			endPos = cg.End()
+		}
+
+		ensureTrailingNewlines(2)
+		start := fset.Position(startPos).Offset
+		end := fset.Position(endPos).Offset
+		formattedBuf.Write(astFile.Code[start:end])
+		ensureTrailingNewlines(1)
 	}
 
 	// Process all comments and declarations before shadow entry.
@@ -414,7 +386,7 @@ func formatClassDecls(snapshot *xgo.Project, filename string) ([]byte, error) {
 	if len(formatted) == 0 || string(formatted) == "\n" {
 		return []byte{}, nil
 	}
-	return format.Source(formatted, snapshot.Module().ClassInfo, filename)
+	return formatClassSource(snapshot, filename, formatted)
 }
 
 // getDeclDoc returns the doc comment of a declaration if any.
