@@ -11,6 +11,29 @@ import (
 )
 
 func TestServerTextDocumentCompletion(t *testing.T) {
+	t.Run("ClassFieldInitializerError", func(t *testing.T) {
+		source, position := typeDisplayTestSource(t, `var (
+items []int = [missing]
+count = len(items)
+)
+println co|unt
+`)
+		s := newImportTestServer(t, map[string][]byte{"Record.gox": []byte(source)})
+		t.Cleanup(s.Close)
+		diagnostics := s.getDiagnostics(t, "Record.gox")
+		require.Len(t, diagnostics, 1)
+		assert.Equal(t, "undefined: missing", diagnostics[0].Message)
+		items := completionItemsAt(t, s, "Record.gox", position)
+		require.NotNil(t, completionItemByLabel(items, "count"))
+		definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: "file:///Record.gox"}, Position: position,
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI: "file:///Record.gox", Range: Range{Start: Position{Line: 2}, End: Position{Line: 2, Character: 5}},
+		}, requireValueAs[Location](t, definition))
+	})
+
 	t.Run("MemberAccessAtLineStart", func(t *testing.T) {
 		for _, tt := range []struct {
 			name     string

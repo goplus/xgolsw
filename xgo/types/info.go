@@ -47,8 +47,12 @@ type Info struct {
 }
 
 // TypeOf returns the source expression's type, including an implicit call's
-// result when available. ObjectOf still returns the callable declaration.
+// result when available, or nil for an absent expression. ObjectOf still returns
+// the callable declaration.
 func (i *Info) TypeOf(expr ast.Expr) gotypes.Type {
+	if expr == nil {
+		return nil
+	}
 	if typ := i.ImplicitCallTypes[expr]; typ != nil {
 		return typ
 	}
@@ -89,6 +93,9 @@ func (i *Info) SourceObjectOf(ident *ast.Ident) gotypes.Object {
 // including generic members and the branch variables of a type switch.
 // Objects without a recorded declaration, including nil, retain their origin.
 func (i *Info) ObjectDeclaration(obj gotypes.Object) gotypes.Object {
+	if obj == nil {
+		return nil
+	}
 	obj = ObjectOrigin(obj)
 	if ident := i.ObjToDef[obj]; ident != nil {
 		if declaration := i.Defs[ident]; declaration != nil {

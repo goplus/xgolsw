@@ -488,6 +488,10 @@ func TestServerGetDiagnostics(t *testing.T) {
 			Severity: SeverityError, Message: "invalid recursive interface Broken",
 			Range: Range{Start: Position{Character: 5}, End: Position{Character: 11}},
 		}}},
+		{name: "RecursiveAlias", content: "type Box = Box\n", want: []Diagnostic{{
+			Severity: SeverityError, Message: "Box is not a type",
+			Range: Range{Start: Position{Character: 11}, End: Position{Character: 14}},
+		}}},
 		{name: "UndefinedImport", content: "fmt.println \"hello\"\n", want: []Diagnostic{{
 			Severity: SeverityError, Message: "undefined: fmt",
 			Range: Range{Start: Position{}, End: Position{Character: 3}},

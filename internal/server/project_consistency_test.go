@@ -176,6 +176,12 @@ func TestServerRequestsWithInvalidAliases(t *testing.T) {
 			info, err := s.requestProject().TypeInfo()
 			require.NotNil(t, info)
 			require.Error(t, err)
+			diagnostics := s.getDiagnostics(t, "main.xgo")
+			require.NotEmpty(t, diagnostics)
+			for _, diagnostic := range diagnostics {
+				assert.Equal(t, SeverityError, diagnostic.Severity)
+				assert.NotEqual(t, diagnostic.Range.Start, diagnostic.Range.End)
+			}
 			p := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos}
 			want := projectRequestObservations(t, s, p, false)
 			assert.Equal(t, want, projectRequestObservations(t, s, p, true))
