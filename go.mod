@@ -8,7 +8,7 @@ require (
 	github.com/goplus/gogen v1.26.6
 	github.com/goplus/mod v0.22.1
 	github.com/goplus/spx/v4 v4.0.1
-	github.com/goplus/xgo v1.7.6-0.20261115003950-a1dd82cfaacf
+	github.com/goplus/xgo v1.7.6-0.20261117032613-ab944d438e3a
 	github.com/qiniu/x v1.19.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.42.0
