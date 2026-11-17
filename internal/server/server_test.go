@@ -434,7 +434,7 @@ println x
 }
 
 func TestServerClose(t *testing.T) {
-	for _, stage := range []string{"BeforeScheduling", "DuringScheduling", "DuringAnalysis"} {
+	for _, stage := range []string{"BeforeScheduling", "DuringScheduling", "DuringSchedulingSleep", "DuringAnalysis"} {
 		t.Run(stage, func(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("println 1\n")})
 			replier := newMockReplier()
@@ -448,8 +448,11 @@ func TestServerClose(t *testing.T) {
 				}
 				call, err := jsonrpc2.NewCall(jsonrpc2.NewIntID(1), "shutdown", nil)
 				require.NoError(t, err)
+				if stage == "BeforeScheduling" {
+					s.Close()
+				}
 				var ran bool
-				var outcome error
+				completed := make(chan error, 1)
 				s.runForCallWithReplyHook(call, func() (any, error) {
 					ran = true
 					if stage == "DuringAnalysis" {
@@ -457,13 +460,18 @@ func TestServerClose(t *testing.T) {
 						<-resume
 					}
 					return nil, nil
-				}, func(err error) { outcome = err })
-				if stage != "BeforeScheduling" {
+				}, func(err error) { completed <- err })
+				switch stage {
+				case "DuringSchedulingSleep":
+					synctest.Wait()
+				case "DuringScheduling", "DuringAnalysis":
 					<-entered
 				}
 				s.Close()
 				s.Close()
 				release()
+				// Wait for completion even if the scheduler is sleeping.
+				outcome := <-completed
 				synctest.Wait()
 				assert.Equal(t, stage == "DuringAnalysis", ran)
 				assert.ErrorIs(t, outcome, ErrClosed)
