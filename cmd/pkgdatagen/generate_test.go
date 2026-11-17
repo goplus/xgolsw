@@ -44,21 +44,27 @@ func TestGenerate(t *testing.T) {
 				"fixture.go": "// Package " + tt.pkgName + " provides fixture values.\npackage " + tt.pkgName + `
 
 // Limit bounds the number of records.
+//xgols:notrecommended
 const Limit = 7
 
 // Current holds the active record.
+//xgols:notrecommended
 var Current Record
 
 // Record holds a number.
+//xgols:notrecommended
 type Record struct {
     // Number is the stored number.
+    //xgols:notrecommended
     Number int
 }
 
 // Double returns twice the stored number.
+//xgols:notrecommended
 func (r Record) Double() int { return r.Number * 2 }
 
 // Add returns the sum of its arguments.
+//xgols:notrecommended
 func Add(left, right int) int { return left + right }
 `,
 				"platform_js.go":    "package " + tt.pkgName + "\n\n// WasmOnly belongs to the browser build.\nconst WasmOnly = true\n",
@@ -133,7 +139,24 @@ func (r Record) Backend() string { return Mode }
 						"Backend": "Backend describes the " + tt.mode + " backend.\n",
 					},
 				}},
+				Declarations: map[string]pkgdoc.DeclarationMetadata{
+					"Limit":         {NotRecommended: true},
+					"Current":       {NotRecommended: true},
+					"Record":        {NotRecommended: true},
+					"Record.Number": {NotRecommended: true},
+					"Record.Double": {NotRecommended: true},
+					"Add":           {NotRecommended: true},
+				},
 			}, doc)
+			assert.True(t, doc.ObjectMetadata(add).NotRecommended)
+			assert.True(t, doc.ObjectMetadata(limit).NotRecommended)
+			record := generatedNamedType(t, pkg, "Record")
+			field, _, _ := gotypes.LookupFieldOrMethod(record, false, pkg, "Number")
+			require.NotNil(t, field)
+			assert.True(t, doc.ObjectMetadata(field).NotRecommended)
+			method, _, _ := gotypes.LookupFieldOrMethod(record, false, pkg, "Double")
+			require.NotNil(t, method)
+			assert.True(t, doc.ObjectMetadata(method).NotRecommended)
 		})
 	}
 

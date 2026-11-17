@@ -168,7 +168,8 @@ func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc)
 	}
 
 	return symbolDefinition{
-		TypeHint: c.Type(),
+		TypeHint:     c.Type(),
+		SourceObject: c,
 
 		ID: XGoDefinitionIdentifier{
 			Package: new(xgoutil.PkgPath(c.Pkg())),
@@ -197,7 +198,8 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 	}
 
 	return symbolDefinition{
-		TypeHint: typeName.Type(),
+		TypeHint:     typeName.Type(),
+		SourceObject: typeName,
 
 		ID: XGoDefinitionIdentifier{
 			Package: new(xgoutil.PkgPath(typeName.Pkg())),

@@ -42,6 +42,7 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 		return nil, nil
 	}
 	ctx := newInputSlotContext(proj, astFile)
+	ctx.recommendations = newRecommendationPolicy(proj, s.lookupPkgDoc)
 	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
@@ -58,6 +59,7 @@ type inputSlotContext struct {
 	imports                  *fileImports
 	autoProperties           *autoPropertyResolver
 	packageProperties        *autoPropertyResolver
+	recommendations          *recommendationPolicy
 	astFile                  *ast.File
 	astPkg                   *ast.Package
 	typeInfo                 *types.Info
@@ -88,6 +90,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 	}
 	return &inputSlotContext{
 		proj:                     proj,
+		recommendations:          newRecommendationPolicy(proj, nil),
 		predefinedScopes:         append(predefinedScopes, gotypes.Universe),
 		imports:                  imports,
 		astFile:                  astFile,
@@ -464,6 +467,9 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 		// A visible declaration shadows outer names even when its type
 		// cannot be used in this slot.
 		seenNames[name] = struct{}{}
+		if ctx.recommendations.notRecommended(obj) {
+			return
+		}
 		if _, variable := obj.(*gotypes.Var); kind == XGoInputSlotKindAddress && !variable {
 			return
 		}
@@ -495,6 +501,9 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 			return
 		}
 		seenNames[name] = struct{}{}
+		if ctx.recommendations.notRecommended(property.object) || property.function != nil && ctx.recommendations.notRecommended(property.function) {
+			return
+		}
 		_, tuple := property.typ.(*gotypes.Tuple)
 		if kind == XGoInputSlotKindValue && xgoutil.IsValidType(property.typ) && !tuple && (declaredType == nil || gotypes.AssignableTo(property.typ, declaredType)) {
 			names = append(names, name)
@@ -527,6 +536,9 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 					continue
 				}
 				seenNames[name] = struct{}{}
+				if ctx.recommendations.notRecommended(property.object) || property.function != nil && ctx.recommendations.notRecommended(property.function) {
+					continue
+				}
 				_, tuple := property.typ.(*gotypes.Tuple)
 				if kind == XGoInputSlotKindValue && xgoutil.IsValidType(property.typ) && !tuple && (declaredType == nil || gotypes.AssignableTo(property.typ, declaredType)) {
 					names = append(names, name)
