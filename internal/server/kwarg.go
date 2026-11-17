@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -244,8 +245,9 @@ func lookupOverloadCallExprKwargTargets(typeInfo *types.Info, callExpr *ast.Call
 	return targets
 }
 
-// callExprFuncOverloads returns overloads available at callExpr. The recorded
-// declaration preserves all candidates after type checking selects one member.
+// callExprFuncOverloads returns callable candidates for overloads and static
+// members at callExpr. The recorded declaration preserves all candidates after
+// type checking selects one member.
 func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*gotypes.Func {
 	funIdent := xgoutil.CallExprFunIdent(callExpr)
 	if funIdent == nil {
@@ -257,6 +259,16 @@ func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*goty
 	}
 	if fun == nil {
 		return nil
+	}
+	ext, _ := gogen.CheckFuncEx(fun.Signature())
+	if member, ok := ext.(*gogen.TyStaticMember); ok {
+		fun, _ = member.Obj().(*gotypes.Func)
+		if fun == nil {
+			return nil
+		}
+		if _, ok := gogen.CheckFuncEx(fun.Signature()); !ok {
+			return []*gotypes.Func{fun}
+		}
 	}
 	return xgoutil.ExpandXGoOverloadableFunc(fun)
 }

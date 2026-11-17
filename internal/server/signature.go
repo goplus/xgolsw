@@ -54,54 +54,55 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		funcDecorator = false
 	}
 
-	var (
-		fun             *gotypes.Func
-		sig             *gotypes.Signature
-		resolvedParams  *gotypes.Tuple
-		activeParameter int
-		displayedName   string
-	)
-	if callExpr != nil {
-		fun, sig, resolvedParams = xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
-		if sig == nil {
-			return ctx.overloadSignatureHelp(typeInfo, callExpr, pos, documentationKind), nil
-		}
-		activeParameter = signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
-		if funcDecorator {
-			visibleParams, ok := funcDecoratorParams(sig)
-			if !ok {
+	if callExpr == nil {
+		ident := signatureHelpIdentAtPosition(typeInfo, astFile, pos)
+		switch obj := typeInfo.ObjectOf(ident).(type) {
+		case *gotypes.Func:
+		case *gotypes.Var:
+			// A property alias exposes the result type. Signature help needs
+			// the callable stored in the variable.
+			sig := signatureType(obj.Type())
+			if sig == nil {
 				return nil, nil
 			}
-			resolvedParams = visibleParams
-			if activeParameter >= resolvedParams.Len() {
-				activeParameter = -1
-			}
-		}
-	} else {
-		ident := signatureHelpIdentAtPosition(typeInfo, astFile, pos)
-		obj := typeInfo.ObjectOf(ident)
-		switch obj.(type) {
-		case *gotypes.Func, *gotypes.Var:
+			return &SignatureHelp{Signatures: []SignatureInformation{
+				ctx.signatureHelpInformation(nil, sig, sig.Params(), ident.Name, documentationKind),
+			}}, nil
 		default:
 			return nil, nil
 		}
-		fun, _ = obj.(*gotypes.Func)
-		sig = signatureType(obj.Type())
-		if sig == nil {
+
+		// Resolve bare functions without arguments, keeping their selectors
+		// so method-expression receivers use the same normalization as calls.
+		callee := ast.Expr(ident)
+		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
+			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel == ident {
+				callee = selector
+				break
+			}
+		}
+		callExpr = &ast.CallExpr{Fun: callee}
+	}
+
+	fun, sig, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
+	if sig == nil {
+		return ctx.overloadSignatureHelp(typeInfo, callExpr, pos, documentationKind), nil
+	}
+	activeParameter := signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
+	if funcDecorator {
+		visibleParams, ok := funcDecoratorParams(sig)
+		if !ok {
 			return nil, nil
 		}
-		resolvedParams = sig.Params()
-		activeParameter = 0
-		if fun == nil {
-			displayedName = ident.Name
+		resolvedParams = visibleParams
+		if activeParameter >= resolvedParams.Len() {
+			activeParameter = -1
 		}
 	}
 
-	if callExpr != nil {
-		displayedName = signatureHelpResolvedCallName(typeInfo, callExpr, fun)
-		if fun == nil {
-			displayedName = cmp.Or(signatureHelpCallName(callExpr), "func")
-		}
+	displayedName := signatureHelpResolvedCallName(typeInfo, callExpr, fun)
+	if fun == nil {
+		displayedName = cmp.Or(signatureHelpCallName(callExpr), "func")
 	}
 	help := &SignatureHelp{
 		Signatures: []SignatureInformation{ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, documentationKind)},
