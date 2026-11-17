@@ -5,7 +5,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +23,16 @@ func handle = (
     handleName
 )
 `
+
+func TestCallExprFuncOverloads(t *testing.T) {
+	receiver := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, nil, "Record", nil), gotypes.NewStruct(nil, nil), nil)
+	value := gotypes.NewVar(token.NoPos, nil, "Count", gotypes.Typ[gotypes.Int])
+	member := gogen.NewStaticMember(receiver, token.NoPos, nil, "Count", value)
+	ident := &ast.Ident{Name: "Count"}
+	info := new(types.Info)
+	info.Uses = map[*ast.Ident]gotypes.Object{ident: member}
+	assert.Nil(t, callExprFuncOverloads(info, &ast.CallExpr{Fun: ident}))
+}
 
 func TestResolvedCallExprArgs(t *testing.T) {
 	t.Run("UnresolvedOverloadKwargs", func(t *testing.T) {

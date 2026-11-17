@@ -90,6 +90,165 @@ func handle = (
 		}
 	})
 
+	t.Run("OverloadIdentifiers", func(t *testing.T) {
+		const declarations = `func ints(value int) int { return value }
+func texts(value string) string { return value }
+`
+		for _, tt := range []struct {
+			name, source, wantError string
+			want                    []string
+		}{
+			{"Declaration", declarations + "func ch|oose = (ints; texts)\n", "", []string{"choose(value int) int", "choose(value string) string"}},
+			{"Reference", declarations + "func choose = (ints; texts)\nch|oose\n", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"ResolvedReference", declarations + "func zero() int { return 0 }\nfunc choose = (zero; ints)\nch|oose\n", "", []string{"choose() int"}},
+			{"PartiallyResolved", declarations + "func choose = (ints; missing)\nch|oose\n", "not enough arguments", []string{"choose(value int) int"}},
+			{"Unresolved", "func choose = (missing; absent)\nch|oose\n", "undefined: choose", nil},
+			{"FunctionVariableDeclaration", "var us|e func(value int) int\n", "", []string{"use(value int) int"}},
+			{"IncompleteFunctionVariable", "var use func(value int) int = missing\n_ = us|e\n", "undefined: missing", []string{"use(value int) int"}},
+			{"ImplicitFunctionVariable", "var Get = func() int { return 1 }\n_ = ge|t\n", "", []string{"get() int"}},
+			{"ImplicitFactoryVariable", "var Get = func() func(int) string { return nil }\n_ = ge|t\n", "", []string{"get() func(int) string"}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, tt.source)
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				_, err := s.requestProject().TypeInfo()
+				if tt.wantError != "" {
+					require.ErrorContains(t, err, tt.wantError)
+				} else {
+					require.NoError(t, err)
+				}
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+				}})
+				require.NoError(t, err)
+				if tt.want == nil {
+					assert.Nil(t, help)
+					return
+				}
+				require.NotNil(t, help)
+				var labels []string
+				for _, signature := range help.Signatures {
+					labels = append(labels, signature.Label)
+				}
+				assert.Equal(t, tt.want, labels)
+				assert.Zero(t, help.ActiveParameter)
+			})
+		}
+	})
+
+	t.Run("ImportedOverloadIdentifiers", func(t *testing.T) {
+		const functions = `func Choose__0(value int) int { return value }
+func Choose__1(value string) string { return value }
+`
+		const methods = `func (Item) Choose__0(value int) int { return value }
+func (Item) Choose__1(value string) string { return value }
+`
+		const pointerMethods = `func (*Item) Choose__0(value int) int { return value }
+func (*Item) Choose__1(value string) string { return value }
+`
+		for _, tt := range []struct {
+			name, declarations, source, wantError string
+			want                                  []string
+		}{
+			{"Function", functions, "f.ch|oose", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"FunctionReference", functions, "_ = f.Ch|oose", "", []string{"Choose(value int) int", "Choose(value string) string"}},
+			{"Parenthesized", functions, "_ = (f.Ch|oose)", "", []string{"Choose(value int) int", "Choose(value string) string"}},
+			{"ResolvedCall", functions, "f.ch|oose(1)", "", []string{"choose(value int) int"}},
+			{"FunctionVariable", "var Choose = func(value int) int { return value }\n", "_ = f.Ch|oose", "", []string{"Choose(value int) int"}},
+			{"ImplicitFunctionVariable", "var Choose = func() int { return 1 }\n", "_ = f.ch|oose", "", []string{"choose() int"}},
+			{"AliasedFunctionVariable", "type Callback = func(value int) int\nvar Choose Callback\n", "_ = f.Ch|oose", "", []string{"Choose(value int) int"}},
+			{"FunctionField", "type Callback struct { Choose func(value int) int }\n", "var value f.Callback\n_ = value.Ch|oose", "", []string{"Choose(value int) int"}},
+			{"Method", methods, "var item f.Item\nitem.ch|oose", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"PointerMethod", pointerMethods, "var item f.Item\nitem.ch|oose", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"MethodExpression", methods, "_ = f.Item.ch|oose", "", []string{"choose(f.Item, value int) int", "choose(f.Item, value string) string"}},
+			{"PlainMethodExpression", "func (Item) Choose(value int) int { return value }\n", "_ = f.Item.ch|oose", "", []string{"choose(f.Item, value int) int"}},
+			{"PointerMethodExpression", pointerMethods, "_ = (*f.Item).ch|oose", "", []string{"choose(*f.Item, value int) int", "choose(*f.Item, value string) string"}},
+			{"PromotedMethodExpression", methods + "type Record struct { Item }\n", "_ = f.Record.ch|oose", "", []string{"choose(f.Record, value int) int", "choose(f.Record, value string) string"}},
+			{"TemplateMethod", `func XGot_Item_Choose__0(item *Item, value int) int { return value }
+func XGot_Item_Choose__1(item *Item, value string) string { return value }
+`, "var item f.Item\nitem.ch|oose", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"TemplateZeroArgument", `func XGot_Item_Choose__0(item *Item, value int) int { return value }
+func XGot_Item_Choose__1(item *Item) int { return 0 }
+`, "var item f.Item\nitem.ch|oose", "", []string{"choose() int"}},
+			{"StaticMethod", `func XGos_Item_Choose__0(value int) int { return value }
+func XGos_Item_Choose__1(value string) string { return value }
+`, "_ = f.Item.ch|oose", "", []string{"choose(value int) int", "choose(value string) string"}},
+			{"StaticFunction", "func XGos_Item_Choose(value int) int { return value }\n", "_ = f.Item.ch|oose", "", []string{"choose(value int) int"}},
+			{"StaticValue", "var XGos_Item_Choose = 1\n", "_ = f.Item.Ch|oose", "", nil},
+			{"AutoProperty", `func Choose__0() int { return 0 }
+func Choose__1(value int) int { return value }
+`, "_ = f.ch|oose", "", []string{"choose() int"}},
+			{"StaticZeroArgument", `func XGos_Item_Choose__0(value int) int { return value }
+func XGos_Item_Choose__1() int { return 0 }
+`, "f.Item.ch|oose", "", []string{"choose() int"}},
+			{"UnicodePrefix", functions, "/* \U0001F600 */ f.ch|oose", "not enough arguments", []string{"choose(value int) int", "choose(value string) string"}},
+			{"TypeParameters", `func XGox_Choose__0[T any](value T) T { return value }
+func XGox_Choose__1[T any](value T, label string) T { return value }
+`, "_ = f.Ch|oose", "", []string{"Choose(T Type, value T) T", "Choose(T Type, value T, label string) T"}},
+			{"ExplicitSparseGroup", `func Choose__0(value int) int { return value }
+func Choose__2(value string) string { return value }
+const XGoo_Choose = "Choose__0,Choose__2"
+`, "_ = f.Ch|oose", "", []string{"Choose(value int) int", "Choose(value string) string"}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, "import f \"example.com/framework\"\n"+tt.source+"\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				setImportTestFrameworkMethods(t, s, tt.declarations)
+				_, err := s.requestProject().TypeInfo()
+				if tt.wantError != "" {
+					require.ErrorContains(t, err, tt.wantError)
+				} else {
+					require.NoError(t, err)
+				}
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+				}})
+				require.NoError(t, err)
+				if tt.want == nil {
+					assert.Nil(t, help)
+					return
+				}
+				require.NotNil(t, help)
+				var labels []string
+				for _, signature := range help.Signatures {
+					labels = append(labels, signature.Label)
+				}
+				assert.Equal(t, tt.want, labels)
+				assert.Zero(t, help.ActiveParameter)
+			})
+		}
+	})
+
+	t.Run("FrameworkOverloadIdentifier", func(t *testing.T) {
+		source, pos := typeDisplayTestSource(t, `onStart => {
+    mea|sure
+}
+`)
+		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.ErrorContains(t, err, "not enough arguments")
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main_fixture.gox")}, Position: pos,
+		}})
+		require.NoError(t, err)
+		require.NotNil(t, help)
+		assert.Equal(t, []SignatureInformation{
+			{
+				Label:         "measure(value int) int",
+				Documentation: &protocol.Or_SignatureInformation_documentation{Value: "Measure__0 is the integer overload of Measure."},
+				Parameters:    []ParameterInformation{{Label: "value int"}},
+			},
+			{
+				Label:         "measure(value string) int",
+				Documentation: &protocol.Or_SignatureInformation_documentation{Value: "Measure__1 is the string overload of Measure."},
+				Parameters:    []ParameterInformation{{Label: "value string"}},
+			},
+		}, help.Signatures)
+	})
+
 	for _, tt := range []struct {
 		name     string
 		filename string
@@ -393,6 +552,22 @@ func run() {
 		assert.Equal(t, "retry(times int)", help.Signatures[0].Label)
 		_, err = s.workspaceRootFS.TypeInfo()
 		assert.NoError(t, err)
+	})
+
+	t.Run("InvalidFuncDecorator", func(t *testing.T) {
+		source, pos := typeDisplayTestSource(t, `func wrap(fn func(int)) {}
+@wr|ap
+func run() {}
+`)
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.ErrorContains(t, err, "invalid decorator")
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+		}})
+		require.NoError(t, err)
+		assert.Nil(t, help)
 	})
 
 	t.Run("FuncDecoratorReturningError", func(t *testing.T) {
