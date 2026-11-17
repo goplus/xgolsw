@@ -48,7 +48,7 @@ func funcDecoratorParams(sig *gotypes.Signature) (*gotypes.Tuple, bool) {
 		return nil, false
 	}
 
-	fn, ok := params.At(params.Len() - 1).Type().(*gotypes.Signature)
+	fn, ok := gotypes.Unalias(params.At(params.Len() - 1).Type()).(*gotypes.Signature)
 	if !ok || fn.Params().Len() != 0 {
 		return nil, false
 	}
@@ -56,7 +56,7 @@ func funcDecoratorParams(sig *gotypes.Signature) (*gotypes.Tuple, bool) {
 	case 0:
 	case 1:
 		errorType := gotypes.Universe.Lookup("error").Type()
-		if fn.Results().At(0).Type() != errorType {
+		if gotypes.Unalias(fn.Results().At(0).Type()) != errorType {
 			return nil, false
 		}
 	default:

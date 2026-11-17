@@ -15,6 +15,103 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFuncDecoratorParams(t *testing.T) {
+	for _, tt := range []struct {
+		name, declarations, parameters string
+		wantCount                      int
+		wantValid                      bool
+	}{
+		{"Plain", "", "value int, fn func()", 1, true},
+		{"PlainError", "", "value int, fn func() error", 1, true},
+		{"CallbackAlias", "type Callback = func()", "value int, fn Callback", 1, true},
+		{"CallbackAliasChain", "type Callback = func()\ntype Next = Callback", "value int, fn Next", 1, true},
+		{"ErrorAlias", "type Failure = error", "value int, fn func() Failure", 1, true},
+		{"ErrorAliasChain", "type Failure = error\ntype Next = Failure", "value int, fn func() Next", 1, true},
+		{"CallbackAndErrorAliases", "type Failure = error\ntype Callback = func() Failure", "value int, fn Callback", 1, true},
+		{"GenericCallbackAlias", "type Callback[T any] = func() T", "value int, fn Callback[error]", 1, true},
+		{"NoExplicitArguments", "type Callback = func()", "fn Callback", 0, true},
+		{"MultipleExplicitArguments", "type Callback = func()", "value int, label string, fn Callback", 2, true},
+		{"NoCallback", "", "", 0, false},
+		{"NonFunctionAlias", "type Callback = int", "value int, fn Callback", 0, false},
+		{"CallbackWithArguments", "type Callback = func(int)", "value int, fn Callback", 0, false},
+		{"VariadicCallback", "type Callback = func(...int)", "value int, fn Callback", 0, false},
+		{"WrongResult", "type Callback = func() int", "value int, fn Callback", 0, false},
+		{"MultipleResults", "type Callback = func() (int, error)", "value int, fn Callback", 0, false},
+		{"DefinedCallback", "type Callback func()", "value int, fn Callback", 0, false},
+		{"AliasToDefinedCallback", "type Callback func()\ntype Next = Callback", "value int, fn Next", 0, false},
+		{"DefinedError", "type Failure interface { Error() string }", "value int, fn func() Failure", 0, false},
+		{"AliasToDefinedError", "type Failure interface { Error() string }\ntype Next = Failure", "value int, fn func() Next", 0, false},
+		{"AnonymousErrorAlias", "type Failure = interface { Error() string }", "value int, fn func() Failure", 0, false},
+		{"VariadicDecorator", "", "value int, fn ...func()", 0, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := goparser.ParseFile(fset, "decorator.go", "package decorator\n"+tt.declarations+"\nfunc Decorate("+tt.parameters+") {}\n", 0)
+			require.NoError(t, err)
+			pkg, err := new(gotypes.Config).Check("decorator", fset, []*goast.File{file}, nil)
+			require.NoError(t, err)
+			function := requireValueAs[*gotypes.Func](t, pkg.Scope().Lookup("Decorate"))
+			signature := function.Signature()
+			params, valid := funcDecoratorParams(signature)
+			require.Equal(t, tt.wantValid, valid)
+			if !valid {
+				assert.Nil(t, params)
+				return
+			}
+			require.Equal(t, tt.wantCount, params.Len())
+			for i := range params.Len() {
+				assert.Same(t, signature.Params().At(i), params.At(i))
+			}
+		})
+	}
+}
+
+func TestServerCallExpressionDecoratorAliases(t *testing.T) {
+	for _, tt := range []struct {
+		name, declarations, callback string
+		returnsError                 bool
+	}{
+		{"Plain", "", "func()", false},
+		{"CallbackAlias", "type Callback = func()", "Callback", false},
+		{"CallbackAliasChain", "type Callback = func()\ntype Next = Callback", "Next", false},
+		{"ErrorAlias", "type Failure = error", "func() Failure", true},
+		{"ErrorAliasChain", "type Failure = error\ntype Next = Failure", "func() Next", true},
+		{"CallbackAndErrorAliases", "type Failure = error\ntype Callback = func() Failure", "Callback", true},
+		{"GenericCallbackAlias", "type Callback[T any] = func() T", "Callback[error]", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			function := "func run() {}\n"
+			if tt.returnsError {
+				function = "func run() error { return nil }\n"
+			}
+			source, pos := typeDisplayTestSource(t, `import . "example.com/framework"
+const (
+count = 1
+comment = "text"
+)
+@decorate(co|unt)
+`+function)
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, tt.declarations+"\nfunc Decorate(value int, fn "+tt.callback+") {}\n")
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			assert.Empty(t, s.getDiagnostics(t, "main.xgo"))
+			labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
+			assert.Contains(t, labels, "count")
+			assert.NotContains(t, labels, "comment")
+			help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+			}})
+			require.NoError(t, err)
+			require.NotNil(t, help)
+			require.Len(t, help.Signatures, 1)
+			assert.Equal(t, "decorate(value int)", help.Signatures[0].Label)
+			assert.Equal(t, []ParameterInformation{{Label: "value int"}}, help.Signatures[0].Parameters)
+		})
+	}
+}
+
 func TestServerCallExpressionKwargs(t *testing.T) {
 	const options = "type Options struct { Count int }\n"
 	for _, tt := range []struct {
