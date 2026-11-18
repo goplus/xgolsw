@@ -94,8 +94,9 @@ capabilities are advertised for their client capabilities.*
 
 Put `//xgols:notrecommended` in a declaration's leading documentation comment to omit the declaration from proactive
 symbol recommendations. The language server applies this policy to ordinary identifier and member completions,
-property-name string completions such as `showVar`, and the `predefinedNames` returned by `xgo.getInputSlots`. Unmarked
-declarations stay subject to the usual candidate selection rules.
+property-name string completions such as `showVar`, and the `predefinedNames` returned by `xgo.getInputSlots`.
+Clients using `xgo.getProperties` to offer suggestions can request the same server-side filtering by passing
+`excludeNotRecommended: true`. Unmarked declarations stay subject to the usual candidate selection rules.
 
 ```go
 // reportTurn records execution for a course.
@@ -110,7 +111,6 @@ on fields and interface methods directly declared in a type definition or alias 
 recommendations for that declaration only. Explicit uses retain normal compilation, diagnostics, hover, signature help,
 parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
 function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
-Clients using `xgo.getProperties` to offer suggestions can opt in to the same filtering.
 
 The spelling is exact and case-sensitive. Put `//xgols:notrecommended` on its own line anywhere in the leading comment
 group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
@@ -126,8 +126,7 @@ SDK overloads remain eligible. Enum entries do not accept this directive.
 Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
 annotations from raw Go source comments and from the original XGo sources when they accompany the selected generated Go
 files. If XGo source recovery fails, `pkgdatagen` warns and keeps the documentation and annotations it can read from Go
-sources. Existing package data without annotations keeps its current behavior. The directive does not add an LSP extension
-or require client-side filtering.
+sources. Existing package data without annotations keeps its current behavior.
 
 ## Predefined commands
 

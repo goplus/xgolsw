@@ -35,8 +35,11 @@ type PkgDoc struct {
 	Types  map[string]*TypeDoc
 	Funcs  map[string]string
 
-	// Declarations records language-service directives by source declaration name.
-	// Members use Type.Member; names retain their original overload spelling.
+	// Declarations records language-service directives by declaration key.
+	// Package-level keys use declaration names, and member keys use Type.Member.
+	// Names retain their original overload spelling. Receiver aliases use the
+	// resolved type name. Member entries may also appear under exported types
+	// derived from unexported types.
 	Declarations map[string]DeclarationMetadata `json:",omitempty"`
 }
 
