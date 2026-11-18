@@ -101,7 +101,7 @@ declarations stay subject to the usual candidate selection rules.
 // reportTurn records execution for a course.
 //xgols:notrecommended
 func reportTurn(angle float64) {
-    println angle
+    println(angle)
 }
 ```
 

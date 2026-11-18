@@ -17,9 +17,10 @@ type DeclarationMetadata struct {
 	NotRecommended bool `json:",omitempty"`
 }
 
-// ParseDirectives reads supported directives from declaration documentation.
-// Callers supply only leading Doc groups, never trailing Comment groups. The
-// directive must occupy an exact line comment, apart from trailing whitespace.
+// ParseDirectives scans comment groups for supported directives.
+// To determine which directives apply to a declaration, pass its leading
+// documentation groups. A directive must occupy its own line comment,
+// with optional trailing whitespace.
 func ParseDirectives(groups ...*ast.CommentGroup) DeclarationMetadata {
 	for _, group := range groups {
 		if group == nil {
