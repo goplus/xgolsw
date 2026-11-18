@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecommendationPolicyGenericEmbeddedFields(t *testing.T) {
+func TestNotRecommendedDeclarationsGenericEmbeddedFields(t *testing.T) {
 	for _, tt := range []struct {
 		name, embedded, field string
 	}{
@@ -23,7 +23,7 @@ func TestRecommendationPolicyGenericEmbeddedFields(t *testing.T) {
 			proj := s.getProj()
 			file, err := proj.ASTFile("main.xgo")
 			require.NoError(t, err)
-			policy := newRecommendationPolicy(proj, nil)
+			declarations := newNotRecommendedDeclarations(proj, nil)
 			// Generic embedded types can be parsed while their type information
 			// is incomplete. Their arguments and neighboring names stay unmarked.
 			var embedded token.Pos
@@ -32,13 +32,13 @@ func TestRecommendationPolicyGenericEmbeddedFields(t *testing.T) {
 					if ident.Name == tt.field {
 						embedded = ident.Pos()
 					} else {
-						assert.False(t, policy.sourceNotRecommended(file, ident.Pos()), ident.Name)
+						assert.False(t, declarations.hasSourcePosition(file, ident.Pos()), ident.Name)
 					}
 				}
 				return true
 			})
 			require.True(t, embedded.IsValid())
-			assert.True(t, policy.sourceNotRecommended(file, embedded))
+			assert.True(t, declarations.hasSourcePosition(file, embedded))
 		})
 	}
 }
@@ -67,7 +67,7 @@ var holder Holder
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, declarations+tt.use)
-			s := newRecommendationImportServer(t, source)
+			s := newNotRecommendedImportServer(t, source)
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
@@ -76,6 +76,37 @@ var holder Holder
 			}
 			for _, name := range tt.absent {
 				assert.NotContains(t, labels, name)
+			}
+		})
+	}
+}
+
+func TestServerNotRecommendedClassEmbeddedField(t *testing.T) {
+	for _, tt := range []struct {
+		name, directive string
+		wantEmbedded    bool
+	}{
+		{name: "Annotated", directive: "//xgols:notrecommended\n"},
+		{name: "Unannotated", wantEmbedded: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, `type Embedded struct { Value int }
+var box Box
+println box.|Value
+`)
+			s := newTestServer(t, map[string][]byte{
+				"main.xgo": []byte(source),
+				"Box.gox":  []byte("var (\n" + tt.directive + "*Embedded\nVisible int\n)\n"),
+			})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+			labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
+			assert.Contains(t, labels, "Visible")
+			assert.Contains(t, labels, "Value")
+			if tt.wantEmbedded {
+				assert.Contains(t, labels, "Embedded")
+			} else {
+				assert.NotContains(t, labels, "Embedded")
 			}
 		})
 	}
@@ -102,7 +133,7 @@ func run() {
 	assert.Contains(t, labels, "visible")
 }
 
-func TestRecommendationPolicyIncompleteEmbeddedField(t *testing.T) {
+func TestNotRecommendedDeclarationsIncompleteEmbeddedField(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Embedded struct{}
 type Record struct {
     //xgols:notrecommended
@@ -125,7 +156,7 @@ var visibleValue int
 		}
 		return true
 	})
-	policy := newRecommendationPolicy(proj, nil)
-	assert.True(t, policy.notRecommended(info.Pkg.Scope().Lookup("hiddenValue")))
-	assert.False(t, policy.notRecommended(info.Pkg.Scope().Lookup("visibleValue")))
+	declarations := newNotRecommendedDeclarations(proj, nil)
+	assert.True(t, declarations.hasObject(info.Pkg.Scope().Lookup("hiddenValue")))
+	assert.False(t, declarations.hasObject(info.Pkg.Scope().Lookup("visibleValue")))
 }

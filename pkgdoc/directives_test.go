@@ -190,6 +190,61 @@ func Helper() {}
 	})
 }
 
+func TestGoDirectivesForDerivedMembers(t *testing.T) {
+	const source = `package sample
+type Embedded struct{}
+type hidden[T any, U any] struct {
+	//xgols:notrecommended
+	Embedded
+	//xgols:notrecommended
+	Value U
+}
+//xgols:notrecommended
+func (hidden[T, U]) Read() {}
+type Public (hidden[int, string])
+func (Public) Read() {}
+
+type reader interface {
+	//xgols:notrecommended
+	Get() int
+}
+type Reader reader
+
+type Base struct{}
+type pointer = *Base
+//xgols:notrecommended
+func (pointer) Method() {}
+
+type API = interface {
+	//xgols:notrecommended
+	Load()
+}
+type Other = interface { Load() }
+`
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "sample.go", source, goparser.ParseComments)
+	require.NoError(t, err)
+	pkg, err := new(gotypes.Config).Check("example.com/sample", fset, []*goast.File{file}, nil)
+	require.NoError(t, err)
+	doc := NewGo(pkg.Path(), &goast.Package{Name: pkg.Name(), Files: map[string]*goast.File{"sample.go": file}})
+	assert.Equal(t, markedDeclarations("hidden.Embedded", "hidden.Value", "hidden.Read", "Public.Embedded", "Public.Value",
+		"reader.Get", "Reader.Get", "Base.Method", "API.Load"), doc.Declarations)
+	for _, tt := range []struct {
+		owner, member string
+		marked        bool
+	}{
+		{owner: "Public", member: "Read"},
+		{owner: "API", member: "Load", marked: true},
+		{owner: "Other", member: "Load"},
+	} {
+		owner := pkg.Scope().Lookup(tt.owner)
+		require.NotNil(t, owner)
+		member, _, _ := gotypes.LookupFieldOrMethod(owner.Type(), false, pkg, tt.member)
+		require.NotNil(t, member)
+		assert.Equal(t, tt.marked, doc.ObjectMetadata(member).NotRecommended, tt.owner)
+	}
+}
+
 func TestGoDirectivesIncompleteReceivers(t *testing.T) {
 	group := &ast.CommentGroup{List: []*ast.Comment{{Text: "//xgols:notrecommended"}}}
 	for _, recv := range []*goast.FieldList{

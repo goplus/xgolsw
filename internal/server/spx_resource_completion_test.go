@@ -426,7 +426,7 @@ func run() {}
 						require.NoError(t, err, updated)
 						file, err := proj.ASTFile(tt.filename)
 						require.NoError(t, err)
-						literal := inputSlotLiteral(t, newInputSlotContext(proj, file), edit.NewText)
+						literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), edit.NewText)
 						value := info.Types[literal].Value
 						require.NotNil(t, value)
 						assert.Equal(t, label, constant.StringVal(value))

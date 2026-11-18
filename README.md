@@ -92,8 +92,10 @@ capabilities are advertised for their client capabilities.*
 
 ## Declaration directives
 
-Put `//xgols:notrecommended` in the leading documentation comment of a declaration to omit it from ordinary identifier
-and member completions and from the `predefinedNames` returned by `xgo.getInputSlots`:
+Put `//xgols:notrecommended` in a declaration's leading documentation comment to omit the declaration from proactive
+symbol recommendations. The language server currently applies this policy to ordinary identifier and member completions
+and to the `predefinedNames` returned by `xgo.getInputSlots`. Unmarked declarations stay subject to the usual candidate
+selection rules.
 
 ```go
 // reportTurn records execution for a course.
@@ -109,9 +111,10 @@ recommendations for that declaration only. Explicit uses retain normal compilati
 parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
 function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
 
-The spelling is exact and case-sensitive. Use a standalone `//xgols:notrecommended` line immediately above the declaration,
-optionally alongside ordinary documentation. Trailing whitespace is allowed. Block comments, end-of-line comments,
-comments separated from the declaration by a blank line, and directives with arguments are not recognized.
+The spelling is exact and case-sensitive. Put `//xgols:notrecommended` on its own line anywhere in the leading comment
+group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
+is allowed. Block comments, end-of-line comments, detached comment groups, and directives with arguments are not
+recognized.
 
 For grouped `var`, `const`, and `type` declarations, a directive on the group applies to every declaration in the group.
 A directive on an individual spec applies only to that spec, including every name declared together by that spec.
@@ -120,8 +123,9 @@ that alias; marking one implementation omits only candidates that use that imple
 SDK overloads remain eligible. Enum entries do not accept this directive.
 
 Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
-annotations from raw source comments; existing package data without annotations keeps its current behavior. The
-directive does not add an LSP extension or require client-side filtering.
+annotations from raw Go source comments and from the original XGo sources when they accompany the selected generated Go
+files. Existing package data without annotations keeps its current behavior. The directive does not add an LSP extension
+or require client-side filtering.
 
 ## Predefined commands
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newRecommendationImportServer(t *testing.T, source string) *Server {
+func newNotRecommendedImportServer(t *testing.T, source string) *Server {
 	t.Helper()
 
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
@@ -84,7 +84,7 @@ func TestServerNotRecommendedImportedDeclarations(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, tt.source)
-			s := newRecommendationImportServer(t, source)
+			s := newNotRecommendedImportServer(t, source)
 			_, err := s.requestProject().TypeInfo()
 			require.NoError(t, err)
 			labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
@@ -99,7 +99,7 @@ func TestServerNotRecommendedImportedDeclarations(t *testing.T) {
 }
 
 func TestServerNotRecommendedImportedInputNames(t *testing.T) {
-	s := newRecommendationImportServer(t, `import . "example.com/dependency"
+	s := newNotRecommendedImportServer(t, `import . "example.com/dependency"
 func Use(value string) {}
 use "value"
 `)

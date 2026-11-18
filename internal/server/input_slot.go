@@ -13,6 +13,7 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -41,8 +42,7 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	if astFile == nil || !astFile.Pos().IsValid() {
 		return nil, nil
 	}
-	ctx := newInputSlotContext(proj, astFile)
-	ctx.recommendations = newRecommendationPolicy(proj, s.lookupPkgDoc)
+	ctx := newInputSlotContext(proj, astFile, s.lookupPkgDoc)
 	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ type inputSlotContext struct {
 	imports                  *fileImports
 	autoProperties           *autoPropertyResolver
 	packageProperties        *autoPropertyResolver
-	recommendations          *recommendationPolicy
+	notRecommended           *notRecommendedDeclarations
 	astFile                  *ast.File
 	astPkg                   *ast.Package
 	typeInfo                 *types.Info
@@ -80,7 +80,8 @@ type predefinedNamesCacheKey struct {
 }
 
 // newInputSlotContext creates a context for finding input slots in astFile.
-func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext {
+// lookupPkgDoc provides declaration annotations for imported packages, if available.
+func newInputSlotContext(proj *xgo.Project, astFile *ast.File, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) *inputSlotContext {
 	typeInfo, _ := expressionTypeInfo(proj)
 	astPkg, _ := proj.ASTPackage()
 	var predefinedScopes []*gotypes.Scope
@@ -90,7 +91,7 @@ func newInputSlotContext(proj *xgo.Project, astFile *ast.File) *inputSlotContext
 	}
 	return &inputSlotContext{
 		proj:                     proj,
-		recommendations:          newRecommendationPolicy(proj, nil),
+		notRecommended:           newNotRecommendedDeclarations(proj, lookupPkgDoc),
 		predefinedScopes:         append(predefinedScopes, gotypes.Universe),
 		imports:                  imports,
 		astFile:                  astFile,
@@ -467,7 +468,7 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 		// A visible declaration shadows outer names even when its type
 		// cannot be used in this slot.
 		seenNames[name] = struct{}{}
-		if ctx.recommendations.notRecommended(obj) {
+		if ctx.notRecommended.hasObject(obj) {
 			return
 		}
 		if _, variable := obj.(*gotypes.Var); kind == XGoInputSlotKindAddress && !variable {
@@ -501,7 +502,7 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 			return
 		}
 		seenNames[name] = struct{}{}
-		if ctx.recommendations.notRecommended(property.object) || property.function != nil && ctx.recommendations.notRecommended(property.function) {
+		if ctx.notRecommended.hasObject(property.object) || property.function != nil && ctx.notRecommended.hasObject(property.function) {
 			return
 		}
 		_, tuple := property.typ.(*gotypes.Tuple)
@@ -536,7 +537,7 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 					continue
 				}
 				seenNames[name] = struct{}{}
-				if ctx.recommendations.notRecommended(property.object) || property.function != nil && ctx.recommendations.notRecommended(property.function) {
+				if ctx.notRecommended.hasObject(property.object) || property.function != nil && ctx.notRecommended.hasObject(property.function) {
 					continue
 				}
 				_, tuple := property.typ.(*gotypes.Tuple)

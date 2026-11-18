@@ -1,10 +1,33 @@
 package pkgdoc
 
 import (
+	goast "go/ast"
+	"strings"
+
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/cl"
 )
+
+// NewGoWithXGoDirectives builds Go package documentation and recovers directive
+// annotations from the XGo source that produced the generated Go declarations.
+func NewGoWithXGoDirectives(pkgPath string, goPkg *goast.Package, xgoPkg *ast.Package, lookupClass func(string) (*modfile.Project, bool)) *PkgDoc {
+	doc := NewGo(pkgPath, goPkg)
+	var source PkgDoc
+	source.collectXGoDirectives(xgoPkg, lookupClass)
+	if len(source.Declarations) == 0 {
+		return doc
+	}
+	typesByName := goTypesByName(goPkg)
+	for name, metadata := range source.Declarations {
+		if owner, member, ok := strings.Cut(name, "."); ok {
+			name = goDirectiveReceiverName(owner, typesByName) + "." + member
+		}
+		doc.recordDirectives(name, metadata)
+	}
+	doc.recordGoDerivedMembers(typesByName)
+	return doc
+}
 
 // collectXGoDirectives records package and class declarations from raw comments.
 func (p *PkgDoc) collectXGoDirectives(pkg *ast.Package, lookupClass func(string) (*modfile.Project, bool)) {
@@ -23,6 +46,11 @@ func (p *PkgDoc) collectXGoDirectives(pkg *ast.Package, lookupClass func(string)
 					switch spec := spec.(type) {
 					case *ast.ValueSpec:
 						metadata := ParseDirectives(decl.Doc, spec.Doc)
+						if decl == file.ClassFields && len(spec.Names) == 0 {
+							if name := embeddedFieldName(spec.Type); name != "" {
+								p.recordDirectives(className+"."+name, metadata)
+							}
+						}
 						for _, name := range spec.Names {
 							key := name.Name
 							if decl == file.ClassFields {

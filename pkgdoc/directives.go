@@ -56,14 +56,14 @@ func (p *PkgDoc) ObjectMetadata(obj gotypes.Object) DeclarationMetadata {
 	switch obj := obj.(type) {
 	case *gotypes.Func:
 		if recv := obj.Signature().Recv(); recv != nil {
-			if named, ok := gotypes.Unalias(xgoutil.DerefType(recv.Type())).(*gotypes.Named); ok {
+			if named, ok := gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(recv.Type()))).(*gotypes.Named); ok {
 				return p.Declarations[named.Obj().Name()+"."+obj.Name()]
 			}
-			return DeclarationMetadata{}
+			return p.memberMetadata(obj)
 		}
 	case *gotypes.Var:
 		if obj.IsField() {
-			return p.fieldMetadata(obj)
+			return p.memberMetadata(obj)
 		}
 	}
 	if obj.Parent() != obj.Pkg().Scope() {
@@ -72,25 +72,30 @@ func (p *PkgDoc) ObjectMetadata(obj gotypes.Object) DeclarationMetadata {
 	return p.Declarations[obj.Name()]
 }
 
-// fieldMetadata locates the declaring struct by field identity. Defined types
-// and aliases can reuse its fields, so names alone do not identify ownership.
-func (p *PkgDoc) fieldMetadata(field *gotypes.Var) DeclarationMetadata {
+// memberMetadata matches the actual field or explicit interface method. A
+// shared underlying type can expose the same declaration through several names.
+func (p *PkgDoc) memberMetadata(obj gotypes.Object) DeclarationMetadata {
 	for key, metadata := range p.Declarations {
 		owner, name, member := strings.Cut(key, ".")
-		if !member || name != field.Name() {
+		if !member || name != obj.Name() {
 			continue
 		}
-		typ, ok := field.Pkg().Scope().Lookup(owner).(*gotypes.TypeName)
+		typ, ok := obj.Pkg().Scope().Lookup(owner).(*gotypes.TypeName)
 		if !ok {
 			continue
 		}
-		st, ok := typ.Type().Underlying().(*gotypes.Struct)
-		if !ok {
-			continue
-		}
-		for candidate := range st.Fields() {
-			if candidate.Origin() == field {
-				return metadata
+		switch underlying := typ.Type().Underlying().(type) {
+		case *gotypes.Struct:
+			for field := range underlying.Fields() {
+				if field.Origin() == obj {
+					return metadata
+				}
+			}
+		case *gotypes.Interface:
+			for method := range underlying.ExplicitMethods() {
+				if method.Origin() == obj {
+					return metadata
+				}
 			}
 		}
 	}
@@ -99,6 +104,7 @@ func (p *PkgDoc) fieldMetadata(field *gotypes.Var) DeclarationMetadata {
 
 // collectGoDirectives reads raw Go comments before go/doc normalizes them.
 func (p *PkgDoc) collectGoDirectives(pkg *goast.Package) {
+	typesByName := goTypesByName(pkg)
 	for _, file := range pkg.Files {
 		for _, decl := range file.Decls {
 			switch decl := decl.(type) {
@@ -121,6 +127,10 @@ func (p *PkgDoc) collectGoDirectives(pkg *goast.Package) {
 					}
 				}
 			case *goast.FuncDecl:
+				metadata := ParseDirectives(decl.Doc)
+				if !metadata.NotRecommended {
+					continue
+				}
 				name := decl.Name.Name
 				if decl.Recv != nil {
 					if len(decl.Recv.List) != 1 {
@@ -130,10 +140,109 @@ func (p *PkgDoc) collectGoDirectives(pkg *goast.Package) {
 					if owner == "" {
 						continue
 					}
-					name = owner + "." + name
+					name = goDirectiveReceiverName(owner, typesByName) + "." + name
 				}
-				p.recordDirectives(name, ParseDirectives(decl.Doc))
+				p.recordDirectives(name, metadata)
 			}
+		}
+	}
+	p.recordGoDerivedMembers(typesByName)
+}
+
+// goTypesByName indexes the package's type declarations for directive lookup.
+func goTypesByName(pkg *goast.Package) map[string]*goast.TypeSpec {
+	typesByName := make(map[string]*goast.TypeSpec)
+	for _, file := range pkg.Files {
+		for _, decl := range file.Decls {
+			if decl, ok := decl.(*goast.GenDecl); ok {
+				for _, spec := range decl.Specs {
+					if spec, ok := spec.(*goast.TypeSpec); ok {
+						typesByName[spec.Name.Name] = spec
+					}
+				}
+			}
+		}
+	}
+	return typesByName
+}
+
+// goDirectiveReceiverName follows receiver aliases to their declared type.
+func goDirectiveReceiverName(name string, typesByName map[string]*goast.TypeSpec) string {
+	for range len(typesByName) {
+		spec := typesByName[name]
+		if spec == nil || !spec.Assign.IsValid() {
+			break
+		}
+		typ := goast.Unparen(spec.Type)
+		if ptr, ok := typ.(*goast.StarExpr); ok {
+			typ = ptr.X
+		}
+		if target := goLocalTypeName(typ); target != "" {
+			name = target
+		} else {
+			break
+		}
+	}
+	return name
+}
+
+// recordGoDerivedMembers copies member annotations to exported names whose
+// underlying declarations may no longer be reachable by name after Go export.
+func (p *PkgDoc) recordGoDerivedMembers(typesByName map[string]*goast.TypeSpec) {
+	if len(p.Declarations) == 0 {
+		return
+	}
+	for name, spec := range typesByName {
+		if !goast.IsExported(name) {
+			continue
+		}
+		for owner, steps := goLocalTypeName(spec.Type), 0; owner != "" && steps < len(typesByName); steps++ {
+			base := typesByName[owner]
+			if base == nil {
+				break
+			}
+			if !goast.IsExported(owner) {
+				switch typ := base.Type.(type) {
+				case *goast.StructType:
+					p.recordGoMemberAliases(name, owner, typ.Fields)
+				case *goast.InterfaceType:
+					p.recordGoMemberAliases(name, owner, typ.Methods)
+				}
+			}
+			owner = goLocalTypeName(base.Type)
+		}
+	}
+}
+
+// recordGoMemberAliases carries annotations on the actual members of a type.
+func (p *PkgDoc) recordGoMemberAliases(name, owner string, fields *goast.FieldList) {
+	for _, field := range fields.List {
+		if len(field.Names) == 0 {
+			if embedded := goEmbeddedFieldName(field.Type); embedded != "" {
+				p.recordDirectives(name+"."+embedded, p.Declarations[owner+"."+embedded])
+			}
+		}
+		for _, field := range field.Names {
+			p.recordDirectives(name+"."+field.Name, p.Declarations[owner+"."+field.Name])
+		}
+	}
+}
+
+// goLocalTypeName returns an unqualified reference to a type, including a
+// reference instantiated with type arguments.
+func goLocalTypeName(expr goast.Expr) string {
+	for {
+		switch typ := expr.(type) {
+		case *goast.Ident:
+			return typ.Name
+		case *goast.IndexExpr:
+			expr = typ.X
+		case *goast.IndexListExpr:
+			expr = typ.X
+		case *goast.ParenExpr:
+			expr = typ.X
+		default:
+			return ""
 		}
 	}
 }

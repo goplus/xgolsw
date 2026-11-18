@@ -1798,7 +1798,7 @@ func main() {
 		astFile, err := proj.ASTFile("main.xgo")
 		require.Error(t, err)
 		require.NotNil(t, astFile)
-		ctx := newInputSlotContext(proj, astFile)
+		ctx := newInputSlotContext(proj, astFile, nil)
 
 		slots := findInputSlots(ctx)
 		require.Len(t, slots, 3)
@@ -1861,7 +1861,7 @@ func inputSlotTestContext(t *testing.T, s *Server, filename string) *inputSlotCo
 	astFile, err := proj.ASTFile(filename)
 	require.NoError(t, err)
 	require.NotNil(t, astFile)
-	ctx := newInputSlotContext(proj, astFile)
+	ctx := newInputSlotContext(proj, astFile, nil)
 	require.NotNil(t, ctx.typeInfo)
 	return ctx
 }

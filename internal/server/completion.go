@@ -77,7 +77,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
-	ctx.itemSet.isRecommended = newRecommendationPolicy(proj, s.lookupPkgDoc).recommendsDefinition
+	ctx.itemSet.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
 	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
@@ -1615,7 +1615,7 @@ type completionItemSet struct {
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
 	isCompatibleWithCallResults   func(results *gotypes.Tuple) bool
-	isRecommended                 func(symbolDefinition) bool
+	notRecommended                func(symbolDefinition) bool
 	disallowVoidFuncs             bool
 	expectedFuncResultCount       int
 	callResult                    bool
@@ -1747,7 +1747,7 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 // addDefinitions adds symbol definitions to the set.
 func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 	for _, def := range defs {
-		if s.isRecommended != nil && !s.isRecommended(def) {
+		if s.notRecommended != nil && s.notRecommended(def) {
 			continue
 		}
 		if def.CompletionItemKind == ConstantCompletion && xgoutil.IsXGoInternalName(def.CompletionItemLabel) {

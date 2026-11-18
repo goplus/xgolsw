@@ -778,7 +778,7 @@ func TestSpxSymbolsInferSpxInputTypeFromType(t *testing.T) {
 func newSpxInputSlotContext(t *testing.T, proj *xgo.Project, result *spxAnalysis, astFile *ast.File) *inputSlotContext {
 	t.Helper()
 
-	ctx := newInputSlotContext(proj, astFile)
+	ctx := newInputSlotContext(proj, astFile, nil)
 	ctx.frameworkResult = &frameworkAnalysis{inputType: result.inferInputType, adaptInputSlot: result.adaptInputSlot}
 	return ctx
 }

@@ -10,26 +10,25 @@ import (
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
-// recommendationPolicy resolves declaration annotations for one request. Source
-// positions belong to this project's ASTs; imported objects use package metadata.
-type recommendationPolicy struct {
+// notRecommendedDeclarations tracks declarations marked not recommended for one
+// request. It checks source positions in the project and package metadata for imports.
+type notRecommendedDeclarations struct {
 	proj         *xgo.Project
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)
 	files        map[*ast.File]map[token.Pos]bool
 	objects      map[gotypes.Object]bool
 }
 
-// newRecommendationPolicy creates a policy without changing semantic lookup.
-func newRecommendationPolicy(proj *xgo.Project, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) *recommendationPolicy {
-	return &recommendationPolicy{
+// newNotRecommendedDeclarations creates a request-scoped lookup for the directive.
+func newNotRecommendedDeclarations(proj *xgo.Project, lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)) *notRecommendedDeclarations {
+	return &notRecommendedDeclarations{
 		proj: proj, lookupPkgDoc: lookupPkgDoc,
 		files: make(map[*ast.File]map[token.Pos]bool), objects: make(map[gotypes.Object]bool),
 	}
 }
 
-// notRecommended reports whether the actual declaration opts out of suggestions.
-// Missing import metadata leaves existing recommendation behavior unchanged.
-func (p *recommendationPolicy) notRecommended(obj gotypes.Object) bool {
+// hasObject reports whether the object's declaration is marked not recommended.
+func (p *notRecommendedDeclarations) hasObject(obj gotypes.Object) bool {
 	if obj == nil {
 		return false
 	}
@@ -44,7 +43,7 @@ func (p *recommendationPolicy) notRecommended(obj gotypes.Object) bool {
 	}
 	var marked bool
 	if file, pos := objectSource(p.proj, obj); file != nil {
-		marked = p.sourceNotRecommended(file, pos)
+		marked = p.hasSourcePosition(file, pos)
 	} else if obj.Pkg() != nil && (info == nil || obj.Pkg() != info.Pkg) && p.lookupPkgDoc != nil {
 		if doc, _ := p.lookupPkgDoc(obj.Pkg().Path()); doc != nil {
 			marked = doc.ObjectMetadata(obj).NotRecommended
@@ -54,16 +53,16 @@ func (p *recommendationPolicy) notRecommended(obj gotypes.Object) bool {
 	return marked
 }
 
-// recommendsDefinition checks both an overload's source alias and its concrete
-// implementation, retaining unmarked declarations that share a display name.
-func (p *recommendationPolicy) recommendsDefinition(def symbolDefinition) bool {
-	return !p.notRecommended(def.SourceObject) && (def.Function == nil || !p.notRecommended(def.Function))
+// hasDefinition reports whether the source declaration or its concrete overload
+// implementation is marked not recommended.
+func (p *notRecommendedDeclarations) hasDefinition(def symbolDefinition) bool {
+	return p.hasObject(def.SourceObject) || (def.Function != nil && p.hasObject(def.Function))
 }
 
-// sourceNotRecommended indexes only directly annotated declarations. A group
+// hasSourcePosition looks up a declaration position in the annotation index. A group
 // annotation applies to its specs, but a type or function annotation does not
 // propagate to members or declarations nested inside its body.
-func (p *recommendationPolicy) sourceNotRecommended(file *ast.File, pos token.Pos) bool {
+func (p *notRecommendedDeclarations) hasSourcePosition(file *ast.File, pos token.Pos) bool {
 	marked, ok := p.files[file]
 	if !ok {
 		marked = make(map[token.Pos]bool)
@@ -81,6 +80,9 @@ func (p *recommendationPolicy) sourceNotRecommended(file *ast.File, pos token.Po
 					switch spec := spec.(type) {
 					case *ast.ValueSpec:
 						add(spec.Names, node.Doc, spec.Doc)
+						if node == file.ClassFields && len(spec.Names) == 0 && pkgdoc.ParseDirectives(node.Doc, spec.Doc).NotRecommended {
+							marked[embeddedFieldPosition(spec.Type)] = true
+						}
 					case *ast.TypeSpec:
 						add([]*ast.Ident{spec.Name}, node.Doc, spec.Doc)
 					}
