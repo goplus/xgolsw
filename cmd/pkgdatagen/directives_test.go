@@ -7,6 +7,7 @@ import (
 	goimporter "go/importer"
 	gotypes "go/types"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/goplus/gogen"
@@ -164,6 +165,45 @@ func Helper() {}
 			visible, _, _ := gotypes.LookupFieldOrMethod(record, false, pkg, "Visible")
 			require.NotNil(t, visible)
 			assert.False(t, doc.ObjectMetadata(visible).NotRecommended)
+		})
+	}
+}
+
+func TestGenerateKeepsGoDocumentationWhenXGoRecoveryFails(t *testing.T) {
+	const pkgPath = "example.com/fixture"
+	for _, tt := range []struct {
+		name  string
+		files map[string]string
+	}{
+		{name: "MalformedSource", files: map[string]string{"broken.xgo": "package fixture\nfunc {\n"}},
+		{name: "MalformedModule", files: map[string]string{"gox.mod": "project (\n"}},
+		{name: "InvalidClassModule", files: map[string]string{
+			"go.mod":       "module " + pkgPath + "\n\ngo 1.26.0\nrequire example.com/class v0.0.0 //xgo:class\nreplace example.com/class => ./class\n",
+			"class/go.mod": "module example.com/class\n\ngo 1.26.0\n",
+		}},
+		{name: "GeneratedOnly"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			t.Setenv("GOPROXY", "off")
+			require.NoError(t, os.WriteFile("go.mod", []byte("module "+pkgPath+"\n\ngo 1.26.0\n"), 0o644))
+			require.NoError(t, os.WriteFile("xgo_autogen.go", []byte(`package fixture
+const XGoPackage = true
+`), 0o644))
+			require.NoError(t, os.WriteFile("native.go", []byte(`package fixture
+// Native holds the value.
+//xgols:notrecommended
+const Native = 1
+`), 0o644))
+			for name, content := range tt.files {
+				require.NoError(t, os.MkdirAll(filepath.Dir(name), 0o755))
+				require.NoError(t, os.WriteFile(name, []byte(content), 0o644))
+			}
+			pkg, doc := generateDirectiveTestPackage(t, pkgPath)
+			native := pkg.Scope().Lookup("Native")
+			require.NotNil(t, native)
+			assert.Equal(t, "Native holds the value.\n", doc.Consts["Native"])
+			assert.True(t, doc.ObjectMetadata(native).NotRecommended)
 		})
 	}
 }

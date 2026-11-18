@@ -1,9 +1,11 @@
 package server
 
 import (
+	gotypes "go/types"
 	"strings"
 	"testing"
 
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -197,7 +199,7 @@ use "text"
 	assert.NotContains(t, slots[len(slots)-1].PredefinedNames, "value")
 }
 
-func TestServerNotRecommendedEdits(t *testing.T) {
+func TestServerNotRecommendedIndexReuseAndEdits(t *testing.T) {
 	source, pos := typeDisplayTestSource(t, `//xgols:notrecommended
 var value string
 func Use(value string) {}
@@ -207,6 +209,11 @@ use "text"
 }
 `)
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+	var builds int
+	s.getProj().RegisterFileCacheBuilder(notRecommendedFileCacheKind{}, func(proj *xgo.Project, path string, file *xgo.File) (any, error) {
+		builds++
+		return buildNotRecommendedFileCache(proj, path, file)
+	})
 	for version, annotated := range []bool{true, false, true} {
 		updated := source
 		if !annotated {
@@ -219,6 +226,7 @@ use "text"
 		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"}}})
 		require.NoError(t, err)
 		require.NotEmpty(t, slots)
+		assert.Equal(t, version+1, builds, "completion and input slots should share the same index within a revision")
 		if annotated {
 			assert.NotContains(t, labels, "value")
 			assert.NotContains(t, slots[len(slots)-1].PredefinedNames, "value")
@@ -227,4 +235,21 @@ use "text"
 			assert.Contains(t, slots[len(slots)-1].PredefinedNames, "value")
 		}
 	}
+}
+
+func TestCompletionItemSetNotRecommendedAfterTypeFiltering(t *testing.T) {
+	items := newCompletionItemSet(PlainText)
+	items.setExpectedTypes([]gotypes.Type{gotypes.Typ[gotypes.Int]})
+	var checked []string
+	items.notRecommended = func(def symbolDefinition) bool {
+		checked = append(checked, def.Overview)
+		return def.Overview == "marked"
+	}
+	items.addDefinitions(
+		symbolDefinition{TypeHint: gotypes.Typ[gotypes.String], Overview: "incompatible", CompletionItemLabel: "unrelated"},
+		symbolDefinition{TypeHint: gotypes.Typ[gotypes.Int], Overview: "marked", CompletionItemLabel: "shared"},
+		symbolDefinition{TypeHint: gotypes.Typ[gotypes.Int], Overview: "unmarked", CompletionItemLabel: "shared"},
+	)
+	assert.Equal(t, []string{"marked", "unmarked"}, checked)
+	assert.Equal(t, []string{"shared"}, completionItemLabels(items.items))
 }

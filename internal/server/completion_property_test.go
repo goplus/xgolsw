@@ -305,6 +305,33 @@ _ = record.title
 	assert.ElementsMatch(t, []string{`"label"`, `"title"`}, completionItemLabels(ctx.itemSet.items))
 }
 
+func TestNotRecommendedPropertyStringCompletionOverloadAlias(t *testing.T) {
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
+func (Record) text() string { return "" }
+//xgols:notrecommended
+func (Record).Label = ((Record).text)
+func (Record).Title = ((Record).text)
+//xgols:notrecommended
+func (Record) internal() string { return "" }
+func (Record).Note = ((Record).internal)
+`)})
+	t.Cleanup(s.Close)
+	proj := s.requestProject()
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	items := newCompletionItemSet(PlainText)
+	items.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
+	ctx := &completionContext{definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc}, typeInfo: info, itemSet: items}
+	ctx.collectPropertyNames("Record")
+	assert.Equal(t, []string{`"title"`}, completionItemLabels(items.items))
+
+	properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+	require.NoError(t, err)
+	for _, name := range []string{"label", "title", "note"} {
+		assert.True(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == name }), name)
+	}
+}
+
 func TestCompletionContextGetPropertyTargetAutoProperty(t *testing.T) {
 	for _, tt := range []struct{ name, filename, receiver string }{
 		{"Package", "main.xgo", "current"},

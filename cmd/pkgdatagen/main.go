@@ -302,7 +302,8 @@ func generate(pkgPaths []string, outputFile string) error {
 
 			pkgDoc, err = packageDocumentation(pkgPath, pkgInfo.Dir, pkgInfo.GoFiles, astPkg)
 			if err != nil {
-				return err
+				fmt.Fprintf(os.Stderr, "warning: %v (using Go package documentation)\n", err)
+				pkgDoc = pkgdoc.NewGo(pkgPath, astPkg)
 			}
 		}
 		if zf, err := zw.Create(pkgPath + ".pkgdoc"); err != nil {

@@ -93,9 +93,9 @@ capabilities are advertised for their client capabilities.*
 ## Declaration directives
 
 Put `//xgols:notrecommended` in a declaration's leading documentation comment to omit the declaration from proactive
-symbol recommendations. The language server currently applies this policy to ordinary identifier and member completions
-and to the `predefinedNames` returned by `xgo.getInputSlots`. Unmarked declarations stay subject to the usual candidate
-selection rules.
+symbol recommendations. The language server applies this policy to ordinary identifier and member completions,
+property-name string completions such as `showVar`, and the `predefinedNames` returned by `xgo.getInputSlots`. Unmarked
+declarations stay subject to the usual candidate selection rules.
 
 ```go
 // reportTurn records execution for a course.
@@ -106,10 +106,11 @@ func reportTurn(angle float64) {
 ```
 
 The directive supports functions, methods, variables (including classfile fields), constants, and types. Leading comments
-on fields and interface methods directly declared in a named type are also supported. It controls
+on fields and interface methods directly declared in a type definition or alias are also supported. It controls
 recommendations for that declaration only. Explicit uses retain normal compilation, diagnostics, hover, signature help,
 parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
-function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
+function does not mark declarations inside its body. Symbol browsing, file outlines, and `xgo.getProperties` are outside
+this policy.
 
 The spelling is exact and case-sensitive. Put `//xgols:notrecommended` on its own line anywhere in the leading comment
 group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
@@ -124,7 +125,8 @@ SDK overloads remain eligible. Enum entries do not accept this directive.
 
 Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
 annotations from raw Go source comments and from the original XGo sources when they accompany the selected generated Go
-files. Existing package data without annotations keeps its current behavior. The directive does not add an LSP extension
+files. If XGo source recovery fails, `pkgdatagen` warns and keeps the documentation and annotations it can read from Go
+sources. Existing package data without annotations keeps its current behavior. The directive does not add an LSP extension
 or require client-side filtering.
 
 ## Predefined commands
@@ -273,7 +275,7 @@ interface XGoInputSlot {
   input: XGoInput
 
   /**
-   * The available user-predefined identifiers.
+   * The available user-predefined identifiers, omitting declarations marked `//xgols:notrecommended`.
    */
   predefinedNames: string[]
 }

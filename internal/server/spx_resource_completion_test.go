@@ -495,6 +495,24 @@ showVar "s|"
 	})
 }
 
+func TestSpxNotRecommendedPropertyStringCompletion(t *testing.T) {
+	source, pos := typeDisplayTestSource(t, `var (
+    //xgols:notrecommended
+    score int
+    lives int
+)
+onStart => {
+    showVar "|score"
+}
+`)
+	s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+	labels := completionItemLabels(completionItemsAt(t, s, "main.spx", pos))
+	assert.NotContains(t, labels, "score")
+	assert.Contains(t, labels, "lives")
+}
+
 func TestServerTextDocumentCompletionSpxResourceOverloads(t *testing.T) {
 	t.Run("FuncOverloads", func(t *testing.T) {
 		m := map[string][]byte{

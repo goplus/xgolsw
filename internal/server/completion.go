@@ -1747,9 +1747,6 @@ func (s *completionItemSet) add(items ...CompletionItem) {
 // addDefinitions adds symbol definitions to the set.
 func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 	for _, def := range defs {
-		if s.notRecommended != nil && s.notRecommended(def) {
-			continue
-		}
 		if def.CompletionItemKind == ConstantCompletion && xgoutil.IsXGoInternalName(def.CompletionItemLabel) {
 			continue
 		}
@@ -1809,6 +1806,9 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 		// Distinct source aliases can share the same implementation definition.
 		definitionKey := def.ID.String() + "\x00" + def.CompletionItemLabel
 		if _, ok := s.seenDefinitions[definitionKey]; ok {
+			continue
+		}
+		if s.notRecommended != nil && s.notRecommended(def) {
 			continue
 		}
 		s.seenDefinitions[definitionKey] = struct{}{}
