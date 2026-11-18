@@ -109,8 +109,8 @@ The directive supports functions, methods, variables (including classfile fields
 on fields and interface methods directly declared in a type definition or alias are also supported. It controls
 recommendations for that declaration only. Explicit uses retain normal compilation, diagnostics, hover, signature help,
 parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
-function does not mark declarations inside its body. Symbol browsing, file outlines, and `xgo.getProperties` are outside
-this policy.
+function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
+Clients using `xgo.getProperties` to offer suggestions can opt in to the same filtering.
 
 The spelling is exact and case-sensitive. Put `//xgols:notrecommended` on its own line anywhere in the leading comment
 group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
@@ -577,6 +577,10 @@ Type aliases to these types are also accepted. Properties include:
 Embedded fields themselves are excluded. Member lookup and shadowing follow XGo's rules. Fields are listed before methods,
 and names within each group are sorted alphabetically.
 
+Pass `excludeNotRecommended: true` to omit properties whose source declaration or selected overload implementation is
+marked `//xgols:notrecommended`. The default query includes all readable properties, including for checking existing
+property bindings.
+
 Framework adapters can supply their runtime property rules. For spx game and sprite types, properties follow monitor
 lookup and remain limited to supported scalar values, `spx.Value`, and `spx.List`. Ordinary types in the same project use
 the XGo rules above.
@@ -609,6 +613,11 @@ interface XGoGetPropertiesParams {
    * The name of a package-scope struct or classfile type, or an alias to one.
    */
   target: string
+
+  /**
+   * Omit properties marked not recommended when listing suggestions. Defaults to false.
+   */
+  excludeNotRecommended?: boolean
 }
 ```
 

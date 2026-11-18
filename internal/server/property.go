@@ -71,7 +71,11 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 		proj:         proj,
 		lookupPkgDoc: s.lookupPkgDoc,
 	}
-	properties := ctx.collectPropertiesFromNamedType(namedType)
+	var notRecommended func(symbolDefinition) bool
+	if params.ExcludeNotRecommended {
+		notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
+	}
+	properties := ctx.collectPropertiesFromNamedType(namedType, notRecommended)
 
 	slices.SortStableFunc(properties, func(a, b XGoProperty) int {
 		if p1, p2 := xgoPropertyKindPriority[a.Kind], xgoPropertyKindPriority[b.Kind]; p1 != p2 {
@@ -172,6 +176,14 @@ type propertyMember struct {
 	Definition symbolDefinition
 }
 
+// recommendationDefinition retains the source member alongside the implementation
+// used to describe the property.
+func (m propertyMember) recommendationDefinition() symbolDefinition {
+	def := m.Definition
+	def.SourceObject = m.Object
+	return def
+}
+
 // propertyMembers attaches documentation and definition identifiers to properties.
 func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[propertyMember] {
 	return func(yield func(propertyMember) bool) {
@@ -194,9 +206,12 @@ func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[prope
 }
 
 // collectPropertiesFromNamedType describes the receiver's readable properties.
-func (r *definitionContext) collectPropertiesFromNamedType(named *gotypes.Named) []XGoProperty {
+func (r *definitionContext) collectPropertiesFromNamedType(named *gotypes.Named, notRecommended func(symbolDefinition) bool) []XGoProperty {
 	var properties []XGoProperty
 	for m := range r.propertyMembers(named) {
+		if notRecommended != nil && notRecommended(m.recommendationDefinition()) {
+			continue
+		}
 		properties = append(properties, XGoProperty{
 			Name:       m.Name,
 			Type:       r.typeString(m.Type),

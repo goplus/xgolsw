@@ -330,6 +330,11 @@ func (Record).Note = ((Record).internal)
 	for _, name := range []string{"label", "title", "note"} {
 		assert.True(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == name }), name)
 	}
+
+	suggestions, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record", ExcludeNotRecommended: true})
+	require.NoError(t, err)
+	require.Len(t, suggestions, 1)
+	assert.Equal(t, "title", suggestions[0].Name)
 }
 
 func TestCompletionContextGetPropertyTargetAutoProperty(t *testing.T) {

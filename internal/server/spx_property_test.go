@@ -206,6 +206,48 @@ func (Right) Label() string { return "" }`, fields: "Left; Right"},
 	}
 }
 
+func TestGetSpxPropertiesExcludingNotRecommended(t *testing.T) {
+	s := newSpxTestServer(t, map[string][]byte{
+		"main.spx": []byte(`var (
+    a1 = 1
+    //xgols:notrecommended
+    a2 = "123"
+)
+
+//xgols:notrecommended
+func MyTestFunc3() string { return "123" }
+
+func MyTestFunc4() string { return "123" }
+`),
+		"assets/index.json": []byte(`{}`),
+	})
+	requireNoDiagnostics(t, s)
+
+	for _, tt := range []struct {
+		argument string
+		want     []string
+	}{
+		{argument: `{"target":"Game"}`, want: []string{"a1", "a2", "myTestFunc3", "myTestFunc4"}},
+		{argument: `{"target":"Game","excludeNotRecommended":false}`, want: []string{"a1", "a2", "myTestFunc3", "myTestFunc4"}},
+		{argument: `{"target":"Game","excludeNotRecommended":true}`, want: []string{"a1", "myTestFunc4"}},
+	} {
+		result, err := s.workspaceExecuteCommand(&ExecuteCommandParams{
+			Command: CommandXGoGetProperties, Arguments: []json.RawMessage{json.RawMessage(tt.argument)},
+		})
+		require.NoError(t, err)
+		properties, ok := result.([]XGoProperty)
+		require.True(t, ok)
+		var names []string
+		for _, prop := range properties {
+			switch prop.Name {
+			case "a1", "a2", "myTestFunc3", "myTestFunc4":
+				names = append(names, prop.Name)
+			}
+		}
+		assert.Equal(t, tt.want, names, tt.argument)
+	}
+}
+
 func TestSpxSymbolsPropertyTargetIsolation(t *testing.T) {
 	s := newSpxTestServer(t, map[string][]byte{
 		"main.spx": []byte(`var Values []int

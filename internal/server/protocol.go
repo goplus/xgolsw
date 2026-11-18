@@ -271,6 +271,8 @@ type XGoGetInputSlotsParams struct {
 type XGoGetPropertiesParams struct {
 	// The name of a package-scope struct or classfile type, or an alias to one.
 	Target string `json:"target"`
+	// Omit properties marked not recommended when listing suggestions.
+	ExcludeNotRecommended bool `json:"excludeNotRecommended,omitempty"`
 }
 
 // XGoPropertyKind represents a property of a type (field or method).

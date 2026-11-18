@@ -41,14 +41,10 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 		if _, seen := ctx.itemSet.seenDefinitions[key]; seen {
 			continue
 		}
-		def := m.Definition
-		// Property descriptions use the selected implementation. Keep the
-		// source alias as well when checking its recommendation directive.
-		def.SourceObject = m.Object
-		if ctx.itemSet.notRecommended != nil && ctx.itemSet.notRecommended(def) {
+		if ctx.itemSet.notRecommended != nil && ctx.itemSet.notRecommended(m.recommendationDefinition()) {
 			continue
 		}
-		item := def.completionItem(ctx.itemSet.documentationKind)
+		item := m.Definition.completionItem(ctx.itemSet.documentationKind)
 		item.Kind = PropertyCompletion
 		if !ctx.setCompletionStringValue(&item, m.Name) {
 			continue
