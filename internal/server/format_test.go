@@ -6,6 +6,7 @@ import (
 	gotypes "go/types"
 	"io/fs"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1531,6 +1532,10 @@ type Options1 struct {
 	Handler func(int)
 }
 
+var (
+	worker Worker
+)
+
 func (w *Worker) handle0(opts Options0?) {}
 
 func (w *Worker) handle1(opts Options1?) {}
@@ -1538,10 +1543,6 @@ func (w *Worker) handle1(opts Options1?) {}
 func (Worker).handle = (
 	(Worker).handle0
 	(Worker).handle1
-)
-
-var (
-	worker Worker
 )
 
 onStart => {
@@ -1703,7 +1704,7 @@ func test() {} // trailing comment for func test
 type Foo struct{}
 
 var (
-	flag bool
+	flag    bool
 )
 
 func (Foo) Bar() {}
@@ -1728,15 +1729,97 @@ func Bar() {}
 
 type Foo struct{}
 
-func (Foo) Bar() {}
-
 var (
 	flag bool
 )
 
+func (Foo) Bar() {}
+
 func Bar() {}
 `,
 		}, edits[0])
+	})
+
+	t.Run("ClassFieldsBeforeExplicitReceiverMethods", func(t *testing.T) {
+		const filename = "main_fixture.gox"
+		const source = "type Marker int\nvar score int\nfunc (Marker) Run() {}\n"
+		s := newFrameworkTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Equal(t, "type Marker int\n\nvar (\n\tscore int\n)\n\nfunc (Marker) Run() {}\n", edits[0].NewText)
+		s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(edits[0].NewText), Version: 1}})
+		requireNoDiagnostics(t, s)
+		edits, err = s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		assert.Empty(t, edits)
+	})
+
+	t.Run("SingleClassFieldTags", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			source    string
+			want      string
+			wantValue string
+		}{
+			{name: "Quoted", source: "var score int \"score\"\n", want: "\"score\""},
+			{name: "Raw", source: "var score int `json:\"score\"`\n", want: "`json:\"score\"`"},
+			{name: "Multiline", source: "var score int `first\nsecond` // Closing.\n", want: "`first\nsecond`"},
+			{name: "CRLF", source: "var score int `first\r\nsecond` // Closing.\r\n", want: "`first\nsecond`"},
+			{name: "Initialized", source: "var score int = 1 \"score\"\n", want: "\"score\"", wantValue: "1"},
+			{name: "GroupedInitialized", source: "var (\n score int = 1 \"score\"\n)\n", want: "\"score\"", wantValue: "1"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const filename = "main_fixture.gox"
+				s := newFrameworkTestServer(t, map[string][]byte{filename: []byte(tt.source)})
+				t.Cleanup(s.Close)
+				params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}
+				edits, err := s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				require.Len(t, edits, 1)
+				if strings.Contains(tt.source, "// Closing.") {
+					assert.Equal(t, 1, strings.Count(edits[0].NewText, "// Closing."))
+				}
+				s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(edits[0].NewText), Version: 1}})
+				requireNoDiagnostics(t, s)
+				file, err := s.getProj().ASTFile(filename)
+				require.NoError(t, err)
+				require.NotNil(t, file.ClassFields)
+				require.Len(t, file.ClassFields.Specs, 1)
+				spec := requireValueAs[*ast.ValueSpec](t, file.ClassFields.Specs[0])
+				require.NotNil(t, spec.Tag)
+				assert.Equal(t, tt.want, spec.Tag.Value)
+				if tt.wantValue != "" {
+					require.Len(t, spec.Values, 1)
+					initializer := requireValueAs[*ast.BasicLit](t, spec.Values[0])
+					assert.Equal(t, tt.wantValue, initializer.Value)
+				}
+				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
+	t.Run("ClassFieldTagsWithInitializers", func(t *testing.T) {
+		const filename = "main_fixture.gox"
+		const source = "var (\n score int = 1 \"score\"\n speed int = 2 `json:\"speed\"`\n)\n"
+		s := newFrameworkTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits[0].NewText, "score int = 1 \"score\"")
+		assert.Contains(t, edits[0].NewText, "speed int = 2 `json:\"speed\"`")
+		s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(edits[0].NewText), Version: 1}})
+		requireNoDiagnostics(t, s)
+		edits, err = s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		assert.Empty(t, edits)
 	})
 
 	t.Run("ClassFieldsDeclarationWithAndWithoutInit", func(t *testing.T) {

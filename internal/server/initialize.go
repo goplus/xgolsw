@@ -64,6 +64,11 @@ func serverCapabilities(params *InitializeParams) ServerCapabilities {
 		},
 		InlayHintProvider: protocol.InlayHintOptions{},
 	}
+	if textDocument.CodeAction.CodeActionLiteralSupport.CodeActionKind.ValueSet != nil {
+		capabilities.CodeActionProvider = protocol.CodeActionOptions{
+			CodeActionKinds: []protocol.CodeActionKind{codeActionKindMergeVarDeclarations},
+		}
+	}
 	if textDocument.Rename != nil && textDocument.Rename.PrepareSupport {
 		capabilities.RenameProvider = protocol.RenameOptions{PrepareProvider: true}
 	}

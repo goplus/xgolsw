@@ -253,6 +253,14 @@ func (s *Server) handleCall(c *jsonrpc2.Call) error {
 		s.runForCall(c, func() (any, error) {
 			return s.workspaceDiagnostic(&params)
 		})
+	case "textDocument/codeAction":
+		var params CodeActionParams
+		if err := UnmarshalJSON(c.Params(), &params); err != nil {
+			return s.replyParseError(c.ID(), err)
+		}
+		s.runForCall(c, func() (any, error) {
+			return s.textDocumentCodeAction(&params)
+		})
 	case "textDocument/formatting":
 		var params DocumentFormattingParams
 		if err := UnmarshalJSON(c.Params(), &params); err != nil {
