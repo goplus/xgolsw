@@ -107,6 +107,13 @@ func TestSplitXGotMethodName(t *testing.T) {
 		assert.False(t, ok)
 	})
 
+	t.Run("EscapedHistoricalTemplate", func(t *testing.T) {
+		recvTypeName, methodName, ok := SplitXGotMethodName("Gopt__Type_Name__XGox_Method_Name", true)
+		require.True(t, ok)
+		assert.Equal(t, "Type_Name", recvTypeName)
+		assert.Equal(t, "Method_Name", methodName)
+	})
+
 	t.Run("MultipleUnderscores", func(t *testing.T) {
 		recvTypeName, methodName, ok := SplitXGotMethodName("XGot_MyType_My_Method", false)
 		require.True(t, ok)
@@ -115,9 +122,34 @@ func TestSplitXGotMethodName(t *testing.T) {
 	})
 }
 
+func TestSplitXGosMemberName(t *testing.T) {
+	for _, tt := range []struct {
+		name, owner, member string
+	}{
+		{name: "XGos_Type_Name", owner: "Type", member: "Name"},
+		{name: "Gops__Type_Name__Member_Name", owner: "Type_Name", member: "Member_Name"},
+		{name: "XGos__Type_Name"},
+		{name: "XGos_Type_"},
+		{name: "Type_Name"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			owner, member, ok := SplitXGosMemberName(tt.name)
+			assert.Equal(t, tt.owner != "", ok)
+			assert.Equal(t, tt.owner, owner)
+			assert.Equal(t, tt.member, member)
+		})
+	}
+}
+
 func TestSplitXGoxFuncName(t *testing.T) {
 	t.Run("ValidXGoxFuncName", func(t *testing.T) {
 		funcName, ok := SplitXGoxFuncName("XGox_Method")
+		require.True(t, ok)
+		assert.Equal(t, "Method", funcName)
+	})
+
+	t.Run("HistoricalPrefix", func(t *testing.T) {
+		funcName, ok := SplitXGoxFuncName("Gopx_Method")
 		require.True(t, ok)
 		assert.Equal(t, "Method", funcName)
 	})
@@ -139,9 +171,8 @@ func TestSplitXGoxFuncName(t *testing.T) {
 	})
 
 	t.Run("OnlyPrefix", func(t *testing.T) {
-		funcName, ok := SplitXGoxFuncName("XGox_")
-		require.True(t, ok)
-		assert.Empty(t, funcName)
+		_, ok := SplitXGoxFuncName("XGox_")
+		assert.False(t, ok)
 	})
 
 	t.Run("EmptyString", func(t *testing.T) {
@@ -356,4 +387,42 @@ func TestExpandXGoOverloadableFunc(t *testing.T) {
 		assert.Same(t, overload1, expanded[0])
 		assert.Same(t, overload2, expanded[1])
 	})
+}
+
+func TestReferencesEncodedFuncName(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/framework", "framework")
+	markAsXGoPackage(pkg)
+	owner := gotypes.NewTypeName(0, pkg, "Item", nil)
+	gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+	pkg.Scope().Insert(owner)
+	signature := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	for _, tt := range []struct {
+		function, source string
+		want             bool
+	}{
+		{function: "Gopt_Item_Choose", source: "Gopt_Item_Choose", want: true},
+		{function: "Gopt_Item_Choose", source: "choose"},
+		{function: "Gopt_Item_Choose__0", source: "Gopt_Item_Choose", want: true},
+		{function: "Gopt_Item_Choose__0", source: "gopt_Item_Choose", want: true},
+		{function: "Gopt_Item_Choose__0", source: "Gopt_Item_Choose__1"},
+		{function: "Gopt_Missing_Choose", source: "Gopt_Missing_Choose"},
+		{function: "XGos_Item_Choose", source: "XGos_Item_Choose", want: true},
+		{function: "XGos_Item_Choose", source: "choose"},
+		{function: "XGos_Item_Choose__0", source: "xGos_Item_Choose", want: true},
+		{function: "Gops_Item_Choose", source: "Gops_Item_Choose", want: true},
+		{function: "XGos_Missing_Choose", source: "XGos_Missing_Choose"},
+		{function: "Gopx_Choose", source: "gopx_Choose", want: true},
+		{function: "Choose", source: "Choose"},
+	} {
+		t.Run(tt.function+"/"+tt.source, func(t *testing.T) {
+			fun := gotypes.NewFunc(0, pkg, tt.function, signature)
+			assert.Equal(t, tt.want, ReferencesEncodedFuncName(fun, tt.source))
+		})
+	}
+}
+
+func TestXGosMemberName(t *testing.T) {
+	assert.Equal(t, "XGos_Type_Name", XGosMemberName("Type", "Name"))
+	assert.Equal(t, "XGos__Type__Member_Name", XGosMemberName("Type", "Member_Name"))
+	assert.Equal(t, "XGos__Type_Name__Member", XGosMemberName("Type_Name", "Member"))
 }

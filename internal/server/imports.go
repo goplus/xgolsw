@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/goplus/gogen"
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -50,7 +49,7 @@ func buildFileImportsCache(proj *xgo.Project) (any, error) {
 func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, file *ast.File) *fileImports {
 	imports := &fileImports{named: make(map[string]*gotypes.PkgName)}
 	if file.IsClass && !file.IsNormalGox {
-		if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
+		if framework, ok := proj.Module().LookupClass(xgoutil.ClassfileExt(filename)); ok {
 			for _, path := range framework.PkgPaths {
 				if pkg, err := proj.Import(path); err == nil {
 					imports.members = append(imports.members, pkg)

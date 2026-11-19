@@ -89,6 +89,81 @@ func Reset() {
 }
 
 func TestProjectPkgDoc(t *testing.T) {
+	t.Run("PlainSourceWithoutTypeChecking", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`// Choose selects a value.
+func Choose(value int) int { return value }
+`)}, FeatAll)
+		var typeChecks int
+		proj.RegisterCacheBuilder(typeInfoCacheKind{}, func(p *Project) (any, error) {
+			typeChecks++
+			return buildTypeInfoCache(p)
+		})
+
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		assert.Equal(t, "Choose selects a value.\n", doc.Funcs["Choose"])
+		assert.Zero(t, typeChecks)
+		_, err = proj.TypeInfo()
+		require.NoError(t, err)
+		assert.Equal(t, 1, typeChecks)
+	})
+
+	t.Run("StaticClassMethod", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"Record.gox": file(`// Choose selects an item.
+func .Choose(value int) int { return value }
+`)}, FeatAll)
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.Contains(t, doc.Types, "Record")
+		const want = "Choose selects an item.\n"
+		assert.Equal(t, want, doc.Types["Record"].Methods["Choose"])
+		assert.Equal(t, want, doc.Funcs["XGos_Record_Choose"])
+	})
+
+	t.Run("ParenthesizedMethodReceivers", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`type Record struct { Value int }
+
+// Read reads the record value.
+func (r (Record)) Read() int { return r.Value }
+
+// Set replaces the record value.
+func (r (*(Record))) Set(value int) { r.Value = value }
+`)}, FeatAll)
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.Contains(t, doc.Types, "Record")
+		assert.Equal(t, "Read reads the record value.\n", doc.Types["Record"].Methods["Read"])
+		assert.Equal(t, "Set replaces the record value.\n", doc.Types["Record"].Methods["Set"])
+	})
+
+	t.Run("EditBeforeTypeChecking", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"Record.gox": file("var Count int\n")}, FeatAll)
+		started, resume := make(chan struct{}), make(chan struct{})
+		release := sync.OnceFunc(func() { close(resume) })
+		t.Cleanup(release)
+		proj.RegisterCacheBuilder(typeInfoCacheKind{}, func(p *Project) (any, error) {
+			close(started)
+			<-resume
+			return buildTypeInfoCache(p)
+		})
+
+		result := make(chan error, 1)
+		go func() {
+			_, err := proj.PkgDoc()
+			result <- err
+		}()
+		<-started
+		proj.PutFile("Record.gox", file("var ("))
+		release()
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, <-result, &parserErrs)
+		assert.NotEmpty(t, parserErrs)
+	})
+
 	t.Run("ConcurrentTypeChecking", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string

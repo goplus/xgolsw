@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // validateResourceRename checks spx resource namespaces before generating edits.
@@ -143,7 +143,7 @@ func (s *Server) checkSpxSpriteRenameConflicts(proj *xgo.Project, result *spxAna
 		if !token.IsIdentifier(newName) {
 			return fmt.Errorf("sprite rename conflicts with invalid class name %q", newName)
 		}
-		ext := modfile.ClassExt(filename)
+		ext := xgoutil.ClassfileExt(filename)
 		base := newName
 		for _, work := range spxFrameworkForFile(proj, filename).Works {
 			if work.Ext == ext {

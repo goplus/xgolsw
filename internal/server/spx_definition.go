@@ -6,6 +6,7 @@ import (
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // SpxPkgPath is the path to the spx package.
@@ -18,7 +19,7 @@ func isSpxFramework(framework *modfile.Project) bool {
 
 // spxFrameworkForFile returns the spx class framework registration for filename, if any.
 func spxFrameworkForFile(proj *xgo.Project, filename string) *modfile.Project {
-	framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename))
+	framework, ok := proj.Module().LookupClass(xgoutil.ClassfileExt(filename))
 	if ok && isSpxFramework(framework) {
 		return framework
 	}
@@ -111,7 +112,7 @@ func (r *spxSymbols) functionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc
 	if doc == nil {
 		return "", false
 	}
-	recvTypeName, _, _, _ := displayedFuncName(fun)
+	recvTypeName, _, _ := displayedFuncName(fun)
 	if recvTypeName != "Sprite" || !r.isSpxSymbol(fun) {
 		return "", false
 	}

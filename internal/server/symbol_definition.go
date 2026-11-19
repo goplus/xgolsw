@@ -22,6 +22,13 @@ type symbolDefinition struct {
 	// Function supplies the implementation signature and documentation.
 	SourceObject gotypes.Object
 
+	// staticMemberName is the exact selector spelling of a reconstructed static member.
+	staticMemberName string
+
+	// functionValueSpelling overrides the ordinary insertion name when the
+	// compiler requires a particular spelling for the callable value.
+	functionValueSpelling string
+
 	// AutoPropertyType is the inferred result of an implicit call.
 	// It distinguishes a property returning a function from a method value.
 	AutoPropertyType gotypes.Type
@@ -82,11 +89,11 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 		case *gotypes.Const:
 			defs = append(defs, d.definitionForConst(obj, pkgDoc))
 		case *gotypes.TypeName:
-			defs = append(defs, d.definitionForType(obj, pkgDoc))
+			defs = append(defs, d.definitionForType(obj, obj.Name(), pkgDoc))
 		case *gotypes.Func:
 			// Template methods are selected through their receiver. Their
 			// display names do not resolve as package-level functions.
-			if xgoutil.IsMarkedAsXGoPackage(pkg) && xgoutil.IsXGotMethodName(obj.Name()) {
+			if _, _, template := xgoutil.TemplateMethodName(obj, false); template {
 				continue
 			}
 			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
@@ -185,8 +192,8 @@ func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc)
 }
 
 // definitionForType describes the provided type in the source context.
-func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
-	overview := d.typeOverview(typeName)
+func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, name string, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
+	overview := d.typeOverview(typeName, name)
 
 	var detail string
 	if pkgDoc != nil {
@@ -197,7 +204,8 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 	}
 
 	return symbolDefinition{
-		TypeHint: typeName.Type(),
+		TypeHint:     typeName.Type(),
+		SourceObject: typeName,
 
 		ID: XGoDefinitionIdentifier{
 			Package: new(xgoutil.PkgPath(typeName.Pkg())),
@@ -206,9 +214,9 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 		Overview: overview,
 		Detail:   detail,
 
-		CompletionItemLabel:            typeName.Name(),
+		CompletionItemLabel:            name,
 		CompletionItemKind:             typeCompletionKind(typeName.Type()),
-		CompletionItemInsertText:       typeName.Name(),
+		CompletionItemInsertText:       name,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
@@ -262,12 +270,29 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 	}
 }
 
+// nameFunctionOverview displays the callable's name while leaving its
+// definition identifier and insertion spelling available to the caller.
+func (def *symbolDefinition) nameFunctionOverview(name string) {
+	def.Overview = strings.Replace(def.Overview, "func "+def.CompletionItemLabel, "func "+name, 1)
+}
+
+// functionValueName returns the selector spelling for inserting a function value.
+func (def symbolDefinition) functionValueName() string {
+	if def.functionValueSpelling != "" {
+		return def.functionValueSpelling
+	}
+	if def.staticMemberName != "" {
+		return def.staticMemberName
+	}
+	return functionValueName(def.Function)
+}
+
 // functionValueName preserves the declared spelling needed to refer to a
 // function value instead of invoking a lowercase XGo alias.
 func functionValueName(fun *gotypes.Func) string {
 	name := fun.Name()
 	if xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) {
-		if _, method, ok := xgoutil.SplitXGotMethodName(name, true); ok {
+		if _, method, ok := xgoutil.TemplateMethodName(fun, true); ok {
 			return method
 		}
 		if function, ok := xgoutil.SplitXGoxFuncName(name); ok {
@@ -305,16 +330,12 @@ func functionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc) string {
 	if doc == nil {
 		return ""
 	}
-	recvTypeName, _, _, _ := displayedFuncName(fun)
-	if recvTypeName == "" && fun.Signature().Recv() != nil {
-		return ""
+	if fun.Signature().Recv() == nil {
+		return doc.Funcs[fun.Name()]
 	}
-	name := fun.Name()
-	if recvTypeName == "" || xgoutil.IsXGotMethodName(name) {
-		return doc.Funcs[name]
-	}
+	recvTypeName, _, _ := displayedFuncName(fun)
 	if typeDoc := doc.Types[recvTypeName]; typeDoc != nil {
-		return typeDoc.Methods[name]
+		return typeDoc.Methods[fun.Name()]
 	}
 	return ""
 }

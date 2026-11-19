@@ -97,6 +97,35 @@ func TestIsValidType(t *testing.T) {
 	})
 }
 
+func TestMethodExpressionReceiver(t *testing.T) {
+	base := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Base", nil), gotypes.NewStruct(nil, nil), nil)
+	outer := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Outer", nil), gotypes.NewStruct(nil, nil), nil)
+	basePointer := gotypes.NewPointer(base)
+	outerPointer := gotypes.NewPointer(outer)
+	iface := gotypes.NewInterfaceType(nil, nil).Complete()
+	for _, tt := range []struct {
+		name                     string
+		selector, declared, want gotypes.Type
+	}{
+		{name: "Value", selector: outer, declared: base, want: outer},
+		{name: "Pointer", selector: outerPointer, declared: basePointer, want: outerPointer},
+		{name: "PointerThroughValueType", selector: outer, declared: basePointer, want: outerPointer},
+		{name: "ValueThroughPointerType", selector: outerPointer, declared: base},
+		{name: "InterfaceThroughPointerType", selector: outerPointer, declared: iface, want: outerPointer},
+		{name: "MissingSelectorType", declared: basePointer},
+		{name: "InvalidSelectorType", selector: gotypes.Typ[gotypes.Invalid], declared: base},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			receiver := MethodExpressionReceiver(tt.selector, tt.declared)
+			if tt.want == nil {
+				assert.Nil(t, receiver)
+			} else {
+				assert.True(t, gotypes.Identical(tt.want, receiver))
+			}
+		})
+	}
+}
+
 func TestIsTypesCompatible(t *testing.T) {
 	t.Run("NilTypes", func(t *testing.T) {
 		assert.False(t, IsTypesCompatible(nil, nil))

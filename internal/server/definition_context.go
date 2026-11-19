@@ -2,12 +2,16 @@ package server
 
 import (
 	gotypes "go/types"
+	"slices"
 	"strconv"
+	"strings"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -22,6 +26,9 @@ type definitionContext struct {
 
 	// memberSelectors indexes receiver members for this request only.
 	memberSelectors map[gotypes.Type]map[gotypes.Object]*gotypes.Named
+
+	// functionComments indexes top-level function declarations by source position.
+	functionComments map[*ast.File]map[token.Pos]*ast.CommentGroup
 
 	// lookupPkgDoc resolves documentation for imported packages and builtins.
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)
@@ -73,14 +80,21 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 				return nil
 			}
 		}
+		if member := types.StaticMemberObject(obj); member != nil {
+			return r.staticMemberDefinitions(obj, member)
+		}
 		if xgoutil.IsUnexpandableXGoOverloadableFunc(obj) {
 			return nil
 		}
 		if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
+			groupDoc := r.sourceOverloadDocumentation(obj)
 			defs := make([]symbolDefinition, 0, len(funcOverloads))
 			for _, funcOverload := range funcOverloads {
 				def := r.definitionForFunc(funcOverload, selectorTypeName, pkgDoc)
 				def.SourceObject = obj
+				if def.Detail == "" {
+					def.Detail = groupDoc
+				}
 				defs = append(defs, def)
 			}
 			return defs
@@ -90,6 +104,29 @@ func (r *definitionContext) definitionsFor(obj gotypes.Object, selectorTypeName 
 		return []symbolDefinition{definitionForPkg(obj, pkgDoc)}
 	}
 	return nil
+}
+
+// staticMemberDefinitions describes the implementation with its source selector.
+func (r *definitionContext) staticMemberDefinitions(wrapper *gotypes.Func, obj gotypes.Object) []symbolDefinition {
+	name := wrapper.Name()
+	label := name
+	if _, callable := obj.(*gotypes.Func); callable && xgoutil.IsMarkedAsXGoPackage(wrapper.Pkg()) {
+		label, _ = xgoutil.ParseXGoFuncName(name)
+	}
+	owner := memberTypeName(r.proj, wrapper)
+	ownerName := r.frameworkDisplayTypeName(wrapper, owner)
+	defs := r.definitionsFor(obj, owner)
+	for i := range defs {
+		def := &defs[i]
+		def.Overview = strings.Replace(def.Overview, def.CompletionItemLabel, label, 1)
+		def.SourceObject = wrapper
+		def.staticMemberName = name
+		def.ID.Package = new(xgoutil.PkgPath(wrapper.Pkg()))
+		def.ID.Name = new(ownerName + "." + label)
+		def.CompletionItemLabel = label
+		def.CompletionItemInsertText = label
+	}
+	return defs
 }
 
 // definitionsForIdent returns all definitions for the given identifier.
@@ -107,17 +144,161 @@ func (r *definitionContext) definitionsForIdent(ident *ast.Ident) []symbolDefini
 		return []symbolDefinition{r.definitionForEnumMembers(members...)}
 	}
 	obj := r.enumInfo.objectForIdent(typeInfo, ident)
-	if member := r.memberForIdent(ident, obj); member != nil {
-		return r.definitionsForMember(*member)
+	source, _ := typeInfo.SourceObjectOf(ident).(*gotypes.Func)
+	if fun, ok := obj.(*gotypes.Func); ok && xgoutil.IsOverloadPlaceholder(fun) {
+		obj = typeInfo.Overloads[ident]
 	}
-	return r.definitionsFor(obj, memberTypeName(r.proj, obj))
+	if source != nil && source != obj {
+		if types.StaticMemberObject(source) != nil {
+			return r.staticMemberDefinitions(source, obj)
+		}
+	}
+	if fun, ok := obj.(*gotypes.Func); ok && xgoutil.ReferencesEncodedFuncName(fun, ident.Name) {
+		if overloads := xgoutil.ExpandXGoOverloadableFunc(fun); overloads != nil {
+			defs := make([]symbolDefinition, 0, len(overloads))
+			for _, overload := range overloads {
+				defs = append(defs, r.encodedFunctionDefinition(overload, ident.Name))
+			}
+			return defs
+		}
+		if xgoutil.IsUnexpandableXGoOverloadableFunc(fun) {
+			return nil
+		}
+		return []symbolDefinition{r.encodedFunctionDefinition(fun, ident.Name)}
+	}
+	var defs []symbolDefinition
+	if member := r.memberForIdent(ident, obj); member != nil {
+		defs = r.definitionsForMember(*member)
+	} else {
+		defs = r.definitionsFor(obj, memberTypeName(r.proj, obj))
+	}
+	if source != nil {
+		r.describeOverloadUse(ident, source, defs)
+	}
+	if typ, ok := obj.(*gotypes.TypeName); ok && len(defs) == 1 && usesOverloadedTypeName(typ, ident.Name) {
+		defs[0].Overview = r.typeOverview(typ, ident.Name)
+	}
+	return defs
 }
 
-// definitionsForStruct describes the fields and methods of the given type.
-func (r *definitionContext) definitionsForStruct(typ gotypes.Type) []symbolDefinition {
+// usesOverloadedTypeName reports whether name denotes the reconstructed group
+// that selected typ.
+func usesOverloadedTypeName(typ *gotypes.TypeName, name string) bool {
+	if typ.Pkg() == nil || name == typ.Name() {
+		return false
+	}
+	group, ok := typ.Pkg().Scope().Lookup(name).(*gotypes.TypeName)
+	if !ok {
+		return false
+	}
+	overloaded, ok := gogen.CheckOverloadNamed(group.Type())
+	return ok && slices.ContainsFunc(overloaded.Types, func(variant *gotypes.Named) bool {
+		return variant.Obj() == typ
+	})
+}
+
+// describeOverloadUse displays the source callable while retaining the
+// implementation's definition identity and documentation.
+func (r *definitionContext) describeOverloadUse(ident *ast.Ident, source *gotypes.Func, defs []symbolDefinition) {
+	if xgoutil.IsInBuiltinPkg(source) {
+		return
+	}
+	ext, _ := gogen.CheckFuncEx(source.Signature())
+	switch ext.(type) {
+	case *gogen.TyOverloadFunc, *gogen.TyOverloadMethod:
+		_, name, _ := displayedFuncName(source)
+		groupDoc, _ := r.sourceDocumentation(source)
+		for i := range defs {
+			defs[i].nameFunctionOverview(name)
+			if defs[i].Detail == "" {
+				defs[i].Detail = groupDoc
+			}
+		}
+	case *gogen.TyTemplateRecvMethod:
+		if _, encoded := xgoutil.SplitXGoxFuncName(source.Name()); !encoded {
+			return
+		}
+		for i := range defs {
+			fun := defs[i].Function
+			if fun == nil || fun.Signature().Params().Len() == 0 {
+				continue
+			}
+			sig := fun.Signature()
+			params := slices.Collect(sig.Params().Variables())
+			defs[i].Overview = r.functionOverview(ident.Name, sig, gotypes.NewTuple(params[1:]...), 0)
+		}
+	}
+}
+
+// isTemplateMethodWrapper reports whether obj is a reconstructed receiver method.
+func isTemplateMethodWrapper(obj gotypes.Object) bool {
+	fun, ok := obj.(*gotypes.Func)
+	if !ok {
+		return false
+	}
+	ext, _ := gogen.CheckFuncEx(fun.Signature())
+	_, ok = ext.(*gogen.TyTemplateRecvMethod)
+	return ok
+}
+
+// sourceOverloadDocumentation returns the comment on a source overload group.
+func (r *definitionContext) sourceOverloadDocumentation(obj gotypes.Object) string {
+	fun, ok := obj.(*gotypes.Func)
+	if !ok {
+		return ""
+	}
+	ext, _ := gogen.CheckFuncEx(fun.Signature())
+	switch ext.(type) {
+	case *gogen.TyOverloadFunc, *gogen.TyOverloadMethod:
+		doc, _ := r.sourceDocumentation(fun)
+		return doc
+	}
+	return ""
+}
+
+// encodedFunctionDefinition describes a direct reference to an encoded Go
+// function, including parameters that are bound when using a method selector.
+func (r *definitionContext) encodedFunctionDefinition(fun *gotypes.Func, name string) symbolDefinition {
+	def := r.definitionForFunc(fun, "", r.pkgDocForObject(fun))
+	sig := fun.Signature()
+	def.Overview = r.functionOverview(name, sig, sig.Params(), 0)
+	def.ID.Name = new(name)
+	if xgoutil.IsXGoOverloadedFuncName(name) {
+		// The exact implementation name already includes its overload index.
+		def.ID.OverloadID = nil
+	}
+	def.CompletionItemLabel = name
+	def.CompletionItemInsertText = name
+	return def
+}
+
+// definitionsForInstanceMembers describes the fields and methods of a value.
+func (r *definitionContext) definitionsForInstanceMembers(typ gotypes.Type) []symbolDefinition {
 	var defs []symbolDefinition
-	for member := range xgoutil.StructMembers(typ, r.isFrameworkBaseType) {
+	for member := range r.selectorMembers(typ) {
+		if method, ok := member.Member.(*gotypes.Func); ok && types.StaticMemberObject(method) != nil {
+			continue
+		}
 		defs = append(defs, r.definitionsForMember(member)...)
+	}
+	return defs
+}
+
+// definitionsForSelectorMethods describes method candidates for a type or
+// interface selector. The compiler can resolve an alias hidden by another member.
+func (r *definitionContext) definitionsForSelectorMethods(receiver gotypes.Type, isType bool) []symbolDefinition {
+	var defs []symbolDefinition
+	for obj := range memberCandidates(receiver) {
+		method, ok := obj.(*gotypes.Func)
+		if !ok || !xgoutil.IsExportedOrInMainPkg(method) {
+			continue
+		}
+		if static := types.StaticMemberObject(method); static != nil {
+			if _, callable := static.(*gotypes.Func); !isType || !callable {
+				continue
+			}
+		}
+		defs = append(defs, r.definitionsForSelection(method, receiver)...)
 	}
 	return defs
 }
@@ -204,7 +385,7 @@ func (r *definitionContext) definitionForConst(c *gotypes.Const, doc *pkgdoc.Pkg
 
 // definitionForType describes a type with documentation from its declaration.
 func (r *definitionContext) definitionForType(typ *gotypes.TypeName, doc *pkgdoc.PkgDoc) symbolDefinition {
-	return r.withSourceDocumentation(typ, r.typeDisplay.definitionForType(typ, doc))
+	return r.withSourceDocumentation(typ, r.typeDisplay.definitionForType(typ, typ.Name(), doc))
 }
 
 // definitionForFunc describes a function using its source declaration, including
@@ -214,7 +395,7 @@ func (r *definitionContext) definitionForFunc(fun *gotypes.Func, selectorTypeNam
 		selectorTypeName = owner
 	}
 	if selectorTypeName == "" {
-		selectorTypeName, _, _, _ = displayedFuncName(fun)
+		selectorTypeName, _, _ = displayedFuncName(fun)
 	}
 	selectorTypeName = r.frameworkDisplayTypeName(fun, selectorTypeName)
 	def := r.typeDisplay.definitionForFunc(fun, selectorTypeName, doc)

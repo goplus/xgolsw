@@ -260,9 +260,8 @@ func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*goty
 	if fun == nil {
 		return nil
 	}
-	ext, _ := gogen.CheckFuncEx(fun.Signature())
-	if member, ok := ext.(*gogen.TyStaticMember); ok {
-		fun, _ = member.Obj().(*gotypes.Func)
+	if member := types.StaticMemberObject(fun); member != nil {
+		fun, _ = member.(*gotypes.Func)
 		if fun == nil {
 			return nil
 		}
@@ -276,6 +275,7 @@ func callExprFuncOverloads(typeInfo *types.Info, callExpr *ast.CallExpr) []*goty
 // objectDefinitionLocation returns the declaration location of obj when it is
 // available in the current project.
 func (s *Server) objectDefinitionLocation(proj *xgo.Project, typeInfo *types.Info, obj gotypes.Object) *Location {
+	obj = typeInfo.ObjectDeclaration(obj)
 	if obj.Pkg() != typeInfo.Pkg {
 		return nil
 	}

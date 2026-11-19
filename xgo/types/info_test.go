@@ -22,6 +22,7 @@ import (
 	gotypes "go/types"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
@@ -64,6 +65,28 @@ func TestInfoTypeOf(t *testing.T) {
 		variable := gotypes.NewVar(token.NoPos, nil, "count", gotypes.Typ[gotypes.Int])
 		info := &Info{Info: typesutil.Info{Uses: map[*ast.Ident]gotypes.Object{ident: variable}}}
 		assert.Same(t, variable.Type(), info.TypeOf(ident))
+	})
+
+	t.Run("PendingFunctionInstantiation", func(t *testing.T) {
+		pkg := gogen.NewPackage("example.com/example", "example", &gogen.Config{
+			NewBuiltin: func(*gogen.Package, *gogen.Config) *gotypes.Package { return nil },
+		})
+		constraint := gotypes.NewInterfaceType(nil, nil).Complete()
+		first := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg.Types, "A", nil), constraint)
+		second := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg.Types, "B", nil), constraint)
+		sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{first, second}, nil, nil, false)
+		fun := gotypes.NewFunc(token.NoPos, pkg.Types, "Choose", sig)
+		pending := pkg.CB().Val(fun).Typ(gotypes.Typ[gotypes.Int]).Index(1, 0).Get(-1).Type
+		require.True(t, gogen.IsFunc(pending))
+		ident := &ast.Ident{Name: fun.Name()}
+		indexed := &ast.IndexExpr{X: ident, Index: &ast.Ident{Name: "int"}}
+		info := &Info{Info: typesutil.Info{
+			Types: map[ast.Expr]gotypes.TypeAndValue{indexed: {Type: pending}},
+			Uses:  map[*ast.Ident]gotypes.Object{ident: fun},
+		}}
+		assert.Nil(t, info.TypeOf(indexed))
+		assert.Same(t, pending, info.Types[indexed].Type)
+		assert.Same(t, fun, info.ObjectOf(ident))
 	})
 
 	t.Run("UnknownExpression", func(t *testing.T) {
@@ -300,4 +323,19 @@ func TestInfoObjectDeclaration(t *testing.T) {
 	assert.Same(t, variable, info.ObjectDeclaration(variable))
 	unknown := gotypes.NewVar(token.NoPos, nil, "unknown", gotypes.Typ[gotypes.Int])
 	assert.Same(t, unknown, info.ObjectDeclaration(unknown))
+}
+
+func TestInfoObjectDeclarationStaticMember(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/static", "static")
+	owner := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Owner", nil), gotypes.NewStruct(nil, nil), nil)
+	signature := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	fun := gotypes.NewFunc(0, pkg, "Choose", signature)
+	value := gotypes.NewVar(0, pkg, "Limit", gotypes.Typ[gotypes.Int])
+	info := new(Info)
+	assert.Nil(t, StaticMemberObject(fun))
+	for _, obj := range []gotypes.Object{fun, value} {
+		wrapper := gogen.NewStaticMember(owner, 0, pkg, obj.Name(), obj)
+		assert.Same(t, obj, StaticMemberObject(wrapper))
+		assert.Same(t, obj, info.ObjectDeclaration(wrapper))
+	}
 }

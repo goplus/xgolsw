@@ -19,6 +19,8 @@ package xgoutil
 import (
 	gotypes "go/types"
 	"iter"
+
+	"github.com/goplus/xgolsw/xgo/types"
 )
 
 // StructMember describes a resolved struct member and the selector type used
@@ -98,6 +100,12 @@ func StructMembers(typ gotypes.Type, selectorBoundary func(*gotypes.Named) bool)
 			}
 			if named != nil {
 				for method := range named.Methods() {
+					// Static values are only accessible through the declaring type.
+					if member := types.StaticMemberObject(method); member != nil {
+						if _, callable := member.(*gotypes.Func); !callable {
+							continue
+						}
+					}
 					if !yieldMember(method) {
 						return false
 					}

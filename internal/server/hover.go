@@ -7,6 +7,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -85,7 +86,28 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if ident.Name == "this" && xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-	return hoverForDefinitions(proj, ctx.definitionsForIdent(ident), ident, markupKind), nil
+	defs := ctx.definitionsForIdent(ident)
+	ctx.describeTemplateMethodExpression(typeInfo, astFile, ident, defs)
+	return hoverForDefinitions(proj, defs, ident, markupKind), nil
+}
+
+// describeTemplateMethodExpression shows the explicit receiver of a template
+// method selected through a type while keeping its definition identity.
+func (r *definitionContext) describeTemplateMethodExpression(info *types.Info, file *ast.File, ident *ast.Ident, defs []symbolDefinition) {
+	if len(defs) != 1 || !isTemplateMethodWrapper(info.SourceObjectOf(ident)) {
+		return
+	}
+	callee, selector := callableExprForIdent(file, ident)
+	if selector == nil {
+		return
+	}
+	if isType, _ := xgoutil.IsTypeExpr(info, selector.X); !isType {
+		return
+	}
+	fun, sig, params := xgoutil.ResolveCallExprSignature(info, &ast.CallExpr{Fun: callee})
+	if sig != nil {
+		defs[0].Overview = r.functionOverview(ident.Name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(fun, params))
+	}
 }
 
 // hoverForDefinitions renders symbol definitions into a hover at node.

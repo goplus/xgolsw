@@ -14,6 +14,7 @@ import (
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -673,4 +674,126 @@ func TestServerImportedClassfileMembers(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFlatClassfileOwners(t *testing.T) {
+	for _, tt := range []struct {
+		name, entry, fragment, want string
+	}{
+		{name: "FragmentMethod", entry: "main.flat", fragment: "// Read returns the score.\nfunc Read() int { return Score }\n", want: "App"},
+		{name: "EntryWithEmptyFragment", entry: "main.flat", want: "App"},
+		{name: "SynthesizedEntryWithEmptyFragment", want: "App"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string][]byte{
+				"nested/Chunk.flat": []byte(tt.fragment),
+				"ordinary.xgo":      []byte("type Chunk struct { Decoy string }\n"),
+			}
+			if tt.entry == "" {
+				files["Constants.flat"] = []byte("const Limit = 5\n")
+				files["ordinary.xgo"] = append(files["ordinary.xgo"], "var Current *App\n"...)
+			} else {
+				files[tt.entry] = []byte("// Score is the game score.\nvar Score int\n")
+			}
+			s := newImportTestServer(t, files)
+			setImportTestFrameworkMethods(t, s, "")
+			t.Cleanup(s.Close)
+			proj := s.getProj()
+			proj.SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{
+				{Ext: ".flat", FullExt: "*.flat", Class: "App", PkgPaths: []string{testframework.PkgPath}, Flat: true},
+			}}}))
+			info, err := proj.TypeInfo()
+			require.NoError(t, err)
+			file, err := proj.ASTFile("nested/Chunk.flat")
+			require.NoError(t, err)
+			named := classTypeForFile(proj, file)
+			require.NotNil(t, named, "file is class: %t, scope: %s, class types: %v", file.IsClass, info.Pkg.Scope(), info.ClassTypes)
+			assert.Same(t, info.Pkg.Scope().Lookup(tt.want), named.Obj())
+			ctx := &completionContext{definitionContext: definitionContext{proj: proj}, astFile: file}
+			assert.Equal(t, tt.want, ctx.getPropertyTarget())
+
+			if tt.entry == "" {
+				return
+			}
+			doc, err := proj.PkgDoc()
+			require.NoError(t, err)
+			typeDoc := doc.Types[tt.want]
+			require.NotNil(t, typeDoc)
+			assert.Equal(t, "Score is the game score.\n", typeDoc.Fields["Score"])
+			if tt.fragment != "" {
+				assert.Equal(t, "Read returns the score.\n", typeDoc.Methods["Read"])
+			}
+			assert.Empty(t, doc.Types["Chunk"].Methods)
+		})
+	}
+}
+
+func TestServerLocalStaticMethodNavigation(t *testing.T) {
+	const filename = "Record.gox"
+	const declaration = "// Choose returns its argument.\nfunc .Choose(value int) int { return value }\n"
+	const call = "_ = Record.Choose(1)\n"
+	for _, tt := range []struct {
+		name, source    string
+		callRange       Range
+		callReplacement string
+	}{
+		{name: "Declaration", source: strings.Replace(declaration, "func .Choose", "func .Ch|oose", 1) + call,
+			callRange:       Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 17}},
+			callReplacement: "Select_Value"},
+		{name: "SelectorAlias", source: declaration + strings.Replace(call, "Record.Choose", "Record.ch|oose", 1),
+			callRange:       Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 17}},
+			callReplacement: "select_Value"},
+		{name: "EncodedUse", source: strings.Replace(declaration, "func .Choose", "func .Ch|oose", 1) + "_ = XGos_Record_Choose(1)\n",
+			callRange:       Range{Start: Position{Line: 2, Character: 4}, End: Position{Line: 2, Character: 22}},
+			callReplacement: "XGos__Record__Select_Value"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			uri := s.toDocumentURI(filename)
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: pos}
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?Record.Choose"`)
+			assert.Contains(t, hover.Contents.Value, `overview="func Choose(value int) int"`)
+			assert.Contains(t, hover.Contents.Value, "Choose returns its argument.")
+			location, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			definition := Range{Start: Position{Line: 1, Character: 6}, End: Position{Line: 1, Character: 12}}
+			assert.Equal(t, Location{URI: uri, Range: definition}, location)
+			refs, err := s.textDocumentReferences(&ReferenceParams{
+				TextDocumentPositionParams: params,
+				Context:                    ReferenceContext{IncludeDeclaration: true},
+			})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []Location{{URI: uri, Range: definition}, {URI: uri, Range: tt.callRange}}, refs)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: params.TextDocument,
+				Position:     params.Position,
+				NewName:      "Select_Value",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			assert.ElementsMatch(t, []TextEdit{
+				{Range: definition, NewText: "Select_Value"},
+				{Range: tt.callRange, NewText: tt.callReplacement},
+			}, edit.Changes[uri])
+		})
+	}
+}
+
+func TestServerUnqualifiedStaticMethodCompletion(t *testing.T) {
+	const filename = "Record.gox"
+	source, pos := typeDisplayTestSource(t, `func .Choose() int { return 1 }
+_ = Ch|oose()
+`)
+	s := newTestServer(t, map[string][]byte{filename: []byte(source)})
+	t.Cleanup(s.Close)
+	_, err := s.requestProject().TypeInfo()
+	require.Error(t, err)
+	assert.NotContains(t, completionItemLabels(completionItemsAt(t, s, filename, pos)), "Choose")
 }

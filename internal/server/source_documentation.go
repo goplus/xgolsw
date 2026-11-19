@@ -57,6 +57,11 @@ func (r *definitionContext) sourceDocumentation(obj gotypes.Object) (string, boo
 	if file == nil {
 		return "", false
 	}
+	if _, ok := obj.(*gotypes.Func); ok {
+		if doc, found := r.sourceFunctionComment(file, pos); found {
+			return doc.Text(), true
+		}
+	}
 	declares := func(names []*ast.Ident) bool {
 		return slices.ContainsFunc(names, func(name *ast.Ident) bool { return name.Pos() == pos })
 	}
@@ -102,9 +107,37 @@ func (r *definitionContext) sourceDocumentation(obj gotypes.Object) (string, boo
 				return node.Doc.Text(), true
 			}
 			return "", true
+		case *ast.OverloadFuncDecl:
+			if node.Name.Pos() == pos {
+				return node.Doc.Text(), true
+			}
+			return "", true
 		case *ast.AssignStmt, *ast.RangeStmt, *ast.FuncLit:
 			return "", true
 		}
 	}
 	return "", true
+}
+
+// sourceFunctionComment indexes top-level function declarations once per file
+// so completion can describe many methods without repeatedly walking the file.
+func (r *definitionContext) sourceFunctionComment(file *ast.File, pos token.Pos) (*ast.CommentGroup, bool) {
+	comments, indexed := r.functionComments[file]
+	if !indexed {
+		comments = make(map[token.Pos]*ast.CommentGroup)
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.FuncDecl:
+				comments[decl.Name.Pos()] = decl.Doc
+			case *ast.OverloadFuncDecl:
+				comments[decl.Name.Pos()] = decl.Doc
+			}
+		}
+		if r.functionComments == nil {
+			r.functionComments = make(map[*ast.File]map[token.Pos]*ast.CommentGroup)
+		}
+		r.functionComments[file] = comments
+	}
+	comment, ok := comments[pos]
+	return comment, ok
 }

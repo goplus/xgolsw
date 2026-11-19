@@ -26,6 +26,24 @@ import (
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
+// callableExprForIdent returns the callable spelling around ident, preserving
+// its selector and explicit type arguments.
+func callableExprForIdent(file *ast.File, ident *ast.Ident) (ast.Expr, *ast.SelectorExpr) {
+	var callee ast.Expr = ident
+	var selector *ast.SelectorExpr
+	for node := range xgoutil.PathEnclosingIntervalNodes(file, ident.Pos(), ident.End(), false) {
+		expr, ok := node.(ast.Expr)
+		if !ok || xgoutil.CallExprFunIdent(&ast.CallExpr{Fun: expr}) != ident {
+			break
+		}
+		callee = expr
+		if sel, ok := expr.(*ast.SelectorExpr); ok {
+			selector = sel
+		}
+	}
+	return callee, selector
+}
+
 // callExprFromNode returns the call expression represented by node.
 func callExprFromNode(typeInfo *types.Info, node ast.Node) *ast.CallExpr {
 	switch node := node.(type) {

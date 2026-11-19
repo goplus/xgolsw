@@ -66,21 +66,13 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 				return nil, nil
 			}
 			return &SignatureHelp{Signatures: []SignatureInformation{
-				ctx.signatureHelpInformation(nil, sig, sig.Params(), ident.Name, documentationKind),
+				ctx.signatureHelpInformation(nil, sig, sig.Params(), ident.Name, "", documentationKind),
 			}}, nil
 		default:
 			return nil, nil
 		}
 
-		// Resolve bare functions without arguments, keeping their selectors
-		// so method-expression receivers use the same normalization as calls.
-		callee := ast.Expr(ident)
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
-			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel == ident {
-				callee = selector
-				break
-			}
-		}
+		callee, _ := callableExprForIdent(astFile, ident)
 		callExpr = &ast.CallExpr{Fun: callee}
 	}
 
@@ -104,8 +96,11 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 	if fun == nil {
 		displayedName = cmp.Or(signatureHelpCallName(callExpr), "func")
 	}
+	groupDoc := ctx.sourceOverloadDocumentation(typeInfo.SourceObjectOf(xgoutil.CallExprFunIdent(callExpr)))
 	help := &SignatureHelp{
-		Signatures: []SignatureInformation{ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, documentationKind)},
+		Signatures: []SignatureInformation{
+			ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, groupDoc, documentationKind),
+		},
 	}
 	if activeParameter >= 0 {
 		help.ActiveParameter = uint32(activeParameter)
@@ -150,6 +145,7 @@ func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr
 	var signatures []SignatureInformation
 	activeParameter := -1
 	displayedName := signatureHelpCallName(callExpr)
+	groupDoc := r.sourceOverloadDocumentation(typeInfo.SourceObjectOf(xgoutil.CallExprFunIdent(callExpr)))
 	for _, overload := range overloads {
 		if !overloadMatchesCallExpr(typeInfo, callExpr, overload, skipArgIndex) {
 			continue
@@ -158,7 +154,7 @@ func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr
 		if sig == nil {
 			continue
 		}
-		signature := r.signatureHelpInformation(overload, sig, params, displayedName, documentationKind)
+		signature := r.signatureHelpInformation(overload, sig, params, displayedName, groupDoc, documentationKind)
 		if activeParameter < 0 {
 			activeParameter = overloadSignatureHelpActiveParameter(typeInfo, callExpr, pos, sig, params, resolvedArg, hasResolvedArg)
 		}
@@ -176,7 +172,7 @@ func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr
 }
 
 // signatureHelpInformation returns signature information for one function.
-func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, displayedName string, documentationKind MarkupKind) SignatureInformation {
+func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, displayedName, groupDoc string, documentationKind MarkupKind) SignatureInformation {
 	paramLabels := make([]string, 0, params.Len())
 	paramInfos := make([]ParameterInformation, 0, params.Len())
 	for i := range params.Len() {
@@ -191,18 +187,20 @@ func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *got
 
 	labelName := displayedName
 	if labelName == "" {
-		_, labelName, _, _ = displayedFuncName(fun)
+		_, labelName, _ = displayedFuncName(fun)
 	}
 	info := SignatureInformation{
 		Label:      labelName + "(" + strings.Join(paramLabels, ", ") + ")" + r.displayedFuncResults(sig.Results()),
 		Parameters: paramInfos,
 	}
+	doc := strings.TrimSpace(groupDoc)
 	if fun != nil {
-		if doc := strings.TrimSpace(r.functionDocumentation(fun)); doc != "" {
-			info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
-			if documentationKind == Markdown {
-				info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
-			}
+		doc = cmp.Or(strings.TrimSpace(r.functionDocumentation(fun)), doc)
+	}
+	if doc != "" {
+		info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
+		if documentationKind == Markdown {
+			info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
 		}
 	}
 	return info
@@ -233,12 +231,16 @@ func signatureHelpCallName(callExpr *ast.CallExpr) string {
 	return funIdent.Name
 }
 
-// signatureHelpResolvedCallName returns the source call name for resolved
-// overload functions.
+// signatureHelpResolvedCallName preserves the source spelling for overload
+// calls and direct references to encoded Go functions.
 func signatureHelpResolvedCallName(typeInfo *types.Info, callExpr *ast.CallExpr, fun *gotypes.Func) string {
+	name := signatureHelpCallName(callExpr)
+	if fun != nil && xgoutil.ReferencesEncodedFuncName(fun, name) {
+		return name
+	}
 	for _, overload := range callExprFuncOverloads(typeInfo, callExpr) {
 		if overload == fun {
-			return signatureHelpCallName(callExpr)
+			return name
 		}
 	}
 	return ""

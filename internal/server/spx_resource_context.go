@@ -21,7 +21,8 @@ func spxSpriteResourceForObject(result *spxAnalysis, obj gotypes.Object) *SpxSpr
 // spxSpriteTypeForFile resolves a work class through its registered compiler
 // naming rules. The runtime identifies sprite resources by generated type name.
 func spxSpriteTypeForFile(proj *xgo.Project, filename string) *gotypes.Named {
-	if spxFrameworkForFile(proj, filename) == nil {
+	framework := spxFrameworkForFile(proj, filename)
+	if framework == nil || framework.Flat {
 		return nil
 	}
 	file, _ := proj.ASTFile(filename)

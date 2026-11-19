@@ -19,6 +19,9 @@ type autoProperty struct {
 	object   gotypes.Object
 	function *gotypes.Func
 	exists   bool
+
+	// selectedMember is the object selected before an implicit call is attempted.
+	selectedMember gotypes.Object
 }
 
 // autoPropertyResolver evaluates members and implicit package calls against
@@ -32,10 +35,11 @@ type autoPropertyResolver struct {
 	results  map[autoPropertyKey]autoProperty
 }
 
-// autoPropertyKey distinguishes receiver members from package functions.
+// autoPropertyKey distinguishes instance members, type selectors, and package functions.
 type autoPropertyKey struct {
-	name     string
-	callable gotypes.Object
+	name         string
+	callable     gotypes.Object
+	typeSelector bool
 }
 
 // isAliasCallable reports whether XGo can expose an alias for this declaration.
@@ -56,17 +60,43 @@ func (r *autoPropertyResolver) resolve(name string) autoProperty {
 	return r.evaluate(autoPropertyKey{name: name})
 }
 
+// resolveTypeMethod resolves a method expression without invoking it.
+func (r *autoPropertyResolver) resolveTypeMethod(name string) autoProperty {
+	return r.evaluate(autoPropertyKey{name: name, typeSelector: true})
+}
+
+// inferFunctionValue uses written type arguments and the expected parameter
+// types to instantiate a generic selector, then checks the resulting signature.
+func (r *autoPropertyResolver) inferFunctionValue(name string, sig *gotypes.Signature, typeArgs, expected []gotypes.Type) gotypes.Type {
+	fn := &gogen.Element{Val: goast.NewIdent(name), Type: sig}
+	for _, want := range expected {
+		callback := signatureType(want)
+		if callback == nil || callback.Params().Len() != sig.Params().Len() || callback.Variadic() != sig.Variadic() {
+			continue
+		}
+		args := make([]*gogen.Element, 0, callback.Params().Len())
+		for param := range callback.Params().Variables() {
+			args = append(args, &gogen.Element{Val: goast.NewIdent(param.Name()), Type: param.Type()})
+		}
+		var flags gogen.InstrFlags
+		if sig.Variadic() {
+			flags = gogen.InstrFlagEllipsis
+		}
+		typ, err := gogen.InferFunc(r.codeBuilder().Pkg(), fn, sig, typeArgs, args, flags)
+		if err == nil && gotypes.AssignableTo(typ, want) {
+			return typ
+		}
+	}
+	return nil
+}
+
 // resolvePackageObject evaluates a package function or function-valued variable alias.
 func (r *autoPropertyResolver) resolvePackageObject(obj gotypes.Object) autoProperty {
 	return r.evaluate(autoPropertyKey{name: functionAliasName(obj.Name()), callable: obj})
 }
 
-// evaluate uses the compiler's overload selection and generic inference without
-// parsing files, checking the project again, or declaring objects in its scopes.
-func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoProperty) {
-	if result, ok := r.results[key]; ok {
-		return result
-	}
+// codeBuilder returns the compiler builder for this request's lookups and inference.
+func (r *autoPropertyResolver) codeBuilder() *gogen.CodeBuilder {
 	if r.cb == nil {
 		info, _ := r.proj.TypeInfo()
 		pkg := gogen.NewPackage(info.Pkg.Path(), info.Pkg.Name(), &gogen.Config{
@@ -80,6 +110,16 @@ func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoPropert
 		r.cb = pkg.CB()
 		r.results = make(map[autoPropertyKey]autoProperty)
 	}
+	return r.cb
+}
+
+// evaluate uses the compiler's overload selection and generic inference without
+// parsing files, checking the project again, or declaring objects in its scopes.
+func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoProperty) {
+	if result, ok := r.results[key]; ok {
+		return result
+	}
+	r.codeBuilder()
 	defer func() {
 		r.cb.InternalStack().SetLen(0)
 		// Auto-property calls panic on ordinary type errors. Invalid
@@ -99,6 +139,22 @@ func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoPropert
 	}()
 	r.member = nil
 	r.function = nil
+	if key.typeSelector {
+		if _, pointer := gotypes.Unalias(r.receiver).(*gotypes.Pointer); pointer {
+			if !r.canResolvePointerMethod(key.name) {
+				return result
+			}
+			r.cb.InternalStack().SetLen(0)
+			r.member = nil
+			r.function = nil
+		}
+		r.cb.Typ(r.receiver)
+		kind, err := r.cb.Member(key.name, 0, gogen.MemberFlagMethodAlias)
+		if err == nil && kind == gogen.MemberMethod {
+			result.typ = r.cb.Get(-1).Type
+		}
+		return result
+	}
 	// Incomplete overload declarations can contain nil candidates. Resolve the
 	// member without calling it before gogen inspects those candidate signatures.
 	if key.callable != nil {
@@ -110,6 +166,7 @@ func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoPropert
 		if err != nil {
 			return result
 		}
+		result.selectedMember = r.member
 		if kind == gogen.MemberField {
 			result.typ = r.cb.Get(-1).Type
 			return result
@@ -139,11 +196,32 @@ func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoPropert
 			return result
 		}
 	}
+	if xgoutil.IsOverloadPlaceholder(r.function) {
+		return result
+	}
 	result.typ = r.cb.Get(-1).Type
 	if result.typ == nil {
 		result.typ = gotypes.NewTuple()
 	}
 	return result
+}
+
+// canResolvePointerMethod checks the member before gogen constructs a pointer
+// method expression. gogen can panic for an ordinary value-receiver method.
+func (r *autoPropertyResolver) canResolvePointerMethod(name string) bool {
+	r.cb.Val(gotypes.NewVar(token.NoPos, nil, "this", r.receiver))
+	kind, err := r.cb.Member(name, 0, gogen.MemberFlagMethodAlias)
+	if err != nil || kind != gogen.MemberMethod || r.function == nil {
+		return false
+	}
+	sig := r.function.Signature()
+	if _, extended := gogen.CheckFuncEx(sig); extended {
+		return true
+	}
+	if recv := sig.Recv(); recv != nil {
+		return xgoutil.MethodExpressionReceiver(r.receiver, recv.Type()) != nil
+	}
+	return false
 }
 
 // Member records the field or method before a possible implicit call.
@@ -162,7 +240,7 @@ func (r *autoPropertyResolver) Call(_ goast.Node, obj gotypes.Object) {
 func (r *autoPropertyResolver) candidates() iter.Seq2[string, autoProperty] {
 	return func(yield func(string, autoProperty) bool) {
 		seen := make(map[string]bool)
-		for obj := range propertyCandidates(r.receiver) {
+		for obj := range memberCandidates(r.receiver) {
 			name := obj.Name()
 			if xgoutil.IsXGoInternalName(name) {
 				continue

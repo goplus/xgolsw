@@ -22,8 +22,9 @@ import (
 
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // NewXGo creates a new [PkgDoc] for an XGo package. It uses the files' classfile
@@ -33,6 +34,20 @@ import (
 // lookupClass finds the class framework registered for a file extension.
 // It may be nil for packages that need no framework registration.
 func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*modfile.Project, bool)) *PkgDoc {
+	return newXGo(pkgPath, pkg, func(file *ast.File, filename string) string {
+		return xgoutil.SourceClassName(file, filename, lookupClass)
+	})
+}
+
+// NewCheckedXGo creates a [PkgDoc] using the compiler-resolved class owners.
+func NewCheckedXGo(pkgPath string, pkg *ast.Package, className func(*ast.File) string) *PkgDoc {
+	return newXGo(pkgPath, pkg, func(file *ast.File, _ string) string {
+		return className(file)
+	})
+}
+
+// newXGo builds source documentation using the supplied class name resolver.
+func newXGo(pkgPath string, pkg *ast.Package, className func(*ast.File, string) string) *PkgDoc {
 	pkgDoc := &PkgDoc{
 		Path:   pkgPath,
 		Name:   pkg.Name,
@@ -54,11 +69,12 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 
 	for _, filename := range filenames {
 		astFile := pkg.Files[filename]
+		var classTypeName string
 		var classTypeDoc *TypeDoc
 		if astFile.IsClass {
-			className, _ := cl.GetFileClassType(astFile, filename, lookupClass)
-			if className != "" {
-				classTypeDoc = pkgDoc.typeDoc(className)
+			classTypeName = className(astFile, filename)
+			if classTypeName != "" {
+				classTypeDoc = pkgDoc.typeDoc(classTypeName)
 			}
 		}
 
@@ -148,25 +164,31 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					continue
 				}
 
-				var doc string
-				if decl.Doc != nil {
-					doc = decl.Doc.Text()
+				doc := decl.Doc.Text()
+				if decl.Static {
+					owner := classTypeName
+					if !decl.IsClass && len(decl.Recv.List) != 0 {
+						recv, ok := decl.Recv.List[0].Type.(*ast.Ident)
+						if !ok {
+							continue
+						}
+						owner = recv.Name
+					}
+					if owner != "" {
+						name := decl.Name.Name
+						pkgDoc.typeDoc(owner).Methods[name] = doc
+						pkgDoc.Funcs[xgoutil.XGosMemberName(owner, name)] = doc
+					}
+					continue
 				}
 
 				funcDocs := pkgDoc.Funcs
 				if decl.Recv != nil {
-					if len(decl.Recv.List) != 1 {
+					owner := methodReceiverName(decl.Recv)
+					if owner == "" {
 						continue
 					}
-					recvType := decl.Recv.List[0].Type
-					if star, ok := recvType.(*ast.StarExpr); ok {
-						recvType = star.X
-					}
-					recvIdent, ok := recvType.(*ast.Ident)
-					if !ok {
-						continue
-					}
-					funcDocs = pkgDoc.typeDoc(recvIdent.Name).Methods
+					funcDocs = pkgDoc.typeDoc(owner).Methods
 				} else if astFile.IsClass || astFile.ClassFields != nil {
 					if classTypeDoc == nil {
 						continue
@@ -174,11 +196,39 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					funcDocs = classTypeDoc.Methods
 				}
 				funcDocs[decl.Name.Name] = doc
+			case *ast.OverloadFuncDecl:
+				doc := decl.Doc.Text()
+				switch {
+				case decl.IsClass || decl.Recv == nil && (astFile.IsClass || astFile.ClassFields != nil):
+					if classTypeDoc != nil {
+						classTypeDoc.Methods[decl.Name.Name] = doc
+					}
+				case decl.Recv == nil:
+					pkgDoc.Funcs[decl.Name.Name] = doc
+				default:
+					if owner := methodReceiverName(decl.Recv); owner != "" {
+						pkgDoc.typeDoc(owner).Methods[decl.Name.Name] = doc
+					}
+				}
 			}
 		}
 	}
 
 	return pkgDoc
+}
+
+// methodReceiverName returns the local type named by a method receiver.
+func methodReceiverName(recv *ast.FieldList) string {
+	if len(recv.List) == 1 {
+		typ := astutil.Unparen(recv.List[0].Type)
+		if ptr, ok := typ.(*ast.StarExpr); ok {
+			typ = astutil.Unparen(ptr.X)
+		}
+		if ident, ok := typ.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
 }
 
 // embeddedFieldName returns the field name of an embedded XGo type.
