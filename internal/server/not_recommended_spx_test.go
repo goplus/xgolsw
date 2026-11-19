@@ -40,7 +40,7 @@ func (p *Lita) TurnWith(angle Direction, opts *MotionOptions?) {
 	}{
 		{name: "Native"},
 		{name: "Hooks", main: strings.ReplaceAll(wrappers, "//ANNOTATION", ""), wantHooks: true},
-		{name: "AnnotatedHooks", main: strings.ReplaceAll(wrappers, "//ANNOTATION", "//xgols:notrecommended")},
+		{name: "AnnotatedHooks", main: strings.ReplaceAll(wrappers, "//ANNOTATION", "//xgols:notRecommended")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, pos := typeDisplayTestSource(t, "onStart => {\n|\nturn 90\nturnWith 90\n}\n")

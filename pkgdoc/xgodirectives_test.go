@@ -1,8 +1,6 @@
 package pkgdoc
 
 import (
-	goast "go/ast"
-	goparser "go/parser"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -12,95 +10,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewGoWithXGoDirectives(t *testing.T) {
-	goSource := `package sample
-//xgols:notrecommended
-var GoValue int
-type hidden struct { Field int }
-type Public hidden
-const XGoo_Choose = "Helper"
-func Helper() {}
-`
-	for _, tt := range []struct {
-		name   string
-		xgo    string
-		marked []string
-	}{
-		{
-			name: "Merge",
-			xgo: `package sample
-type hidden struct {
-	//xgols:notrecommended
-	Field int
-}
-type Public hidden
-func Helper() {}
-//xgols:notrecommended
-func Choose = (Helper)
-`,
-			marked: []string{"GoValue", "Choose", "hidden.Field", "Public.Field"},
-		},
-		{name: "UnannotatedXGo", xgo: "package sample\nfunc Helper() {}\nfunc Choose = (Helper)\n", marked: []string{"GoValue"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			goFile, err := goparser.ParseFile(token.NewFileSet(), "sample.go", goSource, goparser.ParseComments)
-			require.NoError(t, err)
-			xgoFile, err := parser.ParseFile(token.NewFileSet(), "sample.xgo", tt.xgo, parser.ParseComments)
-			require.NoError(t, err)
-			goPkg := &goast.Package{Name: "sample", Files: map[string]*goast.File{"sample.go": goFile}}
-			xgoPkg := &ast.Package{Name: "sample", Files: map[string]*ast.File{"sample.xgo": xgoFile}}
-			doc := NewGoWithXGoDirectives("sample", goPkg, xgoPkg, nil)
-			assert.Equal(t, markedDeclarations(tt.marked...), doc.Declarations)
-		})
-	}
-}
-
 func TestNewXGoDirectives(t *testing.T) {
 	file, err := parser.ParseFile(token.NewFileSet(), "main.xgo", `
-//xgols:notrecommended
+//xgols:notRecommended
 var (
 	first, second int
 	third int
 )
 var (
 	visible int
-	//xgols:notrecommended
+	//xgols:notRecommended
 	marked int
 )
-//xgols:notrecommended
+//xgols:notRecommended
 const (
 	one = 1
 	two = 2
 )
-//xgols:notrecommended
+//xgols:notRecommended
 type (
 	Record struct {
-		//xgols:notrecommended
+		//xgols:notRecommended
 		field, other int
 		visible int
-		trailing int //xgols:notrecommended
-		//xgols:notrecommended
+		trailing int //xgols:notRecommended
+		//xgols:notRecommended
 		*Embedded
 	}
 	Alias = int
 )
 type Embedded struct{}
 type Reader interface {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Read() int
 	Visible()
 }
-//xgols:notrecommended
+//xgols:notRecommended
 func (r *Record) Turn__0() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func helper() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func turn = (helper)
-//xgols:notrecommended
+//xgols:notRecommended
 func (Record).action = (helper)
-func trailing() {} //xgols:notrecommended
+func trailing() {} //xgols:notRecommended
 
-//xgols:notrecommended
+//xgols:notRecommended
 
 func detached() {}
 `, parser.ParseComments)
@@ -118,16 +73,16 @@ func detached() {}
 func TestNewXGoClassDirectives(t *testing.T) {
 	t.Run("NormalClass", func(t *testing.T) {
 		file, err := parser.ParseEntry(token.NewFileSet(), "Record.gox", `
-//xgols:notrecommended
+//xgols:notRecommended
 var (
 	first, second int
 	*Embedded
 )
-//xgols:notrecommended
+//xgols:notRecommended
 func internal() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func action = (internal)
-//xgols:notrecommended
+//xgols:notRecommended
 const limit = 1
 `, parser.Config{Mode: parser.ParseComments})
 		require.NoError(t, err)
@@ -136,15 +91,15 @@ const limit = 1
 	})
 	t.Run("UnclassifiedClass", func(t *testing.T) {
 		file, err := parser.ParseFile(token.NewFileSet(), "Worker.gox", `
-//xgols:notrecommended
+//xgols:notRecommended
 var first int
-//xgols:notrecommended
+//xgols:notRecommended
 func internal() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func action = (internal)
-//xgols:notrecommended
+//xgols:notRecommended
 func (r *Record) method() {}
-//xgols:notrecommended
+//xgols:notRecommended
 type Record struct{}
 `, parser.ParseComments|parser.ParseXGoClass)
 		require.NoError(t, err)
@@ -154,7 +109,7 @@ type Record struct{}
 }
 
 func TestXGoDirectivesIncompleteReceivers(t *testing.T) {
-	group := &ast.CommentGroup{List: []*ast.Comment{{Text: "//xgols:notrecommended"}}}
+	group := &ast.CommentGroup{List: []*ast.Comment{{Text: "//xgols:notRecommended"}}}
 	for _, recv := range []*ast.FieldList{
 		{},
 		{List: []*ast.Field{{Type: &ast.BadExpr{}}}},

@@ -19,16 +19,17 @@ func TestParseDirectives(t *testing.T) {
 		comment string
 		want    bool
 	}{
-		{name: "Exact", comment: "//xgols:notrecommended", want: true},
-		{name: "TrailingWhitespace", comment: "//xgols:notrecommended \t\r\n", want: true},
-		{name: "SpaceAfterSlashes", comment: "// xgols:notrecommended"},
-		{name: "BlockComment", comment: "/*xgols:notrecommended*/"},
+		{name: "Exact", comment: "//xgols:notRecommended", want: true},
+		{name: "TrailingWhitespace", comment: "//xgols:notRecommended \t\r\n", want: true},
+		{name: "SpaceAfterSlashes", comment: "// xgols:notRecommended"},
+		{name: "BlockComment", comment: "/*xgols:notRecommended*/"},
 		{name: "OldNamespace", comment: "//xgolsw:hidden"},
 		{name: "DashedName", comment: "//xgols:not-recommended"},
-		{name: "Arguments", comment: "//xgols:notrecommended reason"},
-		{name: "Suffix", comment: "//xgols:notrecommendedOther"},
+		{name: "Arguments", comment: "//xgols:notRecommended reason"},
+		{name: "Suffix", comment: "//xgols:notRecommendedOther"},
+		{name: "OldSpelling", comment: "//xgols:notrecommended"},
 		{name: "DifferentCase", comment: "//xgols:NotRecommended"},
-		{name: "Prose", comment: "// Use //xgols:notrecommended here."},
+		{name: "Prose", comment: "// Use //xgols:notRecommended here."},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			group := &ast.CommentGroup{List: []*ast.Comment{{Text: tt.comment}}}
@@ -37,53 +38,53 @@ func TestParseDirectives(t *testing.T) {
 	}
 	assert.Equal(t, DeclarationMetadata{}, ParseDirectives())
 	assert.True(t, ParseDirectives(&ast.CommentGroup{List: []*ast.Comment{
-		{Text: "// Example is documented."}, {Text: "//xgols:notrecommended"},
+		{Text: "// Example is documented."}, {Text: "//xgols:notRecommended"},
 	}}).NotRecommended)
 }
 
 func TestNewGoDirectives(t *testing.T) {
 	doc := newGoTestDoc(t, `package sample
 
-//xgols:notrecommended
+//xgols:notRecommended
 var (
 	First, Second int
 	Third int
 )
 var (
 	Visible int
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Marked int
 )
-//xgols:notrecommended
+//xgols:notRecommended
 const (
 	One = 1
 	Two = 2
 )
-//xgols:notrecommended
+//xgols:notRecommended
 type (
 	Record[T any] struct {
-		//xgols:notrecommended
+		//xgols:notRecommended
 		Field, Other T
 		Visible T
-		Trailing T //xgols:notrecommended
-		//xgols:notrecommended
+		Trailing T //xgols:notRecommended
+		//xgols:notRecommended
 		*Embedded
 	}
 	Alias = int
 )
 type Embedded struct{}
 type Reader interface {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Read() int
 	Visible()
 }
-//xgols:notrecommended
+//xgols:notRecommended
 func (r *Record[T]) Turn__0() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func helper() {}
-func trailing() {} //xgols:notrecommended
+func trailing() {} //xgols:notRecommended
 
-//xgols:notrecommended
+//xgols:notRecommended
 
 func detached() {}
 `)
@@ -104,7 +105,7 @@ func TestDeclarationMetadataJSON(t *testing.T) {
 		assert.NotContains(t, string(data), "Declarations")
 	})
 	t.Run("RoundTrip", func(t *testing.T) {
-		doc := newGoTestDoc(t, "package sample\n//xgols:notrecommended\nfunc Internal() {}\n")
+		doc := newGoTestDoc(t, "package sample\n//xgols:notRecommended\nfunc Internal() {}\n")
 		data, err := json.Marshal(doc)
 		require.NoError(t, err)
 		var decoded PkgDoc
@@ -116,25 +117,25 @@ func TestDeclarationMetadataJSON(t *testing.T) {
 func TestObjectMetadata(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := goparser.ParseFile(fset, "sample.go", `package sample
-//xgols:notrecommended
+//xgols:notRecommended
 var Internal int
-//xgols:notrecommended
+//xgols:notRecommended
 const Limit = 1
-//xgols:notrecommended
+//xgols:notRecommended
 type Record[T any] struct {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Field T
 	Visible T
 }
 type Other struct { Field int }
 type Alias = Record[int]
 type Reader interface {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Read() int
 }
-//xgols:notrecommended
+//xgols:notRecommended
 func (r *Record[T]) Turn__0() {}
-//xgols:notrecommended
+//xgols:notRecommended
 func Helper() {}
 `, goparser.ParseComments)
 	require.NoError(t, err)
@@ -194,29 +195,29 @@ func TestGoDirectivesForDerivedMembers(t *testing.T) {
 	const source = `package sample
 type Embedded struct{}
 type hidden[T any, U any] struct {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Embedded
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Value U
 }
-//xgols:notrecommended
+//xgols:notRecommended
 func (hidden[T, U]) Read() {}
 type Public (hidden[int, string])
 func (Public) Read() {}
 
 type reader interface {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Get() int
 }
 type Reader reader
 
 type Base struct{}
 type pointer = *Base
-//xgols:notrecommended
+//xgols:notRecommended
 func (pointer) Method() {}
 
 type API = interface {
-	//xgols:notrecommended
+	//xgols:notRecommended
 	Load()
 }
 type Other = interface { Load() }
@@ -246,7 +247,7 @@ type Other = interface { Load() }
 }
 
 func TestGoDirectivesIncompleteReceivers(t *testing.T) {
-	group := &ast.CommentGroup{List: []*ast.Comment{{Text: "//xgols:notrecommended"}}}
+	group := &ast.CommentGroup{List: []*ast.Comment{{Text: "//xgols:notRecommended"}}}
 	for _, recv := range []*goast.FieldList{
 		{},
 		{List: []*goast.Field{{Type: &goast.BadExpr{}}}},

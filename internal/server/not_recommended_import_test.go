@@ -18,23 +18,23 @@ func newNotRecommendedImportServer(t *testing.T, source string) *Server {
 	proj := s.getProj()
 	file, err := goparser.ParseFile(proj.Fset, "dependency.go", `package dependency
 const XGoPackage = true
-//xgols:notrecommended
+//xgols:notRecommended
 var HiddenValue string
 var VisibleValue string
-//xgols:notrecommended
+//xgols:notRecommended
 const HiddenLimit = "hidden"
 const VisibleLimit = "visible"
-//xgols:notrecommended
+//xgols:notRecommended
 type HiddenType struct{}
 type Record struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     HiddenField string
     VisibleField string
 }
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenText() string { return "hidden" }
 func VisibleText() string { return "visible" }
-//xgols:notrecommended
+//xgols:notRecommended
 func (Record) HiddenMethod() string { return "hidden" }
 func (Record) VisibleMethod() string { return "visible" }
 `, goparser.ParseComments)
@@ -118,39 +118,39 @@ use "value"
 }
 
 func TestServerNotRecommendedDeclarationAttachment(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, `//xgols:notrecommended
+	source, pos := typeDisplayTestSource(t, `//xgols:notRecommended
 var (
     groupFirst, groupSecond int
     groupThird int
 )
 var (
-    //xgols:notrecommended
+    //xgols:notRecommended
     specFirst, specSecond int
     visibleValue int
 )
-//xgols:notrecommended
+//xgols:notRecommended
 const (
     groupLimit = 1
     groupOtherLimit = 2
 )
-//xgols:notrecommended
+//xgols:notRecommended
 type (
     GroupType struct{}
     OtherGroupType struct{}
 )
-//xgols:notrecommended
+//xgols:notRecommended
 
 var detached int
-var trailing int //xgols:notrecommended
-/*xgols:notrecommended*/
+var trailing int //xgols:notRecommended
+/*xgols:notRecommended*/
 var block int
-// xgols:notrecommended
+// xgols:notRecommended
 var spaced int
 //xgols:not-recommended
 var dashed int
-//xgols:notrecommended because internal
+//xgols:notRecommended because internal
 var arguments int
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenOuter() {
     var nested int
     println nested
@@ -173,9 +173,9 @@ func run() {
 
 func TestServerNotRecommendedEmbeddedField(t *testing.T) {
 	source, pos := typeDisplayTestSource(t, `type Embedded struct { Value int }
-//xgols:notrecommended
+//xgols:notRecommended
 type Record struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     *Embedded
     Visible int
 }
@@ -193,9 +193,9 @@ println record.|Visible
 	assert.Contains(t, labels, "Visible")
 	assert.Contains(t, labels, "Value")
 	_, typePos := typeDisplayTestSource(t, `type Embedded struct { Value int }
-//xgols:notrecommended
+//xgols:notRecommended
 type Record struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     *Embedded
     Visible int
 }

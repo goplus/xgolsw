@@ -497,7 +497,7 @@ showVar "s|"
 
 func TestSpxNotRecommendedPropertyStringCompletion(t *testing.T) {
 	source, pos := typeDisplayTestSource(t, `var (
-    //xgols:notrecommended
+    //xgols:notRecommended
     score int
     lives int
 )

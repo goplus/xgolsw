@@ -18,7 +18,7 @@ func TestNotRecommendedDeclarationsGenericEmbeddedFields(t *testing.T) {
 		{name: "MultipleTypeArguments", embedded: "Pair[int, string]", field: "Pair"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			source := "type Holder struct {\n//xgols:notrecommended\n" + tt.embedded + "\nVisible int\n}\nvar visibleValue int\n"
+			source := "type Holder struct {\n//xgols:notRecommended\n" + tt.embedded + "\nVisible int\n}\nvar visibleValue int\n"
 			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
 			proj := s.getProj()
 			file, err := proj.ASTFile("main.xgo")
@@ -46,7 +46,7 @@ func TestNotRecommendedDeclarationsGenericEmbeddedFields(t *testing.T) {
 func TestServerNotRecommendedQualifiedEmbeddedField(t *testing.T) {
 	const declarations = `import dep "example.com/dependency"
 type Holder struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     dep.Record
 }
 var holder Holder
@@ -86,7 +86,7 @@ func TestServerNotRecommendedClassEmbeddedField(t *testing.T) {
 		name, directive string
 		wantEmbedded    bool
 	}{
-		{name: "Annotated", directive: "//xgols:notrecommended\n"},
+		{name: "Annotated", directive: "//xgols:notRecommended\n"},
 		{name: "Unannotated", wantEmbedded: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,7 +114,7 @@ println box.|Value
 
 func TestServerNotRecommendedMalformedEmbeddedField(t *testing.T) {
 	source, pos := typeDisplayTestSource(t, `type Broken struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     []int
 }
 var visibleValue int
@@ -136,11 +136,11 @@ func run() {
 func TestNotRecommendedDeclarationsIncompleteEmbeddedField(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Embedded struct{}
 type Record struct {
-    //xgols:notrecommended
+    //xgols:notRecommended
     Embedded
     Visible int
 }
-//xgols:notrecommended
+//xgols:notRecommended
 var hiddenValue int
 var visibleValue int
 `)})

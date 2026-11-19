@@ -308,10 +308,10 @@ _ = record.title
 func TestNotRecommendedPropertyStringCompletionOverloadAlias(t *testing.T) {
 	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
 func (Record) text() string { return "" }
-//xgols:notrecommended
+//xgols:notRecommended
 func (Record).Label = ((Record).text)
 func (Record).Title = ((Record).text)
-//xgols:notrecommended
+//xgols:notRecommended
 func (Record) internal() string { return "" }
 func (Record).Note = ((Record).internal)
 `)})

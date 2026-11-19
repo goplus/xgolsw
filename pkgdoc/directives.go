@@ -27,7 +27,7 @@ func ParseDirectives(groups ...*ast.CommentGroup) DeclarationMetadata {
 			continue
 		}
 		for _, comment := range group.List {
-			if strings.TrimRight(comment.Text, " \t\r\n") == "//xgols:notrecommended" {
+			if strings.TrimRight(comment.Text, " \t\r\n") == "//xgols:notRecommended" {
 				return DeclarationMetadata{NotRecommended: true}
 			}
 		}
@@ -103,7 +103,7 @@ func (p *PkgDoc) memberMetadata(obj gotypes.Object) DeclarationMetadata {
 	return DeclarationMetadata{}
 }
 
-// collectGoDirectives reads raw Go comments before go/doc normalizes them.
+// collectGoDirectives reads directives from raw Go declaration comments.
 func (p *PkgDoc) collectGoDirectives(pkg *goast.Package) {
 	typesByName := goTypesByName(pkg)
 	for _, file := range pkg.Files {

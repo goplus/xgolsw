@@ -92,7 +92,7 @@ capabilities are advertised for their client capabilities.*
 
 ## Declaration directives
 
-Put `//xgols:notrecommended` in a declaration's leading documentation comment to omit the declaration from proactive
+Put `//xgols:notRecommended` in a declaration's leading documentation comment to omit the declaration from proactive
 symbol recommendations. The language server applies this policy to ordinary identifier and member completions,
 property-name string completions such as `showVar`, and the `predefinedNames` returned by `xgo.getInputSlots`.
 Clients using `xgo.getProperties` to offer suggestions can request the same server-side filtering by passing
@@ -100,7 +100,7 @@ Clients using `xgo.getProperties` to offer suggestions can request the same serv
 
 ```go
 // reportTurn records execution for a course.
-//xgols:notrecommended
+//xgols:notRecommended
 func reportTurn(angle float64) {
     println(angle)
 }
@@ -112,7 +112,7 @@ recommendations for that declaration only. Explicit uses retain normal compilati
 parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
 function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
 
-The spelling is exact and case-sensitive. Put `//xgols:notrecommended` on its own line anywhere in the leading comment
+The spelling is exact and case-sensitive. Put `//xgols:notRecommended` on its own line anywhere in the leading comment
 group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
 is allowed. Block comments, end-of-line comments, detached comment groups, and directives with arguments are not
 recognized.
@@ -124,9 +124,8 @@ that alias; marking one implementation omits only candidates that use that imple
 SDK overloads remain eligible. Enum entries do not accept this directive.
 
 Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
-annotations from raw Go source comments and from the original XGo sources when they accompany the selected generated Go
-files. If XGo source recovery fails, `pkgdatagen` warns and keeps the documentation and annotations it can read from Go
-sources. Existing package data without annotations keeps its current behavior.
+annotations from raw comments in the Go files selected for the build. A directive present only in a dependency's XGo
+source is outside this collection. Existing package data without annotations keeps its current behavior.
 
 ## Predefined commands
 
@@ -274,7 +273,7 @@ interface XGoInputSlot {
   input: XGoInput
 
   /**
-   * The available user-predefined identifiers, omitting declarations marked `//xgols:notrecommended`.
+   * The available user-predefined identifiers, omitting declarations marked `//xgols:notRecommended`.
    */
   predefinedNames: string[]
 }
@@ -577,7 +576,7 @@ Embedded fields themselves are excluded. Member lookup and shadowing follow XGo'
 and names within each group are sorted alphabetically.
 
 Pass `excludeNotRecommended: true` to omit properties whose source declaration or selected overload implementation is
-marked `//xgols:notrecommended`. The default query includes all readable properties, including for checking existing
+marked `//xgols:notRecommended`. The default query includes all readable properties, including for checking existing
 property bindings.
 
 Framework adapters can supply their runtime property rules. For spx game and sprite types, properties follow monitor

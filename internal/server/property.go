@@ -176,14 +176,6 @@ type propertyMember struct {
 	Definition symbolDefinition
 }
 
-// recommendationDefinition retains the source member alongside the implementation
-// used to describe the property.
-func (m propertyMember) recommendationDefinition() symbolDefinition {
-	def := m.Definition
-	def.SourceObject = m.Object
-	return def
-}
-
 // propertyMembers attaches documentation and definition identifiers to properties.
 func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[propertyMember] {
 	return func(yield func(propertyMember) bool) {
@@ -197,6 +189,7 @@ func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[prope
 				obj = property.Function
 			}
 			for _, def := range r.definitionsForSelection(obj, named) {
+				def.SourceObject = property.Object
 				if !yield(propertyMember{property, kind, def}) {
 					return
 				}
@@ -209,7 +202,7 @@ func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[prope
 func (r *definitionContext) collectPropertiesFromNamedType(named *gotypes.Named, notRecommended func(symbolDefinition) bool) []XGoProperty {
 	var properties []XGoProperty
 	for m := range r.propertyMembers(named) {
-		if notRecommended != nil && notRecommended(m.recommendationDefinition()) {
+		if notRecommended != nil && notRecommended(m.Definition) {
 			continue
 		}
 		properties = append(properties, XGoProperty{

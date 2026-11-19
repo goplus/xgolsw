@@ -11,16 +11,16 @@ import (
 )
 
 func TestServerNotRecommendedIdentifierCompletions(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, `//xgols:notrecommended
+	source, pos := typeDisplayTestSource(t, `//xgols:notRecommended
 func HiddenAction() {}
 func VisibleAction() {}
-//xgols:notrecommended
+//xgols:notRecommended
 var HiddenValue int
 var VisibleValue int
-//xgols:notrecommended
+//xgols:notRecommended
 const HiddenLimit = 1
 const VisibleLimit = 2
-//xgols:notrecommended
+//xgols:notRecommended
 type HiddenRecord struct{}
 type VisibleRecord struct{}
 func run() {
@@ -52,14 +52,14 @@ func TestServerNotRecommendedMemberCompletions(t *testing.T) {
 			s := newTestServer(t, map[string][]byte{
 				"main.xgo": []byte(source),
 				"Record.gox": []byte(`var (
-//xgols:notrecommended
+//xgols:notRecommended
 HiddenField string
 VisibleField string
 )
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenAction(value int) {}
 func VisibleAction(value int) {}
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenText() string { return "hidden" }
 func VisibleText() string { return "visible" }
 `),
@@ -80,8 +80,8 @@ func TestServerNotRecommendedOverloadCompletions(t *testing.T) {
 		name, implementation, alias string
 		want                        int
 	}{
-		{name: "Implementation", implementation: "//xgols:notrecommended\n", want: 1},
-		{name: "Alias", alias: "//xgols:notrecommended\n"},
+		{name: "Implementation", implementation: "//xgols:notRecommended\n", want: 1},
+		{name: "Alias", alias: "//xgols:notRecommended\n"},
 		{name: "Unannotated", want: 2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,22 +110,22 @@ func run() {
 
 func TestServerNotRecommendedPredefinedNames(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{"Record.gox": []byte(`var (
-//xgols:notrecommended
+//xgols:notRecommended
 HiddenField string
 VisibleField string
 )
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenText() string { return "hidden" }
 func VisibleText() string { return "visible" }
 func run() { use "text" }
 `), "values.xgo": []byte(`func Use(value string) {}
-//xgols:notrecommended
+//xgols:notRecommended
 var hiddenValue string
 var visibleValue string
-//xgols:notrecommended
+//xgols:notRecommended
 const hiddenLimit = "hidden"
 const visibleLimit = "visible"
-//xgols:notrecommended
+//xgols:notRecommended
 func HiddenPackageText() string { return "hidden" }
 func VisiblePackageText() string { return "visible" }
 `)})
@@ -148,9 +148,9 @@ func TestServerNotRecommendedAutoPropertyOverloads(t *testing.T) {
 		name, first, second, alias string
 		want                       bool
 	}{
-		{name: "SelectedImplementation", first: "//xgols:notrecommended\n"},
-		{name: "Alias", alias: "//xgols:notrecommended\n"},
-		{name: "OtherImplementation", second: "//xgols:notrecommended\n", want: true},
+		{name: "SelectedImplementation", first: "//xgols:notRecommended\n"},
+		{name: "Alias", alias: "//xgols:notRecommended\n"},
+		{name: "OtherImplementation", second: "//xgols:notRecommended\n", want: true},
 		{name: "Unannotated", want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestServerNotRecommendedShadowing(t *testing.T) {
 	source, pos := typeDisplayTestSource(t, `var value string
 func Use(value string) {}
 func run() {
-//xgols:notrecommended
+//xgols:notRecommended
 var value string
 _ = value
 |
@@ -200,7 +200,7 @@ use "text"
 }
 
 func TestServerNotRecommendedIndexReuseAndEdits(t *testing.T) {
-	source, pos := typeDisplayTestSource(t, `//xgols:notrecommended
+	source, pos := typeDisplayTestSource(t, `//xgols:notRecommended
 var value string
 func Use(value string) {}
 func run() {
@@ -217,7 +217,7 @@ use "text"
 	for version, annotated := range []bool{true, false, true} {
 		updated := source
 		if !annotated {
-			updated = strings.Replace(updated, "//xgols:notrecommended", "// Ordinary documentation.", 1)
+			updated = strings.Replace(updated, "//xgols:notRecommended", "// Ordinary documentation.", 1)
 		}
 		s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: version + 1}})
 		_, err := s.requestProject().TypeInfo()

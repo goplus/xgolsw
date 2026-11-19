@@ -210,11 +210,11 @@ func TestGetSpxPropertiesExcludingNotRecommended(t *testing.T) {
 	s := newSpxTestServer(t, map[string][]byte{
 		"main.spx": []byte(`var (
     a1 = 1
-    //xgols:notrecommended
+    //xgols:notRecommended
     a2 = "123"
 )
 
-//xgols:notrecommended
+//xgols:notRecommended
 func MyTestFunc3() string { return "123" }
 
 func MyTestFunc4() string { return "123" }

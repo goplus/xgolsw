@@ -18,7 +18,7 @@ func TestNotRecommendedExplicitSymbolServices(t *testing.T) {
 		{
 			name: "Function", symbol: "report",
 			declaration: `// report documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 func |report(value int) int { return value }
 `,
 			use: "println |report(2)\n",
@@ -27,7 +27,7 @@ func |report(value int) int { return value }
 			name: "Method", symbol: "report",
 			declaration: `type Record struct{}
 // report documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 func (r Record) |report(value int) int { return value }
 `,
 			use: "var record Record\nprintln record.|report(2)\n",
@@ -35,7 +35,7 @@ func (r Record) |report(value int) int { return value }
 		{
 			name: "Variable", symbol: "counter",
 			declaration: `// counter documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 var |counter int
 `,
 			use: "println |counter\n",
@@ -43,7 +43,7 @@ var |counter int
 		{
 			name: "Constant", symbol: "limit",
 			declaration: `// limit documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 const |limit = 2
 `,
 			use: "println |limit\n",
@@ -51,7 +51,7 @@ const |limit = 2
 		{
 			name: "Type", symbol: "Record",
 			declaration: `// Record documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 type |Record struct { Value int }
 `,
 			use: "var record |Record\nprintln record.Value\n",
@@ -73,7 +73,7 @@ type |Record struct { Value int }
 			require.NoError(t, err)
 			require.NotNil(t, hover)
 			assert.Contains(t, hover.Contents.Value, tt.symbol+" documents an implementation detail.")
-			assert.NotContains(t, hover.Contents.Value, "xgols:notrecommended")
+			assert.NotContains(t, hover.Contents.Value, "xgols:notRecommended")
 
 			declarationEnd := declarationPosition
 			declarationEnd.Character += uint32(UTF16Len(tt.symbol))
@@ -100,7 +100,7 @@ type |Record struct { Value int }
 			assert.Equal(t, []TextEdit{{Range: wantDeclaration.Range, NewText: "renamed"}}, edit.Changes[wantDeclaration.URI])
 			assert.Equal(t, []TextEdit{{Range: wantUse.Range, NewText: "renamed"}}, edit.Changes[wantUse.URI])
 			updated := applyResourceRenameTestEdits(t, declaration, edit.Changes[wantDeclaration.URI])
-			assert.Contains(t, updated, "//xgols:notrecommended")
+			assert.Contains(t, updated, "//xgols:notRecommended")
 			s.ModifyFiles([]FileChange{
 				{Path: "declarations.xgo", Content: []byte(updated), Version: 1},
 				{Path: "main.xgo", Content: []byte(applyResourceRenameTestEdits(t, source, edit.Changes[wantUse.URI])), Version: 1},
@@ -120,7 +120,7 @@ func TestNotRecommendedExplicitCallAssistance(t *testing.T) {
 		{
 			name: "Function", label: "report(value int)",
 			declaration: `// report documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 func report(value int) {}
 `,
 			call: "report |2\n",
@@ -129,7 +129,7 @@ func report(value int) {}
 			name: "Method", label: "report(value int)",
 			declaration: `type Record struct{}
 // report documents an implementation detail.
-//xgols:notrecommended
+//xgols:notRecommended
 func (r Record) report(value int) {}
 `,
 			call: "var record Record\nrecord.report |2\n",
@@ -165,7 +165,7 @@ func (r Record) report(value int) {}
 
 func TestNotRecommendedExplicitInput(t *testing.T) {
 	s := newTestServer(t, map[string][]byte{
-		"declarations.xgo": []byte("//xgols:notrecommended\nvar counter int\n"),
+		"declarations.xgo": []byte("//xgols:notRecommended\nvar counter int\n"),
 		"main.xgo":         []byte("println counter\n"),
 	})
 	requireNoDiagnostics(t, s)

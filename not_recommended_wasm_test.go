@@ -13,10 +13,10 @@ import (
 )
 
 func TestXGoLanguageServerNotRecommended(t *testing.T) {
-	const source = `//xgols:notrecommended
+	const source = `//xgols:notRecommended
 var hiddenValue int
 var visibleValue int
-//xgols:notrecommended
+//xgols:notRecommended
 func hidden(value int) int { return value }
 func visible(value int) int { return value }
 func Use(value int) {}
@@ -37,7 +37,7 @@ println hidden(visibleValue)
 	for version, annotated := range []bool{true, false, true} {
 		updated := source
 		if !annotated {
-			updated = strings.ReplaceAll(updated, "//xgols:notrecommended", "// Ordinary documentation.")
+			updated = strings.ReplaceAll(updated, "//xgols:notRecommended", "// Ordinary documentation.")
 		}
 		method := "textDocument/didChange"
 		params := map[string]any{

@@ -67,7 +67,9 @@ type TypeDoc struct {
 
 // NewGo creates a new [PkgDoc] from the given Go [ast.Package].
 func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
+	docPkg := godoc.New(pkg, pkgPath, godoc.AllDecls|godoc.AllMethods|godoc.PreserveAST)
 	pkgDoc := &PkgDoc{
+		Doc:    docPkg.Doc,
 		Path:   pkgPath,
 		Name:   pkg.Name,
 		Vars:   make(map[string]string),
@@ -76,8 +78,6 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		Funcs:  make(map[string]string),
 	}
 	pkgDoc.collectGoDirectives(pkg)
-	docPkg := godoc.New(pkg, pkgPath, godoc.AllDecls|godoc.AllMethods|godoc.PreserveAST)
-	pkgDoc.Doc = docPkg.Doc
 
 	vars, consts, funcs := docPkg.Vars, docPkg.Consts, docPkg.Funcs
 	for _, t := range docPkg.Types {

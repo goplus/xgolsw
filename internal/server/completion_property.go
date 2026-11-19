@@ -41,7 +41,7 @@ func (ctx *completionContext) collectPropertyNames(target string) {
 		if _, seen := ctx.itemSet.seenDefinitions[key]; seen {
 			continue
 		}
-		if ctx.itemSet.notRecommended != nil && ctx.itemSet.notRecommended(m.recommendationDefinition()) {
+		if ctx.itemSet.notRecommended != nil && ctx.itemSet.notRecommended(m.Definition) {
 			continue
 		}
 		item := m.Definition.completionItem(ctx.itemSet.documentationKind)

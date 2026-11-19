@@ -44,27 +44,27 @@ func TestGenerate(t *testing.T) {
 				"fixture.go": "// Package " + tt.pkgName + " provides fixture values.\npackage " + tt.pkgName + `
 
 // Limit bounds the number of records.
-//xgols:notrecommended
+//xgols:notRecommended
 const Limit = 7
 
 // Current holds the active record.
-//xgols:notrecommended
+//xgols:notRecommended
 var Current Record
 
 // Record holds a number.
-//xgols:notrecommended
+//xgols:notRecommended
 type Record struct {
     // Number is the stored number.
-    //xgols:notrecommended
+    //xgols:notRecommended
     Number int
 }
 
 // Double returns twice the stored number.
-//xgols:notrecommended
+//xgols:notRecommended
 func (r Record) Double() int { return r.Number * 2 }
 
 // Add returns the sum of its arguments.
-//xgols:notrecommended
+//xgols:notRecommended
 func Add(left, right int) int { return left + right }
 `,
 				"platform_js.go":    "package " + tt.pkgName + "\n\n// WasmOnly belongs to the browser build.\nconst WasmOnly = true\n",
