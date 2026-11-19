@@ -5,18 +5,20 @@ import (
 	"iter"
 	"strings"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// typeDisplay formats types in a source context. Its zero value uses package
-// names when no source context is available.
+// typeDisplay formats types in a source context. Its zero value formats types
+// using package names. Source name lookup requires [newTypeDisplay].
 type typeDisplay struct {
-	qualifier   gotypes.Qualifier
-	unqualified func(*gotypes.TypeName) bool
-	sourceName  func(*gotypes.TypeName) (string, bool)
+	qualifier    gotypes.Qualifier
+	unqualified  func(*gotypes.TypeName) bool
+	sourceLookup func(string) (gotypes.Object, gotypes.Type)
+	sourceName   func(*gotypes.TypeName) (string, bool)
 }
 
 // newTypeDisplay resolves package qualifiers at pos in file. The result belongs
@@ -72,22 +74,20 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 	}
 	// A class member can shadow a type in expression context, including the
 	// function position of a conversion. Type annotations have no such conflict.
-	class := classTypeForFile(proj, file)
-	var resolver autoPropertyResolver
-	if class != nil {
-		resolver = autoPropertyResolver{proj: proj, receiver: gotypes.NewPointer(class)}
-	}
-	sourceLookup := func(name string) gotypes.Object {
+	receiver := xgoutil.ClassReceiverAt(info, file, pos)
+	resolver := autoPropertyResolver{proj: proj, receiver: receiver}
+	// Return the value type when a class member supplies the binding.
+	sourceLookup := func(name string) (gotypes.Object, gotypes.Type) {
 		at, obj := scope.LookupParent(name, pos)
 		if obj != nil && at != info.Pkg.Scope() && at != gotypes.Universe && at != info.Scopes[file] {
-			return obj
+			return obj, nil
 		}
-		if class != nil {
-			if member := resolver.resolve(name).object; member != nil {
-				return member
+		if receiver != nil {
+			if member := resolver.resolve(name); member.object != nil {
+				return member.object, member.typ
 			}
 		}
-		return lookup(name)
+		return lookup(name), nil
 	}
 	return typeDisplay{qualifier: func(pkg *gotypes.Package) string {
 		for _, name := range imports[pkg] {
@@ -111,9 +111,9 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			}
 		}
 		return pkg.Name()
-	}, unqualified: unqualified, sourceName: func(obj *gotypes.TypeName) (string, bool) {
+	}, unqualified: unqualified, sourceLookup: sourceLookup, sourceName: func(obj *gotypes.TypeName) (string, bool) {
 		if unqualified(obj) {
-			if visible := sourceLookup(obj.Name()); visible == nil || visible == obj {
+			if visible, _ := sourceLookup(obj.Name()); visible == nil || visible == obj {
 				return obj.Name(), true
 			}
 		}
@@ -121,7 +121,7 @@ func newTypeDisplay(proj *xgo.Project, file *ast.File, pos token.Pos) typeDispla
 			return "", false
 		}
 		for _, name := range imports[obj.Pkg()] {
-			if visible := sourceLookup(name.Name()); visible == nil || visible.Parent() == gotypes.Universe {
+			if visible, _ := sourceLookup(name.Name()); visible == nil || visible.Parent() == gotypes.Universe {
 				return name.Name() + "." + obj.Name(), true
 			}
 		}
@@ -295,25 +295,22 @@ func (d typeDisplay) sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tu
 
 // displayedFuncName resolves the source-facing function display name used by
 // source UI surfaces.
-func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string, overloadID *string, isXGotMethod bool) {
+func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string, overloadID *string) {
 	isXGoPkg := xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
 	name := fun.Name()
 	sig := fun.Signature()
 
 	if recv := sig.Recv(); recv != nil {
-		recvType := xgoutil.DerefType(recv.Type())
-		if named, ok := recvType.(*gotypes.Named); ok {
+		if named := resolvedNamedType(recv.Type()); named != nil {
 			parsedRecvTypeName = named.Obj().Name()
-		}
-	} else if isXGoPkg && strings.HasPrefix(name, xgoutil.XGotPrefix) {
-		recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(name, true)
-		if ok {
-			parsedRecvTypeName = recvTypeName
-			name = methodName
-			isXGotMethod = true
+		} else if gotypes.IsInterface(recv.Type()) {
+			parsedRecvTypeName = interfaceMethodAliasName(fun)
 		}
 	} else if isXGoPkg {
-		if funcName, ok := xgoutil.SplitXGoxFuncName(name); ok {
+		if recvTypeName, methodName, ok := xgoutil.TemplateMethodName(fun, true); ok {
+			parsedRecvTypeName = recvTypeName
+			name = methodName
+		} else if funcName, ok := xgoutil.SplitXGoxFuncName(name); ok {
 			name = funcName
 		}
 	}
@@ -322,9 +319,18 @@ func displayedFuncName(fun *gotypes.Func) (parsedRecvTypeName, parsedName string
 	if isXGoPkg {
 		parsedName, overloadID = xgoutil.ParseXGoFuncName(parsedName)
 	} else if !xgoutil.IsInMainPkg(fun) {
-		parsedName = xgoutil.ToLowerCamelCase(parsedName)
+		parsedName = xgoutil.FunctionAliasName(parsedName)
 	}
 	return
+}
+
+// isDirectOverloadImplementationName reports whether the source spells the
+// indexed implementation itself, including its callable alias.
+func isDirectOverloadImplementationName(fun *gotypes.Func, name string) bool {
+	declared := fun.Name()
+	return xgoutil.IsXGoOverloadedFuncName(declared) &&
+		(name == declared || xgoutil.MemberNameForAlias(name) == declared) &&
+		xgoutil.IsMarkedAsXGoPackage(fun.Pkg())
 }
 
 // displayedFuncResults formats the source-facing result list for function
@@ -354,46 +360,47 @@ func (d typeDisplay) displayedFuncResults(results *gotypes.Tuple) string {
 	return sb.String()
 }
 
-// displayedFuncParamLabels formats the source-facing parameter list for
-// function signatures shown in source UI surfaces.
-func (d typeDisplay) displayedFuncParamLabels(sig *gotypes.Signature, isXGotMethod bool) []string {
-	labels := make([]string, 0, sig.TypeParams().Len()+sig.Params().Len())
-	for typeParam := range sig.TypeParams().TypeParams() {
-		labels = append(labels, typeParam.Obj().Name()+" Type")
-	}
-	params := sig.Params()
-	for i := range params.Len() {
-		if isXGotMethod && i == 0 {
-			continue
+// functionOverview formats generic types and source-visible value parameters.
+func (d typeDisplay) functionOverview(name string, sig *gotypes.Signature, params *gotypes.Tuple, typeArgCount int) string {
+	if typeParams := sig.TypeParams(); typeArgCount == 0 && typeParams.Len() > 0 {
+		labels := make([]string, 0, typeParams.Len())
+		for param := range typeParams.TypeParams() {
+			labels = append(labels, param.Obj().Name()+" "+d.typeString(param.Constraint()))
 		}
-		labels = append(labels, d.sourceParamLabel(sig, params, i))
+		name += "[" + strings.Join(labels, ", ") + "]"
 	}
-	return labels
+	labels := make([]string, 0, params.Len())
+	for i := range params.Len() {
+		if i < typeArgCount {
+			labels = append(labels, params.At(i).Name()+" Type")
+		} else {
+			labels = append(labels, d.sourceParamLabel(sig, params, i))
+		}
+	}
+	return "func " + name + "(" + strings.Join(labels, ", ") + ")" + d.displayedFuncResults(sig.Results())
 }
 
 // funcOverview formats the source-facing declaration of a function.
 func (d typeDisplay) funcOverview(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
-	sig := fun.Signature()
-	parsedRecvTypeName, parsedName, overloadID, isXGotMethod := displayedFuncName(fun)
-
-	var sb strings.Builder
-	sb.WriteString("func ")
-	sb.WriteString(parsedName)
-	sb.WriteString("(")
-	sb.WriteString(strings.Join(d.displayedFuncParamLabels(sig, isXGotMethod), ", "))
-	sb.WriteString(")")
-	sb.WriteString(d.displayedFuncResults(sig.Results()))
-
-	overview = sb.String()
+	parsedRecvTypeName, parsedName, overloadID = displayedFuncName(fun)
+	sig, params := xgoutil.ResolveFuncSignature(fun)
+	if sig == nil {
+		sig = fun.Signature()
+		params = sig.Params()
+	}
+	overview = d.functionOverview(parsedName, sig, params, xgoutil.NormalizedCallExprTypeArgCount(fun, params))
 	return
 }
 
 // typeOverview describes a type declaration, including its parameters and
 // alias target. Named types use compact descriptions.
-func (d typeDisplay) typeOverview(obj *gotypes.TypeName) string {
+func (d typeDisplay) typeOverview(obj *gotypes.TypeName, name string) string {
+	if _, overloaded := gogen.CheckOverloadNamed(obj.Type()); overloaded {
+		return "type " + name
+	}
 	var overview strings.Builder
 	overview.WriteString("type ")
-	overview.WriteString(obj.Name())
+	overview.WriteString(name)
 	if typ, ok := obj.Type().(interface{ TypeParams() *gotypes.TypeParamList }); ok {
 		params := typ.TypeParams()
 		if params.Len() > 0 {

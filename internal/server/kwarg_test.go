@@ -31,7 +31,7 @@ func TestCallExprFuncOverloads(t *testing.T) {
 	ident := &ast.Ident{Name: "Count"}
 	info := new(types.Info)
 	info.Uses = map[*ast.Ident]gotypes.Object{ident: member}
-	assert.Nil(t, callExprFuncOverloads(info, &ast.CallExpr{Fun: ident}))
+	assert.Nil(t, callExprOverloads(info, &ast.CallExpr{Fun: ident}))
 }
 
 func TestResolvedCallExprArgs(t *testing.T) {
@@ -114,22 +114,24 @@ func TestKwargRenameText(t *testing.T) {
 
 	t.Run("StructField", func(t *testing.T) {
 		field := gotypes.NewField(0, pkg, "Count", gotypes.Typ[gotypes.Int], false)
-		assert.Equal(t, "count", kwargRenameText(field, "Count"))
+		receiver := gotypes.NewStruct([]*gotypes.Var{field}, nil)
+		assert.Equal(t, "count", kwargRenameText(field, receiver, "Count"))
 	})
 
 	t.Run("StructUnicodeField", func(t *testing.T) {
 		field := gotypes.NewField(0, pkg, "\u00c4ge", gotypes.Typ[gotypes.Int], false)
-		assert.Equal(t, "\u00e4ge", kwargRenameText(field, "\u00c4ge"))
+		receiver := gotypes.NewStruct([]*gotypes.Var{field}, nil)
+		assert.Equal(t, "\u00e4ge", kwargRenameText(field, receiver, "\u00c4ge"))
 	})
 
 	t.Run("InterfaceMethod", func(t *testing.T) {
 		method := gotypes.NewFunc(0, pkg, "MaxTokens", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
-		assert.Equal(t, "maxTokens", kwargRenameText(method, "MaxTokens"))
+		assert.Equal(t, "maxTokens", kwargRenameText(method, nil, "MaxTokens"))
 	})
 
 	t.Run("InterfaceUnicodeMethod", func(t *testing.T) {
 		method := gotypes.NewFunc(0, pkg, "\u00c4ge", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
-		assert.Equal(t, "\u00c4ge", kwargRenameText(method, "\u00c4ge"))
+		assert.Equal(t, "\u00c4ge", kwargRenameText(method, nil, "\u00c4ge"))
 	})
 }
 

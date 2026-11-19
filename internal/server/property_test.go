@@ -26,15 +26,17 @@ func TestServerXGoGetProperties(t *testing.T) {
 	})
 
 	t.Run("OverloadWrapper", func(t *testing.T) {
-		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`type Record struct{}
 func (r *Record) intValue() int { return 1 }
 func (r *Record) stringValue() string { return "one" }
+// Value reports the record's value.
 func (Record).Value = (
     (Record).intValue
     (Record).stringValue
 )
 func (r *Record) Label() string { return "record" }
 `)})
+		t.Cleanup(s.Close)
 		info, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
 		named := requirePropertyTestType(t, info.Pkg, "Record")
@@ -48,12 +50,35 @@ func (r *Record) Label() string { return "record" }
 		assert.Equal(t, "label", properties[0].Name)
 		assert.Equal(t, "value", properties[1].Name)
 		assert.Equal(t, "int", properties[1].Type)
+		assert.Equal(t, "Value reports the record's value.\n", properties[1].Doc)
+		assert.Equal(t, "xgo:main?Record.intValue", properties[1].Definition.String())
 		ctx := &completionContext{
 			definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 			typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 		}
-		ctx.collectPropertyNames("Record")
+		ctx.collectPropertyNames(propertyCompletionTestType(t, info, "Record"))
 		assert.ElementsMatch(t, []string{`"label"`, `"value"`}, completionItemLabels(ctx.itemSet.items))
+		item := completionItemByLabel(ctx.itemSet.items, `"value"`)
+		require.NotNil(t, item)
+		require.NotNil(t, item.Documentation)
+		assert.Contains(t, requireValueAs[MarkupContent](t, item.Documentation.Value).Value, "Value reports the record's value.")
+	})
+
+	t.Run("ImportedOverloadDocumentation", func(t *testing.T) {
+		const path = "example.com/dependency"
+		s := newNotRecommendedImportServer(t, `import "`+path+`"
+type Record struct { dependency.Record }
+`)
+		t.Cleanup(s.Close)
+		useExportedDependency(t, s, path)
+		requireNoDiagnostics(t, s)
+
+		properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
+		require.NoError(t, err)
+		index := slices.IndexFunc(properties, func(property XGoProperty) bool { return property.Name == "result" })
+		require.NotEqual(t, -1, index)
+		assert.Equal(t, "Result reports the metric for this record.\n", properties[index].Doc)
+		assert.Equal(t, "xgo:"+path+"?Record.metricText", properties[index].Definition.String())
 	})
 
 	t.Run("DeclarationDocumentation", func(t *testing.T) {
@@ -397,7 +422,7 @@ type Record struct { *Base; f.PrivateMethod }
 					definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc},
 					typeInfo:          info, itemSet: newCompletionItemSet(PlainText),
 				}
-				ctx.collectPropertyNames("Record")
+				ctx.collectPropertyNames(propertyCompletionTestType(t, info, "Record"))
 				assert.Len(t, ctx.itemSet.items, len(want))
 				for _, property := range want {
 					item := completionItemByLabel(ctx.itemSet.items, "\""+property.Name+"\"")

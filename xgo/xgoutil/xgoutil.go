@@ -164,12 +164,21 @@ func ReturnValueIndex(stmt *ast.ReturnStmt, target ast.Expr) int {
 	return -1
 }
 
-// ToLowerCamelCase lowercases an initial ASCII letter, matching XGo method aliases.
+// ToLowerCamelCase lowercases an initial ASCII letter. [FunctionAliasName]
+// also accounts for keywords when choosing a source spelling.
 func ToLowerCamelCase(s string) string {
 	if s == "" || s[0] < 'A' || s[0] > 'Z' {
 		return s
 	}
 	return string(s[0]+('a'-'A')) + s[1:]
+}
+
+// UpperFirstASCII uppercases an initial ASCII letter.
+func UpperFirstASCII(name string) string {
+	if name == "" || name[0] < 'a' || name[0] > 'z' {
+		return name
+	}
+	return string(name[0]-('a'-'A')) + name[1:]
 }
 
 // StringLitOrConstValue attempts to get the value from a string literal or

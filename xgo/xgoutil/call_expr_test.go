@@ -17,6 +17,8 @@
 package xgoutil
 
 import (
+	goast "go/ast"
+	goparser "go/parser"
 	gotypes "go/types"
 	"slices"
 	"testing"
@@ -333,7 +335,8 @@ func TestRequiredParamCount(t *testing.T) {
 		name              string
 		params            []string
 		variadic          bool
-		optional          bool
+		local             bool
+		localOptional     bool
 		typeParams        int
 		typeArgs          int
 		variadicTypeParam bool
@@ -343,8 +346,10 @@ func TestRequiredParamCount(t *testing.T) {
 		{name: "Required", params: []string{"first", "second"}, want: 2},
 		{name: "Optional", params: []string{"__xgo_optional_first", "__xgo_optional_second"}},
 		{name: "Mixed", params: []string{"first", "__xgo_optional_second", "__xgo_optional_third"}, want: 1},
-		{name: "LegacyOptional", params: []string{"first", "__gop_optional_second"}, want: 1},
-		{name: "LocalOptional", params: []string{"first", "second"}, optional: true, want: 1},
+		{name: "OrdinaryParamWithHistoricalPrefix", params: []string{"first", "__gop_optional_second"}, want: 2},
+		{name: "LocalOptional", params: []string{"first", "second"}, local: true, localOptional: true, want: 1},
+		{name: "UnnamedLocalOptional", params: []string{"", ""}, local: true, localOptional: true, want: 1},
+		{name: "LocalRequiredWithImportedPrefix", params: []string{"first", "__xgo_optional_second"}, local: true, want: 2},
 		{name: "Variadic", params: []string{"first", "rest"}, variadic: true, want: 1},
 		{name: "VariadicOnly", params: []string{"rest"}, variadic: true},
 		{name: "OptionalAndVariadic", params: []string{"first", "__xgo_optional_second", "rest"}, variadic: true, want: 1},
@@ -357,8 +362,12 @@ func TestRequiredParamCount(t *testing.T) {
 		{name: "ExplicitVariadicTypeParam", params: []string{"T", "first", "rest"}, variadic: true, typeParams: 1, typeArgs: 1, variadicTypeParam: true, want: 2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			pkg := gotypes.NewPackage("main", "main")
-			typeInfo := newTestTypeInfo(nil, nil)
+			typeInfo := &types.Info{Pkg: gotypes.NewPackage("main", "main")}
+			pkg := typeInfo.Pkg
+			if !tt.local {
+				pkg = gotypes.NewPackage("example.com/api", "api")
+			}
+			compiler := &gogen.Package{PkgRef: gogen.PkgRef{Types: pkg}}
 			var typeParams []*gotypes.TypeParam
 			for i := range tt.typeParams {
 				name := string(rune('T' + i))
@@ -377,16 +386,782 @@ func TestRequiredParamCount(t *testing.T) {
 					}
 					typ = gotypes.NewSlice(typ)
 				}
-				params = append(params, gotypes.NewParam(token.NoPos, pkg, name, typ))
-			}
-			if tt.optional {
-				typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{
-					params[len(params)-1]: {Obj: &ast.Object{Decl: &ast.Field{Optional: token.Pos(1)}}},
-				}
+				params = append(params, compiler.NewParam(token.NoPos, name, typ, tt.localOptional && i == len(tt.params)-1))
 			}
 			normalizedParams := gotypes.NewTuple(params...)
 			sig := gotypes.NewSignatureType(nil, nil, typeParams, gotypes.NewTuple(params[tt.typeArgs:]...), nil, tt.variadic)
 			assert.Equal(t, tt.want, RequiredParamCount(typeInfo, sig, normalizedParams, tt.typeArgs))
+		})
+	}
+}
+
+func TestKeywordMapType(t *testing.T) {
+	intType, stringType := gotypes.Typ[gotypes.Int], gotypes.Typ[gotypes.String]
+	nilType := gotypes.Typ[gotypes.UntypedNil]
+	pointerType := gotypes.NewPointer(intType)
+	results := gotypes.NewTuple(
+		gotypes.NewVar(token.NoPos, nil, "", intType),
+		gotypes.NewVar(token.NoPos, nil, "", stringType),
+	)
+	for _, tt := range []struct {
+		name         string
+		types        []gotypes.Type
+		target, want gotypes.Type
+	}{
+		{name: "DefaultConstantType", types: []gotypes.Type{gotypes.Typ[gotypes.UntypedInt], intType}, want: gotypes.NewMap(stringType, intType)},
+		{name: "MixedValues", types: []gotypes.Type{intType, stringType}, want: gotypes.NewMap(stringType, anyType())},
+		{name: "NilWithPointer", types: []gotypes.Type{nilType, pointerType}, want: gotypes.NewMap(stringType, pointerType)},
+		{name: "UntypedNil", types: []gotypes.Type{nilType}},
+		{name: "NilWithTarget", types: []gotypes.Type{nilType},
+			target: gotypes.NewMap(stringType, pointerType), want: gotypes.NewMap(stringType, pointerType)},
+		{name: "WrongTargetValue", types: []gotypes.Type{intType}, target: gotypes.NewMap(stringType, stringType)},
+		{name: "UncheckedValue", types: []gotypes.Type{intType, nil}},
+		{name: "MultipleResults", types: []gotypes.Type{results}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cb := gogen.NewPackage("", "", &gogen.Config{
+				NewBuiltin: func(*gogen.Package, *gogen.Config) *gotypes.Package { return nil },
+			}).CB()
+			cb.Val("sentinel")
+			original := cb.Get(-1)
+			var kwargs []*ast.KwargExpr
+			typesByValue := make(map[ast.Expr]gotypes.Type)
+			for i, typ := range tt.types {
+				kwarg := newTestKwarg(string(rune('a'+i)), "value")
+				kwargs = append(kwargs, kwarg)
+				typesByValue[kwarg.Value] = typ
+			}
+			got := KeywordMapType(cb, kwargs, tt.target, func(value ast.Expr) gotypes.Type { return typesByValue[value] })
+			assert.True(t, gotypes.Identical(tt.want, got), "want %v, got %v", tt.want, got)
+			require.Equal(t, 1, cb.InternalStack().Len())
+			assert.Same(t, original, cb.Get(-1))
+		})
+	}
+}
+
+func TestCallExprSupportsInterfaceKwargs(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		arity        []int
+		typeReceiver bool
+		static       bool
+		template     bool
+		private      bool
+		want         bool
+	}{
+		{name: "SkipRequiredArgument", arity: []int{1, 0}, want: true},
+		{name: "EarlierIncompatibleResult", arity: []int{0, 0}},
+		{name: "NoApplicableOverload", arity: []int{1}},
+		{name: "TypeWithoutFactory", typeReceiver: true},
+		{name: "MethodExpression", arity: []int{1, 0}, typeReceiver: true},
+		{name: "StaticOverload", arity: []int{1, 0}, typeReceiver: true, static: true, want: true},
+		{name: "StaticAlias", arity: []int{1, 0}, typeReceiver: true, static: true, private: true, want: true},
+		{name: "UnboundTemplateOverload", arity: []int{1, 0}, typeReceiver: true, template: true, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/client", "client")
+			name := "Options"
+			if tt.private {
+				name = "options"
+			}
+			options := newTestNamedInterface(pkg, name)
+			options.SetUnderlying(gotypes.NewInterfaceType([]*gotypes.Func{newTestFunc(pkg, "Set", false)}, nil).Complete())
+			client := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Client", nil), gotypes.NewStruct(nil, nil), nil)
+			var receiver *gotypes.Var
+			if !tt.static && !tt.template {
+				receiver = gotypes.NewParam(token.NoPos, pkg, "", client)
+			}
+			var candidates []gotypes.Object
+			for i, arity := range tt.arity {
+				result := gotypes.Type(options)
+				if i == 0 {
+					result = gotypes.Typ[gotypes.String]
+				}
+				params := make([]*gotypes.Var, arity)
+				for j := range params {
+					params[j] = gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Int])
+				}
+				results := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", result))
+				sig := gotypes.NewSignatureType(receiver, nil, nil, gotypes.NewTuple(params...), results, false)
+				candidates = append(candidates, gotypes.NewFunc(token.NoPos, pkg, "Build", sig))
+			}
+			switch {
+			case tt.static:
+				overload := gogen.NewOverloadFunc(token.NoPos, pkg, "Build", candidates...)
+				gogen.NewStaticMember(client, token.NoPos, pkg, "Options", overload)
+			case tt.template:
+				overload := gogen.NewOverloadFunc(token.NoPos, pkg, "Build", candidates...)
+				gogen.NewTemplateRecvMethod(client, token.NoPos, pkg, "Options", overload)
+			case len(candidates) != 0:
+				gogen.NewOverloadMethod(client, token.NoPos, pkg, "Options", candidates...)
+			}
+
+			info := newTestTypeInfo(nil, nil)
+			info.Pkg = pkg
+			ident := ast.NewIdent("client")
+			info.Types[ident] = gotypes.TypeAndValue{Type: client}
+			if tt.typeReceiver {
+				info.Uses[ident] = client.Obj()
+			}
+			call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: ident, Sel: ast.NewIdent("Complete")}}
+			assert.Equal(t, tt.want, CallExprSupportsInterfaceKwargs(info, call, options))
+		})
+	}
+
+	t.Run("PackageQualifier", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, optionName string
+			namedCallable    bool
+			declaresType     bool
+			generic          bool
+			want             bool
+		}{
+			{name: "Factory", optionName: "Options", want: true},
+			{name: "FactoryAlias", optionName: "options", want: true},
+			{name: "NamedFunctionValue", optionName: "Options", namedCallable: true, want: true},
+			{name: "NoAliasForNamedFunctionValue", optionName: "options", namedCallable: true},
+			{name: "FunctionType", optionName: "Options", declaresType: true},
+			{name: "UnboundTypeParameter", optionName: "Options", generic: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				current := gotypes.NewPackage("example.com/current", "current")
+				sdk := gotypes.NewPackage("example.com/sdk", "sdk")
+				options := newTestNamedInterface(current, tt.optionName)
+				options.SetUnderlying(newTestEmptyInterface())
+				var typeParams []*gotypes.TypeParam
+				if tt.generic {
+					typeParams = append(typeParams, gotypes.NewTypeParam(
+						gotypes.NewTypeName(token.NoPos, sdk, "T", nil), newTestEmptyInterface(),
+					))
+				}
+				results := gotypes.NewTuple(gotypes.NewParam(token.NoPos, sdk, "", options))
+				sig := gotypes.NewSignatureType(nil, nil, typeParams, nil, results, false)
+				switch {
+				case tt.declaresType:
+					sdk.Scope().Insert(gotypes.NewTypeName(token.NoPos, sdk, "Options", sig))
+				case tt.namedCallable:
+					typ := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, sdk, "Factory", nil), sig, nil)
+					sdk.Scope().Insert(gotypes.NewVar(token.NoPos, sdk, "Options", typ))
+				default:
+					sdk.Scope().Insert(gotypes.NewFunc(token.NoPos, sdk, "Options", sig))
+				}
+				qualifier := ast.NewIdent("sdk")
+				info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+					qualifier: gotypes.NewPkgName(token.NoPos, current, "sdk", sdk),
+				})
+				info.Pkg = current
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: qualifier, Sel: ast.NewIdent("Complete")}}
+				assert.Equal(t, tt.want, CallExprSupportsInterfaceKwargs(info, call, options))
+			})
+		}
+	})
+
+	t.Run("TemplateFactory", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, typeParams, paramType string
+			pointerReceiver             bool
+			explicitTypeArgument        bool
+			want                        bool
+		}{
+			{name: "ValueReceiver", typeParams: "T any", paramType: "Client[T]", want: true},
+			{name: "AddressedReceiver", typeParams: "T any", paramType: "*Client[T]", want: true},
+			{name: "PointerReceiver", typeParams: "T any", paramType: "*Client[T]", pointerReceiver: true, want: true},
+			{name: "VariadicReceiver", typeParams: "T any", paramType: "...Client[T]", want: true},
+			{name: "UninferredTypeParameter", typeParams: "T, U any", paramType: "Client[T]"},
+			{name: "RequiresExplicitTypeArgument", typeParams: "T any", paramType: "Client[T]", explicitTypeArgument: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				fset := token.NewFileSet()
+				name := "Options"
+				if tt.explicitTypeArgument {
+					name = "XGox_Options"
+				}
+				file, err := goparser.ParseFile(fset, "builder.go", `package sdk
+const XGoPackage = true
+type Client[T any] struct{}
+type Options interface { Set(int) Options }
+func XGot_Client_`+name+`[`+tt.typeParams+`](client `+tt.paramType+`) Options { return nil }
+`, 0)
+				require.NoError(t, err)
+				sdk, err := new(gotypes.Config).Check("example.com/sdk", fset, []*goast.File{file}, nil)
+				require.NoError(t, err)
+				gogen.InitXGoPackage(sdk)
+				client, err := gotypes.Instantiate(nil, sdk.Scope().Lookup("Client").Type(), []gotypes.Type{gotypes.Typ[gotypes.Int]}, true)
+				require.NoError(t, err)
+				if tt.pointerReceiver {
+					client = gotypes.NewPointer(client)
+				}
+				receiver := ast.NewIdent("client")
+				info := newTestTypeInfo(nil, nil)
+				info.Pkg = gotypes.NewPackage("example.com/current", "current")
+				info.Types[receiver] = gotypes.TypeAndValue{Type: client}
+				call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: receiver, Sel: ast.NewIdent("Complete")}}
+				assert.Equal(t, tt.want, CallExprSupportsInterfaceKwargs(info, call, sdk.Scope().Lookup("Options").Type()))
+			})
+		}
+	})
+}
+
+func TestResolveCallExprKwargBuilder(t *testing.T) {
+	const declarations = `package fixture
+const XGoPackage = true
+type Client struct{}
+func (Client) Complete(options Options) {}
+func (Client) Options() Builder { return Builder{} }
+`
+	for _, tt := range []struct {
+		name, builder    string
+		keywords         []string
+		wantTypes        []gotypes.Type
+		wantFirst        []string
+		lastArgumentType gotypes.Type
+	}{
+		{
+			name: "Progression",
+			builder: `type Options interface { Count(int) Options; Label(string) Options }
+type Builder struct{}
+type Next struct { Label func(string) Options }
+func (Builder) Count(value int, __xgo_optional_label string) Next { return Next{} }
+`,
+			keywords:  []string{"count", "label", "count"},
+			wantTypes: []gotypes.Type{gotypes.Typ[gotypes.Int], gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.Int]},
+			wantFirst: []string{"count"},
+		},
+		{
+			name: "AbsentPrecedingKeyword",
+			builder: `type Options interface { Count(int) Options; Label(string) Options }
+type Builder struct{}
+func (Builder) Count(value int) Options { return nil }
+`,
+			keywords:  []string{"unknown", "count"},
+			wantTypes: []gotypes.Type{nil, nil},
+			wantFirst: []string{"count"},
+		},
+		{
+			name: "CompatibleConcreteType",
+			builder: `type Options interface { Count(func() int) Options }
+type Builder struct{}
+func (Builder) Count(__xgo_autoclosure_count func() int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{gotypes.Typ[gotypes.Int]},
+			wantFirst: []string{"count"},
+		},
+		{
+			name: "VariadicSet",
+			builder: `type Options interface { Set(string, interface{}) Options }
+type Builder struct{}
+func (Builder) Set(key string, values ...int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{gotypes.Typ[gotypes.Int]},
+		},
+		{
+			name: "SetRejectsStringKey",
+			builder: `type Options interface { Set(string, interface{}) Options }
+type Builder struct{}
+func (Builder) Set(key int, value int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{nil},
+		},
+		{
+			name: "InvalidSignature",
+			builder: `type Options interface { Count(int) Options; Label(string) Options; Color(int) Options }
+type Builder struct { Color int }
+func (Builder) Count(value int, extra int) Options { return nil }
+func (Builder) Label(value string) (Options, error) { return nil, nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{nil},
+		},
+		{
+			name: "SelectedBuilderOverload",
+			builder: `type Options interface { Count(int) Options }
+type Builder struct{}
+func (Builder) CountInt(value int) Options { return nil }
+func (Builder) CountString(value string) Options { return nil }
+const XGoo_Builder_Count = ".CountInt,.CountString"
+`,
+			keywords:         []string{"count"},
+			wantTypes:        []gotypes.Type{gotypes.Typ[gotypes.String]},
+			wantFirst:        []string{"count"},
+			lastArgumentType: gotypes.Typ[gotypes.String],
+		},
+		{
+			name: "TemplateMethod",
+			builder: `type Options interface { Count(int) Options }
+type Builder struct{}
+func XGot_Builder_Count(builder Builder, count int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{gotypes.Typ[gotypes.Int]},
+			wantFirst: []string{"count"},
+		},
+		{
+			name: "GenericTemplateSet",
+			builder: `type Options interface { Set(string, interface{}) Options }
+type Builder struct{}
+func XGot_Builder_Set[K ~string](builder Builder, key K, value int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{gotypes.Typ[gotypes.Int]},
+		},
+		{
+			name: "IncompatibleTemplateReceiver",
+			builder: `type Options interface { Count(int) Options }
+type Builder struct{}
+type Other struct{}
+func XGot_Builder_Count(builder Other, count int) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{nil},
+		},
+		{
+			name: "TemplateRequiresTypeArgument",
+			builder: `type Options interface { Count(int) Options }
+type Builder struct{}
+func XGot__Builder__XGox_Count[N ~int](builder Builder, count N) Options { return nil }
+`,
+			keywords:  []string{"count"},
+			wantTypes: []gotypes.Type{nil},
+		},
+		{
+			name: "AmbiguousBuilderResult",
+			builder: `type Options interface { Count(int) Options; Label(string) Options }
+type Builder struct{}
+type Next struct{}
+func (Builder) CountInt(value int) Next { return Next{} }
+func (Builder) CountString(value string) Options { return nil }
+const XGoo_Builder_Count = ".CountInt,.CountString"
+`,
+			keywords:  []string{"count", "label"},
+			wantTypes: []gotypes.Type{anyType(), nil},
+			wantFirst: []string{"count"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := goparser.ParseFile(fset, "fixture.go", declarations+tt.builder, 0)
+			require.NoError(t, err)
+			pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+			require.NoError(t, err)
+			gogen.InitXGoPackage(pkg)
+
+			clientType := pkg.Scope().Lookup("Client").Type()
+			complete, _, _ := gotypes.LookupFieldOrMethod(clientType, false, pkg, "Complete")
+			require.NotNil(t, complete)
+			receiver, method := ast.NewIdent("client"), ast.NewIdent("Complete")
+			info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{method: complete})
+			info.Pkg = gotypes.NewPackage("example.com/client", "client")
+			info.Types[receiver] = gotypes.TypeAndValue{Type: clientType}
+			call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: receiver, Sel: method}}
+			for _, name := range tt.keywords {
+				call.Kwargs = append(call.Kwargs, &ast.KwargExpr{Name: ast.NewIdent(name), Value: ast.NewIdent("value")})
+			}
+			if tt.lastArgumentType != nil {
+				info.Types[call.Kwargs[len(call.Kwargs)-1].Value] = gotypes.TypeAndValue{Type: tt.lastArgumentType}
+			}
+
+			binding := ResolveCallExprKwarg(info, call)
+			require.NotNil(t, binding)
+			var names []string
+			for _, target := range ListResolvedCallExprKwargTargets(binding) {
+				names = append(names, target.Name)
+			}
+			assert.ElementsMatch(t, tt.wantFirst, names)
+
+			args := slices.Collect(ResolvedCallExprArgs(info, call))
+			require.Len(t, args, len(tt.wantTypes))
+			for i, want := range tt.wantTypes {
+				if want == nil {
+					assert.Nil(t, args[i].KwargTarget)
+					continue
+				}
+				require.NotNil(t, args[i].KwargTarget)
+				assert.True(t, gotypes.Identical(want, args[i].ExpectedType))
+			}
+		})
+	}
+}
+
+func TestResolveCallExprKwargDefaultMap(t *testing.T) {
+	const declarations = `package fixture
+const XGoPackage = true
+type Options struct { Count string }
+func Options_Init(values map[string]int) Options { return Options{} }
+type Labels map[string]string
+func Labels_Init(values map[string]string) Labels { return nil }
+type Flexible map[string]int
+func Flexible_Init(values map[string]string) Flexible { return nil }
+type Extra struct{}
+func Extra_Init(values map[string]int, label string) Extra { return Extra{} }
+type Key string
+type Slice []int
+func Slice_Init(values map[string]int) Slice { return nil }
+type PlainSlice []int
+type InvalidSlice []int
+func InvalidSlice_Init(values map[string]int, label string) InvalidSlice { return nil }
+type OverloadedSlice []int
+func FromValues(values map[string]int) OverloadedSlice { return nil }
+func FromCount(value int) OverloadedSlice { return nil }
+const XGoo__OverloadedSlice_Init = "FromValues,FromCount"
+type GenericSlice []int
+func GenericSlice_Init[T any](values map[string]T) GenericSlice { return nil }
+type GenericKeySlice []int
+func GenericKeySlice_Init[K ~string](values map[K]int) GenericKeySlice { return nil }
+type GenericValueSlice []int
+func GenericValueSlice_Init[T any](value T) GenericValueSlice { return nil }
+type InterfaceSlice []int
+func InterfaceSlice_Init(value any) InterfaceSlice { return nil }
+type NestedSlice []int
+func NestedSlice_Init(values Slice) NestedSlice { return nil }
+`
+	for _, tt := range []struct {
+		name, parameter string
+		declared        bool
+		want            gotypes.Type
+	}{
+		{"Map", "map[string]int", false, gotypes.Typ[gotypes.Int]},
+		{"VariadicMap", "...map[string]int", false, gotypes.Typ[gotypes.Int]},
+		{"StructInitializer", "Options", false, gotypes.Typ[gotypes.Int]},
+		{"SameMapType", "Labels", false, gotypes.Typ[gotypes.String]},
+		{"MultipleMapTypes", "Flexible", false, anyType()},
+		{"RequiredInitializerArgument", "Extra", false, anyType()},
+		{"NamedKey", "map[Key]int", false, anyType()},
+		{"Unconstrained", "any", false, anyType()},
+		{"DeclaredSliceInitializer", "Slice", true, gotypes.Typ[gotypes.Int]},
+		{"DeclaredSliceWithoutInitializer", "PlainSlice", true, nil},
+		{"DeclaredInitializerWithRequiredArgument", "InvalidSlice", true, nil},
+		{"DeclaredOverloadedInitializer", "OverloadedSlice", true, gotypes.Typ[gotypes.Int]},
+		{"DeclaredGenericInitializer", "GenericSlice", true, anyType()},
+		{"DeclaredGenericKeyInitializer", "GenericKeySlice", true, anyType()},
+		{"DeclaredGenericValueInitializer", "GenericValueSlice", true, anyType()},
+		{"DeclaredInterfaceInitializer", "InterfaceSlice", true, anyType()},
+		{"DeclaredNestedInitializer", "NestedSlice", true, anyType()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			source := declarations + "type Handler func(opts " + tt.parameter + ")\n"
+			if tt.declared {
+				source = declarations + "func Handler(opts " + tt.parameter + ") {}\n"
+			}
+			file, err := goparser.ParseFile(fset, "fixture.go", source, 0)
+			require.NoError(t, err)
+			pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+			require.NoError(t, err)
+			gogen.InitXGoPackage(pkg)
+			handler := pkg.Scope().Lookup("Handler").Type()
+			ident := ast.NewIdent("handle")
+			info := newTestTypeInfo(nil, nil)
+			info.Pkg = pkg
+			info.Types[ident] = gotypes.TypeAndValue{Type: handler}
+			call := &ast.CallExpr{
+				Fun:    ident,
+				Kwargs: []*ast.KwargExpr{{Name: ast.NewIdent("count"), Value: ast.NewIdent("value")}},
+			}
+			kwarg := ResolveCallExprKwarg(info, call)
+			require.NotNil(t, kwarg)
+			assert.Zero(t, kwarg.ParamIndex)
+			assert.False(t, kwarg.AllowInterfaceTargets)
+			assert.Empty(t, ListResolvedCallExprKwargTargets(kwarg))
+
+			target := LookupResolvedCallExprKwargTarget(kwarg, "count")
+			if tt.want == nil {
+				assert.Nil(t, target)
+				return
+			}
+			require.NotNil(t, target)
+			assert.Equal(t, ResolvedCallExprKwargTargetMap, target.Kind)
+			assert.True(t, gotypes.Identical(tt.want, target.ValueType))
+		})
+	}
+}
+
+func TestConcreteOverloadSelection(t *testing.T) {
+	pkg := gotypes.NewPackage("main", "main")
+	sig := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	first := gotypes.NewFunc(token.NoPos, pkg, "first", sig)
+	second := gotypes.NewFunc(token.NoPos, pkg, "second", sig)
+	assert.Same(t, first, ConcreteOverloadSelection(first).Implementation)
+	assert.Same(t, first, ConcreteOverloadSelection(gogen.NewOverloadFunc(token.NoPos, pkg, "Single", first)).Implementation)
+	assert.Empty(t, ConcreteOverloadSelection(gogen.NewOverloadFunc(token.NoPos, pkg, "Group", first, second)))
+	assert.Empty(t, ConcreteOverloadSelection(gotypes.NewFunc(token.NoPos, pkg, "_", sig)))
+}
+
+func TestCallExprOverloadImplementations(t *testing.T) {
+	info := newTestTypeInfo(nil, nil)
+	assert.Nil(t, CallExprOverloadImplementations(info, &ast.CallExpr{
+		Fun: &ast.CallExpr{Fun: ast.NewIdent("factory")},
+	}))
+	assert.Nil(t, CallExprOverloadImplementations(info, &ast.CallExpr{Fun: ast.NewIdent("unresolved")}))
+
+	pkg := gotypes.NewPackage("example.com/fixture", "fixture")
+	client := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Client", nil), gotypes.NewStruct(nil, nil), nil)
+	first := newTestFunc(pkg, "First", false)
+	second := newTestFunc(pkg, "Second", false)
+	group := gogen.NewOverloadFunc(token.NoPos, pkg, "Group", first, second)
+	t.Run("ValueIndex", func(t *testing.T) {
+		name := ast.NewIdent("Group")
+		index := ast.NewIdent("index")
+		info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
+			name:  group,
+			index: gotypes.NewVar(token.NoPos, pkg, "index", gotypes.Typ[gotypes.Int]),
+		})
+		call := &ast.CallExpr{Fun: &ast.IndexExpr{X: name, Index: index}}
+		assert.Nil(t, CallExprOverloadImplementations(info, call))
+	})
+
+	gogen.NewStaticMember(client, token.NoPos, pkg, "Choose", group)
+	gogen.NewStaticMember(client, token.NoPos, pkg, "Single", first)
+
+	for _, tt := range []struct {
+		name string
+		want []gotypes.Object
+	}{
+		{"Choose", []gotypes.Object{first, second}},
+		{"Single", []gotypes.Object{first}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapper, _, _ := gotypes.LookupFieldOrMethod(client, false, pkg, tt.name)
+			require.NotNil(t, wrapper)
+			ident := ast.NewIdent(tt.name)
+			info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: wrapper})
+			call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: ast.NewIdent("Client"), Sel: ident}}
+			candidates := CallExprOverloadImplementations(info, call)
+			require.NotNil(t, candidates)
+			var implementations []gotypes.Object
+			for implementation, binding := range candidates {
+				assert.Same(t, wrapper, binding)
+				implementations = append(implementations, implementation)
+			}
+			assert.Equal(t, tt.want, implementations)
+
+			for implementation := range candidates {
+				assert.Same(t, first, implementation)
+				break
+			}
+		})
+	}
+}
+
+func TestResolveCallExprKwargLoweredBuilder(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "fixture.go", `package fixture
+type Options struct { Count int }
+type Params interface { Count(bool) Params }
+type Builder struct{}
+type Next struct{}
+type Client struct{}
+func (Builder) CountNumber(int) Builder { return Builder{} }
+func (Builder) CountText(string) Next { return Next{} }
+const XGoo_Builder_Count = ".CountNumber,.CountText"
+func Options_Init(Next) Options { return Options{} }
+func Params_Init(Next) Params { return nil }
+func (Client) Params() Builder { return Builder{} }
+func (Client) WithOptions(prefix string, opts Options) {}
+func (Client) WithBuilder(prefix string, opts Params) {}
+const XGoo_Client_Choose = ".WithOptions,.WithBuilder"
+`, 0)
+	require.NoError(t, err)
+	pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+	require.NoError(t, err)
+	gogen.InitXGoPackage(pkg)
+	client := pkg.Scope().Lookup("Client").Type()
+	protocol := pkg.Scope().Lookup("Params").Type()
+	builder := pkg.Scope().Lookup("Builder").Type()
+	next := pkg.Scope().Lookup("Next").Type()
+	group, _, _ := gotypes.LookupFieldOrMethod(builder, false, pkg, "Count")
+	countText, _, _ := gotypes.LookupFieldOrMethod(builder, false, pkg, "CountText")
+	require.NotNil(t, group)
+	require.NotNil(t, countText)
+
+	for _, tt := range []struct {
+		callee, implementation string
+	}{
+		{"WithBuilder", "WithBuilder"},
+		{"Choose", "WithOptions"},
+	} {
+		t.Run(tt.callee, func(t *testing.T) {
+			source, _, _ := gotypes.LookupFieldOrMethod(client, false, pkg, tt.callee)
+			selected, _, _ := gotypes.LookupFieldOrMethod(client, false, pkg, tt.implementation)
+			require.NotNil(t, source)
+			require.NotNil(t, selected)
+
+			receiver, callee := ast.NewIdent("client"), ast.NewIdent(tt.callee)
+			arg := newTestKwarg("count", "value")
+			call := &ast.CallExpr{
+				Fun:    &ast.SelectorExpr{X: receiver, Sel: callee},
+				Args:   []ast.Expr{ast.NewIdent("prefix")},
+				Kwargs: []*ast.KwargExpr{arg},
+			}
+			factory := &ast.CallExpr{Fun: &ast.SelectorExpr{X: receiver, Sel: ast.NewIdent("Params")}}
+			step := ast.NewIdent("Count")
+			lowered := &ast.CallExpr{
+				Fun:  &ast.SelectorExpr{X: factory, Sel: step},
+				Args: []ast.Expr{arg.Value},
+			}
+			info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{callee: selected, step: countText})
+			info.Pkg = pkg
+			info.Overloads = map[*ast.Ident]gotypes.Object{callee: source, step: group}
+			info.Types[receiver] = gotypes.TypeAndValue{Type: client}
+			info.Types[factory] = gotypes.TypeAndValue{Type: builder}
+			info.Types[lowered] = gotypes.TypeAndValue{Type: next}
+			info.KeywordArgs = map[*ast.KwargExpr]types.KeywordLowering{
+				arg: {Arg: lowered, Factory: factory, BuilderSteps: map[token.Pos]*ast.CallExpr{arg.Name.Pos(): lowered}},
+			}
+
+			kwarg := ResolveCallExprKwarg(info, call)
+			require.NotNil(t, kwarg)
+			assert.Same(t, protocol, kwarg.ContainerType())
+			target := kwarg.KeywordTarget(arg)
+			require.NotNil(t, target)
+			require.NotNil(t, target.Method)
+			assert.Same(t, gotypes.Typ[gotypes.String], target.ValueType)
+			assert.Same(t, protocol, target.Method.Signature().Recv().Type())
+			after := kwarg.AfterKeywords(call.Kwargs)
+			require.NotNil(t, after)
+			assert.Same(t, next, after.interfaceBuilder)
+		})
+	}
+
+	for _, tt := range []struct {
+		name, keyword             string
+		factoryResult, stepResult gotypes.Type
+		nonSelector               bool
+		want                      gotypes.Type
+	}{
+		{name: "FactoryType", keyword: "count", factoryResult: protocol, want: protocol},
+		{name: "ResultType", keyword: "count", factoryResult: builder, stepResult: protocol, want: protocol},
+		{name: "UnmatchedKeyword", keyword: "other", factoryResult: builder, stepResult: protocol},
+		{name: "UnrecognizedFactory", keyword: "count", factoryResult: protocol, nonSelector: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			arg := newTestKwarg(tt.keyword, "value")
+			receiver := ast.NewIdent("client")
+			call := &ast.CallExpr{
+				Fun:    &ast.SelectorExpr{X: receiver, Sel: ast.NewIdent("Choose")},
+				Kwargs: []*ast.KwargExpr{arg},
+			}
+			factory := &ast.CallExpr{Fun: &ast.SelectorExpr{X: receiver, Sel: ast.NewIdent("Params")}}
+			if tt.nonSelector {
+				factory.Fun = ast.NewIdent("Params")
+			}
+			step := &ast.CallExpr{
+				Fun:  &ast.SelectorExpr{X: factory, Sel: ast.NewIdent(UpperFirstASCII(tt.keyword))},
+				Args: []ast.Expr{arg.Value},
+			}
+			lowering := types.KeywordLowering{
+				Arg: step, Factory: factory, BuilderSteps: map[token.Pos]*ast.CallExpr{arg.Name.Pos(): step},
+			}
+			info := newTestTypeInfo(nil, nil)
+			info.Types[factory] = gotypes.TypeAndValue{Type: tt.factoryResult}
+			info.Types[step] = gotypes.TypeAndValue{Type: tt.stepResult}
+			assert.Equal(t, tt.want, keywordBuilderType(info, call, nil, nil, lowering))
+		})
+	}
+}
+
+func TestResolveCallExprKwargLoweredStruct(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "fixture.go", `package fixture
+const XGoPackage = true
+type Head struct { Count int }
+type Tail struct { count int; Count string }
+type Client struct{}
+func XGot_Client_Collect(client Client, head Head, parts ...Tail) {}
+`, 0)
+	require.NoError(t, err)
+	pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+	require.NoError(t, err)
+	gogen.InitXGoPackage(pkg)
+	client := pkg.Scope().Lookup("Client").Type()
+	head := pkg.Scope().Lookup("Head").Type()
+	tail := pkg.Scope().Lookup("Tail").Type()
+	method, _, _ := gotypes.LookupFieldOrMethod(client, false, pkg, "Collect")
+	implementation := pkg.Scope().Lookup("XGot_Client_Collect")
+	field, _, _ := gotypes.LookupFieldOrMethod(tail, false, pkg, "Count")
+	require.NotNil(t, method)
+	require.NotNil(t, implementation)
+	require.NotNil(t, field)
+
+	receiver, callee := ast.NewIdent("client"), ast.NewIdent("collect")
+	arg := newTestKwarg("count", "value")
+	arg.Name.NamePos = 10
+	call := &ast.CallExpr{
+		Fun:    &ast.SelectorExpr{X: receiver, Sel: callee},
+		Args:   []ast.Expr{ast.NewIdent("head")},
+		Kwargs: []*ast.KwargExpr{arg},
+	}
+	key := &ast.Ident{Name: "Count", NamePos: arg.Name.Pos()}
+	lowered := &ast.CompositeLit{Elts: []ast.Expr{&ast.KeyValueExpr{Key: key, Value: arg.Value}}}
+	info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{callee: implementation, key: field})
+	info.Pkg = pkg
+	info.Overloads = map[*ast.Ident]gotypes.Object{callee: method}
+	info.Types[receiver] = gotypes.TypeAndValue{Type: client}
+	info.Types[lowered] = gotypes.TypeAndValue{Type: tail}
+	info.KeywordArgs = map[*ast.KwargExpr]types.KeywordLowering{arg: {Arg: lowered}}
+
+	binding := ResolveCallExprKwarg(info, call)
+	require.NotNil(t, binding)
+	assert.Same(t, tail, binding.ContainerType())
+	assert.Same(t, head, binding.StructSpellingType())
+	target := binding.KeywordTarget(arg)
+	require.NotNil(t, target)
+	assert.Same(t, field, target.Field)
+	assert.Same(t, gotypes.Typ[gotypes.String], target.ValueType)
+	targets := ListResolvedCallExprKwargTargets(binding)
+	require.Len(t, targets, 1)
+	assert.Same(t, field, targets[0].Field)
+	assert.Equal(t, "count", targets[0].Name)
+}
+
+func TestCheckedKeywordArgIndex(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "fixture.go", `package fixture
+type Alias = map[string]string
+func Prepend(opts map[string]string, parts ...int) {}
+func Append(head string, opts map[string]string) {}
+func AppendAlias(head string, opts Alias) {}
+func AppendInferred(head string, opts any) {}
+func VariadicOnly(parts ...map[string]string) {}
+func Selected(head string, parts ...any) {}
+func TypedHead(head map[string]int, parts ...any) {}
+func Flexible(head any, parts ...any) {}
+`, 0)
+	require.NoError(t, err)
+	pkg, err := new(gotypes.Config).Check("example.com/fixture", fset, []*goast.File{file}, nil)
+	require.NoError(t, err)
+	stringMap := gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.String])
+	alias := pkg.Scope().Lookup("Alias")
+	require.NotNil(t, alias)
+	for _, tt := range []struct {
+		name, selected string
+		candidates     []string
+		lowered        gotypes.Type
+		want           int
+	}{
+		{"RejectsIncompatiblePlacement", "Selected", []string{"VariadicOnly", "Prepend", "Append"}, stringMap, 1},
+		{"AmbiguousPlacement", "Flexible", []string{"Prepend", "Append"}, stringMap, 0},
+		{"AliasPlacement", "Flexible", []string{"Prepend", "AppendAlias"}, alias.Type(), 1},
+		{"InferredMapPlacement", "TypedHead", []string{"Prepend", "AppendInferred"}, nil, 1},
+		{"UnmatchedContainer", "Flexible", []string{"Prepend", "Append"}, anyType(), 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, ok := pkg.Scope().Lookup(tt.selected).(*gotypes.Func)
+			require.True(t, ok)
+			ident := ast.NewIdent("choose")
+			call := &ast.CallExpr{Fun: ident, Args: []ast.Expr{ast.NewIdent("value")}}
+			candidates := []gotypes.Object{selected}
+			for _, name := range tt.candidates {
+				candidates = append(candidates, pkg.Scope().Lookup(name))
+			}
+			group := gogen.NewOverloadFunc(token.NoPos, pkg, ident.Name, candidates...)
+			info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: selected})
+			info.Overloads = map[*ast.Ident]gotypes.Object{ident: group}
+
+			sig := selected.Signature()
+			assert.Equal(t, tt.want, checkedKeywordArgIndex(info, call, sig, sig.Params(), tt.lowered, tt.lowered, 0))
 		})
 	}
 }
@@ -396,22 +1171,52 @@ func TestResolveCallExprKwarg(t *testing.T) {
 		assert.Nil(t, ResolveCallExprKwarg(nil, nil))
 	})
 
-	t.Run("OptionalParamFromDefinition", func(t *testing.T) {
-		ident := &ast.Ident{Name: "configure"}
-		paramDef := &ast.Ident{Name: "opts", Obj: &ast.Object{}}
-		paramField := &ast.Field{Optional: token.Pos(1)}
-		paramDef.Obj.Decl = paramField
+	t.Run("RecordedContainers", func(t *testing.T) {
+		for _, tt := range []struct {
+			name      string
+			container gotypes.Type
+			want      gotypes.Type
+		}{
+			{"TypedMap", gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.String]), gotypes.Typ[gotypes.String]},
+			{"InferredMap", nil, anyType()},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pkg := gotypes.NewPackage("main", "main")
+				field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+				options := gotypes.NewStruct([]*gotypes.Var{field}, nil)
+				param := gotypes.NewParam(token.NoPos, pkg, "opts", options)
+				sig := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(param), nil, false)
+				fun := gotypes.NewFunc(token.NoPos, pkg, "configure", sig)
+				ident := ast.NewIdent(fun.Name())
+				arg := &ast.KwargExpr{Name: ast.NewIdent("count"), Value: ast.NewIdent("value")}
+				call := &ast.CallExpr{Fun: ident, Kwargs: []*ast.KwargExpr{arg}}
+				info := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+				info.Pkg = pkg
+				lowered := &ast.CompositeLit{}
+				info.Types[lowered] = gotypes.TypeAndValue{Type: tt.container}
+				info.KeywordArgs = map[*ast.KwargExpr]types.KeywordLowering{arg: {Arg: lowered}}
 
+				checked := ResolveCallExprKwarg(info, call).KeywordTarget(arg)
+				require.NotNil(t, checked)
+				assert.Equal(t, ResolvedCallExprKwargTargetMap, checked.Kind)
+				assert.True(t, gotypes.Identical(tt.want, checked.ValueType))
+				candidate := ResolveCallExprKwargAtArgCount(info, call, sig, sig.Params(), 0).KeywordTarget(arg)
+				require.NotNil(t, candidate)
+				assert.Same(t, field, candidate.Field)
+			})
+		}
+	})
+
+	t.Run("LocalOptionalParam", func(t *testing.T) {
+		ident := &ast.Ident{Name: "configure"}
 		pkg := gotypes.NewPackage("main", "main")
-		param := gotypes.NewParam(token.NoPos, pkg, "opts", gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.Int]))
+		compiler := &gogen.Package{PkgRef: gogen.PkgRef{Types: pkg}}
+		param := compiler.NewParam(token.NoPos, "opts", gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.Int]), true)
 		sig := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(param), nil, false)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "configure", sig)
 
-		typeInfo := newTestTypeInfo(
-			map[*ast.Ident]gotypes.Object{paramDef: param},
-			map[*ast.Ident]gotypes.Object{ident: fun},
-		)
-		typeInfo.ObjToDef = map[gotypes.Object]*ast.Ident{param: paramDef}
+		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+		typeInfo.Pkg = pkg
 
 		resolved := ResolveCallExprKwarg(typeInfo, &ast.CallExpr{Fun: ident})
 		require.NotNil(t, resolved)
@@ -466,7 +1271,7 @@ func TestResolveCallExprKwarg(t *testing.T) {
 		secondOptionalParam := gotypes.NewParam(
 			token.NoPos,
 			pkg,
-			"__gop_optional_second",
+			"__xgo_optional_second",
 			gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.String]),
 		)
 		sig := gotypes.NewSignatureType(
@@ -509,7 +1314,9 @@ func TestSourceParamName(t *testing.T) {
 	}{
 		{name: "__xgo_autoclosure_condition", want: "condition"},
 		{name: "__xgo_optional_opts", want: "opts"},
-		{name: "__gop_optional_opts", want: "opts"},
+		{name: "__xgo_loop_body", want: "body"},
+		{name: "__xgo_cond_action", want: "action"},
+		{name: "__gop_optional_opts", want: "__gop_optional_opts"},
 		{name: "__xgo_internal_condition", want: "__xgo_internal_condition"},
 		{name: "opts", want: "opts"},
 	} {
@@ -640,6 +1447,166 @@ func TestSourceParamType(t *testing.T) {
 				assert.Nil(t, resultType)
 			}
 			assert.True(t, gotypes.Identical(want, SourceParamType(param)))
+		})
+	}
+}
+
+func TestResolveCallableSignatureForCall(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		variable, unbound bool
+		wantParams        int
+	}{
+		{name: "BoundFunction", wantParams: 1},
+		{name: "BoundVariable", variable: true, wantParams: 1},
+		{name: "UnboundVariable", variable: true, unbound: true, wantParams: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/framework", "framework")
+			owner := gotypes.NewTypeName(token.NoPos, pkg, "Item", nil)
+			named := gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+			receiver := gotypes.NewParam(token.NoPos, pkg, "item", named)
+			value := gotypes.NewParam(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int])
+			fun := newTestFunc(pkg, "ReadFunc", false, receiver, value)
+			var implementation gotypes.Object = fun
+			if tt.variable {
+				implementation = gotypes.NewVar(token.NoPos, pkg, "ReadValue", fun.Signature())
+			}
+			var selector gotypes.Object = receiver
+			if tt.unbound {
+				selector = owner
+			}
+			wrapper := gogen.NewTemplateRecvMethod(named, token.NoPos, pkg, "Read", implementation)
+			ident := &ast.Ident{Name: selector.Name()}
+			sel := &ast.Ident{Name: wrapper.Name()}
+			info := new(types.Info)
+			info.Uses = map[*ast.Ident]gotypes.Object{ident: selector, sel: implementation}
+			info.Overloads = map[*ast.Ident]gotypes.Object{sel: wrapper}
+			call := &ast.CallExpr{Fun: &ast.SelectorExpr{X: ident, Sel: sel}}
+
+			sig, params := ResolveCallableSignatureForCall(info, call, implementation, nil)
+			assert.Same(t, fun.Signature(), sig)
+			require.Equal(t, tt.wantParams, params.Len())
+			assert.Same(t, value, params.At(params.Len()-1))
+			if tt.wantParams == 2 {
+				assert.Same(t, receiver, params.At(0))
+			}
+		})
+	}
+}
+
+func TestMethodExpressionParams(t *testing.T) {
+	base := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, nil, "Base", nil), gotypes.NewStruct(nil, nil), nil)
+	embedded := gotypes.NewField(token.NoPos, nil, "Base", base, true)
+	outer := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, nil, "Outer", nil), gotypes.NewStruct([]*gotypes.Var{embedded}, nil), nil)
+	value := gotypes.NewParam(token.NoPos, nil, "value", gotypes.Typ[gotypes.Int])
+	params := gotypes.NewTuple(value)
+
+	withReceiver := MethodExpressionParams(params, outer, base)
+	require.Equal(t, 2, withReceiver.Len())
+	assert.Same(t, outer, withReceiver.At(0).Type())
+	assert.Same(t, value, withReceiver.At(1))
+	assert.Nil(t, MethodExpressionParams(params, gotypes.NewPointer(outer), base))
+}
+
+func TestResolveCallExprSignatureForTypeSelector(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		template   bool
+		concrete   bool
+		unresolved bool
+	}{
+		{name: "Static"},
+		{name: "Template", template: true},
+		{name: "RecordedStaticSignature", concrete: true},
+		{name: "UnresolvedTemplate", template: true, unresolved: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/framework", "framework")
+			owner := gotypes.NewTypeName(token.NoPos, pkg, "Item", nil)
+			named := gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+			value := gotypes.NewParam(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int])
+			params := []*gotypes.Var{value}
+			if tt.template {
+				receiver := gotypes.NewParam(token.NoPos, pkg, "item", named)
+				params = append([]*gotypes.Var{receiver}, params...)
+			}
+			impl := newTestFunc(pkg, "Implementation", false, params...)
+			var member *gotypes.Func
+			if tt.template {
+				member = gogen.NewTemplateRecvMethod(named, token.NoPos, pkg, "Call", impl)
+			} else {
+				member = gogen.NewStaticMember(named, token.NoPos, pkg, "Call", impl)
+			}
+			typeIdent := &ast.Ident{Name: "Item"}
+			selector := &ast.SelectorExpr{X: typeIdent, Sel: &ast.Ident{Name: "Call"}}
+			info := new(types.Info)
+			info.Uses = map[*ast.Ident]gotypes.Object{typeIdent: owner, selector.Sel: member}
+			call := &ast.CallExpr{Fun: selector}
+			wantSig := impl.Signature()
+			var recorded gotypes.Type = member.Type()
+			if tt.unresolved {
+				call.Fun = &ast.IndexExpr{X: selector, Index: &ast.Ident{Name: "string"}}
+				recorded = nil
+			} else if tt.concrete {
+				recorded = wantSig
+			}
+			info.Types = map[ast.Expr]gotypes.TypeAndValue{call.Fun: {Type: recorded}}
+			fun, sig, tuple := ResolveCallExprSignature(info, call)
+			if tt.unresolved {
+				assert.Nil(t, fun)
+				assert.Nil(t, sig)
+				assert.Nil(t, tuple)
+				return
+			}
+			assert.Same(t, impl, fun)
+			assert.Same(t, wantSig, sig)
+			assert.Same(t, wantSig.Params(), tuple)
+		})
+	}
+}
+
+func TestResolveFuncSignatureForUnrecordedInstantiation(t *testing.T) {
+	integerConstraint := gotypes.NewInterfaceType(nil, []gotypes.Type{
+		gotypes.NewUnion([]*gotypes.Term{gotypes.NewTerm(true, gotypes.Typ[gotypes.Int])}),
+	}).Complete()
+	for _, tt := range []struct {
+		name     string
+		args     []string
+		concrete bool
+	}{
+		{name: "FullTypeArguments", args: []string{"int", "string"}, concrete: true},
+		{name: "TooManyTypeArguments", args: []string{"int", "string", "bool"}},
+		{name: "ValueArgument", args: []string{"int", "true"}},
+		{name: "ConstraintMismatch", args: []string{"string", "int"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			first := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, nil, "A", nil), integerConstraint)
+			second := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, nil, "B", nil), newTestEmptyInterface())
+			param := gotypes.NewParam(token.NoPos, nil, "key", first)
+			result := gotypes.NewParam(token.NoPos, nil, "", second)
+			decl := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{first, second},
+				gotypes.NewTuple(param), gotypes.NewTuple(result), false)
+			ident := &ast.Ident{Name: "Choose"}
+			fun := gotypes.NewFunc(token.NoPos, nil, ident.Name, decl)
+			uses := map[*ast.Ident]gotypes.Object{ident: fun}
+			indexed := &ast.IndexListExpr{X: ident}
+			for _, name := range tt.args {
+				arg := &ast.Ident{Name: name}
+				uses[arg] = gotypes.Universe.Lookup(name)
+				indexed.Indices = append(indexed.Indices, arg)
+			}
+			info := newTestTypeInfo(nil, uses)
+			sig, params := ResolveFuncSignatureForCall(info, &ast.CallExpr{Fun: indexed}, fun)
+			if !tt.concrete {
+				assert.Same(t, decl, sig)
+				return
+			}
+			require.NotNil(t, sig)
+			require.Equal(t, 1, params.Len())
+			require.Equal(t, 1, sig.Results().Len())
+			assert.Same(t, gotypes.Typ[gotypes.Int], params.At(0).Type())
+			assert.Same(t, gotypes.Typ[gotypes.String], sig.Results().At(0).Type())
 		})
 	}
 }
@@ -846,7 +1813,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	})
 
 	t.Run("XGoPackageXGotMethod", func(t *testing.T) {
-		ident := &ast.Ident{Name: "XGot_Sprite_Move"}
+		ident := &ast.Ident{Name: "move"}
 		arg := &ast.Ident{Name: "arg1"}
 		expr := &ast.CallExpr{
 			Fun:  ident,
@@ -855,9 +1822,12 @@ func TestResolvedCallExprArgs(t *testing.T) {
 
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "Sprite", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		recv := gotypes.NewParam(token.NoPos, pkg, "recv", gotypes.Typ[gotypes.Int])
 		param := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
-		sig := gotypes.NewSignatureType(recv, nil, nil, gotypes.NewTuple(recv, param), nil, false)
+		sig := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(recv, param), nil, false)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_Move", sig)
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
 
@@ -888,6 +1858,9 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	t.Run("XGoPackageXGoxMethod", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "Sprite", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		constraint := gotypes.NewInterfaceType(nil, nil)
 		constraint.Complete()
 		typeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), constraint)
@@ -896,7 +1869,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{typeParam}, gotypes.NewTuple(recv, param), nil, false)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_XGox_Move", sig)
 
-		ident := &ast.Ident{Name: "XGot_Sprite_XGox_Move"}
+		ident := &ast.Ident{Name: "move"}
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
 		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
 			Fun: ident,
@@ -930,7 +1903,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 			nil,
 			[]*gotypes.TypeParam{toTypeParam, fromTypeParam},
 			gotypes.NewTuple(srcParam),
-			nil,
+			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", toTypeParam)),
 			false,
 		)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGox_Convert", sig)
@@ -942,12 +1915,13 @@ func TestResolvedCallExprArgs(t *testing.T) {
 			funIdent: fun,
 			typeArg:  gotypes.Universe.Lookup("string"),
 		})
-		typeInfo.Types[valueArg] = gotypes.TypeAndValue{Type: gotypes.Typ[gotypes.UntypedInt]}
+		typeInfo.Types[valueArg] = gotypes.TypeAndValue{}
 
-		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
+		call := &ast.CallExpr{
 			Fun:  funIdent,
 			Args: []ast.Expr{typeArg, valueArg},
-		}))
+		}
+		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, call))
 
 		require.Len(t, resolved, 2)
 		assert.Equal(t, "To", resolved[0].Param.Name())
@@ -959,11 +1933,24 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		assert.Equal(t, valueArg, resolved[1].Arg)
 		assert.Equal(t, fromTypeParam, resolved[1].ExpectedType)
 		assert.False(t, resolved[1].IsTypeArg())
+
+		typeInfo.Types[valueArg] = gotypes.TypeAndValue{Type: gotypes.Typ[gotypes.UntypedInt]}
+		resolved = slices.Collect(ResolvedCallExprArgs(typeInfo, call))
+		require.Len(t, resolved, 2)
+		assert.Same(t, srcParam, resolved[1].Param.Origin())
+		assert.Same(t, gotypes.Typ[gotypes.Int], resolved[1].ExpectedType)
+
+		contextual, ok := ResolveCallExprArg(typeInfo, call, valueArg)
+		require.True(t, ok)
+		assert.Same(t, fromTypeParam, contextual.ExpectedType)
 	})
 
 	t.Run("XGoPackagePartialXGoxTemplateMethod", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "App", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		constraint := gotypes.NewInterfaceType(nil, nil)
 		constraint.Complete()
 		inTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "InT", nil), constraint)
@@ -974,7 +1961,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 			nil,
 			nil,
 			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "input", gotypes.NewPointer(inTypeParam))),
-			nil,
+			gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", appTypeParam)),
 			false,
 		)
 		callbackParam := gotypes.NewParam(token.NoPos, pkg, "callback", callbackType)
@@ -989,25 +1976,33 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_App_XGox_OnCall", sig)
 
 		funIdent := &ast.Ident{Name: "onCall"}
+		recvIdent := &ast.Ident{Name: "app"}
 		typeArg := &ast.Ident{Name: "Start"}
 		valueArg := &ast.Ident{Name: "handler"}
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{
 			funIdent: fun,
 			typeArg:  gotypes.NewTypeName(token.NoPos, pkg, "Start", gotypes.Typ[gotypes.Int]),
 		})
-		typeInfo.Types[valueArg] = gotypes.TypeAndValue{Type: callbackType}
+		typeInfo.Types[valueArg] = gotypes.TypeAndValue{}
 
-		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
-			Fun:  funIdent,
+		call := &ast.CallExpr{
+			Fun:  &ast.SelectorExpr{X: recvIdent, Sel: funIdent},
 			Args: []ast.Expr{typeArg, valueArg},
-		}))
+		}
+		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, call))
 
 		require.Len(t, resolved, 2)
 		assert.Equal(t, "InT", resolved[0].Param.Name())
 		assert.True(t, resolved[0].IsTypeArg())
-		assert.Equal(t, callbackParam, resolved[1].Param)
-		assert.Equal(t, callbackType, resolved[1].ExpectedType)
+		assert.Same(t, callbackParam, resolved[1].Param.Origin())
+		assert.Equal(t, "func(input *int) AppT", gotypes.TypeString(resolved[1].ExpectedType, nil))
 		assert.False(t, resolved[1].IsTypeArg())
+
+		typeInfo.Uses[recvIdent] = gotypes.NewVar(token.NoPos, pkg, "app", owner.Type())
+		resolved = slices.Collect(ResolvedCallExprArgs(typeInfo, call))
+		require.Len(t, resolved, 2)
+		assert.Same(t, callbackParam, resolved[1].Param.Origin())
+		assert.Equal(t, "func(input *int) test.App", gotypes.TypeString(resolved[1].ExpectedType, nil))
 	})
 
 	t.Run("MoreArgsThanParams", func(t *testing.T) {
@@ -1300,6 +2295,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		fun := gotypes.NewFunc(token.NoPos, pkg, "configure", sig)
 
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+		typeInfo.Pkg = pkg
 		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
 			Fun:    ident,
 			Kwargs: []*ast.KwargExpr{kwarg},
@@ -1329,6 +2325,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		fun := gotypes.NewFunc(token.NoPos, pkg, "configure", sig)
 
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+		typeInfo.Pkg = pkg
 		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
 			Fun:    ident,
 			Kwargs: []*ast.KwargExpr{kwarg},
@@ -1360,6 +2357,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		fun := gotypes.NewFunc(token.NoPos, pkg, "configure", sig)
 
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
+		typeInfo.Pkg = pkg
 		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
 			Fun:    ident,
 			Kwargs: []*ast.KwargExpr{kwarg},
@@ -1663,6 +2661,42 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	})
 }
 
+func TestRenamedStructKwargName(t *testing.T) {
+	pkg := gotypes.NewPackage("main", "main")
+	field := gotypes.NewField(token.NoPos, pkg, "Total", gotypes.Typ[gotypes.Int], false)
+	local := gotypes.NewField(token.NoPos, pkg, "count", gotypes.Typ[gotypes.Int], false)
+	shadowed := gotypes.NewNamed(
+		gotypes.NewTypeName(token.NoPos, pkg, "Shadowed", nil),
+		gotypes.NewStruct([]*gotypes.Var{local, field}, nil),
+		nil,
+	)
+	unshadowed := gotypes.NewNamed(
+		gotypes.NewTypeName(token.NoPos, pkg, "Unshadowed", nil),
+		gotypes.NewStruct([]*gotypes.Var{field, local}, nil),
+		nil,
+	)
+	alias := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "Alias", nil), shadowed)
+	for _, tt := range []struct {
+		name     string
+		receiver gotypes.Type
+		newName  string
+		want     string
+	}{
+		{"EarlierLocalField", shadowed, "Count", "Count"},
+		{"LaterLocalField", unshadowed, "Count", "count"},
+		{"PointerToLocalType", gotypes.NewPointer(shadowed), "Count", "Count"},
+		{"Alias", alias, "Count", "count"},
+		{"ReservedAlias", shadowed, "For", "For"},
+		{"NonReversibleCase", shadowed, "\u212a", "\u212a"},
+		{"ShortAlias", shadowed, "\u2c7e", "\u2c7e"},
+		{"LongAlias", shadowed, "\u2c7eX", "\u023fX"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, RenamedStructKwargName(tt.receiver, field, tt.newName))
+		})
+	}
+}
+
 func TestListResolvedCallExprKwargTargets(t *testing.T) {
 	t.Run("StructSkipsLaterLocalFieldName", func(t *testing.T) {
 		pkg := gotypes.NewPackage("main", "main")
@@ -1675,6 +2709,7 @@ func TestListResolvedCallExprKwargTargets(t *testing.T) {
 		)
 		kwarg := &ResolvedCallExprKwarg{
 			Param: gotypes.NewParam(token.NoPos, pkg, "__xgo_optional_opts", optsType),
+			info:  &types.Info{Pkg: pkg},
 		}
 
 		targets := ListResolvedCallExprKwargTargets(kwarg)
@@ -1683,8 +2718,8 @@ func TestListResolvedCallExprKwargTargets(t *testing.T) {
 		assert.Equal(t, exportedField, targets[0].Field)
 	})
 
-	t.Run("StructSkipsLaterExportedFieldName", func(t *testing.T) {
-		pkg := gotypes.NewPackage("main", "main")
+	t.Run("StructUsesDeclaredSpellingOfLaterExportedField", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/library", "library")
 		localField := gotypes.NewField(token.NoPos, pkg, "count", gotypes.Typ[gotypes.String], false)
 		exportedField := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
 		optsType := gotypes.NewNamed(
@@ -1694,12 +2729,36 @@ func TestListResolvedCallExprKwargTargets(t *testing.T) {
 		)
 		kwarg := &ResolvedCallExprKwarg{
 			Param: gotypes.NewParam(token.NoPos, pkg, "__xgo_optional_opts", optsType),
+			info:  &types.Info{Pkg: pkg},
+		}
+
+		targets := ListResolvedCallExprKwargTargets(kwarg)
+		require.Len(t, targets, 2)
+		assert.Equal(t, "count", targets[0].Name)
+		assert.Same(t, localField, targets[0].Field)
+		assert.Equal(t, "Count", targets[1].Name)
+		assert.Same(t, exportedField, targets[1].Field)
+	})
+
+	t.Run("StructUsesExportedFieldFromDistinctPackage", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		local := gotypes.NewPackage("main", "main")
+		privateField := gotypes.NewField(token.NoPos, pkg, "count", gotypes.Typ[gotypes.String], false)
+		exportedField := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		optsType := gotypes.NewNamed(
+			gotypes.NewTypeName(token.NoPos, pkg, "Options", nil),
+			gotypes.NewStruct([]*gotypes.Var{privateField, exportedField}, nil),
+			nil,
+		)
+		kwarg := &ResolvedCallExprKwarg{
+			Param: gotypes.NewParam(token.NoPos, pkg, "opts", optsType),
+			info:  &types.Info{Pkg: local},
 		}
 
 		targets := ListResolvedCallExprKwargTargets(kwarg)
 		require.Len(t, targets, 1)
 		assert.Equal(t, "count", targets[0].Name)
-		assert.Equal(t, localField, targets[0].Field)
+		assert.Same(t, exportedField, targets[0].Field)
 	})
 
 	t.Run("StructUsesUnicodeKeywordName", func(t *testing.T) {
@@ -1719,6 +2778,29 @@ func TestListResolvedCallExprKwargTargets(t *testing.T) {
 		assert.Equal(t, "\u00e4ge", targets[0].Name)
 		assert.Equal(t, field, targets[0].Field)
 		assert.Equal(t, field, LookupResolvedCallExprKwargTarget(kwarg, "\u00e4ge").Field)
+	})
+
+	t.Run("StructRejectsShortUnicodeKeywordName", func(t *testing.T) {
+		pkg := gotypes.NewPackage("main", "main")
+		short := gotypes.NewField(token.NoPos, pkg, "\u2c7e", gotypes.Typ[gotypes.Int], false)
+		long := gotypes.NewField(token.NoPos, pkg, "\u2c7ecore", gotypes.Typ[gotypes.Int], false)
+		optsType := gotypes.NewNamed(
+			gotypes.NewTypeName(token.NoPos, pkg, "Options", nil),
+			gotypes.NewStruct([]*gotypes.Var{short, long}, nil),
+			nil,
+		)
+		kwarg := &ResolvedCallExprKwarg{Param: gotypes.NewParam(token.NoPos, pkg, "opts", optsType)}
+
+		targets := ListResolvedCallExprKwargTargets(kwarg)
+		require.Len(t, targets, 2)
+		assert.Equal(t, "\u2c7e", targets[0].Name)
+		assert.Equal(t, "\u023fcore", targets[1].Name)
+		assert.Nil(t, LookupResolvedCallExprKwargTarget(kwarg, "\u023f"))
+		kwarg.spellingType = optsType
+		assert.Nil(t, LookupResolvedCallExprKwargTarget(kwarg, "\u023f"))
+		assert.Nil(t, StructKeywordField(optsType, pkg, "\u023f"))
+		assert.Same(t, short, StructKeywordField(optsType, pkg, "\u2c7e"))
+		assert.Same(t, long, StructKeywordField(optsType, pkg, "\u023fcore"))
 	})
 
 	t.Run("InterfaceSkipsShadowedLowercaseMethodName", func(t *testing.T) {
@@ -1865,4 +2947,64 @@ func TestSourceExprIndex(t *testing.T) {
 		})
 	}
 	assert.Equal(t, -1, SourceExprIndex(nil, first))
+}
+
+func TestResolveFuncSignatureForCallTemplateReceiver(t *testing.T) {
+	for _, tt := range []struct {
+		name, selector            string
+		typeSelector, hasReceiver bool
+	}{
+		{name: "Bound", selector: "choose"},
+		{name: "TypeSelector", selector: "Choose", typeSelector: true, hasReceiver: true},
+		{name: "EncodedName", selector: "Gopt_Item_Choose", hasReceiver: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/framework", "framework")
+			markAsXGoPackage(pkg)
+			owner := gotypes.NewTypeName(0, pkg, "Item", nil)
+			item := gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+			pkg.Scope().Insert(owner)
+			receiver := gotypes.NewParam(0, pkg, "item", gotypes.NewPointer(item))
+			value := gotypes.NewParam(0, pkg, "value", gotypes.Typ[gotypes.Int])
+			signature := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(receiver, value), nil, false)
+			fun := gotypes.NewFunc(0, pkg, "Gopt_Item_Choose", signature)
+
+			sel := &ast.Ident{Name: tt.selector}
+			var callee ast.Expr = sel
+			bindings := map[*ast.Ident]gotypes.Object{sel: fun}
+			if tt.selector != fun.Name() {
+				expr := &ast.Ident{Name: "item"}
+				bindings[expr] = gotypes.NewVar(0, pkg, "item", item)
+				if tt.typeSelector {
+					expr.Name = "Item"
+					bindings[expr] = owner
+				}
+				callee = &ast.SelectorExpr{X: expr, Sel: sel}
+			}
+			info := newTestTypeInfo(nil, bindings)
+			_, params := ResolveFuncSignatureForCall(info, &ast.CallExpr{Fun: callee}, fun)
+			want := []*gotypes.Var{value}
+			if tt.hasReceiver {
+				want = []*gotypes.Var{receiver, value}
+			}
+			assert.Equal(t, want, slices.Collect(params.Variables()))
+		})
+	}
+}
+
+func TestResolveFuncSignatureWithMissingTemplateReceiver(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/framework", "framework")
+	markAsXGoPackage(pkg)
+	owner := gotypes.NewTypeName(0, pkg, "Item", nil)
+	gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+	pkg.Scope().Insert(owner)
+	signature := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	fun := gotypes.NewFunc(0, pkg, "Gopt_Item_Choose", signature)
+
+	sig, params := ResolveFuncSignature(fun)
+	assert.Nil(t, sig)
+	assert.Nil(t, params)
+	sig, params = ResolveFuncSignatureForCall(nil, &ast.CallExpr{Fun: &ast.Ident{Name: "choose"}}, fun)
+	assert.Nil(t, sig)
+	assert.Nil(t, params)
 }

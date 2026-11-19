@@ -17,8 +17,11 @@
 package pkgdoc
 
 import (
+	"cmp"
 	goast "go/ast"
 	godoc "go/doc"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/goplus/xgo/token"
@@ -39,7 +42,8 @@ type PkgDoc struct {
 	// Package-level keys use declaration names, and member keys use Type.Member.
 	// Names retain their original overload spelling. Receiver aliases use the
 	// resolved type name. Member entries may also appear under exported types
-	// derived from unexported types.
+	// derived from unexported types. Static methods also use the generated
+	// function name as a key.
 	Declarations map[string]DeclarationMetadata `json:",omitempty"`
 }
 
@@ -77,27 +81,45 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		Types:  make(map[string]*TypeDoc),
 		Funcs:  make(map[string]string),
 	}
-	pkgDoc.collectGoDirectives(pkg)
+	typesByName := goTypesByName(pkg)
+	embeddedPrivate := goEmbeddedPrivateTypes(typesByName)
+	aliasedPrivate := make(map[string]bool)
+	pkgDoc.collectGoDirectives(pkg, typesByName)
 
 	vars, consts, funcs := docPkg.Vars, docPkg.Consts, docPkg.Funcs
+	type methodKey struct{ owner, name string }
+	type methodComment struct {
+		text        string
+		hasReceiver bool
+	}
+	methods := make(map[methodKey]methodComment)
 	for _, t := range docPkg.Types {
 		// go/doc associates declarations with their type, including exported
 		// declarations whose type is unexported.
 		vars = append(vars, t.Vars...)
 		consts = append(consts, t.Consts...)
 		funcs = append(funcs, t.Funcs...)
-		if !token.IsExported(t.Name) {
-			continue
+		var typeDoc *TypeDoc
+		public := token.IsExported(t.Name)
+		if public || embeddedPrivate[t.Name] {
+			typeDoc = pkgDoc.typeDoc(t.Name)
+			if public {
+				typeDoc.Doc = t.Doc
+			}
 		}
-
-		typeDoc := pkgDoc.typeDoc(t.Name)
-		typeDoc.Doc = t.Doc
+		owner := goReceiverName(t.Name, typesByName)
+		if public && !token.IsExported(owner) {
+			aliasedPrivate[owner] = true
+		}
 		for _, spec := range t.Decl.Specs {
 			typeSpec, ok := spec.(*goast.TypeSpec)
 			if !ok {
 				continue
 			}
-			switch typ := typeSpec.Type.(type) {
+			if typeDoc == nil {
+				continue
+			}
+			switch typ := goDocumentedMemberType(typeSpec, typesByName).(type) {
 			case *goast.StructType:
 				for _, field := range typ.Fields.List {
 					doc := field.Doc.Text()
@@ -121,15 +143,49 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 					for _, name := range method.Names {
 						if token.IsExported(name.Name) {
 							typeDoc.Methods[name.Name] = method.Doc.Text()
+							methods[methodKey{owner, name.Name}] = methodComment{text: method.Doc.Text()}
 						}
 					}
 				}
 			}
 		}
 		for _, m := range t.Methods {
-			if token.IsExported(m.Name) {
+			if m.Level == 0 {
+				methods[methodKey{owner, m.Name}] = methodComment{text: m.Doc, hasReceiver: true}
+				if owner != t.Name && typeDoc != nil && token.IsExported(m.Name) {
+					pkgDoc.typeDoc(owner)
+				}
+			}
+			if typeDoc != nil && token.IsExported(m.Name) {
 				typeDoc.Methods[m.Name] = m.Doc
 			}
+		}
+	}
+	// Aliases expose the original receiver's methods. Methods declared on an
+	// alias also belong to that receiver and can hide promoted methods.
+	// Interface method comments can already be found through the public types.
+	for key, comment := range methods {
+		if !token.IsExported(key.name) {
+			continue
+		}
+		doc := pkgDoc.Types[key.owner]
+		if doc == nil && aliasedPrivate[key.owner] && comment.hasReceiver && comment.text != "" {
+			doc = pkgDoc.typeDoc(key.owner)
+		}
+		if doc != nil {
+			doc.Methods[key.name] = comment.text
+		}
+	}
+	// Private receiver types only need entries for comments used by selectors.
+	emptyComment := func(_, comment string) bool { return comment == "" }
+	for name, doc := range pkgDoc.Types {
+		if token.IsExported(name) {
+			continue
+		}
+		maps.DeleteFunc(doc.Fields, emptyComment)
+		maps.DeleteFunc(doc.Methods, emptyComment)
+		if len(doc.Fields) == 0 && len(doc.Methods) == 0 {
+			delete(pkgDoc.Types, name)
 		}
 	}
 
@@ -140,16 +196,37 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 			}
 		}
 	}
-	isXGoPackage := false
 	for _, c := range consts {
-		for _, name := range c.Names {
-			if token.IsExported(name) {
-				pkgDoc.Consts[name] = c.Doc
-				if xgoutil.IsXGoPackageMarkerName(name) {
-					isXGoPackage = true
+		for _, spec := range c.Decl.Specs {
+			value := spec.(*goast.ValueSpec)
+			for _, name := range value.Names {
+				if !name.IsExported() {
+					continue
 				}
+				doc := c.Doc
+				if strings.HasPrefix(name.Name, xgoutil.XGooPrefix) {
+					// A marker can document its overload within a const group.
+					doc = cmp.Or(value.Doc.Text(), doc)
+				}
+				pkgDoc.Consts[name.Name] = doc
 			}
 		}
+	}
+	_, isXGoPackage := pkgDoc.Consts[xgoutil.XGoPackage]
+	if _, legacy := pkgDoc.Consts[xgoutil.GopPackage]; legacy && !isXGoPackage {
+		_, hasVar := pkgDoc.Vars[xgoutil.XGoPackage]
+		_, hasType := pkgDoc.Types[xgoutil.XGoPackage]
+		hasFunc := slices.ContainsFunc(funcs, func(f *godoc.Func) bool {
+			return f.Name == xgoutil.XGoPackage
+		})
+		isXGoPackage = !hasVar && !hasType && !hasFunc
+	}
+	if isXGoPackage {
+		// Gogen reconstructs members in package scope order. An existing
+		// direct method takes precedence, while promoted methods can be hidden.
+		slices.SortFunc(funcs, func(a, b *godoc.Func) int {
+			return cmp.Compare(a.Name, b.Name)
+		})
 	}
 	for _, f := range funcs {
 		if !token.IsExported(f.Name) {
@@ -159,22 +236,97 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		if !isXGoPackage {
 			continue
 		}
-		if strings.HasPrefix(f.Name, xgoutil.XGotPrefix) {
-			recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(f.Name, true)
-			if !ok {
-				continue
-			}
-			pkgDoc.typeDoc(recvTypeName).Methods[methodName] = f.Doc
+		owner, method, ok := xgoutil.SplitXGotMethodName(f.Name, true)
+		if !ok {
+			owner, method, ok = xgoutil.SplitXGosMemberName(f.Name)
+		}
+		key := methodKey{owner, method}
+		decl := typesByName[owner]
+		if _, claimed := methods[key]; ok && decl != nil && !decl.Assign.IsValid() && !claimed {
+			pkgDoc.typeDoc(owner).Methods[method] = f.Doc
+			methods[key] = methodComment{text: f.Doc}
 		}
 	}
 
 	return pkgDoc
 }
 
+// goEmbeddedPrivateTypes finds package-local private types that supply
+// promoted members to exported structs and interfaces.
+func goEmbeddedPrivateTypes(typesByName map[string]*goast.TypeSpec) map[string]bool {
+	embedded := make(map[string]bool)
+	var visitEmbedding func(goast.Expr)
+	visitMembers := func(expr goast.Expr) {
+		var fields *goast.FieldList
+		switch typ := expr.(type) {
+		case *goast.StructType:
+			fields = typ.Fields
+		case *goast.InterfaceType:
+			fields = typ.Methods
+		default:
+			return
+		}
+		for _, field := range fields.List {
+			if len(field.Names) == 0 {
+				visitEmbedding(field.Type)
+			}
+		}
+	}
+	visitEmbedding = func(expr goast.Expr) {
+		if ptr, ok := goast.Unparen(expr).(*goast.StarExpr); ok {
+			expr = ptr.X
+		}
+		name := goLocalTypeName(expr)
+		spec := typesByName[name]
+		if spec == nil || goast.IsExported(name) || embedded[name] {
+			return
+		}
+		embedded[name] = true
+		visitMembers(goast.Unparen(spec.Type))
+		visitEmbedding(spec.Type)
+	}
+	for _, spec := range typesByName {
+		if spec.Name.IsExported() {
+			visitMembers(goDocumentedMemberType(spec, typesByName))
+		}
+	}
+	return embedded
+}
+
+// goDocumentedMemberType finds the declaration supplying a public type's
+// members, including fields accessed through a defined pointer or pointer alias.
+func goDocumentedMemberType(spec *goast.TypeSpec, typesByName map[string]*goast.TypeSpec) goast.Expr {
+	decl := spec
+	written := goast.Unparen(spec.Type)
+	pointer := false
+	for i := 0; spec != nil && i < len(typesByName); i++ {
+		expr := goast.Unparen(spec.Type)
+		if ptr, ok := expr.(*goast.StarExpr); ok {
+			if pointer {
+				break
+			}
+			pointer = true
+			expr = goast.Unparen(ptr.X)
+		}
+		if spec == decl || !spec.Name.IsExported() {
+			switch expr.(type) {
+			case *goast.StructType:
+				return expr
+			case *goast.InterfaceType:
+				if !pointer {
+					return expr
+				}
+			}
+		}
+		spec = typesByName[goLocalTypeName(expr)]
+	}
+	return written
+}
+
 // goEmbeddedFieldName returns the field name of an embedded Go type.
 func goEmbeddedFieldName(expr goast.Expr) string {
 	for {
-		switch typ := expr.(type) {
+		switch typ := goast.Unparen(expr).(type) {
 		case *goast.Ident:
 			return typ.Name
 		case *goast.SelectorExpr:

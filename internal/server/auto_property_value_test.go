@@ -1,14 +1,129 @@
 package server
 
 import (
+	goast "go/ast"
+	"go/constant"
+	gotoken "go/token"
+	gotypes "go/types"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/mod/modfile"
+	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAutoPropertyResolverOperatorErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		op       token.Token
+		operands []gotypes.TypeAndValue
+	}{
+		{"BooleanNegation", token.SUB, []gotypes.TypeAndValue{
+			{Type: gotypes.Typ[gotypes.UntypedBool], Value: constant.MakeBool(true)},
+		}},
+		{"IncompatibleConstants", token.ADD, []gotypes.TypeAndValue{
+			{Type: gotypes.Typ[gotypes.UntypedInt], Value: constant.MakeInt64(1)},
+			{Type: gotypes.Typ[gotypes.UntypedString], Value: constant.MakeString("text")},
+		}},
+		{"IntegerRemainderByZero", token.REM, []gotypes.TypeAndValue{
+			{Type: gotypes.Typ[gotypes.UntypedInt], Value: constant.MakeInt64(1)},
+			{Type: gotypes.Typ[gotypes.UntypedInt], Value: constant.MakeInt64(0)},
+		}},
+		{"FloatDivisionByZero", token.QUO, []gotypes.TypeAndValue{
+			{Type: gotypes.Typ[gotypes.UntypedFloat], Value: constant.MakeFromLiteral("1.5", gotoken.FLOAT, 0)},
+			{Type: gotypes.Typ[gotypes.UntypedFloat], Value: constant.MakeFromLiteral("0.0", gotoken.FLOAT, 0)},
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("var value int\n")})
+			t.Cleanup(s.Close)
+			resolver := &autoPropertyResolver{proj: s.requestProject()}
+			cb := resolver.codeBuilder()
+			cb.Val(7)
+			before := cb.Get(-1)
+			result := resolver.operatorValue(tt.op, tt.operands...)
+			assert.Same(t, gotypes.Typ[gotypes.Invalid], result.Type)
+			require.Equal(t, 1, cb.InternalStack().Len())
+			assert.Same(t, before, cb.Get(-1))
+		})
+	}
+}
+
+func TestAutoPropertyResolverMalformedReverseCast(t *testing.T) {
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(`type Value struct{}
+func (value Value) XGo_Rcast(extra int) int { return extra }
+`)})
+	t.Cleanup(s.Close)
+	proj := s.requestProject()
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	obj := info.Pkg.Scope().Lookup("Value")
+	require.NotNil(t, obj)
+
+	resolver := &autoPropertyResolver{proj: proj}
+	cb := resolver.codeBuilder()
+	value, native := resolver.conversionValue(gotypes.Typ[gotypes.Int], []*gogen.Element{
+		{Val: goast.NewIdent("value"), Type: obj.Type()},
+	}, false)
+	assert.Same(t, gotypes.Typ[gotypes.Invalid], value.Type)
+	assert.False(t, native)
+	assert.Zero(t, cb.InternalStack().Len())
+}
+
+func TestRepanicUnexpectedGogenError(t *testing.T) {
+	assert.PanicsWithValue(t, "unexpected panic", func() {
+		defer func() { repanicUnexpectedGogenError(recover(), true) }()
+		panic("unexpected panic")
+	})
+	assert.Panics(t, func() {
+		defer func() { repanicUnexpectedGogenError(recover(), false) }()
+		var values []int
+		_ = values[0]
+	})
+}
+
+func TestAutoPropertyResolverMissingTypeArgument(t *testing.T) {
+	const source = `import f "example.com/framework"
+var _ = f.Visible
+`
+	for _, tt := range []struct {
+		name, implementations string
+		want                  bool
+	}{
+		{"EarlierCandidateSucceeds", "Text,Generic", true},
+		{"EarlierCandidateNeedsTypeArgument", "Generic,Text", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, `const Visible = 1
+func Text() string { return "text" }
+func XGox_Generic[T any]() T { var value T; return value }
+const XGoo_Label = "`+tt.implementations+`"
+`)
+			proj := s.requestProject()
+			requireNoDiagnostics(t, s)
+			pkg, err := proj.Import("example.com/framework")
+			require.NoError(t, err)
+			group := pkg.Scope().Lookup("Label")
+			require.NotNil(t, group)
+			resolver := &autoPropertyResolver{proj: proj}
+			result := resolver.resolvePackageObject(group)
+			assert.Same(t, group, result.object)
+			if tt.want {
+				assert.Same(t, gotypes.Typ[gotypes.String], result.typ)
+				assert.Same(t, pkg.Scope().Lookup("Text"), result.implementation)
+			} else {
+				assert.Nil(t, result.typ)
+			}
+			assert.Zero(t, resolver.codeBuilder().InternalStack().Len())
+		})
+	}
+}
 
 func TestServerXGoGetInputSlotsAutoPropertyValues(t *testing.T) {
 	for _, tt := range []struct{ name, methods, globals, expression, parameter string }{
@@ -125,6 +240,25 @@ func TestServerIncompleteAutoPropertyCandidates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServerMissingNestedAutoPropertyCandidate(t *testing.T) {
+	source, pos := typeDisplayTestSource(t, `import f "example.com/framework"
+var item f.Item
+var value string = item.|visible
+`)
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+	t.Cleanup(s.Close)
+	setImportTestFrameworkMethods(t, s, `func (Item) Visible() string { return "visible" }
+func (Item) Text() string { return "text" }
+const XGoo_Item_Broken = ".Missing,.Text"
+const XGoo_Item_Outer = ".Broken"
+`)
+	requireNoDiagnostics(t, s)
+
+	labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
+	assert.Contains(t, labels, "visible")
+	assert.NotContains(t, labels, "outer")
 }
 
 func TestTypeDisplayAutoPropertyQualifierShadowing(t *testing.T) {

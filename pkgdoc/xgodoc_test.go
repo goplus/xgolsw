@@ -11,6 +11,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewXGoPointerAliasMembers(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "sample.xgo", `type Pointer = *(struct {
+	// Value stores the payload.
+	Value int
+	//xgols:notRecommended
+	Hidden int
+})
+var pointer Pointer
+echo pointer.Value
+`, parser.ParseComments)
+	require.NoError(t, err)
+	require.NotNil(t, file.ShadowEntry)
+	doc := NewXGo("main", &ast.Package{Name: "main", Files: map[string]*ast.File{"sample.xgo": file}}, nil)
+	require.Contains(t, doc.Types, "Pointer")
+	assert.Equal(t, "Value stores the payload.\n", doc.Types["Pointer"].Fields["Value"])
+	assert.Equal(t, markedDeclarations("Pointer.Hidden"), doc.Declarations)
+	assert.Empty(t, doc.Funcs)
+}
+
 func TestNewXGo(t *testing.T) {
 	t.Run("PackageCommentOrder", func(t *testing.T) {
 		fset := token.NewFileSet()
@@ -56,6 +75,9 @@ func Reset() {}
 // Describe belongs to Record.
 func (r *Record) Describe() string { return r.Label }
 
+// Make_Record constructs a record.
+func Record.Make_Record() Record { return Record{} }
+
 // Shared is a package variable.
 var shared int
 `, parser.ParseComments|parser.ParseXGoClass)
@@ -68,7 +90,7 @@ var shared int
 			Files: map[string]*ast.File{"Worker.gox": astFile},
 		}, nil)
 
-		assert.Empty(t, doc.Funcs)
+		assert.Equal(t, map[string]string{"XGos__Record__Make_Record": "Make_Record constructs a record.\n"}, doc.Funcs)
 		assert.Equal(t, map[string]string{"shared": "Shared is a package variable.\n"}, doc.Vars)
 		assert.Equal(t, map[string]string{"Limit": "Limit is a package constant.\n"}, doc.Consts)
 		require.Len(t, doc.Types, 1)
@@ -76,7 +98,10 @@ var shared int
 		require.NotNil(t, record)
 		assert.Equal(t, "Record is an explicitly declared type.\n", record.Doc)
 		assert.Equal(t, map[string]string{"Label": "Label names the record.\n"}, record.Fields)
-		assert.Equal(t, map[string]string{"Describe": "Describe belongs to Record.\n"}, record.Methods)
+		assert.Equal(t, map[string]string{
+			"Describe":    "Describe belongs to Record.\n",
+			"Make_Record": "Make_Record constructs a record.\n",
+		}, record.Methods)
 		assert.False(t, astFile.IsClass)
 	})
 
@@ -88,6 +113,10 @@ var shared int
 
 // Reset belongs to Record.
 func Reset() {}
+
+// Make belongs to Record.
+//xgols:notRecommended
+func .Make() {}
 `, parser.Config{Mode: parser.ParseComments})
 		require.NoError(t, err)
 		require.True(t, astFile.IsNormalGox)
@@ -98,12 +127,16 @@ func Reset() {}
 		}, nil)
 
 		assert.Empty(t, doc.Vars)
-		assert.Empty(t, doc.Funcs)
+		assert.Equal(t, map[string]string{"XGos_Record_Make": "Make belongs to Record.\n"}, doc.Funcs)
 		require.Len(t, doc.Types, 1)
 		record := doc.Types["Record"]
 		require.NotNil(t, record)
 		assert.Equal(t, map[string]string{"value": "Value belongs to Record.\n"}, record.Fields)
-		assert.Equal(t, map[string]string{"Reset": "Reset belongs to Record.\n"}, record.Methods)
+		assert.Equal(t, map[string]string{
+			"Reset": "Reset belongs to Record.\n",
+			"Make":  "Make belongs to Record.\n",
+		}, record.Methods)
+		assert.True(t, doc.Declarations["Record.Make"].NotRecommended)
 	})
 }
 
@@ -171,8 +204,9 @@ func TestNewXGoTypeDocumentation(t *testing.T) {
 		file, err := parser.ParseFile(token.NewFileSet(), "main.xgo", `import f "example.com/framework"
 
 type Item struct{}
-type Group struct {
+type Group (struct {
 	// Item is the active item.
+	//xgols:notRecommended
 	*Item
 	// Copy is an embedded framework value.
 	f.Copy
@@ -183,13 +217,14 @@ type Group struct {
 	// Label names the group.
 	label string
 	count int // Count tracks items.
-}
+})
 
-type Reader interface {
+type Reader (interface {
 	// Read retrieves one value.
+	//xgols:notRecommended
 	Read() int
 	f.Reader
-}
+})
 `, parser.ParseComments)
 		require.NoError(t, err)
 		doc := NewXGo("main", &ast.Package{Name: "main", Files: map[string]*ast.File{"main.xgo": file}}, nil)
@@ -201,5 +236,62 @@ type Reader interface {
 		}, doc.Types["Group"].Fields)
 		require.Contains(t, doc.Types, "Reader")
 		assert.Equal(t, map[string]string{"Read": "Read retrieves one value.\n"}, doc.Types["Reader"].Methods)
+		assert.Equal(t, markedDeclarations("Group.Item", "Reader.Read"), doc.Declarations)
 	})
+}
+
+func TestNewXGoOverloadDocumentation(t *testing.T) {
+	fset := token.NewFileSet()
+	pkg := &ast.Package{Name: "main", Files: make(map[string]*ast.File)}
+	for filename, source := range map[string]string{
+		"main.xgo": `type Item struct{}
+// Choose is the package overload.
+func Choose = (
+chooseInt
+chooseString
+)
+// Select is the method overload.
+func (Item).Select = (
+(Item).selectInt
+(Item).selectString
+)
+`,
+		"Record.gox": `// Pick is the class overload.
+func Pick = (
+pickInt
+pickString
+)
+`,
+	} {
+		file, err := parser.ParseEntry(fset, filename, source, parser.Config{Mode: parser.ParseComments})
+		require.NoError(t, err)
+		pkg.Files[filename] = file
+	}
+	doc := NewXGo("main", pkg, nil)
+	assert.Equal(t, "Choose is the package overload.\n", doc.Funcs["Choose"])
+	require.Contains(t, doc.Types, "Item")
+	assert.Equal(t, "Select is the method overload.\n", doc.Types["Item"].Methods["Select"])
+	require.Contains(t, doc.Types, "Record")
+	assert.Equal(t, "Pick is the class overload.\n", doc.Types["Record"].Methods["Pick"])
+	assert.NotContains(t, doc.Funcs, "Pick")
+}
+
+func TestNewCheckedXGoUsesResolvedClassNames(t *testing.T) {
+	file, err := parser.ParseEntry(token.NewFileSet(), "Fragment.gox", `// Describe describes the project.
+func Describe() {}
+
+// Reset resets the project.
+func .Reset() {}
+`, parser.Config{Mode: parser.ParseComments})
+	require.NoError(t, err)
+	pkg := &ast.Package{Name: "main", Files: map[string]*ast.File{"Fragment.gox": file}}
+	doc := NewCheckedXGo("main", pkg, nil, func(candidate *ast.File) string {
+		assert.Same(t, file, candidate)
+		return "App"
+	})
+	require.Contains(t, doc.Types, "App")
+	assert.Equal(t, "Describe describes the project.\n", doc.Types["App"].Methods["Describe"])
+	assert.Equal(t, "Reset resets the project.\n", doc.Types["App"].Methods["Reset"])
+	assert.Equal(t, "Reset resets the project.\n", doc.Funcs["XGos_App_Reset"])
+	assert.NotContains(t, doc.Types, "Fragment")
 }

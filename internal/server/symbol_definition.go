@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"fmt"
 	gotypes "go/types"
 	"html/template"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -16,11 +18,23 @@ type symbolDefinition struct {
 	// TypeHint represents a type hint for this definition. It may be nil if
 	// the definition has no associated type.
 	TypeHint gotypes.Type
-	Function *gotypes.Func
 
 	// SourceObject is the source declaration before overload expansion.
-	// Function supplies the implementation signature and documentation.
 	SourceObject gotypes.Object
+
+	// Implementation supplies the signature and documentation of a callable.
+	Implementation gotypes.Object
+
+	// parameterBinding identifies a callable that binds the implementation's
+	// arguments differently from SourceObject.
+	parameterBinding *gotypes.Func
+
+	// staticMemberName is the exact selector spelling of a reconstructed static member.
+	staticMemberName string
+
+	// functionValueSpelling overrides the ordinary insertion name when the
+	// compiler requires a particular spelling for the callable value.
+	functionValueSpelling string
 
 	// AutoPropertyType is the inferred result of an implicit call.
 	// It distinguishes a property returning a function from a method value.
@@ -82,17 +96,18 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 		case *gotypes.Const:
 			defs = append(defs, d.definitionForConst(obj, pkgDoc))
 		case *gotypes.TypeName:
-			defs = append(defs, d.definitionForType(obj, pkgDoc))
+			defs = append(defs, d.definitionForType(obj, obj.Name(), pkgDoc))
 		case *gotypes.Func:
 			// Template methods are selected through their receiver. Their
 			// display names do not resolve as package-level functions.
-			if xgoutil.IsMarkedAsXGoPackage(pkg) && xgoutil.IsXGotMethodName(obj.Name()) {
+			if _, _, template := xgoutil.TemplateMethodName(obj, false); template {
 				continue
 			}
-			if funcOverloads := xgoutil.ExpandXGoOverloadableFunc(obj); funcOverloads != nil {
-				for _, funcOverload := range funcOverloads {
-					def := d.definitionForFunc(funcOverload, "", pkgDoc)
-					def.SourceObject = obj
+			if overloads := xgoutil.OverloadImplementations(obj); overloads != nil {
+				groupDoc := overloadMarkerDocumentation(xgoutil.OverloadGroupMarker(obj), pkgDoc)
+				for implementation, binding := range overloads {
+					def := d.definitionForOverload(implementation, "", pkgDoc)
+					d.describeSourceCallable(&def, obj, binding, def.CompletionItemLabel, groupDoc)
 					defs = append(defs, def)
 				}
 			} else {
@@ -103,6 +118,36 @@ func (d typeDisplay) definitionsForPkg(pkg *gotypes.Package, pkgDoc *pkgdoc.PkgD
 		}
 	}
 	return slices.Clip(defs)
+}
+
+// definitionForOverload describes a callable in an overload's implementation list.
+func (d typeDisplay) definitionForOverload(obj gotypes.Object, selectorTypeName string, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
+	if fun, ok := obj.(*gotypes.Func); ok {
+		return d.definitionForFunc(fun, selectorTypeName, pkgDoc)
+	}
+	def := d.definitionForVar(obj.(*gotypes.Var), selectorTypeName, false, pkgDoc)
+	def.Implementation = obj
+	def.CompletionItemKind = FunctionCompletion
+	return def
+}
+
+// describeSourceCallable supplies the source signature and shared documentation
+// for a definition backed by a reconstructed callable.
+func (d typeDisplay) describeSourceCallable(def *symbolDefinition, source, binding *gotypes.Func, name, doc string) {
+	def.SourceObject = source
+	def.Detail = cmp.Or(def.Detail, doc)
+	if def.Implementation == nil {
+		return
+	}
+	binding = cmp.Or(binding, def.parameterBinding, source)
+	if binding == source {
+		def.parameterBinding = nil
+	} else {
+		def.parameterBinding = binding
+	}
+	if sig, params := xgoutil.ResolveSourceFuncSignature(def.Implementation, source, binding); sig != nil {
+		def.Overview = d.functionOverview(name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(def.function(), params))
+	}
 }
 
 // definitionForVar describes the provided variable or field.
@@ -122,7 +167,7 @@ func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, f
 	var detail string
 	if pkgDoc != nil {
 		if v.IsField() {
-			detail = fieldDocumentation(v, pkgDoc)
+			detail = memberDocumentation(v, pkgDoc)
 		} else {
 			detail = pkgDoc.Vars[v.Name()]
 		}
@@ -186,8 +231,8 @@ func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc)
 }
 
 // definitionForType describes the provided type in the source context.
-func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
-	overview := d.typeOverview(typeName)
+func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, name string, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
+	overview := d.typeOverview(typeName, name)
 
 	var detail string
 	if pkgDoc != nil {
@@ -208,9 +253,9 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, pkgDoc *pkgdo
 		Overview: overview,
 		Detail:   detail,
 
-		CompletionItemLabel:            typeName.Name(),
+		CompletionItemLabel:            name,
 		CompletionItemKind:             typeCompletionKind(typeName.Type()),
-		CompletionItemInsertText:       typeName.Name(),
+		CompletionItemInsertText:       name,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
@@ -245,9 +290,9 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 		idName = recvTypeName + "." + idName
 	}
 	return symbolDefinition{
-		TypeHint:     fun.Type(),
-		Function:     fun,
-		SourceObject: fun,
+		TypeHint:       fun.Type(),
+		Implementation: fun,
+		SourceObject:   fun,
 
 		ID: XGoDefinitionIdentifier{
 			Package:    new(xgoutil.PkgPath(fun.Pkg())),
@@ -264,12 +309,49 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 	}
 }
 
+// nameFunctionOverview displays the callable's name while leaving its
+// definition identifier and insertion spelling available to the caller.
+func (def *symbolDefinition) nameFunctionOverview(name string) {
+	if rest, ok := strings.CutPrefix(def.Overview, "func "+def.CompletionItemLabel); ok &&
+		(strings.HasPrefix(rest, "(") || strings.HasPrefix(rest, "[")) {
+		def.Overview = "func " + name + rest
+	}
+}
+
+// useIndexedImplementationName shows the implementation's written or inserted
+// name in the overview when it includes the overload index.
+func (def *symbolDefinition) useIndexedImplementationName(name string) {
+	if fun := def.function(); fun != nil && isDirectOverloadImplementationName(fun, name) {
+		def.nameFunctionOverview(name)
+	}
+}
+
+// functionValueName returns the selector spelling for inserting a function value.
+func (def symbolDefinition) functionValueName() string {
+	if def.functionValueSpelling != "" {
+		return def.functionValueSpelling
+	}
+	if def.staticMemberName != "" {
+		return def.staticMemberName
+	}
+	if fun := def.function(); fun != nil {
+		return functionValueName(fun)
+	}
+	return def.Implementation.Name()
+}
+
+// function returns the implementation when it is a function declaration.
+func (def symbolDefinition) function() *gotypes.Func {
+	fun, _ := def.Implementation.(*gotypes.Func)
+	return fun
+}
+
 // functionValueName preserves the declared spelling needed to refer to a
 // function value instead of invoking a lowercase XGo alias.
 func functionValueName(fun *gotypes.Func) string {
 	name := fun.Name()
 	if xgoutil.IsMarkedAsXGoPackage(fun.Pkg()) {
-		if _, method, ok := xgoutil.SplitXGotMethodName(name, true); ok {
+		if _, method, ok := xgoutil.TemplateMethodName(fun, true); ok {
 			return method
 		}
 		if function, ok := xgoutil.SplitXGoxFuncName(name); ok {
@@ -307,49 +389,72 @@ func functionDocumentation(fun *gotypes.Func, doc *pkgdoc.PkgDoc) string {
 	if doc == nil {
 		return ""
 	}
-	recvTypeName, _, _, _ := displayedFuncName(fun)
-	if recvTypeName == "" && fun.Signature().Recv() != nil {
-		return ""
+	if fun.Signature().Recv() == nil {
+		return doc.Funcs[fun.Name()]
 	}
-	name := fun.Name()
-	if recvTypeName == "" || xgoutil.IsXGotMethodName(name) {
-		return doc.Funcs[name]
-	}
+	recvTypeName, _, _ := displayedFuncName(fun)
 	if typeDoc := doc.Types[recvTypeName]; typeDoc != nil {
-		return typeDoc.Methods[name]
+		if comment, ok := typeDoc.Methods[fun.Name()]; ok {
+			return comment
+		}
+	}
+	if gotypes.IsInterface(fun.Signature().Recv().Type()) {
+		return memberDocumentation(fun, doc)
 	}
 	return ""
 }
 
-// fieldDocumentation finds the field's declaration among its package types.
-// Defined types can share field objects, but only the declaring type has a
-// field entry in package documentation, even when its comment is empty.
-func fieldDocumentation(field *gotypes.Var, doc *pkgdoc.PkgDoc) string {
-	pkg := field.Pkg()
+// overloadMarkerDocumentation returns the archived comment on an overload declaration.
+func overloadMarkerDocumentation(marker *gotypes.Const, doc *pkgdoc.PkgDoc) string {
+	if marker == nil || doc == nil {
+		return ""
+	}
+	return doc.Consts[marker.Name()]
+}
+
+// memberDocumentation looks up a field or interface method by declaration
+// identity. Public types can expose members declared by private types.
+func memberDocumentation(member gotypes.Object, doc *pkgdoc.PkgDoc) string {
+	pkg := member.Pkg()
 	if pkg == nil {
 		return ""
 	}
-	field = field.Origin()
-	for _, name := range pkg.Scope().Names() {
+	member = types.ObjectOrigin(member)
+	_, method := member.(*gotypes.Func)
+	scope := pkg.Scope()
+	for _, name := range scope.Names() {
 		typeDoc := doc.Types[name]
 		if typeDoc == nil {
 			continue
 		}
-		comment, ok := typeDoc.Fields[field.Name()]
+		comments := typeDoc.Fields
+		if method {
+			comments = typeDoc.Methods
+		}
+		comment, ok := comments[member.Name()]
 		if !ok {
 			continue
 		}
-		typ, ok := pkg.Scope().Lookup(name).(*gotypes.TypeName)
+		typ, ok := scope.Lookup(name).(*gotypes.TypeName)
 		if !ok || typ.Type() == nil {
 			continue
 		}
-		st, ok := typ.Type().Underlying().(*gotypes.Struct)
-		if !ok {
-			continue
+		container := typ.Type()
+		if !method {
+			container = xgoutil.DerefType(container.Underlying())
 		}
-		for candidate := range st.Fields() {
-			if candidate.Origin() == field {
-				return comment
+		switch underlying := container.Underlying().(type) {
+		case *gotypes.Struct:
+			for candidate := range underlying.Fields() {
+				if candidate.Origin() == member {
+					return comment
+				}
+			}
+		case *gotypes.Interface:
+			for candidate := range underlying.ExplicitMethods() {
+				if candidate.Origin() == member {
+					return comment
+				}
 			}
 		}
 	}

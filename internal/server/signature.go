@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	gotypes "go/types"
+	"iter"
 	"strings"
 
 	"github.com/goplus/xgo/ast"
@@ -61,31 +62,28 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		case *gotypes.Var:
 			// A property alias exposes the result type. Signature help needs
 			// the callable stored in the variable.
-			sig := signatureType(obj.Type())
+			callee, _ := callableExprForIdent(astFile, ident)
+			sig, params := xgoutil.ResolveCallableSignatureForCall(typeInfo, &ast.CallExpr{Fun: callee}, obj, nil)
 			if sig == nil {
 				return nil, nil
 			}
+			groupDoc := ctx.overloadDocumentation(typeInfo.SourceObjectOf(ident))
 			return &SignatureHelp{Signatures: []SignatureInformation{
-				ctx.signatureHelpInformation(nil, sig, sig.Params(), ident.Name, documentationKind),
+				ctx.signatureHelpInformation(obj, sig, params, ident.Name, groupDoc, documentationKind),
 			}}, nil
 		default:
 			return nil, nil
 		}
 
-		// Resolve bare functions without arguments, keeping their selectors
-		// so method-expression receivers use the same normalization as calls.
-		callee := ast.Expr(ident)
-		for node := range xgoutil.PathEnclosingIntervalNodes(astFile, ident.Pos(), ident.End(), false) {
-			if selector, ok := node.(*ast.SelectorExpr); ok && selector.Sel == ident {
-				callee = selector
-				break
-			}
-		}
+		callee, _ := callableExprForIdent(astFile, ident)
 		callExpr = &ast.CallExpr{Fun: callee}
 	}
 
 	fun, sig, resolvedParams := xgoutil.ResolveCallExprSignature(typeInfo, callExpr)
 	if sig == nil {
+		if funcDecorator {
+			return nil, nil
+		}
 		return ctx.overloadSignatureHelp(typeInfo, callExpr, pos, documentationKind), nil
 	}
 	activeParameter := signatureHelpActiveParameter(typeInfo, callExpr, pos, sig, resolvedParams)
@@ -100,12 +98,24 @@ func (s *Server) textDocumentSignatureHelp(params *SignatureHelpParams) (*Signat
 		}
 	}
 
-	displayedName := signatureHelpResolvedCallName(typeInfo, callExpr, fun)
+	ident := xgoutil.CallExprFunIdent(callExpr)
+	var callable gotypes.Object
+	var displayedName string
 	if fun == nil {
 		displayedName = cmp.Or(signatureHelpCallName(callExpr), "func")
+		if variable, ok := xgoutil.CallExprImplementation(typeInfo, callExpr).(*gotypes.Var); ok &&
+			signatureType(variable.Type()) == sig {
+			callable = variable
+		}
+	} else {
+		callable = fun
+		displayedName = signatureHelpResolvedCallName(typeInfo, callExpr, fun)
 	}
+	groupDoc := ctx.overloadDocumentation(typeInfo.SourceObjectOf(ident))
 	help := &SignatureHelp{
-		Signatures: []SignatureInformation{ctx.signatureHelpInformation(fun, sig, resolvedParams, displayedName, documentationKind)},
+		Signatures: []SignatureInformation{
+			ctx.signatureHelpInformation(callable, sig, resolvedParams, displayedName, groupDoc, documentationKind),
+		},
 	}
 	if activeParameter >= 0 {
 		help.ActiveParameter = uint32(activeParameter)
@@ -136,30 +146,23 @@ func signatureHelpIdentAtPosition(typeInfo *types.Info, astFile *ast.File, pos t
 // overloadSignatureHelp returns signature help for an overload pseudo-function
 // call.
 func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos, documentationKind MarkupKind) *SignatureHelp {
-	overloads := callExprFuncOverloads(typeInfo, callExpr)
+	overloads := callExprOverloads(typeInfo, callExpr)
 	if len(overloads) == 0 {
 		return nil
-	}
-
-	resolvedArg, hasResolvedArg := signatureHelpResolvedArgAtPosition(typeInfo, callExpr, overloads, pos)
-	skipArgIndex := -1
-	if hasResolvedArg {
-		skipArgIndex = resolvedArg.ArgIndex
 	}
 
 	var signatures []SignatureInformation
 	activeParameter := -1
 	displayedName := signatureHelpCallName(callExpr)
+	groupDoc := r.overloadDocumentation(typeInfo.SourceObjectOf(xgoutil.CallExprFunIdent(callExpr)))
 	for _, overload := range overloads {
-		if !overloadMatchesCallExpr(typeInfo, callExpr, overload, skipArgIndex) {
+		resolvedArg, hasResolvedArg := signatureHelpResolvedArgAtPosition(overload.args(typeInfo, callExpr), pos)
+		if _, _, matches := overload.matchArgs(typeInfo, callExpr, resolvedArg.Arg); !matches {
 			continue
 		}
-		sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overload)
-		if sig == nil {
-			continue
-		}
-		signature := r.signatureHelpInformation(overload, sig, params, displayedName, documentationKind)
-		if activeParameter < 0 {
+		sig, params := overload.signature, overload.params
+		signature := r.signatureHelpInformation(overload.object, sig, params, displayedName, groupDoc, documentationKind)
+		if len(signatures) == 0 {
 			activeParameter = overloadSignatureHelpActiveParameter(typeInfo, callExpr, pos, sig, params, resolvedArg, hasResolvedArg)
 		}
 		signatures = append(signatures, signature)
@@ -175,8 +178,9 @@ func (r *definitionContext) overloadSignatureHelp(typeInfo *types.Info, callExpr
 	return help
 }
 
-// signatureHelpInformation returns signature information for one function.
-func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple, displayedName string, documentationKind MarkupKind) SignatureInformation {
+// signatureHelpInformation returns signature information for one callable.
+func (r *definitionContext) signatureHelpInformation(callable gotypes.Object, sig *gotypes.Signature, params *gotypes.Tuple, displayedName, groupDoc string, documentationKind MarkupKind) SignatureInformation {
+	fun, _ := callable.(*gotypes.Func)
 	paramLabels := make([]string, 0, params.Len())
 	paramInfos := make([]ParameterInformation, 0, params.Len())
 	for i := range params.Len() {
@@ -191,26 +195,32 @@ func (r *definitionContext) signatureHelpInformation(fun *gotypes.Func, sig *got
 
 	labelName := displayedName
 	if labelName == "" {
-		_, labelName, _, _ = displayedFuncName(fun)
+		_, labelName, _ = displayedFuncName(fun)
 	}
 	info := SignatureInformation{
 		Label:      labelName + "(" + strings.Join(paramLabels, ", ") + ")" + r.displayedFuncResults(sig.Results()),
 		Parameters: paramInfos,
 	}
-	if fun != nil {
-		if doc := strings.TrimSpace(r.functionDocumentation(fun)); doc != "" {
-			info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
-			if documentationKind == Markdown {
-				info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
-			}
+	var implementationDoc string
+	switch callable := callable.(type) {
+	case *gotypes.Func:
+		implementationDoc = r.functionDocumentation(callable)
+	case *gotypes.Var:
+		implementationDoc = r.definitionForVar(callable, "", false, r.pkgDocForObject(callable)).Detail
+	}
+	doc := cmp.Or(strings.TrimSpace(implementationDoc), strings.TrimSpace(groupDoc))
+	if doc != "" {
+		info.Documentation = &protocol.Or_SignatureInformation_documentation{Value: doc}
+		if documentationKind == Markdown {
+			info.Documentation.Value = MarkupContent{Kind: Markdown, Value: doc}
 		}
 	}
 	return info
 }
 
-// signatureHelpResolvedArgAtPosition returns the resolved argument at pos.
-func signatureHelpResolvedArgAtPosition(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func, pos token.Pos) (xgoutil.ResolvedCallExprArg, bool) {
-	for resolvedArg := range formatResolvedCallExprArgs(typeInfo, callExpr, overloads) {
+// signatureHelpResolvedArgAtPosition returns the candidate's argument at pos.
+func signatureHelpResolvedArgAtPosition(args iter.Seq[xgoutil.ResolvedCallExprArg], pos token.Pos) (xgoutil.ResolvedCallExprArg, bool) {
+	for resolvedArg := range args {
 		if pos >= resolvedArg.Arg.Pos() && pos <= resolvedArg.Arg.End() {
 			return resolvedArg, true
 		}
@@ -233,12 +243,16 @@ func signatureHelpCallName(callExpr *ast.CallExpr) string {
 	return funIdent.Name
 }
 
-// signatureHelpResolvedCallName returns the source call name for resolved
-// overload functions.
+// signatureHelpResolvedCallName preserves the source spelling for overload
+// calls and direct references to encoded Go functions and implementations.
 func signatureHelpResolvedCallName(typeInfo *types.Info, callExpr *ast.CallExpr, fun *gotypes.Func) string {
-	for _, overload := range callExprFuncOverloads(typeInfo, callExpr) {
-		if overload == fun {
-			return signatureHelpCallName(callExpr)
+	name := signatureHelpCallName(callExpr)
+	if fun != nil && (isDirectOverloadImplementationName(fun, name) || xgoutil.ReferencesEncodedFuncName(fun, name)) {
+		return name
+	}
+	for _, overload := range callExprOverloads(typeInfo, callExpr) {
+		if overload.object == fun {
+			return name
 		}
 	}
 	return ""
@@ -323,27 +337,12 @@ func overloadSignatureHelpActiveParameter(typeInfo *types.Info, callExpr *ast.Ca
 	}
 
 	if hasResolvedArg {
-		if resolvedArg.Kind == xgoutil.ResolvedCallExprArgKeyword {
-			paramIndex, ok := callKwargParamIndex(sig, params, len(callExpr.Args))
-			if ok {
-				return paramIndex
-			}
-		}
-
-		paramIndex := resolvedArg.ArgIndex
-		if len(callExpr.Kwargs) > 0 {
-			if kwargParamIndex, ok := callKwargParamIndex(sig, params, len(callExpr.Args)); ok && paramIndex >= kwargParamIndex {
-				paramIndex++
-			}
-		}
-		if param, paramIndex := callExprParam(sig, params, paramIndex); param != nil {
-			return paramIndex
-		}
+		return resolvedArg.ParamIndex
 	}
 
 	if len(callExpr.Kwargs) > 0 && pos >= callExpr.Kwargs[0].Pos() {
-		if paramIndex, ok := callKwargParamIndex(sig, params, len(callExpr.Args)); ok {
-			return paramIndex
+		if kwarg := xgoutil.ResolveCallExprKwargAtArgCount(typeInfo, callExpr, sig, params, len(callExpr.Args)); kwarg != nil {
+			return kwarg.ParamIndex
 		}
 	}
 	return signatureHelpPositionalActiveParameter(typeInfo, callExpr, pos, sig, params)
@@ -391,7 +390,7 @@ func signatureHelpActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, 
 func signatureHelpPositionalActiveParameter(typeInfo *types.Info, callExpr *ast.CallExpr, pos token.Pos, sig *gotypes.Signature, params *gotypes.Tuple) int {
 	lastParamIndex := -1
 	lastArgEnd := cmp.Or(callExpr.Lparen, callExpr.Fun.End())
-	args, _ := xgoutil.CallExprArgs(typeInfo, callExpr, params)
+	args, _ := xgoutil.CallExprArgsForSignature(typeInfo, callExpr, sig, params)
 	for i, arg := range args {
 		paramIndex := i
 		if sig.Variadic() && paramIndex >= params.Len()-1 {

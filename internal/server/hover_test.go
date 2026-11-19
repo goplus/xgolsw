@@ -1,6 +1,7 @@
 package server
 
 import (
+	gotypes "go/types"
 	"io/fs"
 	"strings"
 	"testing"
@@ -898,6 +899,60 @@ framework.RunWhen true, => {}
 				End:   Position{Line: 2, Character: 24},
 			},
 		}, importHover)
+	})
+
+	t.Run("ImportPackageIdentity", func(t *testing.T) {
+		const doc = "Package example provides utilities."
+		for _, tt := range []struct {
+			name, source, path string
+			unresolved         bool
+		}{
+			{name: "ImplicitName", source: `"xgo/example|"`, path: "github.com/goplus/xgo/example"},
+			{name: "ExplicitName", source: `ex "gop/example|"`, path: "github.com/goplus/xgo/example"},
+			{name: "BlankImport", source: `_ "c|"`, path: "github.com/goplus/lib/c"},
+			{name: "DotImport", source: `. "py/tools|"`, path: "github.com/goplus/lib/py/tools"},
+			{name: "Unresolved", source: `"example.com/cached|"`, path: "example.com/cached", unresolved: true},
+			{name: "UnresolvedShorthand", source: `"xgo/cached|"`, path: "github.com/goplus/xgo/cached", unresolved: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, "import "+tt.source+"\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				proj := s.getProj()
+				imported := gotypes.NewPackage(tt.path, "example")
+				imported.MarkComplete()
+				importer := proj.Importer
+				proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+					if path != tt.path {
+						return importer.Import(path)
+					}
+					if tt.unresolved {
+						return nil, fs.ErrNotExist
+					}
+					return imported, nil
+				})
+				s.lookupPkgDoc = func(path string) (*pkgdoc.PkgDoc, error) {
+					if path != tt.path {
+						return nil, fs.ErrNotExist
+					}
+					return &pkgdoc.PkgDoc{Path: path, Doc: doc}, nil
+				}
+				_, err := proj.TypeInfo()
+				if tt.unresolved {
+					require.ErrorContains(t, err, tt.path)
+				} else {
+					require.NoError(t, err)
+				}
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")},
+					Position:     pos,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Equal(t, MarkupContent{Kind: Markdown, Value: doc}, hover.Contents)
+				assert.Equal(t, Range{Start: Position{Character: 7}, End: Position{Character: pos.Character + 1}}, hover.Range)
+			})
+		}
 	})
 
 	t.Run("Append", func(t *testing.T) {

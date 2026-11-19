@@ -2,12 +2,12 @@ package xgo
 
 import (
 	"fmt"
-	"go/constant"
 	gotypes "go/types"
 	"maps"
-	"strings"
 
 	"github.com/goplus/gogen"
+	"github.com/goplus/gogen/packages"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // Import loads a package and initializes its XGo declarations before exposing
@@ -27,7 +27,7 @@ func (p *Project) Import(path string) (pkg *gotypes.Package, err error) {
 	}()
 	loader := gogen.NewPackage(p.PkgPath, "", &gogen.Config{
 		Fset:     p.Fset,
-		Importer: newDependencyImporter(p.Importer),
+		Importer: p.newDependencyImporter(),
 		// Import initialization does not need code generation builtins.
 		NewBuiltin: func(*gogen.Package, *gogen.Config) *gotypes.Package { return nil },
 	})
@@ -42,11 +42,12 @@ type dependencyImporter struct {
 	packages map[string]*gotypes.Package
 }
 
-// newDependencyImporter wraps an explicit importer for one analysis operation.
-// A nil importer preserves the compiler's default importer selection.
-func newDependencyImporter(base gotypes.Importer) gotypes.Importer {
+// newDependencyImporter wraps the configured or compiler-default importer for
+// one analysis operation.
+func (p *Project) newDependencyImporter() *dependencyImporter {
+	base := p.Importer
 	if base == nil {
-		return nil
+		base = packages.NewImporter(p.Fset)
 	}
 	return &dependencyImporter{base: base, packages: make(map[string]*gotypes.Package)}
 }
@@ -79,15 +80,11 @@ func (imp *dependencyImporter) load(path string, pending map[string]*gotypes.Pac
 		return nil, fmt.Errorf("failed to import package %q: %w", path, err)
 	}
 	pending[path] = pkg
-	marker := pkg.Scope().Lookup("XGoPackage")
-	if marker == nil {
-		marker = pkg.Scope().Lookup("GopPackage")
-	}
-	deps, ok := marker.(*gotypes.Const)
-	if !ok || deps.Val().Kind() != constant.String {
+	// gogen skips the dependency list of a package it already initialized.
+	if pkg.Scope().Lookup("__xgo_inited") != nil {
 		return pkg, nil
 	}
-	for dep := range strings.SplitSeq(constant.StringVal(deps.Val()), ",") {
+	for dep := range xgoutil.XGoPackageDependencies(pkg) {
 		if _, err := imp.load(dep, pending); err != nil {
 			return nil, fmt.Errorf("failed to import XGo dependency %q of %q: %w", dep, path, err)
 		}

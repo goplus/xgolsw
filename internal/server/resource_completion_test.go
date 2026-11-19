@@ -83,7 +83,7 @@ echo "re|source"
 			})
 			ctx := newCompletionTestContext(t, s, "main.xgo", Position{Line: 2})
 			ctx.collectResourceNames([]resourceID{testResourceID{"scenes", "Studio"}})
-			ctx.collectPropertyNames("Record")
+			ctx.collectPropertyNames(propertyCompletionTestType(t, ctx.typeInfo, "Record"))
 			assert.Empty(t, ctx.itemSet.items)
 		})
 	})

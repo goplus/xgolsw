@@ -18,12 +18,69 @@ package xgoutil
 
 import (
 	gotypes "go/types"
+	"slices"
 	"testing"
 
+	"github.com/goplus/gogen"
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDeclaredMemberType(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		want         ast.Expr
+	}{
+		{"PointerAlias", "type Record = *(struct { Value int })", (*ast.StructType)(nil)},
+		{"NamedPointer", "type Record *struct { Value int }", (*ast.StructType)(nil)},
+		{"PointerToInterface", "type Reader = *interface { Read() int }", (*ast.StarExpr)(nil)},
+		{"DoublePointer", "type Record = **struct { Value int }", (*ast.StarExpr)(nil)},
+		{"ParenthesizedInterface", "type Reader = (interface { Read() int })", (*ast.InterfaceType)(nil)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			file, err := parser.ParseFile(token.NewFileSet(), "types.xgo", tt.source, 0)
+			require.NoError(t, err)
+			require.Len(t, file.Decls, 1)
+			decl, ok := file.Decls[0].(*ast.GenDecl)
+			require.True(t, ok)
+			require.Len(t, decl.Specs, 1)
+			spec, ok := decl.Specs[0].(*ast.TypeSpec)
+			require.True(t, ok)
+			assert.IsType(t, tt.want, DeclaredMemberType(spec))
+		})
+	}
+}
+
+func TestEmbeddedFieldIdent(t *testing.T) {
+	for _, tt := range []struct {
+		name, source, want string
+		offset             int
+	}{
+		{name: "Named", source: "Value", want: "Value"},
+		{name: "Pointer", source: "*Value", want: "Value", offset: 1},
+		{name: "Qualified", source: "dep.Value", want: "Value", offset: 4},
+		{name: "Indexed", source: "Value[int]", want: "Value"},
+		{name: "ParenthesizedIndexedPointer", source: "(*dep.Pair[int, string])", want: "Pair", offset: 6},
+		{name: "Unnamed", source: "[]int"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			expr, err := parser.ParseExprFrom(fset, "fields.xgo", tt.source, 0)
+			require.NoError(t, err)
+			ident := EmbeddedFieldIdent(expr)
+			if tt.want == "" {
+				assert.Nil(t, ident)
+				return
+			}
+			require.NotNil(t, ident)
+			assert.Equal(t, tt.want, ident.Name)
+			assert.Equal(t, tt.offset, fset.Position(ident.Pos()).Offset)
+		})
+	}
+}
 
 func TestIsNamedStructType(t *testing.T) {
 	t.Run("NilNamedType", func(t *testing.T) {
@@ -94,6 +151,20 @@ func TestIsNamedStructType(t *testing.T) {
 }
 
 func TestStructMembers(t *testing.T) {
+	t.Run("StaticValueDoesNotHidePromotedField", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/framework", "framework")
+		field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		base := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Base", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
+		embedded := gotypes.NewField(0, pkg, "Base", base, true)
+		owner := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Owner", nil), gotypes.NewStruct([]*gotypes.Var{embedded}, nil), nil)
+		value := gotypes.NewVar(0, pkg, "XGos_Owner_Count", gotypes.Typ[gotypes.Int])
+		gogen.NewStaticMember(owner, 0, pkg, "Count", value)
+
+		members := slices.Collect(StructMembers(owner, nil))
+		require.Len(t, members, 2)
+		assert.Same(t, field, members[1].Member)
+	})
+
 	t.Run("SelectorBoundary", func(t *testing.T) {
 		pkg := gotypes.NewPackage("example.com/framework", "framework")
 		field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)

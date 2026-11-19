@@ -422,9 +422,11 @@ println item.Read()
 				name     string
 				position Position
 				newName  string
+				wantName string
 			}{
-				{name: "Declaration", position: Position{Line: 1, Character: 19}, newName: "Fetch"},
-				{name: "Alias", position: Position{Line: 3, Character: 21}, newName: "fetch"},
+				{name: "Declaration", position: Position{Line: 1, Character: 19}, newName: "Fetch", wantName: "Fetch"},
+				{name: "Alias", position: Position{Line: 3, Character: 21}, newName: "fetch", wantName: "Fetch"},
+				{name: "SameName", position: Position{Line: 1, Character: 19}, newName: "Read", wantName: "Read"},
 			} {
 				t.Run(target.name, func(t *testing.T) {
 					s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
@@ -436,7 +438,7 @@ println item.Read()
 					require.NoError(t, err)
 					require.NotNil(t, edit)
 					updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
-					assert.Equal(t, strings.NewReplacer("Read", "Fetch", "read", "fetch").Replace(source), updated)
+					assert.Equal(t, strings.NewReplacer("Read", target.wantName, "read", strings.ToLower(target.wantName)).Replace(source), updated)
 					s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
 					_, err = s.requestProject().TypeInfo()
 					assert.NoError(t, err)
@@ -584,6 +586,9 @@ println Read(1), Read("text"), readInt(2)
 			require.NotNil(t, highlights)
 			assert.ElementsMatch(t, wantHighlights, *highlights)
 			if tt.name == "WrapperCall" {
+				declaration, err := s.textDocumentDeclaration(&DeclarationParams{TextDocumentPositionParams: params})
+				require.NoError(t, err)
+				assert.Equal(t, wantLocations[0], declaration)
 				definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
 				require.NoError(t, err)
 				assert.Equal(t, Location{URI: uri, Range: Range{Start: Position{Character: 5}, End: Position{Character: 12}}}, definition)
@@ -638,6 +643,200 @@ func use() { println Read(1), read("text") }
 				_, err = s.requestProject().TypeInfo()
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestServerTextDocumentRenameInlineOverload(t *testing.T) {
+	const pkgSource = `func Choose__1(value string) int { return len(value) }
+func Choose = (
+	func(value int) int { return value }
+	Choose__1
+)
+_ = Ch|oose(1)
+_ = Choose__0(2)
+_ = choose__0(3)
+_ = Choose__1("text")
+`
+	const classSource = `func XGo_Choose = (
+	func(value int) int { return value }
+	func(value string) int { return len(value) }
+)
+func use() {
+	var record Record
+	_ = XGo_Ch|oose(1)
+	_ = XGo_Choose__0(2)
+	_ = record._Choose__0(3)
+}
+`
+	for _, tt := range []struct {
+		name, filename, source               string
+		oldName, newName, oldAlias, newAlias string
+		wantError                            string
+	}{
+		{
+			name: "Package", filename: "main.xgo", source: pkgSource,
+			oldName: "Choose", newName: "Fetch", oldAlias: "choose", newAlias: "fetch",
+		},
+		{
+			name: "Incomplete", filename: "main.xgo", source: pkgSource + "_ = missing()\n",
+			oldName: "Choose", newName: "Fetch", oldAlias: "choose", newAlias: "fetch", wantError: "undefined: missing",
+		},
+		{
+			name: "ClassProtocol", filename: "Record.gox", source: classSource,
+			oldName: "XGo_Choose", newName: "XGo_Fetch", oldAlias: "_Choose", newAlias: "_Fetch",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source)})
+			t.Cleanup(s.Close)
+			checkSource := func() {
+				t.Helper()
+				_, err := s.requestProject().TypeInfo()
+				if tt.wantError == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, tt.wantError)
+				}
+			}
+			checkSource()
+
+			uri := s.toDocumentURI(tt.filename)
+			document := TextDocumentIdentifier{URI: uri}
+			prepared, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: document, Position: pos,
+			}})
+			require.NoError(t, err)
+			require.NotNil(t, prepared)
+			edit, err := s.textDocumentRename(&RenameParams{TextDocument: document, Position: pos, NewName: tt.newName})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+
+			updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
+			want := strings.NewReplacer(
+				"func "+tt.oldName+" =", "func "+tt.newName+" =",
+				tt.oldName+"(", tt.newName+"(",
+				tt.oldName+"__0", tt.newName+"__0",
+				tt.oldAlias+"__0", tt.newAlias+"__0",
+			).Replace(source)
+			assert.Equal(t, want, updated)
+			s.ModifyFiles([]FileChange{{Path: tt.filename, Content: []byte(updated), Version: 1}})
+			checkSource()
+		})
+	}
+}
+
+func TestServerTextDocumentRenameMethodExpressionAlias(t *testing.T) {
+	for _, tt := range []struct {
+		name, filename, declarations string
+	}{
+		{name: "Static", filename: "Record.gox", declarations: "func .Ch|oose() int { return 1 }"},
+		{name: "Instance", filename: "main.xgo", declarations: "type Record struct{}\nfunc (Record) Ch|oose() int { return 1 }"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, tt.declarations+`
+func use() { _ = Record.choose }
+`)
+			s := newTestServer(t, map[string][]byte{tt.filename: []byte(source)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			uri := s.toDocumentURI(tt.filename)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: uri},
+				Position:     pos,
+				NewName:      "pick",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			require.Len(t, edit.Changes[uri], 2)
+			for _, change := range edit.Changes[uri] {
+				assert.Equal(t, "pick", change.NewText)
+			}
+		})
+	}
+}
+
+func TestServerTextDocumentRenameStaticMethodOwner(t *testing.T) {
+	source, pos := typeDisplayTestSource(t, `type Record struct{}
+type Other struct{}
+func Re|cord.Choose(value int) int { return value }
+func Other.Choose(value int) int { return value }
+func use() {
+	_ = XGos_Record_Choose(1)
+	_ = xGos_Record_Choose(2)
+	_ = XGos_Other_Choose(3)
+}
+`)
+	s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+	t.Cleanup(s.Close)
+	_, err := s.requestProject().TypeInfo()
+	require.NoError(t, err)
+	uri := s.toDocumentURI("main.xgo")
+	edit, err := s.textDocumentRename(&RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		NewName:      "Entry",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, edit)
+	updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
+	assert.Equal(t, `type Entry struct{}
+type Other struct{}
+func Entry.Choose(value int) int { return value }
+func Other.Choose(value int) int { return value }
+func use() {
+	_ = XGos_Entry_Choose(1)
+	_ = xGos_Entry_Choose(2)
+	_ = XGos_Other_Choose(3)
+}
+`, updated)
+}
+
+func TestServerTextDocumentRenameEncodedStaticMethod(t *testing.T) {
+	for _, tt := range []struct {
+		name, encoded, newName, wantEncoded string
+		wantError                           string
+	}{
+		{name: "MemberName", encoded: "XGos_Record_Choose", newName: "Fetch", wantEncoded: "XGos_Record_Fetch"},
+		{name: "FullEncodedName", encoded: "XGos_Record_Choose", newName: "XGos_Record_Fetch", wantEncoded: "XGos_Record_Fetch"},
+		{name: "EncodedAlias", encoded: "xGos_Record_Choose", newName: "xGos_Record_Fetch", wantEncoded: "xGos_Record_Fetch"},
+		{name: "DifferentOwner", encoded: "XGos_Record_Choose", newName: "XGos_Other_Fetch",
+			wantError: `static method rename must keep receiver "Record"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "Record.gox"
+			const source = `func .Choose() int { return 1 }
+_ = <encoded>()
+_ = Record.choose()
+`
+			content := strings.Replace(source, "<encoded>", tt.encoded, 1)
+			s := newTestServer(t, map[string][]byte{filename: []byte(content)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			start := uint32(4 + len(tt.encoded) - len("Choose"))
+			document := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+			pos := Position{Line: 1, Character: start + 1}
+			prepared, err := s.textDocumentPrepareRename(&PrepareRenameParams{
+				TextDocumentPositionParams: TextDocumentPositionParams{TextDocument: document, Position: pos},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, prepared)
+			assert.Equal(t, Range{Start: Position{Line: 1, Character: start},
+				End: Position{Line: 1, Character: start + uint32(len("Choose"))}}, *prepared)
+
+			edit, err := s.textDocumentRename(&RenameParams{TextDocument: document, Position: pos, NewName: tt.newName})
+			if tt.wantError != "" {
+				require.ErrorContains(t, err, tt.wantError)
+				assert.Nil(t, edit)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			want := strings.NewReplacer("<encoded>", tt.wantEncoded, "Choose", "Fetch", "choose", "fetch").Replace(source)
+			assert.Equal(t, want, applyResourceRenameTestEdits(t, content, edit.Changes[document.URI]))
 		})
 	}
 }

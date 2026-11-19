@@ -562,7 +562,7 @@ func newCompletionTestContext(t *testing.T, s *Server, filename string, position
 	sourcePos := pos
 	pos = completionASTPosition(proj, file, pos)
 	ctx := &completionContext{
-		definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc, enumInfo: newEnumInfo(astPkg, info)},
+		definitionContext: definitionContext{proj: proj, typeDisplay: newTypeDisplay(proj, file, pos), lookupPkgDoc: s.lookupPkgDoc, enumInfo: newEnumInfo(astPkg, info)},
 		itemSet:           newCompletionItemSet(Markdown), typeInfo: info, filename: filename,
 		astFile: file, astFileScope: info.Scopes[file], tokenFile: xgoutil.NodeTokenFile(proj.Fset, file),
 		pos: pos, sourcePos: sourcePos, innermostScope: xgoutil.InnermostScopeAt(proj.Fset, info, astPkg, pos),

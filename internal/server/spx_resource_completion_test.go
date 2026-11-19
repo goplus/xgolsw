@@ -362,7 +362,12 @@ play "r"
 }
 `, []string{"runner"}, []string{"other"}},
 			{"Explicit", "main.spx", "Runner.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
+			{"Parenthesized", "main.spx", "((Runner).setCostume)(\"c|\")\n", []string{"runner"}, []string{"other"}},
 			{"ExplicitThis", "Runner.spx", "this.setCostume \"c|\"\n", []string{"runner"}, []string{"other"}},
+			{"MethodReceiver", "Other.spx", `func (r *Runner) Review() {
+    setCostume "c|"
+}
+`, []string{"runner"}, []string{"other"}},
 			{"CrossSprite", "Other.spx", `onClick => {
 	Runner.setCostume "c|"
 }
@@ -463,6 +468,10 @@ func run() {}
 			{"LineDirective", "main.spx", `//line virtual.spx:100:20
 showVar "s|"
 `, map[string]string{"score": "xgo:main?Game.score"}},
+			{"FuncDecorator", "Runner.spx", `func withProperty(name PropertyName, fn func()) {}
+@withProperty("|hp")
+func run() {}
+`, map[string]string{"hp": "xgo:main?Runner.hp"}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				files := map[string][]byte{

@@ -610,18 +610,24 @@ println local
 		for _, tt := range []struct {
 			name     string
 			filename string
+			ext      string
 			want     bool
 		}{
-			{name: "Project", filename: "main_fixture.gox", want: true},
-			{name: "Fragment", filename: "Part_fixture.gox"},
+			{name: "Project", filename: "main_fixture.gox", ext: "_fixture.gox", want: true},
+			{name: "Fragment", filename: "Part_fixture.gox", ext: "_fixture.gox"},
+			{name: "NestedFragment", filename: "class_files/Part.gox", ext: ".gox"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				mod := testframework.NewModule(t)
-				mod.Opt.Projects[0].Flat = true
+				project := mod.Opt.Projects[0]
+				project.Ext = tt.ext
+				project.FullExt = "main" + tt.ext
+				project.Flat = true
+				project.Works = nil
 				require.NoError(t, mod.ImportClasses())
 				s := newFrameworkTestServerWithModule(t, map[string][]byte{
-					"main_fixture.gox": nil,
-					tt.filename:        []byte("var a int\nvar b int\n"),
+					project.FullExt: nil,
+					tt.filename:     []byte("var a int\nvar b int\n"),
 				}, mod)
 				t.Cleanup(s.Close)
 				actions, err := s.textDocumentCodeAction(&CodeActionParams{

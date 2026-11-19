@@ -41,9 +41,7 @@ func (r *spxAnalysis) collectTypeCompletions(ctx *completionContext, typ gotypes
 
 	// Handle spx.PropertyName type - provide property name completions.
 	if r.inferSpxInputTypeFromType(typ) == SpxInputTypePropertyName {
-		if target := ctx.getPropertyTarget(); target != "" {
-			ctx.collectPropertyNames(target)
-		}
+		ctx.collectPropertyNames(ctx.getPropertyTarget())
 		return
 	}
 

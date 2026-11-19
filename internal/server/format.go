@@ -11,9 +11,12 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/format"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
+	xerrors "github.com/qiniu/x/errors"
 )
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification#textDocument_formatting
@@ -140,25 +143,265 @@ func formatXGo(snapshot *xgo.Project, filename string) ([]byte, error) {
 	return formatted, nil
 }
 
-// formatLambda formats a source file by eliminating unused lambda parameters.
+// formatLambda formats a source file until no further unused lambda parameters
+// can be removed without changing checked types or introducing errors.
 func formatLambda(snapshot *xgo.Project, filename string) ([]byte, error) {
 	astFile, _ := snapshot.ASTFile(filename)
 	if astFile == nil {
 		return nil, nil
 	}
-
-	// Eliminate unused lambda parameters.
-	eliminateUnusedLambdaParams(snapshot, astFile)
-
-	// Format the modified AST.
-	formatted, err := formatFileWithClassTags(snapshot, filename, astFile)
-	if err != nil {
-		return nil, err
+	current := snapshot
+	syntax := formattingSourceSyntax(astFile)
+	before, beforeErr := snapshot.TypeInfo()
+	var accepted []byte
+	try := func(lambdas []*ast.LambdaExpr) (bool, error) {
+		formatted, err := formatShortenedLambdas(current, filename, astFile, lambdas)
+		if err != nil {
+			return false, err
+		}
+		// Recheck the printed edit even when the project already contains errors.
+		preview := current.Fork()
+		preview.PutFile(filename, &xgo.File{Content: formatted})
+		previewFile, _ := preview.ASTFile(filename)
+		previewSyntax := formattingSourceSyntax(previewFile)
+		after, afterErr := preview.TypeInfo()
+		if hasNewFormattingErrors(beforeErr, afterErr, filename, astFile.Code, formatted) ||
+			!preservesFormattingTypes(before, after, syntax, previewSyntax) {
+			return false, nil
+		}
+		// Reuse the checked preview to find the next unused parameters.
+		accepted = formatted
+		current, astFile, syntax = preview, previewFile, previewSyntax
+		before, beforeErr = after, afterErr
+		return true, nil
 	}
-	if len(formatted) == 0 || string(formatted) == "\n" {
-		return []byte{}, nil
+	for {
+		lambdas := unusedLambdaParams(current, astFile)
+		if len(lambdas) == 0 {
+			if accepted != nil {
+				return accepted, nil
+			}
+			formatted, err := formatFileWithClassTags(current, filename, astFile)
+			if err == nil && string(formatted) == "\n" {
+				return []byte{}, nil
+			}
+			return formatted, err
+		}
+		ok, err := try(lambdas)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			continue
+		}
+		if len(lambdas) == 1 {
+			return accepted, nil
+		}
+		// Sweep once in source order, checking each edit against the latest
+		// accepted preview. A later edit may enable an earlier candidate, so
+		// revisit the list after the sweep when anything changed.
+		eligible := make(map[*ast.LambdaExpr]bool, len(lambdas))
+		for _, lambda := range lambdas {
+			eligible[lambda] = true
+		}
+		changed := false
+		for i := range syntax.lambdas {
+			lambda, _ := syntax.lambdas[i].expr.(*ast.LambdaExpr)
+			if !eligible[lambda] {
+				continue
+			}
+			ok, err := try([]*ast.LambdaExpr{lambda})
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				changed = true
+				clear(eligible)
+				for _, lambda := range unusedLambdaParams(current, astFile) {
+					eligible[lambda] = true
+				}
+			}
+		}
+		if !changed {
+			return accepted, nil
+		}
 	}
-	return formatted, nil
+}
+
+// formatShortenedLambdas prints a preview while keeping the checked AST's
+// parameter lists available for later attempts.
+func formatShortenedLambdas(proj *xgo.Project, filename string, file *ast.File, lambdas []*ast.LambdaExpr) ([]byte, error) {
+	params := make([][]*ast.Ident, len(lambdas))
+	for i, lambda := range lambdas {
+		params[i] = lambda.Lhs
+		lambda.Lhs = lambda.Lhs[:len(lambda.Lhs)-1]
+		if len(lambda.Lhs) == 0 {
+			// The printer expects nil for a lambda with no parameters.
+			lambda.Lhs = nil
+		}
+	}
+	defer func() {
+		for i, lambda := range lambdas {
+			lambda.Lhs = params[i]
+		}
+	}()
+	return formatFileWithClassTags(proj, filename, file)
+}
+
+// formattingSyntax holds source calls and lambda parameter lists in traversal order.
+type formattingSyntax struct {
+	calls   []*ast.CallExpr
+	lambdas []formattingLambda
+}
+
+// formattingLambda retains the parameter list before it is shortened.
+type formattingLambda struct {
+	expr   ast.Expr
+	params []*ast.Ident
+}
+
+// formattingSourceSyntax captures the syntax needed to compare checked types
+// before the checker modifies the AST and formatting drops lambda parameters.
+func formattingSourceSyntax(file *ast.File) (syntax formattingSyntax) {
+	if file == nil {
+		return syntax
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.CallExpr:
+			syntax.calls = append(syntax.calls, node)
+		case *ast.FuncDecorator:
+			syntax.calls = append(syntax.calls, &node.CallExpr)
+		case *ast.LambdaExpr:
+			syntax.lambdas = append(syntax.lambdas, formattingLambda{expr: node, params: node.Lhs})
+		case *ast.ArrowExpr:
+			syntax.lambdas = append(syntax.lambdas, formattingLambda{expr: node, params: node.Lhs})
+		}
+		return true
+	})
+	return syntax
+}
+
+// preservesFormattingTypes checks call results and the types of parameters
+// retained by lambdas, as well as the contextual results of lambda arguments.
+// Removing trailing parameters preserves call and lambda traversal order.
+func preservesFormattingTypes(before, after *types.Info, original, preview formattingSyntax) bool {
+	if after == nil || len(original.calls) != len(preview.calls) || len(original.lambdas) != len(preview.lambdas) {
+		return false
+	}
+	for i, call := range original.calls {
+		if !sameFormattingType(before.TypeOf(call), after.TypeOf(preview.calls[i])) {
+			return false
+		}
+	}
+	beforeResults := formattingLambdaResults(before, original.calls)
+	afterResults := formattingLambdaResults(after, preview.calls)
+	for i, lambda := range original.lambdas {
+		next := preview.lambdas[i]
+		if len(next.params) > len(lambda.params) || !sameFormattingType(beforeResults[lambda.expr], afterResults[next.expr]) {
+			return false
+		}
+		for j, param := range next.params {
+			if !sameFormattingType(before.TypeOf(lambda.params[j]), after.TypeOf(param)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// formattingLambdaResults records the result types supplied by checked calls.
+func formattingLambdaResults(info *types.Info, calls []*ast.CallExpr) map[ast.Expr]gotypes.Type {
+	results := make(map[ast.Expr]gotypes.Type)
+	for _, call := range calls {
+		if !xgoutil.IsValidType(info.TypeOf(call)) {
+			continue
+		}
+		for arg := range xgoutil.ResolvedCallExprArgs(info, call) {
+			switch expr := astutil.Unparen(arg.Arg).(type) {
+			case *ast.LambdaExpr, *ast.ArrowExpr:
+				if sig := signatureType(arg.ExpectedType); sig != nil {
+					results[expr] = sig.Results()
+				}
+			}
+		}
+	}
+	return results
+}
+
+// sameFormattingType compares known types across separately checked snapshots.
+// Package paths distinguish the preview's recreated named and local types.
+func sameFormattingType(before, after gotypes.Type) bool {
+	if !xgoutil.IsValidType(before) || before == after {
+		return true
+	}
+	if !xgoutil.IsValidType(after) {
+		return false
+	}
+	if results, ok := before.(*gotypes.Tuple); ok {
+		next, ok := after.(*gotypes.Tuple)
+		if !ok || results.Len() != next.Len() {
+			return false
+		}
+		// Result names do not affect function type identity.
+		for i := range results.Len() {
+			if !sameFormattingType(results.At(i).Type(), next.At(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	return gotypes.TypeString(before, (*gotypes.Package).Path) == gotypes.TypeString(after, (*gotypes.Package).Path)
+}
+
+// hasNewFormattingErrors detects diagnostics introduced by the printed edit.
+// In the edited file, match the source line and byte column so unchanged
+// diagnostics can move when formatting shifts their line numbers.
+func hasNewFormattingErrors(before, after error, filename string, original, formatted []byte) bool {
+	if after == nil {
+		return false
+	}
+	if before == nil {
+		return true
+	}
+	type errorKey struct {
+		file, line, message string
+		offset              int
+		code                typesutil.Code
+	}
+	keyFor := func(err error, content []byte) errorKey {
+		typeErr, ok := err.(typesutil.Error)
+		if !ok {
+			return errorKey{message: err.Error()}
+		}
+		pos := typeErr.Fset.PositionFor(typeErr.Pos, false)
+		key := errorKey{file: pos.Filename, offset: pos.Offset, code: typeErr.Code, message: typeErr.Msg}
+		if pos.Filename == filename && pos.Offset <= len(content) {
+			start := bytes.LastIndexByte(content[:pos.Offset], '\n') + 1
+			line, _, _ := bytes.Cut(content[start:], []byte("\n"))
+			key.line = string(line)
+			key.offset -= start
+		}
+		return key
+	}
+	errorList := func(err error) xerrors.List {
+		if list, ok := err.(xerrors.List); ok {
+			return list
+		}
+		return xerrors.List{err}
+	}
+	existing := make(map[errorKey]int)
+	for _, err := range errorList(before) {
+		existing[keyFor(err, original)]++
+	}
+	for _, err := range errorList(after) {
+		key := keyFor(err, formatted)
+		if existing[key] == 0 {
+			return true
+		}
+		existing[key]--
+	}
+	return false
 }
 
 // formatClassDecls reorders classfile declarations after field grouping.
@@ -403,38 +646,26 @@ func getDeclDoc(decl ast.Decl) *ast.CommentGroup {
 	}
 }
 
-// eliminateUnusedLambdaParams eliminates useless lambda parameter declarations.
-// A lambda parameter is considered "useless" if:
-//  1. The parameter is not used.
-//  2. The lambda is passed to a function that has an overload which receives the lambda without the parameter.
-//
-// Then we can omit its declaration safely.
-//
-// NOTE: There are limitations with current implementation:
-//  1. Only `LambdaExpr` (not `ArrowExpr`) is supported.
-//  2. Only the last parameter of the lambda is checked.
-//
-// We may complete it in the future, if needed.
-func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
+// unusedLambdaParams finds block lambdas whose unused last parameter can be
+// dropped by a candidate overload.
+func unusedLambdaParams(proj *xgo.Project, astFile *ast.File) []*ast.LambdaExpr {
 	typeInfo, _ := expressionTypeInfo(proj)
 	if typeInfo == nil {
-		return
+		return nil
 	}
+	var lambdas []*ast.LambdaExpr
 	ast.Inspect(astFile, func(n ast.Node) bool {
 		callExpr := callExprFromNode(typeInfo, n)
 		if callExpr == nil {
 			return true
 		}
-		funcOverloads := callExprFuncOverloads(typeInfo, callExpr)
+		funcOverloads := callExprOverloads(typeInfo, callExpr)
 		if len(funcOverloads) == 0 {
 			return true
 		}
 		for resolvedArg := range formatResolvedCallExprArgs(typeInfo, callExpr, funcOverloads) {
 			lambdaExpr, ok := resolvedArg.Arg.(*ast.LambdaExpr)
-			if !ok {
-				continue
-			}
-			if len(lambdaExpr.Lhs) == 0 {
+			if !ok || len(lambdaExpr.Lhs) == 0 {
 				continue
 			}
 			lambdaSig := resolvedLambdaSignature(typeInfo, callExpr, funcOverloads, resolvedArg, len(lambdaExpr.Lhs))
@@ -442,8 +673,6 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 				continue
 			}
 
-			// To simplify the implementation, we only check & process the last parameter,
-			// which is enough to cover known cases.
 			lastParamIdx := len(lambdaExpr.Lhs) - 1
 			if isLambdaParamUsed(typeInfo, lambdaExpr, lambdaExpr.Lhs[lastParamIdx]) {
 				continue
@@ -459,51 +688,38 @@ func eliminateUnusedLambdaParams(proj *xgo.Project, astFile *ast.File) {
 				lambdaSig.Results(),
 				false, // Removing the final parameter also removes any variadic tail.
 			)
-			hasMatchedOverload := false
 			for _, overloadType := range funcOverloads {
-				expectedType, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, resolvedArg.Arg, resolvedArg.ArgIndex)
+				_, expectedType, matches := overloadType.matchArgs(typeInfo, callExpr, resolvedArg.Arg)
 				if !matches {
 					continue
 				}
 				overloadLambdaSig := signatureType(expectedType)
-				if overloadLambdaSig == nil {
-					continue
-				}
-				if !gotypes.AssignableTo(newLambdaSig, overloadLambdaSig) {
+				if overloadLambdaSig == nil || !gotypes.AssignableTo(newLambdaSig, overloadLambdaSig) {
 					continue
 				}
 
-				sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
-				args, ellipsis := xgoutil.CallExprArgs(typeInfo, callExpr, params)
+				sig, params := overloadType.signature, overloadType.params
+				args, _ := xgoutil.CallExprArgsForSignature(typeInfo, callExpr, sig, params)
 				argCount := len(args)
 				if len(callExpr.Kwargs) > 0 {
 					argCount++ // Keyword arguments share one parameter slot.
 				}
-				if ellipsis && (!sig.Variadic() || argCount != params.Len()) {
-					continue
-				}
-				typeArgCount := xgoutil.NormalizedCallExprTypeArgCount(overloadType, params)
+				typeArgCount := xgoutil.NormalizedCallExprTypeArgCount(overloadType.function(), params)
 				if argCount < xgoutil.RequiredParamCount(typeInfo, sig, params, typeArgCount) {
 					continue
 				}
-				hasMatchedOverload = true
+				lambdas = append(lambdas, lambdaExpr)
 				break
-			}
-			if hasMatchedOverload {
-				lambdaExpr.Lhs = lambdaExpr.Lhs[:lastParamIdx]
-				if len(lambdaExpr.Lhs) == 0 {
-					// Avoid `index out of range [0] with length 0` when printing lambda expression.
-					lambdaExpr.Lhs = nil
-				}
 			}
 		}
 		return true
 	})
+	return lambdas
 }
 
 // formatResolvedCallExprArgs returns call arguments with a fallback path for
 // overload pseudo-functions that do not expose a normal callable signature.
-func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func) iter.Seq[xgoutil.ResolvedCallExprArg] {
+func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []callOverload) iter.Seq[xgoutil.ResolvedCallExprArg] {
 	return func(yield func(xgoutil.ResolvedCallExprArg) bool) {
 		hasResolvedArgs := false
 		for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, callExpr) {
@@ -518,7 +734,7 @@ func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, ov
 
 		seen := make(map[ast.Expr]bool)
 		for _, overload := range overloads {
-			for arg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, callExpr, overload) {
+			for arg := range overload.args(typeInfo, callExpr) {
 				if seen[arg.Arg] {
 					continue
 				}
@@ -531,104 +747,15 @@ func formatResolvedCallExprArgs(typeInfo *types.Info, callExpr *ast.CallExpr, ov
 	}
 }
 
-// resolvedCallExprKwargAtArgCount returns the parameter slot that receives
-// kwargs when only argCount positional arguments should be considered before
-// kwargs.
-func resolvedCallExprKwargAtArgCount(typeInfo *types.Info, callExpr *ast.CallExpr, sig *gotypes.Signature, params *gotypes.Tuple, argCount int) *xgoutil.ResolvedCallExprKwarg {
-	paramIndex, ok := callKwargParamIndex(sig, params, argCount)
-	if !ok {
-		return nil
-	}
-	param := params.At(paramIndex)
-	return &xgoutil.ResolvedCallExprKwarg{
-		Param:                 param,
-		ParamIndex:            paramIndex,
-		AllowInterfaceTargets: xgoutil.CallExprSupportsInterfaceKwargs(typeInfo, callExpr, param.Type()),
-	}
-}
-
-// callKwargParamIndex returns the parameter slot that receives kwargs after
-// argCount positional arguments.
-func callKwargParamIndex(sig *gotypes.Signature, params *gotypes.Tuple, argCount int) (int, bool) {
-	if params.Len() == 0 {
-		return 0, false
-	}
-	if sig.Variadic() {
-		paramIndex := params.Len() - 2
-		if paramIndex < 0 || argCount < paramIndex {
-			return 0, false
-		}
-		return paramIndex, true
-	}
-
-	paramIndex := argCount
-	if paramIndex >= params.Len() {
-		return 0, false
-	}
-	return paramIndex, true
-}
-
-// overloadMatchesCallExpr reports whether overloadType is still viable for
-// callExpr after checking every argument except the one at skipArgIndex.
-func overloadMatchesCallExpr(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, skipArgIndex int) bool {
-	_, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, nil, skipArgIndex)
-	return matches
-}
-
-// matchOverloadCallExprArg checks an overload and returns target's expected type
-// using the same signature and argument mapping. A nil target only checks the
-// match. skipArgIndex excludes an argument from compatibility checks.
-func matchOverloadCallExprArg(typeInfo *types.Info, callExpr *ast.CallExpr, overloadType *gotypes.Func, target ast.Expr, skipArgIndex int) (gotypes.Type, bool) {
-	sig, params := xgoutil.ResolveFuncSignatureForCall(typeInfo, callExpr, overloadType)
-	if sig == nil {
-		return nil, false
-	}
-	args, _ := xgoutil.CallExprArgs(typeInfo, callExpr, params)
-	argCount := 0
-	var expectedType gotypes.Type
-	for arg := range xgoutil.ResolvedCallExprArgsForSignature(typeInfo, callExpr, overloadType, sig, params) {
-		argCount++
-		if arg.Arg == target {
-			expectedType = arg.ExpectedType
-		}
-		if arg.ArgIndex == skipArgIndex {
-			continue
-		}
-		if arg.ExpectedType == nil || !formatArgMatchesType(typeInfo, arg.Arg, arg.ExpectedType) {
-			return nil, false
-		}
-	}
-	return expectedType, argCount == len(args)+len(callExpr.Kwargs)
-}
-
-// formatArgMatchesType reports whether argExpr is compatible with expectedType
-// for formatter-side overload filtering.
-func formatArgMatchesType(typeInfo *types.Info, argExpr ast.Expr, expectedType gotypes.Type) bool {
-	if lambdaExpr, ok := argExpr.(*ast.LambdaExpr); ok {
-		lambdaSig := signatureType(expectedType)
-		return lambdaSig != nil && len(lambdaExpr.Lhs) == lambdaSig.Params().Len()
-	}
-
-	actualType := typeInfo.TypeOf(argExpr)
-	if actualType == nil {
-		return true
-	}
-	if _, ok := expectedType.(*gotypes.TypeParam); ok {
-		return xgoutil.IsTypesCompatible(actualType, expectedType)
-	}
-	return gotypes.AssignableTo(actualType, expectedType)
-}
-
-// resolvedLambdaSignature returns the current expected lambda signature for
-// resolvedArg. It falls back to matching overload signatures when the resolved
-// argument type is unavailable on the current call object.
-func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []*gotypes.Func, resolvedArg xgoutil.ResolvedCallExprArg, paramCount int) *gotypes.Signature {
-	if lambdaSig := signatureType(resolvedArg.ExpectedType); lambdaSig != nil {
+// resolvedLambdaSignature returns a callback signature with the lambda's
+// written parameter count. An incomplete call can resolve to another arity.
+func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overloads []callOverload, resolvedArg xgoutil.ResolvedCallExprArg, paramCount int) *gotypes.Signature {
+	if lambdaSig := signatureType(resolvedArg.ExpectedType); lambdaSig != nil && lambdaSig.Params().Len() == paramCount {
 		return lambdaSig
 	}
 
 	for _, overloadType := range overloads {
-		expectedType, matches := matchOverloadCallExprArg(typeInfo, callExpr, overloadType, resolvedArg.Arg, resolvedArg.ArgIndex)
+		_, expectedType, matches := overloadType.matchArgs(typeInfo, callExpr, resolvedArg.Arg)
 		if !matches {
 			continue
 		}
@@ -644,6 +771,12 @@ func resolvedLambdaSignature(typeInfo *types.Info, callExpr *ast.CallExpr, overl
 // callExprArgType returns the positional expected argument type at paramIndex
 // and unwraps variadic slices to their element type.
 func callExprArgType(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) gotypes.Type {
+	return callExprParamType(sig, params, paramIndex, false)
+}
+
+// callExprParamType returns the parameter type for a source argument or for a
+// value expanded from a multiple-result call.
+func callExprParamType(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int, expanded bool) gotypes.Type {
 	param, paramIndex := callExprParam(sig, params, paramIndex)
 	if param == nil {
 		return nil
@@ -654,6 +787,9 @@ func callExprArgType(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex i
 			return sliceType.Elem()
 		}
 		return nil
+	}
+	if expanded {
+		return param.Type()
 	}
 	return xgoutil.SourceParamType(param)
 }

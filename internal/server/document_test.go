@@ -338,6 +338,47 @@ func run() {
 		}
 	})
 
+	t.Run("InterfaceKwargBuilderChain", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `type Options interface {
+	Count(int) Options
+	Enable(bool) Options
+}
+type Builder struct{}
+type Next struct{}
+func (Builder) Count(int) Next { return Next{} }
+func (Next) Enable(bool) Options { return nil }
+type Client struct{}
+func (Client) Options() Builder { return Builder{} }
+func (Client) Complete(Options) {}
+var client Client
+client.complete count = 1, en|able = true, count = 2
+`)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		proj := s.requestProject()
+		call := resourceTestCall(t, proj, filename)
+		document := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: document})
+		require.NoError(t, err)
+		require.Len(t, call.Kwargs, 3)
+		for i, method := range []string{"Count", "Enable", "Count"} {
+			assert.Contains(t, links, DocumentLink{
+				Range:  RangeForNode(proj, call.Kwargs[i].Name),
+				Target: toURI("xgo:main?Options." + method),
+			})
+		}
+		definition, err := s.textDocumentDefinition(&DefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{TextDocument: document, Position: pos},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, Location{
+			URI:   document.URI,
+			Range: Range{Start: Position{Line: 2, Character: 1}, End: Position{Line: 2, Character: 7}},
+		}, requireValueAs[Location](t, definition))
+	})
+
 	t.Run("OverloadKwargs", func(t *testing.T) {
 		const fields = `type Record struct { Count int }
 type Adapter Record

@@ -115,6 +115,65 @@ func TestServerTextDocumentCompletionUnits(t *testing.T) {
 		})
 	})
 
+	t.Run("NumericSpelling", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, number, suffix, insert string
+			want, hidden                 []string
+		}{
+			{name: "Decimal", number: "1", insert: "d",
+				want: []string{"cm", "d", "ms"}, hidden: []string{"e", "i", "r", "_unit"}},
+			{name: "Hexadecimal", number: "0x1", insert: "ms",
+				want: []string{"ms"}, hidden: []string{"cm", "d", "e", "i", "r", "_unit"}},
+			{name: "HexadecimalExponent", number: "0x1p0", insert: "e",
+				want: []string{"cm", "d", "e", "ms"}, hidden: []string{"i", "r", "_unit"}},
+			{name: "ReplaceSuffix", number: "0x1", suffix: "m", insert: "ms",
+				want: []string{"ms"}, hidden: []string{"cm", "d", "e"}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const filename = "main.xgo"
+				source, pos := typeDisplayTestSource(t, `import unit "example.com/framework"
+func move(distance unit.Distance) {}
+move `+tt.number+tt.suffix+"|\n")
+				s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+				t.Cleanup(s.Close)
+				setImportTestFrameworkMethods(t, s, `type Distance int
+const XGou_Distance = "cm=1,d=1,e=1,i=1,m=1,ms=1,r=1,_unit=1"
+`)
+				requireNoDiagnostics(t, s)
+
+				items := completionListAt(t, s, filename, pos).Items
+				labels := completionItemLabels(items)
+				assert.Subset(t, labels, tt.want)
+				for _, label := range tt.hidden {
+					assert.NotContains(t, labels, label)
+				}
+				item := completionItemByLabel(items, tt.insert)
+				require.NotNil(t, item)
+				assert.Equal(t, tt.number+tt.insert, item.FilterText)
+				require.NotNil(t, item.TextEdit)
+				edit := requireValueAs[TextEdit](t, item.TextEdit.Value)
+				updated := applyResourceRenameTestEdits(t, source, []TextEdit{edit})
+				assert.Contains(t, updated, "move "+tt.number+tt.insert+"\n")
+				s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(updated), Version: 1}})
+				requireNoDiagnostics(t, s)
+			})
+		}
+	})
+
+	t.Run("IncompleteExponent", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `import unit "example.com/framework"
+func move(distance unit.Distance) {}
+move 1e|
+`)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, "type Distance int\nconst XGou_Distance = \"ms=1\"\n")
+
+		items := completionItemsAt(t, s, filename, pos)
+		assert.False(t, containsCompletionItemKind(items, UnitCompletion))
+	})
+
 	t.Run("FuncDecoratorArgument", func(t *testing.T) {
 		s := newXGoUnitTestServer(t, `import "example.com/unit"
 
@@ -256,6 +315,33 @@ func run() {
 		assert.NotContains(t, completionItemLabels(items), "ms")
 	})
 
+	t.Run("CurrentPackageAliasOfImportedType", func(t *testing.T) {
+		const filename = "main.xgo"
+		const declarations = `import unit "example.com/framework"
+
+type Distance = unit.Distance
+
+func move(d Distance) {}
+`
+		source, pos := typeDisplayTestSource(t, declarations+"move 1|\n")
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, "type Distance int\nconst XGou_Distance = \"cm=10\"\n")
+		_, err := s.requestProject().TypeInfo()
+		require.NoError(t, err)
+		items := completionItemsAt(t, s, filename, pos)
+		assert.False(t, containsCompletionItemKind(items, UnitCompletion))
+
+		s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(declarations + "move 1cm\n"), Version: 1}})
+		_, err = s.requestProject().TypeInfo()
+		require.ErrorContains(t, err, "failed to import package \"main\"")
+		hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}, Position: pos,
+		}})
+		require.NoError(t, err)
+		assert.Nil(t, hover)
+	})
+
 	t.Run("ImportedAlias", func(t *testing.T) {
 		s := newXGoUnitTestServer(t, `import "example.com/unit"
 
@@ -314,6 +400,29 @@ func run() {
 		labels := completionItemLabels(items)
 		assert.Contains(t, labels, "ms")
 		assert.Contains(t, labels, "km")
+	})
+
+	t.Run("ExplicitTypeArgumentOverloads", func(t *testing.T) {
+		source, pos := typeDisplayTestSource(t, `import f "example.com/framework"
+f.measure(f.Distance, 1|, 2)
+f.measure(f.Distance, 1cm, 2)
+f.measure(f.Distance, 1ms, 2)
+`)
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, `type Distance int64
+const XGou_Distance = "cm=10,m=1000"
+type Delay int64
+const XGou_Delay = "ms=1,s=1000"
+func XGox_Measure__0[T any](minimum, maximum Delay) {}
+func XGox_Measure__1[T any](minimum, maximum T) {}
+`)
+		_, err := s.requestProject().TypeInfo()
+		require.NoError(t, err)
+
+		labels := completionItemLabels(completionListAt(t, s, "main.xgo", pos).Items)
+		assert.Contains(t, labels, "ms")
+		assert.Contains(t, labels, "cm")
 	})
 
 	t.Run("DoesNotSwallowGeneralItems", func(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/protocol"
@@ -49,7 +48,7 @@ func (s *Server) textDocumentCodeAction(params *CodeActionParams) ([]CodeAction,
 	if err != nil || file == nil || !file.IsClass {
 		return nil, nil
 	}
-	if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok && framework.Flat && !file.IsProj {
+	if xgoutil.IsFlatClassFragment(file, filename, proj.Module().LookupClass) {
 		// Flat fragments cannot declare class fields, even in a single block.
 		return nil, nil
 	}

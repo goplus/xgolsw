@@ -22,8 +22,9 @@ import (
 
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // NewXGo creates a new [PkgDoc] for an XGo package. It uses the files' classfile
@@ -33,6 +34,28 @@ import (
 // lookupClass finds the class framework registered for a file extension.
 // It may be nil for packages that need no framework registration.
 func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*modfile.Project, bool)) *PkgDoc {
+	return newXGo(pkgPath, pkg, lookupClass, func(file *ast.File, filename string) string {
+		return xgoutil.SourceClassName(file, filename, lookupClass)
+	})
+}
+
+// NewCheckedXGo creates a [PkgDoc] using checked class owners and the framework registry.
+func NewCheckedXGo(
+	pkgPath string, pkg *ast.Package,
+	lookupClass func(string) (*modfile.Project, bool),
+	className func(*ast.File) string,
+) *PkgDoc {
+	return newXGo(pkgPath, pkg, lookupClass, func(file *ast.File, _ string) string {
+		return className(file)
+	})
+}
+
+// newXGo builds source documentation using the supplied class name resolver.
+func newXGo(
+	pkgPath string, pkg *ast.Package,
+	lookupClass func(string) (*modfile.Project, bool),
+	className func(*ast.File, string) string,
+) *PkgDoc {
 	pkgDoc := &PkgDoc{
 		Path:   pkgPath,
 		Name:   pkg.Name,
@@ -41,8 +64,6 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 		Types:  make(map[string]*TypeDoc),
 		Funcs:  make(map[string]string),
 	}
-	pkgDoc.collectXGoDirectives(pkg, lookupClass)
-
 	filenames := slices.Sorted(maps.Keys(pkg.Files))
 	// Select the first documented file in source filename order.
 	for _, filename := range filenames {
@@ -55,18 +76,24 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 
 	for _, filename := range filenames {
 		astFile := pkg.Files[filename]
+		var classTypeName string
 		var classTypeDoc *TypeDoc
+		var classFields *ast.GenDecl
 		if astFile.IsClass {
-			className, _ := cl.GetFileClassType(astFile, filename, lookupClass)
-			if className != "" {
-				classTypeDoc = pkgDoc.typeDoc(className)
+			classTypeName = className(astFile, filename)
+			if classTypeName != "" {
+				classTypeDoc = pkgDoc.typeDoc(classTypeName)
+				if !xgoutil.IsFlatClassFragment(astFile, filename, lookupClass) {
+					classFields = astFile.ClassFields
+				}
 			}
 		}
+		pkgDoc.collectXGoFileDirectives(astFile, classTypeName, classFields)
 
 		for _, decl := range astFile.Decls {
 			switch decl := decl.(type) {
 			case *ast.GenDecl:
-				if decl == astFile.ClassFields && classTypeDoc == nil {
+				if skipClassVarDecl(astFile, decl, classFields) {
 					continue
 				}
 				for _, spec := range decl.Specs {
@@ -85,10 +112,21 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 
 					switch spec := spec.(type) {
 					case *ast.ValueSpec:
+						if decl == classFields {
+							if doc == "" {
+								doc = spec.Comment.Text()
+							}
+							if len(spec.Names) == 0 {
+								if field := xgoutil.EmbeddedFieldIdent(spec.Type); field != nil {
+									classTypeDoc.Fields[field.Name] = doc
+								}
+								continue
+							}
+						}
 						for _, name := range spec.Names {
 							switch decl.Tok {
 							case token.VAR:
-								if decl == astFile.ClassFields {
+								if decl == classFields {
 									classTypeDoc.Fields[name.Name] = doc
 								} else {
 									pkgDoc.Vars[name.Name] = doc
@@ -100,7 +138,7 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					case *ast.TypeSpec:
 						typeDoc := pkgDoc.typeDoc(spec.Name.Name)
 						typeDoc.Doc = doc
-						switch typ := spec.Type.(type) {
+						switch typ := xgoutil.DeclaredMemberType(spec).(type) {
 						case *ast.StructType:
 							for _, field := range typ.Fields.List {
 								fieldDoc := field.Doc.Text()
@@ -109,8 +147,8 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 								}
 
 								if len(field.Names) == 0 {
-									if name := embeddedFieldName(field.Type); name != "" {
-										typeDoc.Fields[name] = fieldDoc
+									if ident := xgoutil.EmbeddedFieldIdent(field.Type); ident != nil {
+										typeDoc.Fields[ident.Name] = fieldDoc
 									}
 									continue
 								}
@@ -149,25 +187,37 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					continue
 				}
 
-				var doc string
-				if decl.Doc != nil {
-					doc = decl.Doc.Text()
+				doc := decl.Doc.Text()
+				if decl.Static {
+					owner := classTypeName
+					if !decl.IsClass && len(decl.Recv.List) != 0 {
+						recv, ok := decl.Recv.List[0].Type.(*ast.Ident)
+						if !ok {
+							continue
+						}
+						owner = recv.Name
+					}
+					if owner != "" {
+						name := decl.Name.Name
+						implementation := xgoutil.XGosMemberName(owner, name)
+						pkgDoc.typeDoc(owner).Methods[name] = doc
+						pkgDoc.Funcs[implementation] = doc
+						if name != "_" {
+							metadata := ParseDirectives(decl.Doc)
+							pkgDoc.recordDirectives(owner+"."+name, metadata)
+							pkgDoc.recordDirectives(implementation, metadata)
+						}
+					}
+					continue
 				}
 
 				funcDocs := pkgDoc.Funcs
 				if decl.Recv != nil {
-					if len(decl.Recv.List) != 1 {
+					owner := methodReceiverName(decl.Recv)
+					if owner == "" {
 						continue
 					}
-					recvType := decl.Recv.List[0].Type
-					if star, ok := recvType.(*ast.StarExpr); ok {
-						recvType = star.X
-					}
-					recvIdent, ok := recvType.(*ast.Ident)
-					if !ok {
-						continue
-					}
-					funcDocs = pkgDoc.typeDoc(recvIdent.Name).Methods
+					funcDocs = pkgDoc.typeDoc(owner).Methods
 				} else if astFile.IsClass || astFile.ClassFields != nil {
 					if classTypeDoc == nil {
 						continue
@@ -175,6 +225,20 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 					funcDocs = classTypeDoc.Methods
 				}
 				funcDocs[decl.Name.Name] = doc
+			case *ast.OverloadFuncDecl:
+				doc := decl.Doc.Text()
+				switch {
+				case decl.IsClass || decl.Recv == nil && (astFile.IsClass || astFile.ClassFields != nil):
+					if classTypeDoc != nil {
+						classTypeDoc.Methods[decl.Name.Name] = doc
+					}
+				case decl.Recv == nil:
+					pkgDoc.Funcs[decl.Name.Name] = doc
+				default:
+					if owner := methodReceiverName(decl.Recv); owner != "" {
+						pkgDoc.typeDoc(owner).Methods[decl.Name.Name] = doc
+					}
+				}
 			}
 		}
 	}
@@ -182,22 +246,22 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 	return pkgDoc
 }
 
-// embeddedFieldName returns the field name of an embedded XGo type.
-func embeddedFieldName(expr ast.Expr) string {
-	for {
-		switch typ := expr.(type) {
-		case *ast.Ident:
-			return typ.Name
-		case *ast.SelectorExpr:
-			return typ.Sel.Name
-		case *ast.StarExpr:
-			expr = typ.X
-		case *ast.IndexExpr:
-			expr = typ.X
-		case *ast.IndexListExpr:
-			expr = typ.X
-		default:
-			return ""
+// skipClassVarDecl reports whether a class variable declaration was omitted
+// because it is outside the class's field block or the owner is unresolved.
+func skipClassVarDecl(file *ast.File, decl, classFields *ast.GenDecl) bool {
+	return decl != classFields && (decl == file.ClassFields || file.IsClass && decl.Tok == token.VAR)
+}
+
+// methodReceiverName returns the local type named by a method receiver.
+func methodReceiverName(recv *ast.FieldList) string {
+	if len(recv.List) == 1 {
+		typ := astutil.Unparen(recv.List[0].Type)
+		if ptr, ok := typ.(*ast.StarExpr); ok {
+			typ = astutil.Unparen(ptr.X)
+		}
+		if ident, ok := typ.(*ast.Ident); ok {
+			return ident.Name
 		}
 	}
+	return ""
 }

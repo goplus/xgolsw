@@ -39,6 +39,84 @@ func IsValidType(typ gotypes.Type) bool {
 	return typ != nil && typ != gotypes.Typ[gotypes.Invalid]
 }
 
+// TypeInitializer returns the callable T_Init declaration for implicit
+// assignment. The lookup follows aliases to the defined type.
+func TypeInitializer(typ gotypes.Type) gotypes.Object {
+	named, ok := gotypes.Unalias(typ).(*gotypes.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return nil
+	}
+	obj := named.Obj()
+	init := obj.Pkg().Scope().Lookup(obj.Name() + "_Init")
+	if init == nil {
+		return nil
+	}
+	switch typ := init.Type().(type) {
+	case *gotypes.Signature:
+		return init
+	case *gotypes.Named:
+		if _, ok := typ.Underlying().(*gotypes.Signature); ok {
+			return init
+		}
+	}
+	return nil
+}
+
+// CanCastEmbeddedPointer reports whether an embedded named type can supply
+// the target of an implicit pointer conversion.
+func CanCastEmbeddedPointer(from, to gotypes.Type) bool {
+	source, sourceOK := gotypes.Unalias(from).(*gotypes.Pointer)
+	target, targetOK := gotypes.Unalias(to).(*gotypes.Pointer)
+	if !sourceOK || !targetOK {
+		return false
+	}
+	named, ok := target.Elem().(*gotypes.Named)
+	if !ok {
+		return false
+	}
+	seen := make(map[*gotypes.Struct]bool)
+	var contains func(gotypes.Type) bool
+	contains = func(typ gotypes.Type) bool {
+		structure, ok := typ.Underlying().(*gotypes.Struct)
+		if !ok || seen[structure] {
+			return false
+		}
+		seen[structure] = true
+		for field := range structure.Fields() {
+			if !field.Embedded() {
+				continue
+			}
+			typ := field.Type()
+			if pointer, ok := typ.(*gotypes.Pointer); ok {
+				typ = pointer.Elem()
+			}
+			if embedded, ok := typ.(*gotypes.Named); ok && (embedded == named || contains(embedded)) {
+				return true
+			}
+		}
+		return false
+	}
+	return contains(source.Elem())
+}
+
+// MethodExpressionReceiver returns the explicit receiver for an ordinary XGo
+// method expression. It returns nil for an invalid selector type or a pointer
+// selector for a non-interface value-receiver method.
+func MethodExpressionReceiver(selector, declared gotypes.Type) gotypes.Type {
+	if !IsValidType(selector) {
+		return nil
+	}
+	_, selectorIsPointer := selector.(*gotypes.Pointer)
+	_, declaredIsPointer := declared.(*gotypes.Pointer)
+	if selectorIsPointer && !declaredIsPointer && !gotypes.IsInterface(declared) {
+		return nil
+	}
+	if declaredIsPointer && !selectorIsPointer {
+		return gotypes.NewPointer(selector)
+	}
+	return selector
+}
+
 // IsTypeExpr reports whether expr denotes a type. The second result is false
 // when the recorded type information does not determine this.
 func IsTypeExpr(typeInfo *types.Info, expr ast.Expr) (isType, known bool) {

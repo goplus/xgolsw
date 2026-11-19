@@ -8,35 +8,29 @@ import (
 
 // getPropertyTarget returns the project type whose properties are addressed by
 // the enclosing call, or the current classfile when there is no enclosing call.
-func (ctx *completionContext) getPropertyTarget() string {
+func (ctx *completionContext) getPropertyTarget() *gotypes.Named {
 	var named *gotypes.Named
 	if call := ctx.getEnclosingCallExpr(); call != nil {
-		named = propertyTargetForCall(ctx.proj, ctx.astFile, call)
+		named = propertyTargetForCall(ctx.typeInfo, ctx.astFile, call)
 	} else {
 		named = classTypeForFile(ctx.proj, ctx.astFile)
 	}
 	if named == nil || !xgoutil.IsInMainPkg(named.Obj()) {
-		return ""
+		return nil
 	}
-	return named.Obj().Name()
+	return named
 }
 
-// collectPropertyNames collects property name completion items for the given target type.
-func (ctx *completionContext) collectPropertyNames(target string) {
-	typeName, ok := ctx.typeInfo.Pkg.Scope().Lookup(target).(*gotypes.TypeName)
-	if !ok {
+// collectPropertyNames collects property name completion items for the receiver.
+func (ctx *completionContext) collectPropertyNames(named *gotypes.Named) {
+	if named == nil {
 		return
 	}
-	typ := gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typeName.Type())))
-	namedType, ok := typ.(*gotypes.Named)
-	if !ok {
-		return
-	}
-	if _, ok := namedType.Underlying().(*gotypes.Struct); !ok {
+	if _, ok := named.Underlying().(*gotypes.Struct); !ok {
 		return
 	}
 
-	for m := range ctx.propertyMembers(namedType) {
+	for m := range ctx.propertyMembers(named) {
 		key := "property:" + m.Name
 		if _, seen := ctx.itemSet.seenDefinitions[key]; seen {
 			continue

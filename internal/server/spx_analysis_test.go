@@ -270,6 +270,21 @@ func current() ResourceName { return pick("argument") }`, `"Known"`, XGoResource
 				want:   []resourceID{SpxSpriteCostumeResourceID{"Runner", "idle"}},
 			},
 			{
+				name:   "MethodReceiver",
+				source: "func (r *Other) Review() { setCostume \"idle\" }\n",
+				want:   []resourceID{SpxSpriteCostumeResourceID{"Other", "idle"}},
+			},
+			{
+				name:   "ParenthesizedCallee",
+				source: "((Other.setCostume))(\"idle\")\n",
+				want:   []resourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
+			},
+			{
+				name:   "ParenthesizedReceiver",
+				source: "(Other).setCostume(\"idle\")\n",
+				want:   []resourceID{SpxSpriteResourceID{"Other"}, SpxSpriteCostumeResourceID{"Other", "idle"}},
+			},
+			{
 				name:   "ShadowedThis",
 				source: "func run(this *Other) { this.setCostume \"idle\" }\n",
 			},

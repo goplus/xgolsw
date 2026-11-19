@@ -20,6 +20,17 @@ import (
 //go:embed testdata/fmt.go
 var fmtSource string
 
+// NewFmtPackage checks the minimal fmt declarations required by XGo builtins.
+func NewFmtPackage(t testing.TB, fset *token.FileSet) *gotypes.Package {
+	t.Helper()
+
+	file, err := goparser.ParseFile(fset, "fmt.go", fmtSource, 0)
+	require.NoError(t, err)
+	pkg, err := new(gotypes.Config).Check("fmt", fset, []*goast.File{file}, nil)
+	require.NoError(t, err)
+	return pkg
+}
+
 // NewPkgDataZip builds an archive containing framework exports and documentation
 // together with the minimal fmt exports required by XGo builtins.
 func NewPkgDataZip(t testing.TB) []byte {
@@ -33,10 +44,7 @@ func NewPkgDataZip(t testing.TB) []byte {
 	w, err := zw.Create(PkgPath + ".pkgexport")
 	require.NoError(t, err)
 	require.NoError(t, gcexportdata.Write(w, fset, pkg))
-	file, err := goparser.ParseFile(fset, "fmt.go", fmtSource, 0)
-	require.NoError(t, err)
-	fmtPkg, err := new(gotypes.Config).Check("fmt", fset, []*goast.File{file}, nil)
-	require.NoError(t, err)
+	fmtPkg := NewFmtPackage(t, fset)
 	w, err = zw.Create("fmt.pkgexport")
 	require.NoError(t, err)
 	require.NoError(t, gcexportdata.Write(w, fset, fmtPkg))

@@ -19,7 +19,43 @@ package xgoutil
 import (
 	gotypes "go/types"
 	"iter"
+
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
+	"github.com/goplus/xgolsw/xgo/types"
 )
+
+// DeclaredMemberType returns the syntax that declares a type's members,
+// including fields of an anonymous struct behind one pointer.
+func DeclaredMemberType(spec *ast.TypeSpec) ast.Expr {
+	expr := astutil.Unparen(spec.Type)
+	if ptr, ok := expr.(*ast.StarExpr); ok {
+		if structure, ok := astutil.Unparen(ptr.X).(*ast.StructType); ok {
+			return structure
+		}
+	}
+	return expr
+}
+
+// EmbeddedFieldIdent returns the source identifier that names an embedded field.
+func EmbeddedFieldIdent(expr ast.Expr) *ast.Ident {
+	for {
+		switch typ := astutil.Unparen(expr).(type) {
+		case *ast.Ident:
+			return typ
+		case *ast.SelectorExpr:
+			return typ.Sel
+		case *ast.StarExpr:
+			expr = typ.X
+		case *ast.IndexExpr:
+			expr = typ.X
+		case *ast.IndexListExpr:
+			expr = typ.X
+		default:
+			return nil
+		}
+	}
+}
 
 // StructMember describes a resolved struct member and the selector type used
 // to refer to it.
@@ -98,6 +134,12 @@ func StructMembers(typ gotypes.Type, selectorBoundary func(*gotypes.Named) bool)
 			}
 			if named != nil {
 				for method := range named.Methods() {
+					// Static values are only accessible through the declaring type.
+					if member := types.StaticMemberObject(method); member != nil {
+						if _, callable := member.(*gotypes.Func); !callable {
+							continue
+						}
+					}
 					if !yieldMember(method) {
 						return false
 					}

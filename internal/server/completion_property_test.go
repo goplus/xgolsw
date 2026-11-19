@@ -9,9 +9,18 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func propertyCompletionTestType(t *testing.T, info *types.Info, name string) *gotypes.Named {
+	t.Helper()
+	obj := requireValueAs[*gotypes.TypeName](t, info.Pkg.Scope().Lookup(name))
+	named := resolvedNamedType(obj.Type())
+	require.NotNil(t, named)
+	return named
+}
 
 func TestCompletionContextCollectPropertyNames(t *testing.T) {
 	t.Run("SourceKinds", func(t *testing.T) {
@@ -60,8 +69,9 @@ ready bool
 				}
 				// Candidate strings remain valid regardless of each property's value type.
 				ctx.itemSet.setExpectedTypes([]gotypes.Type{gotypes.Typ[gotypes.String]})
-				ctx.collectPropertyNames(tt.target)
-				ctx.collectPropertyNames(tt.target)
+				target := propertyCompletionTestType(t, info, tt.target)
+				ctx.collectPropertyNames(target)
+				ctx.collectPropertyNames(target)
 				want := []string{`"score"`, `"ready"`, `"label"`}
 				if tt.name == "WorkClass" {
 					want = append(want, `"Value"`, `"Worker"`)
@@ -118,7 +128,7 @@ type AliasPointer = *RecordAlias
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(PlainText),
 			}
-			ctx.collectPropertyNames(target)
+			ctx.collectPropertyNames(propertyCompletionTestType(t, info, target))
 			require.Len(t, ctx.itemSet.items, 4)
 			for _, want := range []struct {
 				label string
@@ -144,14 +154,10 @@ type AliasPointer = *RecordAlias
 	t.Run("InvalidTargets", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Count int
 func (Count) Value() int { return 0 }
-type Alias = int
-type Record struct { Value int }
-type Pointer = **Record
-var count int
 `)})
 		info, err := s.getProj().TypeInfo()
 		require.NoError(t, err)
-		for _, target := range []string{"Missing", "Count", "Alias", "Pointer", "count"} {
+		for _, target := range []*gotypes.Named{nil, propertyCompletionTestType(t, info, "Count")} {
 			ctx := &completionContext{
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
@@ -174,7 +180,7 @@ var count int
 			if missing {
 				ctx.lookupPkgDoc = func(string) (*pkgdoc.PkgDoc, error) { return nil, fs.ErrNotExist }
 			}
-			ctx.collectPropertyNames("Worker")
+			ctx.collectPropertyNames(propertyCompletionTestType(t, info, "Worker"))
 			item := completionItemByLabel(ctx.itemSet.items, `"label"`)
 			require.NotNil(t, item)
 			doc := requireValueAs[string](t, item.Documentation.Value)
@@ -187,7 +193,7 @@ var count int
 			definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: lookup},
 			typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 		}
-		ctx.collectPropertyNames("Worker")
+		ctx.collectPropertyNames(propertyCompletionTestType(t, info, "Worker"))
 		assert.ElementsMatch(t, []string{`"after"`, `"label"`, `"Value"`, `"Worker"`}, completionItemLabels(ctx.itemSet.items))
 	})
 
@@ -196,7 +202,7 @@ var count int
 			source := "var score int\necho " + literal
 			s := newFrameworkTestServer(t, map[string][]byte{"main_fixture.gox": []byte(source)})
 			ctx := newCompletionTestContext(t, s, "main_fixture.gox", Position{Line: 1, Character: 7})
-			ctx.collectPropertyNames("App")
+			ctx.collectPropertyNames(propertyCompletionTestType(t, ctx.typeInfo, "App"))
 			require.Len(t, ctx.itemSet.items, 1)
 			item := ctx.itemSet.items[0]
 			assert.Equal(t, "score", item.Label)
@@ -217,17 +223,18 @@ var count int
 
 func TestCompletionContextGetPropertyTarget(t *testing.T) {
 	for _, tt := range []struct {
-		name, source, want, wantCompletion string
-		invalid                            bool
+		name, source, want string
+		wantCompletion     bool
+		invalid            bool
 	}{
-		{name: "ImplicitReceiver", source: "read 1", want: "ActorWorker", wantCompletion: "ActorWorker"},
-		{name: "Value", source: "var item Record\nitem.show()", want: "Record", wantCompletion: "Record"},
-		{name: "ParenthesizedMethod", source: "var item Record\n((item.show))()", want: "Record", wantCompletion: "Record"},
-		{name: "Pointer", source: "var item *Record\nitem.show()", want: "Record", wantCompletion: "Record"},
+		{name: "ImplicitReceiver", source: "read 1", want: "ActorWorker", wantCompletion: true},
+		{name: "Value", source: "var item Record\nitem.show()", want: "Record", wantCompletion: true},
+		{name: "ParenthesizedMethod", source: "var item Record\n((item.show))()", want: "Record", wantCompletion: true},
+		{name: "Pointer", source: "var item *Record\nitem.show()", want: "Record", wantCompletion: true},
 		{name: "Alias", source: `type Alias = *Record
 var item Alias
-item.show()`, want: "Record", wantCompletion: "Record"},
-		{name: "CallResult", source: "getRecord().show()", want: "Record", wantCompletion: "Record"},
+item.show()`, want: "Record", wantCompletion: true},
+		{name: "CallResult", source: "getRecord().show()", want: "Record", wantCompletion: true},
 		{name: "ImportedReceiver", source: "var item Item\nitem.read(1)", want: "Item"},
 		{name: "MissingReceiver", source: "missing.show()", invalid: true},
 		{name: "UnnamedReceiver", source: "var item struct { Show func() }\nitem.Show()"},
@@ -246,20 +253,21 @@ func getRecord() *Record { return nil }
 			config := multiFrameworkTestModule()
 			config.Opt.Projects[0].Works[0].Prefix = "Actor"
 			proj.SetModule(newTestModule(t, config))
-			info, err := proj.TypeInfo()
+			_, err := proj.TypeInfo()
 			if tt.invalid {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
-			require.NotNil(t, info)
+			info, err := expressionTypeInfo(proj)
+			require.NoError(t, err)
 			file, err := proj.ASTFile("Worker.firstwork")
 			require.NoError(t, err)
 			require.NotNil(t, file.ShadowEntry)
 			require.NotEmpty(t, file.ShadowEntry.Body.List)
 			stmt := requireValueAs[*ast.ExprStmt](t, file.ShadowEntry.Body.List[len(file.ShadowEntry.Body.List)-1])
 			call := requireValueAs[*ast.CallExpr](t, stmt.X)
-			named := propertyTargetForCall(proj, file, call)
+			named := propertyTargetForCall(info, file, call)
 			if tt.want == "" {
 				assert.Nil(t, named)
 			} else {
@@ -268,7 +276,7 @@ func getRecord() *Record { return nil }
 			}
 			for _, enclosing := range []bool{false, true} {
 				ctx := &completionContext{
-					definitionContext: definitionContext{proj: proj}, astFile: file,
+					definitionContext: definitionContext{proj: proj}, astFile: file, typeInfo: info,
 				}
 				if enclosing {
 					ctx.enclosingCallExpr = call
@@ -276,7 +284,11 @@ func getRecord() *Record { return nil }
 					ctx.kind = completionKindCall
 					ctx.enclosingNode = call
 				}
-				assert.Equal(t, tt.wantCompletion, ctx.getPropertyTarget())
+				if tt.wantCompletion {
+					assert.Same(t, named, ctx.getPropertyTarget())
+				} else {
+					assert.Nil(t, ctx.getPropertyTarget())
+				}
 			}
 		})
 	}
@@ -300,8 +312,9 @@ _ = record.title
 		assert.True(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == name }))
 	}
 	ctx := &completionContext{definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc}, typeInfo: info, itemSet: newCompletionItemSet(PlainText)}
-	ctx.collectPropertyNames("Record")
-	ctx.collectPropertyNames("Record")
+	target := propertyCompletionTestType(t, info, "Record")
+	ctx.collectPropertyNames(target)
+	ctx.collectPropertyNames(target)
 	assert.ElementsMatch(t, []string{`"label"`, `"title"`}, completionItemLabels(ctx.itemSet.items))
 }
 
@@ -322,7 +335,7 @@ func (Record).Note = ((Record).internal)
 	items := newCompletionItemSet(PlainText)
 	items.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
 	ctx := &completionContext{definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc}, typeInfo: info, itemSet: items}
-	ctx.collectPropertyNames("Record")
+	ctx.collectPropertyNames(propertyCompletionTestType(t, info, "Record"))
 	assert.Equal(t, []string{`"title"`}, completionItemLabels(items.items))
 
 	properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record"})
@@ -354,20 +367,22 @@ func (*Record) Next() *Record { return nil }
 `),
 			})
 			proj := s.requestProject()
-			info, err := proj.TypeInfo()
+			_, err := proj.TypeInfo()
+			require.NoError(t, err)
+			info, err := expressionTypeInfo(proj)
 			require.NoError(t, err)
 			file, err := proj.ASTFile(tt.filename)
 			require.NoError(t, err)
 			stmt := requireValueAs[*ast.ExprStmt](t, file.ShadowEntry.Body.List[len(file.ShadowEntry.Body.List)-1])
 			call := requireValueAs[*ast.CallExpr](t, stmt.X)
-			named := propertyTargetForCall(proj, file, call)
+			named := propertyTargetForCall(info, file, call)
 			require.NotNil(t, named)
 			assert.Equal(t, "Record", named.Obj().Name())
 			ctx := &completionContext{
 				definitionContext: definitionContext{proj: proj, lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, astFile: file, enclosingCallExpr: call, itemSet: newCompletionItemSet(PlainText),
 			}
-			assert.Equal(t, "Record", ctx.getPropertyTarget())
+			assert.Same(t, named, ctx.getPropertyTarget())
 			ctx.collectPropertyNames(ctx.getPropertyTarget())
 			assert.ElementsMatch(t, []string{`"Count"`, `"next"`}, completionItemLabels(ctx.itemSet.items))
 		})

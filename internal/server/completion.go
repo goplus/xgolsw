@@ -77,6 +77,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
+	ctx.itemSet.typeInfo = typeInfo
 	ctx.itemSet.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
 	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
@@ -141,16 +142,19 @@ type completionContext struct {
 
 	kind completionKind
 
-	enclosingNode      ast.Node
-	enclosingCallExpr  *ast.CallExpr
-	selectorExpr       *ast.SelectorExpr
-	expectedTypes      []gotypes.Type
-	enumContext        enumIdentContext
-	expectedStructType *gotypes.Struct
-	compositeLitType   gotypes.Type
-	assignTargets      []gotypes.Object
-	declValueSpec      *ast.ValueSpec
-	returnIndex        int
+	enclosingNode       ast.Node
+	enclosingCallExpr   *ast.CallExpr
+	calleeCall          *ast.CallExpr
+	selectorExpr        *ast.SelectorExpr
+	expectedTypes       []gotypes.Type
+	unqualifiedTypeArgs []gotypes.Type
+	writtenValues       map[ast.Expr]gotypes.TypeAndValue
+	enumContext         enumIdentContext
+	expectedStructType  *gotypes.Struct
+	compositeLitType    gotypes.Type
+	assignTargets       []gotypes.Object
+	declValueSpec       *ast.ValueSpec
+	returnIndex         int
 
 	inStringLit             bool
 	stringLit               *ast.BasicLit
@@ -327,13 +331,16 @@ func (ctx *completionContext) analyze() {
 		}
 	}
 	if ctx.isInTypeExpression(path) {
+		ctx.typeExpression = true
 		if ctx.kind != completionKindDot {
 			ctx.kind = completionKindGeneral
 		}
-		ctx.typeExpression = true
 		ctx.expectedTypes = nil
 		ctx.expectedFuncResultCount = 0
 		ctx.itemSet.callResult = false
+	}
+	if ctx.kind != completionKindDot {
+		ctx.unqualifiedTypeArgs = ctx.indexedCompletionTypeArguments(path)
 	}
 	if ctx.kind == completionKindUnknown {
 		switch {
@@ -410,16 +417,22 @@ func (ctx *completionContext) isInTypeExpression(path []ast.Node) bool {
 		if ctx.pos <= lbrack || rbrack.IsValid() && ctx.pos > rbrack {
 			continue
 		}
-		var ident *ast.Ident
-		switch base := astutil.Unparen(base).(type) {
-		case *ast.Ident:
-			ident = base
-		case *ast.SelectorExpr:
-			ident = base.Sel
-		}
 		// Use the declaration because the compiler may record an instantiated
 		// type on the base expression. Container variables remain value indices.
-		obj := ctx.typeInfo.ObjectOf(ident)
+		var obj gotypes.Object
+		switch base := astutil.Unparen(base).(type) {
+		case *ast.Ident:
+			obj = ctx.typeInfo.ObjectOf(base)
+		case *ast.SelectorExpr:
+			obj = ctx.typeInfo.ObjectOf(base.Sel)
+			if fun, ok := obj.(*gotypes.Func); ok && fun.Signature().TypeParams().Len() == 0 {
+				if isType, _ := xgoutil.IsTypeExpr(ctx.typeInfo, base.X); isType {
+					if impl, _ := xgoutil.ReconstructedMethodImplementation(fun); impl != nil {
+						obj = impl
+					}
+				}
+			}
+		}
 		switch obj.(type) {
 		case *gotypes.Func, *gotypes.TypeName:
 			if generic, ok := obj.Type().(interface{ TypeParams() *gotypes.TypeParamList }); ok && generic.TypeParams().Len() > 0 {
@@ -433,15 +446,19 @@ func (ctx *completionContext) isInTypeExpression(path []ast.Node) bool {
 // analyzeLiteralElements gives a literal element its own completion context.
 func (ctx *completionContext) analyzeLiteralElements(path []ast.Node) bool {
 	var expectedTypes []gotypes.Type
-	found := false
+	var edited ast.Expr
 	for expr, typ := range contextualValueTypes(ctx.typeInfo, path) {
 		if expr.Pos() <= ctx.pos && ctx.pos <= expr.End() {
-			found = true
+			edited = expr
 			if xgoutil.IsValidType(typ) {
 				expectedTypes = append(expectedTypes, typ)
 			}
 		}
 	}
+	if _, tuple := path[0].(*ast.TupleLit); tuple && edited != nil {
+		expectedTypes = append(expectedTypes, expandedTupleArgumentTypes(ctx.typeInfo, path, edited)...)
+	}
+	found := edited != nil
 	if !found {
 		for _, typ := range literalTypes(ctx.typeInfo, path) {
 			var elementType gotypes.Type
@@ -488,11 +505,19 @@ func (ctx *completionContext) analyzeCallExpr(callExpr *ast.CallExpr, isFuncDeco
 	// A call used as a callee must return a function, independently of the
 	// final call's result type. Direct callees keep the surrounding context.
 	if callExpr.Fun.Pos() <= ctx.pos && ctx.pos <= callExpr.Fun.End() {
-		if _, ok := astutil.Unparen(callExpr.Fun).(*ast.CallExpr); ok {
-			ctx.analyzeValueOperand(callExpr.Fun, []ast.Node{callExpr})
+		callee := xgoutil.CallExprFun(callExpr)
+		if _, ok := astutil.Unparen(callee).(*ast.CallExpr); ok {
+			ctx.analyzeValueOperand(callee, []ast.Node{callExpr})
 		}
 		if ident := xgoutil.CallExprFunIdent(callExpr); ident != nil && ident.Pos() <= ctx.pos && ctx.pos <= ident.End() {
 			ctx.itemSet.callResult = true
+			ctx.calleeCall = callExpr
+			if callee != callExpr.Fun {
+				errorType := gotypes.Universe.Lookup("error").Type()
+				ctx.itemSet.isCompatibleWithCallResults = func(results *gotypes.Tuple) bool {
+					return results.Len() > 0 && gotypes.AssignableTo(results.At(results.Len()-1).Type(), errorType)
+				}
+			}
 		}
 		return
 	}
@@ -813,14 +838,23 @@ func (ctx *completionContext) collectGeneral() error {
 	seenTypes := make(map[string]bool)
 	seenQualifiers := make(map[string]bool)
 	memberNames := make(map[string]bool)
-	autoProperty := !ctx.itemSet.callResult && (ctx.valueExpression || ctx.kind == completionKindDecl)
+	autoProperty := ctx.unqualifiedTypeArgs == nil && !ctx.itemSet.callResult &&
+		(ctx.valueExpression || ctx.kind == completionKindDecl)
 	packageResolver := autoPropertyResolver{proj: ctx.proj}
 	addDefinitions := func(seen map[string]bool, defs ...symbolDefinition) {
 		if autoProperty {
 			defs = ctx.appendPackagePropertyDefinitions(&packageResolver, defs)
 		}
 		for _, def := range defs {
-			if source, ok := def.SourceObject.(*gotypes.Func); ok && source.Signature().Recv() == nil {
+			if ctx.unqualifiedTypeArgs != nil {
+				if fun, ok := def.SourceObject.(*gotypes.Func); ok && (ctx.typeExpression || fun.Signature().Recv() != nil) {
+					continue
+				}
+				var ok bool
+				if def, ok = ctx.indexedPackageDefinition(&packageResolver, def, ctx.unqualifiedTypeArgs); !ok {
+					continue
+				}
+			} else if source, ok := def.SourceObject.(*gotypes.Func); ok && source.Signature().Recv() == nil {
 				var ok bool
 				if def, ok = ctx.functionCompletionDefinition(&packageResolver, def, autoProperty); !ok {
 					continue
@@ -831,18 +865,21 @@ func (ctx *completionContext) collectGeneral() error {
 			}
 		}
 	}
-	var classType *gotypes.Named
-	if ctx.innermostScope == ctx.astFileScope {
-		classType = classTypeForFile(ctx.proj, ctx.astFile)
+	receiver := xgoutil.ClassReceiverAt(ctx.typeInfo, ctx.astFile, ctx.pos)
+	classType := resolvedNamedType(receiver)
+	if receiver == nil && ctx.innermostScope == ctx.astFileScope && ctx.kind == completionKindGeneral {
+		// A new top-level statement may precede creation of the shadow entry.
+		if classType = ctx.typeInfo.ClassTypes[ctx.astFile]; classType != nil {
+			receiver = gotypes.NewPointer(classType)
+		}
 	}
 	var parents map[ast.Node]ast.Node
 	for scope := ctx.innermostScope; scope != nil && scope != gotypes.Universe; scope = scope.Parent() {
 		// Locals take precedence over class members, which take precedence
 		// over package declarations and imports.
-		if scope == pkg.Scope() && xgoutil.IsNamedStructType(classType) &&
+		if scope == pkg.Scope() && classType != nil &&
 			!ctx.typeExpression && !(ctx.kind == completionKindDecl && ctx.declValueSpec.Values == nil) {
-			var defs []symbolDefinition
-			resolver := autoPropertyResolver{proj: ctx.proj, receiver: gotypes.NewPointer(classType)}
+			resolver := autoPropertyResolver{proj: ctx.proj, receiver: receiver}
 			for member := range xgoutil.StructMembers(classType, ctx.isFrameworkBaseType) {
 				if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(member.Member) {
 					continue
@@ -851,11 +888,16 @@ func (ctx *completionContext) collectGeneral() error {
 					memberNames[name] = true
 					seenQualifiers[name] = true
 				}
-				defs = append(defs, ctx.definitionsForMember(member)...)
+			}
+			defs := ctx.definitionsForInstanceMembers(classType)
+			if ctx.inFrameworkEventHandler {
+				defs = slices.DeleteFunc(defs, func(def symbolDefinition) bool {
+					return ctx.isFrameworkEventHandler(def.SourceObject)
+				})
 			}
 			defs = ctx.appendAutoPropertyDefinitions(&resolver, defs)
 			for _, def := range defs {
-				if def.Function == nil {
+				if def.Implementation == nil {
 					continue
 				}
 				name := def.SourceObject.Name()
@@ -865,7 +907,7 @@ func (ctx *completionContext) collectGeneral() error {
 				}
 				// Bare aliases and selector qualifiers require an auto-property.
 				// Explicit calls also resolve methods that require arguments.
-				for _, alias := range []string{xgoutil.ToLowerCamelCase(name), def.CompletionItemLabel} {
+				for _, alias := range []string{xgoutil.FunctionAliasName(name), def.CompletionItemLabel} {
 					property := resolver.resolve(alias).exists
 					if (!autoProperty || property) && !seenNames[alias] {
 						memberNames[alias] = true
@@ -877,7 +919,7 @@ func (ctx *completionContext) collectGeneral() error {
 			}
 			for _, def := range defs {
 				var ok bool
-				if def, ok = ctx.functionCompletionDefinition(&resolver, def, autoProperty); !ok {
+				if def, ok = ctx.instanceCompletionDefinition(&resolver, def, autoProperty); !ok {
 					continue
 				}
 				addDefinitions(seenNames, def)
@@ -933,10 +975,6 @@ func (ctx *completionContext) collectGeneral() error {
 				addDefinitions(seenNames, ctx.definitionsFor(obj, "")...)
 			}
 			seenNames[name] = true
-
-			if name == "this" {
-				classType, _ = xgoutil.DerefType(obj.Type()).(*gotypes.Named)
-			}
 		}
 	}
 
@@ -955,7 +993,7 @@ func (ctx *completionContext) collectGeneral() error {
 	if !ctx.typeExpression {
 		for _, name := range pkg.Scope().Names() {
 			if !autoProperty || gogen.HasAutoProperty(pkg.Scope().Lookup(name).Type()) {
-				seenNames[xgoutil.ToLowerCamelCase(name)] = true
+				seenNames[xgoutil.FunctionAliasName(name)] = true
 			}
 		}
 	}
@@ -985,7 +1023,7 @@ func (ctx *completionContext) collectGeneral() error {
 				}
 				seenNames[name] = true
 				if gogen.IsFunc(obj.Type()) && (!autoProperty || gogen.HasAutoProperty(obj.Type())) {
-					seenNames[xgoutil.ToLowerCamelCase(name)] = true
+					seenNames[xgoutil.FunctionAliasName(name)] = true
 				}
 			}
 		}
@@ -1034,14 +1072,14 @@ func (ctx *completionContext) collectDot() error {
 	path, _ := xgoutil.PathEnclosingInterval(ctx.astFile, ctx.selectorExpr.Pos(), ctx.selectorExpr.End())
 	if !ctx.itemSet.callResult {
 		ctx.itemSet.setExpectedTypes(expectedExprTypes(ctx.typeInfo, path))
+	} else if call, ok := ctx.enclosingNode.(*ast.CallExpr); ok {
+		ctx.setCallResultContext(call)
 	}
 
 	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
-		if obj := ctx.typeInfo.ObjectOf(ident); obj != nil {
-			if pkgName, ok := obj.(*gotypes.PkgName); ok {
-				ctx.collectPackageMembers(pkgName.Imported())
-				return nil
-			}
+		if pkgName := ctx.selectorPackage(ident, ctx.typeExpression); pkgName != nil {
+			ctx.collectPackageMembers(pkgName.Imported(), ctx.indexedCompletionTypeArguments(path))
+			return nil
 		}
 	}
 
@@ -1052,33 +1090,63 @@ func (ctx *completionContext) collectDot() error {
 	receiver := typ
 	typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
 
-	if iface, ok := typ.Underlying().(*gotypes.Interface); ok {
-		ctx.collectInterfaceMethodCompletions(iface, receiver)
-	} else if _, ok := typ.Underlying().(*gotypes.Struct); ok {
-		ctx.addMemberCompletions(receiver, ctx.definitionsForStruct(typ)...)
+	var defs []symbolDefinition
+	_, isInterface := typ.Underlying().(*gotypes.Interface)
+	isType, _ := xgoutil.IsTypeExpr(ctx.typeInfo, ctx.selectorExpr.X)
+	_, isAlias := receiver.(*gotypes.Alias)
+	// XGo unwraps a direct type alias for static value lookup only.
+	aliasSelector := isType && isAlias
+	if !aliasSelector {
+		if isInterface || isType {
+			defs = ctx.definitionsForSelectorMethods(receiver, isType)
+		} else {
+			defs = ctx.definitionsForInstanceMembers(receiver)
+		}
+	}
+	// Static values belong to the declaring type, including through aliases.
+	if named, ok := typ.(*gotypes.Named); ok && isType {
+		for method := range named.Origin().Methods() {
+			obj := types.StaticMemberObject(method)
+			if _, callable := obj.(*gotypes.Func); obj != nil && !callable && xgoutil.IsExportedOrInMainPkg(obj) {
+				defs = append(defs, ctx.staticMemberDefinitions(method, obj, nil)...)
+			}
+		}
+	}
+	if len(defs) > 0 {
+		var typeArgs []gotypes.Type
+		if isType {
+			typeArgs = ctx.indexedCompletionTypeArguments(path)
+		}
+		ctx.addMemberCompletions(receiver, isType, typeArgs, defs...)
 	}
 	return nil
 }
 
 // addMemberCompletions uses the source selector's signature when completing a
 // callback, including the explicit receiver of a method expression.
-func (ctx *completionContext) addMemberCompletions(receiver gotypes.Type, defs ...symbolDefinition) {
+func (ctx *completionContext) addMemberCompletions(receiver gotypes.Type, methodExpression bool, typeArgs []gotypes.Type, defs ...symbolDefinition) {
 	resolver := autoPropertyResolver{proj: ctx.proj, receiver: receiver}
-	methodExpression, _ := xgoutil.IsTypeExpr(ctx.typeInfo, ctx.selectorExpr.X)
 	if !methodExpression {
 		defs = ctx.appendAutoPropertyDefinitions(&resolver, defs)
 	}
-	autoProperty := !ctx.itemSet.callResult && !methodExpression && xgoutil.IsValidType(receiver) &&
-		(ctx.valueExpression || ctx.itemSet.isCompatibleWithExpectedTypes != nil)
+	autoProperty := !ctx.itemSet.callResult && !methodExpression &&
+		(ctx.valueExpression || len(ctx.itemSet.expectedTypes) > 0)
 	for _, def := range defs {
-		if def.Function != nil && ctx.itemSet.expectsFunctionValue {
+		if def.Implementation != nil && ctx.itemSet.expectsFunctionValue && typeArgs == nil {
 			call := &ast.CallExpr{Fun: ctx.selectorExpr}
-			if sig, params := xgoutil.ResolveFuncSignatureForCall(ctx.typeInfo, call, def.Function); sig != nil {
+			source, _ := def.SourceObject.(*gotypes.Func)
+			binding := cmp.Or(def.parameterBinding, source)
+			if sig, params := xgoutil.ResolveCallableSignatureForCall(ctx.typeInfo, call, def.Implementation, binding); sig != nil {
 				def.TypeHint = gotypes.NewSignatureType(nil, nil, nil, params, sig.Results(), sig.Variadic())
 			}
 		}
 		var ok bool
-		if def, ok = ctx.functionCompletionDefinition(&resolver, def, autoProperty); !ok {
+		if methodExpression {
+			def, ok = ctx.methodExpressionCompletionDefinition(&resolver, def, typeArgs)
+		} else {
+			def, ok = ctx.instanceCompletionDefinition(&resolver, def, autoProperty)
+		}
+		if !ok {
 			continue
 		}
 		ctx.itemSet.addDefinitions(def)
@@ -1090,27 +1158,28 @@ func (ctx *completionContext) addMemberCompletions(receiver gotypes.Type, defs .
 func (ctx *completionContext) appendAutoPropertyDefinitions(resolver *autoPropertyResolver, defs []symbolDefinition) []symbolDefinition {
 	seen := make(map[string]bool)
 	for _, def := range defs {
-		if def.Function == nil {
+		if def.Implementation == nil {
 			continue
 		}
 		name := def.CompletionItemLabel
-		if def.SourceObject != def.Function {
-			name = functionAliasName(def.SourceObject.Name())
+		if def.SourceObject != def.Implementation {
+			name = xgoutil.MemberAliasName(def.SourceObject.Name())
 		}
 		property := resolver.resolve(name)
-		if property.function != nil && types.ObjectOrigin(property.function) == types.ObjectOrigin(def.Function) {
-			seen[functionAliasName(name)] = true
+		if property.implementation != nil && types.ObjectOrigin(property.implementation) == types.ObjectOrigin(def.Implementation) {
+			seen[xgoutil.MemberAliasName(name)] = true
 		}
 	}
 	for name, property := range resolver.candidates() {
-		if !property.exists || property.function == nil || !xgoutil.IsValidType(property.typ) || seen[name] {
+		if !property.exists || property.implementation == nil || !xgoutil.IsValidType(property.typ) || seen[name] {
 			continue
 		}
 		if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(property.object) {
 			continue
 		}
-		for _, def := range ctx.definitionsForSelection(property.function, resolver.receiver) {
+		for _, def := range ctx.definitionsForSelection(property.implementation, resolver.receiver) {
 			def.SourceObject = property.object
+			def.Implementation = property.implementation
 			def.CompletionItemLabel = name
 			def.CompletionItemInsertText = name
 			def.AutoPropertyType = property.typ
@@ -1120,20 +1189,8 @@ func (ctx *completionContext) appendAutoPropertyDefinitions(resolver *autoProper
 	return defs
 }
 
-// collectInterfaceMethodCompletions collects accessible methods, including
-// embedded methods, using each method's declaration for its description.
-func (ctx *completionContext) collectInterfaceMethodCompletions(iface *gotypes.Interface, receiver gotypes.Type) {
-	var defs []symbolDefinition
-	for method := range iface.Methods() {
-		if xgoutil.IsExportedOrInMainPkg(method) {
-			defs = append(defs, ctx.definitionsForSelection(method, receiver)...)
-		}
-	}
-	ctx.addMemberCompletions(receiver, defs...)
-}
-
 // collectPackageMembers collects members of a package.
-func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
+func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package, typeArgs []gotypes.Type) {
 	if pkg == nil {
 		return
 	}
@@ -1146,13 +1203,20 @@ func (ctx *completionContext) collectPackageMembers(pkg *gotypes.Package) {
 	}
 
 	resolver := autoPropertyResolver{proj: ctx.proj}
-	autoProperty := !ctx.itemSet.callResult && (ctx.valueExpression || ctx.itemSet.isCompatibleWithExpectedTypes != nil)
+	autoProperty := typeArgs == nil && !ctx.itemSet.callResult &&
+		(ctx.valueExpression || len(ctx.itemSet.expectedTypes) > 0)
 	defs := ctx.definitionsForPkg(pkg, pkgDoc)
 	if autoProperty {
 		defs = ctx.appendPackagePropertyDefinitions(&resolver, defs)
 	}
 	for _, def := range defs {
-		if def, ok := ctx.functionCompletionDefinition(&resolver, def, autoProperty); ok {
+		var ok bool
+		if typeArgs != nil {
+			def, ok = ctx.indexedPackageDefinition(&resolver, def, typeArgs)
+		} else {
+			def, ok = ctx.functionCompletionDefinition(&resolver, def, autoProperty)
+		}
+		if ok {
 			ctx.itemSet.addDefinitions(def)
 		}
 	}
@@ -1172,56 +1236,39 @@ func (ctx *completionContext) collectCall() error {
 		return nil
 	}
 	if argIndex, ok := ctx.currentCallKwargNameCandidateArgIndex(callExpr); ok {
-		if ctx.collectCallKwargNames(callExpr, argIndex, argIndex) {
-			return nil
-		}
+		// A bare identifier can also be a positional argument.
+		ctx.collectCallKwargNames(callExpr, argIndex, argIndex)
 	}
 	if expected := builtinArgTypes(ctx.typeInfo, callExpr, ctx.getCurrentArgIndex(callExpr.Args)); len(expected) > 0 {
 		ctx.expectedTypes = expected
 		return ctx.collectGeneral()
 	}
 
-	if tv := ctx.typeInfo.Types[callExpr.Fun]; tv.IsType() {
+	if tv := ctx.typeInfo.Types[xgoutil.CallExprFun(callExpr)]; tv.IsType() {
 		ctx.expectedTypes = validExpectedType(tv.Type)
 		return ctx.collectGeneral()
 	}
 
-	if ctx.itemSet.callResult && len(callExpr.Args) == 1 && len(callExpr.Kwargs) == 0 && !callExpr.Ellipsis.IsValid() {
-		_, sig, params := xgoutil.ResolveCallExprSignature(ctx.typeInfo, callExpr)
-		_, resultCall := astutil.Unparen(callExpr.Args[0]).(*ast.CallExpr)
-		if resultCall && sig != nil && (sig.Variadic() || params.Len() > 1) {
-			ctx.expectedTypes = nil
-			ctx.itemSet.isCompatibleWithCallResults = func(results *gotypes.Tuple) bool {
-				count := results.Len()
-				if count == 0 || (!sig.Variadic() && count != params.Len()) || (sig.Variadic() && count < params.Len()-1) {
-					return false
-				}
-				for index := range count {
-					if !completionTypesCompatible(results.At(index).Type(), callExprArgType(sig, params, index)) {
-						return false
-					}
-				}
-				return true
-			}
-			return ctx.collectGeneral()
-		}
+	if ctx.setCallResultContext(callExpr) {
+		return ctx.collectGeneral()
 	}
 	if resolvedArg, ok := ctx.getCurrentResolvedCallArg(callExpr); ok {
 		if xgoutil.IsValidType(resolvedArg.ExpectedType) {
 			ctx.expectedTypes = []gotypes.Type{resolvedArg.ExpectedType}
 		} else {
-			ctx.expectedTypes = ctx.overloadExpectedTypes(callExpr, resolvedArg)
+			ctx.expectedTypes = ctx.overloadExpectedTypes(callExpr, resolvedArg.Arg)
 		}
 		return ctx.collectGeneral()
 	}
-	if funcOverloads := callExprFuncOverloads(ctx.typeInfo, callExpr); len(funcOverloads) > 0 {
-		expectedTypes := make([]gotypes.Type, 0, len(funcOverloads))
-		for _, funcOverload := range funcOverloads {
-			sig, params := xgoutil.ResolveFuncSignatureForCall(ctx.typeInfo, callExpr, funcOverload)
-			if sig == nil {
+	if overloads := callExprOverloads(ctx.typeInfo, callExpr); len(overloads) > 0 {
+		expectedTypes := make([]gotypes.Type, 0, len(overloads))
+		for _, overload := range overloads {
+			bound, _, matches := overload.matchArgs(ctx.typeInfo, callExpr, nil)
+			if !matches {
 				continue
 			}
-			args, _ := xgoutil.CallExprArgs(ctx.typeInfo, callExpr, params)
+			sig, params := bound.signature, bound.params
+			args, _ := xgoutil.CallExprArgsForSignature(ctx.typeInfo, callExpr, sig, params)
 			if expectedType := callExprArgType(sig, params, ctx.getCurrentArgIndex(args)); expectedType != nil {
 				expectedTypes = append(expectedTypes, expectedType)
 			}
@@ -1230,14 +1277,59 @@ func (ctx *completionContext) collectCall() error {
 		return ctx.collectGeneral()
 	}
 
-	_, sig, params := xgoutil.ResolveCallExprSignature(ctx.typeInfo, callExpr)
+	fun, sig, params := xgoutil.ResolveCallExprSignature(ctx.typeInfo, callExpr)
 	if sig != nil {
-		args, _ := xgoutil.CallExprArgs(ctx.typeInfo, callExpr, params)
+		params, _ = xgoutil.BindCallExprParams(ctx.typeInfo, callExpr, fun, sig, params, -1)
+		args, _ := xgoutil.CallExprArgsForSignature(ctx.typeInfo, callExpr, sig, params)
 		if expectedType := callExprArgType(sig, params, ctx.getCurrentArgIndex(args)); expectedType != nil {
 			ctx.expectedTypes = []gotypes.Type{expectedType}
 		}
 	}
 	return ctx.collectGeneral()
+}
+
+// setCallResultContext constrains the inner callable by the signatures that
+// can consume its results as the sole argument of call.
+func (ctx *completionContext) setCallResultContext(call *ast.CallExpr) bool {
+	if !ctx.itemSet.callResult || len(call.Args) != 1 || len(call.Kwargs) != 0 || call.Ellipsis.IsValid() ||
+		ctx.inFuncDecorator && call == ctx.enclosingCallExpr {
+		return false
+	}
+	inner, ok := astutil.Unparen(call.Args[0]).(*ast.CallExpr)
+	if !ok || ctx.pos < inner.Fun.Pos() || ctx.pos > inner.Fun.End() {
+		return false
+	}
+
+	// Replacing the inner call can select a different outer overload. Prefer
+	// the checked signature when there is only one possible callable.
+	candidates := callExprOverloads(ctx.typeInfo, call)
+	if len(candidates) < 2 {
+		if fun, sig, params := xgoutil.ResolveCallExprSignature(ctx.typeInfo, call); sig != nil {
+			candidates = []callOverload{{object: fun, signature: sig, params: params}}
+		}
+	}
+	expands := false
+	for _, candidate := range candidates {
+		if !candidate.expandsCallResults(ctx.typeInfo, call) {
+			continue
+		}
+		// An unconstrained outer call keeps the full selector member list.
+		if ctx.kind == completionKindDot && candidate.acceptsAnyCallResults() {
+			return false
+		}
+		expands = true
+	}
+	if !expands {
+		return false
+	}
+
+	ctx.expectedTypes = nil
+	ctx.itemSet.isCompatibleWithCallResults = func(results *gotypes.Tuple) bool {
+		return slices.ContainsFunc(candidates, func(candidate callOverload) bool {
+			return candidate.matchesCallResults(ctx.typeInfo, call, results)
+		})
+	}
+	return true
 }
 
 // collectFuncDecoratorCall collects completions for a decorator's explicit
@@ -1296,10 +1388,12 @@ func (ctx *completionContext) getCurrentArgIndex(args []ast.Expr) int {
 // getCurrentResolvedCallArg returns the resolved call argument that contains
 // the current cursor position.
 func (ctx *completionContext) getCurrentResolvedCallArg(callExpr *ast.CallExpr) (xgoutil.ResolvedCallExprArg, bool) {
-	if arg, ok := ctx.currentResolvedCallArg(xgoutil.ResolvedCallExprArgs(ctx.typeInfo, callExpr)); ok {
-		return arg, true
+	fun, sig, params := xgoutil.ResolveCallExprSignature(ctx.typeInfo, callExpr)
+	resolved := callOverload{object: fun, signature: sig, params: params}
+	if arg, ok := ctx.currentResolvedCallArg(resolved.args(ctx.typeInfo, callExpr)); ok {
+		return xgoutil.ResolveCallExprArg(ctx.typeInfo, callExpr, arg.Arg)
 	}
-	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprFuncOverloads(ctx.typeInfo, callExpr)))
+	return ctx.currentResolvedCallArg(formatResolvedCallExprArgs(ctx.typeInfo, callExpr, callExprOverloads(ctx.typeInfo, callExpr)))
 }
 
 // currentResolvedCallArg returns the call argument in args that contains the
@@ -1321,15 +1415,15 @@ func (ctx *completionContext) currentResolvedCallArg(args iter.Seq[xgoutil.Resol
 
 // overloadExpectedTypes returns expected argument types from overloads that
 // still match callExpr.
-func (ctx *completionContext) overloadExpectedTypes(callExpr *ast.CallExpr, resolvedArg xgoutil.ResolvedCallExprArg) []gotypes.Type {
-	overloads := callExprFuncOverloads(ctx.typeInfo, callExpr)
+func (ctx *completionContext) overloadExpectedTypes(callExpr *ast.CallExpr, edited ast.Expr) []gotypes.Type {
+	overloads := callExprOverloads(ctx.typeInfo, callExpr)
 	if len(overloads) == 0 {
 		return nil
 	}
 
 	expectedTypes := make([]gotypes.Type, 0, len(overloads))
 	for _, overload := range overloads {
-		expectedType, matches := matchOverloadCallExprArg(ctx.typeInfo, callExpr, overload, resolvedArg.Arg, resolvedArg.ArgIndex)
+		_, expectedType, matches := overload.matchArgs(ctx.typeInfo, callExpr, edited)
 		if matches && xgoutil.IsValidType(expectedType) {
 			expectedTypes = append(expectedTypes, expectedType)
 		}
@@ -1352,39 +1446,45 @@ func (ctx *completionContext) currentCallKwargNameCandidateArgIndex(callExpr *as
 
 // collectCallKwargNames collects completion items for available keyword
 // argument names at the current call site.
-func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argCount, skipArgIndex int) bool {
+func (ctx *completionContext) collectCallKwargNames(callExpr *ast.CallExpr, argCount, skipArgIndex int) {
 	kwargs := resolveCallExprKwargsAtArgCount(ctx.typeInfo, callExpr, argCount, skipArgIndex)
 	if len(kwargs) == 0 {
-		return false
+		return
 	}
 
 	usedTargets := make(map[gotypes.Object]struct{})
 	for _, kwarg := range kwargs {
-		for _, kwargExpr := range callExpr.Kwargs {
-			target := xgoutil.LookupResolvedCallExprKwargTarget(kwarg, kwargExpr.Name.Name)
+		binding := kwarg
+		for i, kwargExpr := range callExpr.Kwargs {
+			target := binding.KeywordTarget(kwargExpr)
 			if obj := kwargTargetObject(target); obj != nil {
 				usedTargets[obj] = struct{}{}
+			}
+			if i+1 < len(callExpr.Kwargs) {
+				binding = binding.AfterKeywords(callExpr.Kwargs[i : i+1])
 			}
 		}
 	}
 
-	collected := false
+	keywordIndex := len(callExpr.Kwargs)
+	if skipArgIndex >= 0 {
+		keywordIndex = min(keywordIndex, max(0, skipArgIndex-len(callExpr.Args)))
+	}
 	for _, kwarg := range kwargs {
-		for _, target := range xgoutil.ListResolvedCallExprKwargTargets(kwarg) {
+		binding := kwarg.AfterKeywords(callExpr.Kwargs[:keywordIndex])
+		for _, target := range xgoutil.ListResolvedCallExprKwargTargets(binding) {
 			obj := kwargTargetObject(&target)
 			if _, ok := usedTargets[obj]; ok {
 				continue
 			}
-			for _, def := range ctx.definitionsForSelection(obj, kwarg.Param.Type()) {
+			for _, def := range ctx.definitionsForSelection(obj, kwarg.ContainerType()) {
 				def.CompletionItemLabel = target.Name
 				def.CompletionItemInsertText = target.Name + " = ${1:}"
 				def.CompletionItemInsertTextFormat = SnippetTextFormat
 				ctx.itemSet.addDefinitions(def)
-				collected = true
 			}
 		}
 	}
-	return collected
 }
 
 // currentCallKwargArgIndex returns the argument index for the kwarg name under
@@ -1400,7 +1500,7 @@ func (ctx *completionContext) currentCallKwargArgIndex(callExpr *ast.CallExpr) i
 
 // collectXGoUnitCompletions collects unit suffix completions for number literals.
 func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.Type) bool {
-	completionRange, filterPrefix, ok := ctx.currentXGoUnitCompletionRange()
+	completionRange, number, ok := ctx.currentXGoUnitCompletionRange()
 	if !ok {
 		return false
 	}
@@ -1408,17 +1508,20 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 	seen := make(map[string]struct{})
 	hasUnit := false
 	for _, expectedType := range expectedTypes {
-		for _, spec := range xgoUnitSpecsForType(expectedType) {
+		for _, spec := range xgoutil.UnitSpecsForType(expectedType) {
 			if _, ok := seen[spec.Name]; ok {
 				continue
 			}
 			seen[spec.Name] = struct{}{}
+			if !xgoUnitSuffixFitsNumber(number, spec.Name) {
+				continue
+			}
 			hasUnit = true
 			ctx.itemSet.add(CompletionItem{
 				Label:      spec.Name,
 				Kind:       UnitCompletion,
 				Detail:     ctx.typeString(spec.SourceType),
-				FilterText: filterPrefix + spec.Name,
+				FilterText: number + spec.Name,
 				Documentation: completionDocumentation(markupContent(
 					ctx.itemSet.documentationKind,
 					"Multiplier: `"+spec.Factor+"`",
@@ -1438,8 +1541,8 @@ func (ctx *completionContext) collectXGoUnitCompletions(expectedTypes []gotypes.
 	return hasUnit
 }
 
-// currentXGoUnitCompletionRange returns the unit suffix replacement range at
-// the completion position.
+// currentXGoUnitCompletionRange returns the suffix replacement range and the
+// numeric part of the literal at the completion position.
 func (ctx *completionContext) currentXGoUnitCompletionRange() (Range, string, bool) {
 	path, _ := xgoutil.PathEnclosingInterval(ctx.astFile, ctx.pos-1, ctx.pos)
 	for _, node := range path {
@@ -1609,18 +1712,19 @@ func completionItemKindSupportedByClient(capabilities CompletionClientCapabiliti
 
 // completionItemSet is a set of completion items.
 type completionItemSet struct {
-	items                         []CompletionItem
-	seenDefinitions               map[string]struct{}
-	documentationKind             MarkupKind
-	supportedKinds                map[CompletionItemKind]struct{}
-	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
-	isCompatibleWithCallResults   func(results *gotypes.Tuple) bool
-	notRecommended                func(symbolDefinition) bool
-	disallowVoidFuncs             bool
-	expectedFuncResultCount       int
-	callResult                    bool
-	expectsFunctionValue          bool
-	enumContext                   enumIdentContext
+	items                       []CompletionItem
+	seenDefinitions             map[string]struct{}
+	documentationKind           MarkupKind
+	supportedKinds              map[CompletionItemKind]struct{}
+	isCompatibleWithCallResults func(results *gotypes.Tuple) bool
+	notRecommended              func(symbolDefinition) bool
+	disallowVoidFuncs           bool
+	expectedFuncResultCount     int
+	callResult                  bool
+	expectsFunctionValue        bool
+	expectedTypes               []gotypes.Type
+	typeInfo                    *types.Info
+	enumContext                 enumIdentContext
 }
 
 // newCompletionItemSet creates a new [completionItemSet].
@@ -1662,6 +1766,7 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []gotypes.Type) {
 	if len(expectedTypes) == 0 {
 		return
 	}
+	s.expectedTypes = expectedTypes
 	s.expectsFunctionValue = slices.ContainsFunc(expectedTypes, func(typ gotypes.Type) bool {
 		if !xgoutil.IsValidType(typ) {
 			return false
@@ -1669,22 +1774,28 @@ func (s *completionItemSet) setExpectedTypes(expectedTypes []gotypes.Type) {
 		_, ok := typ.Underlying().(*gotypes.Signature)
 		return ok
 	})
+}
 
-	s.isCompatibleWithExpectedTypes = func(typ gotypes.Type) bool {
-		for _, expectedType := range expectedTypes {
-			if xgoutil.IsValidType(expectedType) {
-				// First check direct compatibility.
-				if completionTypesCompatible(typ, expectedType) {
-					return true
-				}
-				// Then check if convertible (allows showing more options).
-				if xgoutil.IsTypesConvertible(typ, expectedType) {
-					return true
-				}
-			}
+// matchesExpectedValue checks the types and implicit conversions available at
+// the completion site.
+func (s *completionItemSet) matchesExpectedValue(value gotypes.TypeAndValue) bool {
+	// A result list cannot satisfy a single value, even an empty interface.
+	_, resultList := value.Type.(*gotypes.Tuple)
+	for _, expected := range s.expectedTypes {
+		_, expectedList := expected.(*gotypes.Tuple)
+		if resultList != expectedList || !xgoutil.IsValidType(expected) {
+			continue
 		}
-		return false
+		// Assignability of an untyped constant's type does not check its value.
+		if value.Value != nil && isUntypedType(value.Type) && gotypes.AssignableTo(value.Type, expected) &&
+			!xgoutil.CallValueTypeMatches(s.typeInfo, value, expected) {
+			continue
+		}
+		if completionValuesCompatible(s.typeInfo, value, expected) || xgoutil.IsTypesConvertible(value.Type, expected) {
+			return true
+		}
 	}
+	return false
 }
 
 // setEnumContext sets the context used to filter enum members.
@@ -1692,14 +1803,14 @@ func (s *completionItemSet) setEnumContext(context enumIdentContext) {
 	s.enumContext = context
 }
 
-// isEnumMemberCompatibleWithContext reports whether typ satisfies the enum
+// isEnumMemberCompatibleWithContext reports whether value satisfies the enum
 // completion context.
-func isEnumMemberCompatibleWithContext(typ gotypes.Type, context enumIdentContext) bool {
-	if !xgoutil.IsValidType(typ) {
+func isEnumMemberCompatibleWithContext(info *types.Info, value gotypes.TypeAndValue, context enumIdentContext) bool {
+	if !xgoutil.IsValidType(value.Type) {
 		return false
 	}
 	if len(context.basicTypeConstraints) > 0 {
-		basic, ok := typ.Underlying().(*gotypes.Basic)
+		basic, ok := value.Type.Underlying().(*gotypes.Basic)
 		if !ok {
 			return false
 		}
@@ -1716,17 +1827,11 @@ func isEnumMemberCompatibleWithContext(typ gotypes.Type, context enumIdentContex
 		if !xgoutil.IsValidType(expectedType) {
 			continue
 		}
-		if gotypes.AssignableTo(typ, expectedType) {
+		if xgoutil.CallValueTypeMatches(info, value, gotypes.Unalias(expectedType)) {
 			return true
 		}
-		if context.allowConversion && xgoutil.IsTypesConvertible(typ, expectedType) {
+		if context.allowConversion && xgoutil.IsTypesConvertible(value.Type, expectedType) {
 			return true
-		}
-		if typeParam, ok := gotypes.Unalias(expectedType).(*gotypes.TypeParam); ok {
-			constraint := typeParam.Constraint().Underlying().(*gotypes.Interface)
-			if gotypes.Satisfies(typ, constraint) {
-				return true
-			}
 		}
 	}
 	return false
@@ -1753,7 +1858,7 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 		var sig *gotypes.Signature
 		// Function variables keep their value type unless they are the callee
 		// of an explicit call or the source of an implicit property call.
-		if (def.Function != nil || def.AutoPropertyType != nil || s.callResult) && xgoutil.IsValidType(def.TypeHint) {
+		if (def.Implementation != nil || def.AutoPropertyType != nil || s.callResult) && xgoutil.IsValidType(def.TypeHint) {
 			sig, _ = def.TypeHint.Underlying().(*gotypes.Signature)
 		}
 		if s.isCompatibleWithCallResults != nil && (sig == nil || !s.isCompatibleWithCallResults(sig.Results())) {
@@ -1776,35 +1881,40 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 				continue
 			}
 		}
+		value := gotypes.TypeAndValue{Type: def.TypeHint}
+		if c, ok := def.SourceObject.(*gotypes.Const); ok {
+			value.Value = c.Val()
+		}
 		if def.CompletionItemKind == EnumMemberCompletion && s.enumContext.status != enumContextUnknown {
-			if s.enumContext.status == enumContextDisallowed || !isEnumMemberCompatibleWithContext(def.TypeHint, s.enumContext) {
+			if s.enumContext.status == enumContextDisallowed || !isEnumMemberCompatibleWithContext(s.typeInfo, value, s.enumContext) {
 				continue
 			}
-		} else if !functionValue && s.isCompatibleWithExpectedTypes != nil {
-			typeToCompare := def.TypeHint
+		} else if !functionValue && len(s.expectedTypes) > 0 {
 			if def.AutoPropertyType != nil {
-				typeToCompare = def.AutoPropertyType
+				value.Type = def.AutoPropertyType
 			} else if sig != nil {
 				switch sig.Results().Len() {
 				case 0:
 					continue
 				case 1:
-					typeToCompare = sig.Results().At(0).Type()
+					value.Type = sig.Results().At(0).Type()
 				default:
-					typeToCompare = sig.Results()
+					value.Type = sig.Results()
 				}
 			}
-			if !s.isCompatibleWithExpectedTypes(typeToCompare) {
+			if !s.matchesExpectedValue(value) {
 				continue
 			}
 		}
 
-		if functionValue && def.Function != nil {
-			def.CompletionItemLabel = functionValueName(def.Function)
-			def.CompletionItemInsertText = def.CompletionItemLabel
+		if functionValue && def.Implementation != nil {
+			name := def.functionValueName()
+			def.useIndexedImplementationName(name)
+			def.CompletionItemLabel = name
+			def.CompletionItemInsertText = name
 		}
-		// Distinct source aliases can share the same implementation definition.
-		definitionKey := def.ID.String() + "\x00" + def.CompletionItemLabel
+		// A declaration can supply both a positional value and a keyword name.
+		definitionKey := def.ID.String() + "\x00" + def.CompletionItemLabel + "\x00" + def.CompletionItemInsertText
 		if _, ok := s.seenDefinitions[definitionKey]; ok {
 			continue
 		}
@@ -1824,40 +1934,40 @@ func (s *completionItemSet) isFunctionValue(typ gotypes.Type) bool {
 		return false
 	}
 	_, ok := typ.Underlying().(*gotypes.Signature)
-	return ok && s.isCompatibleWithExpectedTypes(typ)
+	return ok && s.matchesExpectedValue(gotypes.TypeAndValue{Type: typ})
 }
 
 // definitionName returns the actual insertion name before visibility filtering.
 func (s *completionItemSet) definitionName(def symbolDefinition) string {
-	if def.Function != nil && def.AutoPropertyType == nil && s.isFunctionValue(def.TypeHint) {
-		return functionValueName(def.Function)
+	if def.Implementation != nil && def.AutoPropertyType == nil && s.isFunctionValue(def.TypeHint) {
+		return def.functionValueName()
 	}
 	return def.CompletionItemLabel
 }
 
-// completionTypesCompatible distinguishes function values from result lists.
-func completionTypesCompatible(got, want gotypes.Type) bool {
-	if !xgoutil.IsValidType(got) || !xgoutil.IsValidType(want) {
+// completionValuesCompatible distinguishes function values from result lists.
+func completionValuesCompatible(info *types.Info, value gotypes.TypeAndValue, want gotypes.Type) bool {
+	if !xgoutil.IsValidType(value.Type) || !xgoutil.IsValidType(want) {
 		return false
 	}
 	if results, ok := want.(*gotypes.Tuple); ok {
-		actual, ok := got.(*gotypes.Tuple)
+		actual, ok := value.Type.(*gotypes.Tuple)
 		if !ok || actual.Len() != results.Len() {
 			return false
 		}
 		for index := range results.Len() {
-			if !completionTypesCompatible(actual.At(index).Type(), results.At(index).Type()) {
+			if !completionValuesCompatible(info, gotypes.TypeAndValue{Type: actual.At(index).Type()}, results.At(index).Type()) {
 				return false
 			}
 		}
 		return true
 	}
-	gotUnderlying := got.Underlying()
+	gotUnderlying := value.Type.Underlying()
 	wantUnderlying := want.Underlying()
 	_, gotFunction := gotUnderlying.(*gotypes.Signature)
 	_, wantFunction := wantUnderlying.(*gotypes.Signature)
 	if gotFunction || wantFunction {
-		return gotUnderlying != nil && wantUnderlying != nil && gotypes.AssignableTo(got, want)
+		return xgoutil.CallValueTypeMatches(info, value, want)
 	}
-	return xgoutil.IsTypesCompatible(got, want)
+	return xgoutil.IsTypesCompatible(value.Type, want) || xgoutil.CallValueTypeMatches(info, value, want)
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
 // notRecommendedDeclarations tracks declarations marked not recommended for one
@@ -53,10 +54,18 @@ func (p *notRecommendedDeclarations) hasObject(obj gotypes.Object) bool {
 	return marked
 }
 
-// hasDefinition reports whether the source declaration or its concrete overload
-// implementation is marked not recommended.
+// hasDefinition reports whether the source declaration, callable
+// implementation, or selected type overload is marked not recommended.
 func (p *notRecommendedDeclarations) hasDefinition(def symbolDefinition) bool {
-	return p.hasObject(def.SourceObject) || (def.Function != nil && p.hasObject(def.Function))
+	if p.hasObject(def.SourceObject) || p.hasObject(def.Implementation) {
+		return true
+	}
+	if source, ok := def.SourceObject.(*gotypes.TypeName); ok {
+		if selected, ok := def.TypeHint.(*gotypes.Named); ok && selected.Obj() != source {
+			return p.hasObject(selected.Obj())
+		}
+	}
+	return false
 }
 
 // hasSourcePosition looks up a declaration position in the snapshot's index.
@@ -105,17 +114,20 @@ func collectNotRecommendedPositions(file *ast.File) map[token.Pos]bool {
 			for _, spec := range node.Specs {
 				switch spec := spec.(type) {
 				case *ast.ValueSpec:
-					add(spec.Names, node.Doc, spec.Doc)
-					if node == file.ClassFields && len(spec.Names) == 0 && pkgdoc.ParseDirectives(node.Doc, spec.Doc).NotRecommended {
-						marked[embeddedFieldPosition(spec.Type)] = true
+					names := spec.Names
+					if len(names) == 0 && node == file.ClassFields {
+						if ident := xgoutil.EmbeddedFieldIdent(spec.Type); ident != nil {
+							names = []*ast.Ident{ident}
+						}
 					}
+					add(names, node.Doc, spec.Doc)
 				case *ast.TypeSpec:
 					add([]*ast.Ident{spec.Name}, node.Doc, spec.Doc)
 				}
 			}
 		case *ast.TypeSpec:
 			var fields *ast.FieldList
-			switch typ := node.Type.(type) {
+			switch typ := xgoutil.DeclaredMemberType(node).(type) {
 			case *ast.StructType:
 				fields = typ.Fields
 			case *ast.InterfaceType:
@@ -123,10 +135,13 @@ func collectNotRecommendedPositions(file *ast.File) map[token.Pos]bool {
 			}
 			if fields != nil {
 				for _, field := range fields.List {
-					add(field.Names, field.Doc)
-					if len(field.Names) == 0 && pkgdoc.ParseDirectives(field.Doc).NotRecommended {
-						marked[embeddedFieldPosition(field.Type)] = true
+					names := field.Names
+					if len(names) == 0 {
+						if ident := xgoutil.EmbeddedFieldIdent(field.Type); ident != nil {
+							names = []*ast.Ident{ident}
+						}
 					}
+					add(names, field.Doc)
 				}
 			}
 		case *ast.FuncDecl:
@@ -137,25 +152,4 @@ func collectNotRecommendedPositions(file *ast.File) map[token.Pos]bool {
 		return true
 	})
 	return marked
-}
-
-// embeddedFieldPosition finds an embedded field's source identifier, preserving
-// its own declaration position rather than the embedded type's declaration.
-func embeddedFieldPosition(expr ast.Expr) token.Pos {
-	for {
-		switch typ := expr.(type) {
-		case *ast.Ident:
-			return typ.Pos()
-		case *ast.SelectorExpr:
-			return typ.Sel.Pos()
-		case *ast.StarExpr:
-			expr = typ.X
-		case *ast.IndexExpr:
-			expr = typ.X
-		case *ast.IndexListExpr:
-			expr = typ.X
-		default:
-			return token.NoPos
-		}
-	}
 }

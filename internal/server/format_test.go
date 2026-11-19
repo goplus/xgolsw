@@ -226,6 +226,10 @@ var item Record
 	})
 
 	t.Run("CallbackOverloadArity", func(t *testing.T) {
+		const integerOverloads = `const limit = 1 << 8
+func withValue(count int, callback func(int)) {}
+func withoutValue(count uint8, callback func()) {}
+`
 		for _, tt := range []struct {
 			name         string
 			filename     string
@@ -233,6 +237,7 @@ var item Record
 			call         string
 			methods      string
 			wantParams   int
+			wantResult   string
 		}{
 			{
 				name: "Function", filename: "main.xgo",
@@ -243,11 +248,85 @@ func withoutValue(callback func(), required int) {}
 				wantParams: 1,
 			},
 			{
+				name: "DifferentResultTypes", filename: "main.xgo",
+				declarations: `func withValue(callback func(int)) int { return 1 }
+func withoutValue(callback func()) string { return "text" }
+`,
+				call:       "var result = use(value => {})",
+				wantParams: 1,
+				wantResult: "int",
+			},
+			{
+				name: "MatchingResultTypes", filename: "main.xgo",
+				declarations: `type Result int
+func withValue(callback func(int)) Result { return 1 }
+func withoutValue(callback func()) Result { return 1 }
+`,
+				call:       "var result = use(value => {})",
+				wantResult: "main.Result",
+			},
+			{
+				name: "MatchingCallbackResultTypes", filename: "main.xgo",
+				declarations: `func withValue(callback func(int) (original *int)) {}
+func withoutValue(callback func() (replacement *int)) {}
+`,
+				call: "use value => { return nil }",
+			},
+			{
+				name: "UnusedParameterChain", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				methods: `func Use__0(callback func()) {}
+func Use__1(callback func(int)) {}
+func Use__2(callback func(int, int)) {}
+`,
+				call: "f.use((first, second) => {})",
+			},
+			{
+				name: "UnusedParameterChainChangesResult", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				methods: `func Use__0(callback func()) string { return "text" }
+func Use__1(callback func(int)) int { return 1 }
+func Use__2(callback func(int, int)) int { return 1 }
+`,
+				call:       "var result = f.use((first, second) => {})",
+				wantParams: 1,
+				wantResult: "int",
+			},
+			{
 				name: "LeadingArgument", filename: "main.xgo",
 				declarations: `func withValue(name string, callback func(int)) {}
 func withoutValue(name string, callback func(), required int) {}
 `,
 				call:       `use "event", value => {}`,
+				wantParams: 1,
+			},
+			{
+				name: "OutOfRangeConstant", filename: "main.xgo",
+				declarations: integerOverloads,
+				call:         "use limit, value => {}",
+				wantParams:   1,
+			},
+			{
+				name: "RepresentableConstant", filename: "main.xgo",
+				declarations: integerOverloads,
+				call:         "use 255, value => {}",
+			},
+			{
+				name: "OutOfRangeFloat", filename: "main.xgo",
+				declarations: `const limit = 1e40
+func withValue(count float64, callback func(int)) {}
+func withoutValue(count float32, callback func()) {}
+`,
+				call:       "use limit, value => {}",
+				wantParams: 1,
+			},
+			{
+				name: "UninferableGenericOverload", filename: "main.xgo",
+				declarations: "import f \"example.com/framework\"\n",
+				methods: `func Use__0[T any](callback func()) {}
+func Use__1(callback func(int)) {}
+`,
+				call:       "f.use value => {}",
 				wantParams: 1,
 			},
 			{
@@ -507,6 +586,13 @@ func XGot_App_XGox_OnEvent__1[T any](app *App, name T, callback func(int)) {}
 				require.Len(t, edits, 1)
 				s.ModifyFiles([]FileChange{{Path: tt.filename, Content: []byte(edits[0].NewText), Version: 1}})
 				requireNoDiagnostics(t, s)
+				if tt.wantResult != "" {
+					info, err := s.getProj().TypeInfo()
+					require.NoError(t, err)
+					obj := info.Pkg.Scope().Lookup("result")
+					require.NotNil(t, obj)
+					assert.Equal(t, tt.wantResult, obj.Type().String())
+				}
 				file, err := s.getProj().ASTFile(tt.filename)
 				require.NoError(t, err)
 				var paramCounts []int
@@ -522,6 +608,155 @@ func XGot_App_XGox_OnEvent__1[T any](app *App, name T, callback func(int)) {}
 				assert.Empty(t, edits)
 			})
 		}
+	})
+
+	t.Run("IndependentLambdaShortenings", func(t *testing.T) {
+		const filename = "main.xgo"
+		const count = 8
+		const declarations = `func keepOne(callback func(int)) int { return 1 }
+func keepZero(callback func()) string { return "text" }
+func keep = (keepZero; keepOne)
+func dropOne(callback func(int)) int { return 1 }
+func dropZero(callback func()) int { return 1 }
+func drop = (dropZero; dropOne)
+`
+		source := declarations + strings.Repeat("echo keep(value => {})\n", count) +
+			strings.Repeat("echo drop(value => {})\n", count)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		proj := s.requestProject()
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+
+		original := proj.Importer
+		checks := 0
+		proj.Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+			// Each checked preview imports fmt for its builtins.
+			if path == "fmt" {
+				checks++
+			}
+			return original.Import(path)
+		})
+		content, err := formatLambda(proj, filename)
+		require.NoError(t, err)
+		assert.Equal(t, count, strings.Count(string(content), "keep(value =>"))
+		assert.Equal(t, count, strings.Count(string(content), "drop(=>"))
+		assert.Positive(t, checks)
+		assert.LessOrEqual(t, checks, 4*count)
+	})
+
+	t.Run("CallbackTypes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, withValue, withoutValue, call string
+		}{
+			{
+				name: "BlockParameter", withValue: "func(int)", withoutValue: "func(string)",
+				call: "use unused => {}, value => { log value }",
+			},
+			{
+				name: "ArrowParameter", withValue: "func(int) int", withoutValue: "func(string) int",
+				call: "use unused => {}, value => log(value)",
+			},
+			{
+				name: "Result", withValue: "func() *int", withoutValue: "func() *string",
+				call: "use unused => {}, () => nil",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const filename = "main.xgo"
+				source := `func logInt(value int) int { return value }
+func logString(value string) int { return len(value) }
+func log = (
+	logInt
+	logString
+)
+` + "func withValue(callback func(int), other " + tt.withValue + ") {}\n" +
+					"func withoutValue(callback func(), other " + tt.withoutValue + ") {}\n" +
+					"func use = (\n\twithoutValue\n\twithValue\n)\n" + `
+func withParam(callback func(int)) {}
+func withoutParam(callback func()) {}
+func independent = (
+	withoutParam
+	withParam
+)
+` + tt.call + "\nindependent discard => {}\n"
+				s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+				t.Cleanup(s.Close)
+				requireNoDiagnostics(t, s)
+
+				params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}}
+				edits, err := s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				require.Len(t, edits, 1)
+				formatted := edits[0].NewText
+				assert.Contains(t, formatted, "unused =>")
+				assert.NotContains(t, formatted, "discard =>")
+				s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(formatted), Version: 1}})
+				requireNoDiagnostics(t, s)
+				edits, err = s.textDocumentFormatting(params)
+				require.NoError(t, err)
+				assert.Empty(t, edits)
+			})
+		}
+	})
+
+	t.Run("MismatchedLambdaArity", func(t *testing.T) {
+		const filename = "main.xgo"
+		const source = `import f "example.com/framework"
+func run() { f.handle(_ => { println "event" }) }
+`
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, `var HandleCallback = func(callback func()) {}
+const XGoo_Handle = "HandleCallback"
+`)
+		proj := s.requestProject()
+		_, err := proj.TypeInfo()
+		require.ErrorContains(t, err, "too many arguments in lambda expression")
+
+		edits, err := s.textDocumentFormatting(&DocumentFormattingParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)},
+		})
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(edits[0].NewText), Version: 1}})
+		formatted, err := s.requestProject().ASTFile(filename)
+		require.NoError(t, err)
+		var parameters []string
+		ast.Inspect(formatted, func(node ast.Node) bool {
+			if lambda, ok := node.(*ast.LambdaExpr); ok {
+				for _, param := range lambda.Lhs {
+					parameters = append(parameters, param.Name)
+				}
+			}
+			return true
+		})
+		assert.Equal(t, []string{"_"}, parameters)
+	})
+
+	t.Run("IncompleteProjectCallback", func(t *testing.T) {
+		const filename = "main.xgo"
+		s := newImportTestServer(t, map[string][]byte{
+			filename:     []byte("import f \"example.com/framework\"\nf.use value=>{}\n"),
+			"broken.xgo": []byte("var broken = missingValue\n"),
+		})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, `func Use__0[T any](callback func()) {}
+func Use__1(callback func(int)) {}
+`)
+		_, before := s.getProj().TypeInfo()
+		require.ErrorContains(t, before, "undefined: missingValue")
+
+		params := &DocumentFormattingParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}}
+		edits, err := s.textDocumentFormatting(params)
+		require.NoError(t, err)
+		require.Len(t, edits, 1)
+		assert.Contains(t, edits[0].NewText, "value =>")
+
+		s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(edits[0].NewText), Version: 1}})
+		_, err = s.getProj().TypeInfo()
+		require.Error(t, err)
+		assert.Equal(t, before.Error(), err.Error())
 	})
 
 	t.Run("CallbackBindings", func(t *testing.T) {
@@ -2004,7 +2239,12 @@ _ = 1
 	})
 }
 
-func TestMatchOverloadCallExprArg(t *testing.T) {
+func testCallOverload(fun *gotypes.Func) callOverload {
+	sig := fun.Signature()
+	return callOverload{object: fun, signature: sig, params: sig.Params()}
+}
+
+func TestCallOverloadExpectedArgumentType(t *testing.T) {
 	pkg := gotypes.NewPackage("main", "main")
 	handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
 	handlerField := gotypes.NewField(token.NoPos, pkg, "Handler", handlerType, false)
@@ -2035,7 +2275,7 @@ func TestMatchOverloadCallExprArg(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, overload, kwarg.Value, -1)
+		_, got, matches := testCallOverload(overload).matchArgs(new(types.Info), callExpr, kwarg.Value)
 		require.True(t, matches)
 		assert.True(t, gotypes.Identical(handlerType, got))
 	})
@@ -2057,13 +2297,13 @@ func TestMatchOverloadCallExprArg(t *testing.T) {
 			Kwargs: []*ast.KwargExpr{kwarg},
 		}
 
-		got, matches := matchOverloadCallExprArg(new(types.Info), callExpr, variadicOverload, callExpr.Args[0], -1)
+		_, got, matches := testCallOverload(variadicOverload).matchArgs(new(types.Info), callExpr, callExpr.Args[0])
 		require.True(t, matches)
 		assert.True(t, gotypes.Identical(gotypes.Typ[gotypes.Int], got))
 	})
 }
 
-func TestOverloadMatchesCallExpr(t *testing.T) {
+func TestCallOverloadMatches(t *testing.T) {
 	t.Run("LambdaArity", func(t *testing.T) {
 		pkg := gotypes.NewPackage("main", "main")
 		handlerType := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
@@ -2082,7 +2322,8 @@ func TestOverloadMatchesCallExpr(t *testing.T) {
 			Args: []ast.Expr{&ast.LambdaExpr{}},
 		}
 
-		assert.True(t, overloadMatchesCallExpr(nil, callExpr, overload, -1))
+		_, _, matches := testCallOverload(overload).matchArgs(nil, callExpr, nil)
+		assert.True(t, matches)
 	})
 
 	t.Run("SkippedUnknownKwarg", func(t *testing.T) {
@@ -2108,8 +2349,10 @@ func TestOverloadMatchesCallExpr(t *testing.T) {
 			}},
 		}
 
-		assert.True(t, overloadMatchesCallExpr(nil, callExpr, overload, 0))
-		assert.False(t, overloadMatchesCallExpr(nil, callExpr, overload, -1))
+		_, _, matches := testCallOverload(overload).matchArgs(nil, callExpr, callExpr.Kwargs[0].Value)
+		assert.True(t, matches)
+		_, _, matches = testCallOverload(overload).matchArgs(nil, callExpr, nil)
+		assert.False(t, matches)
 	})
 }
 

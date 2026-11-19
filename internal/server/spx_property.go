@@ -89,7 +89,7 @@ func (r *spxSymbols) monitorProperties(named *gotypes.Named) iter.Seq[propertyOb
 			if _, extended := gogen.CheckFuncEx(sig); extended || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
 				continue
 			}
-			name := xgoutil.ToLowerCamelCase(method.Name())
+			name := xgoutil.FunctionAliasName(method.Name())
 			if name == method.Name() || seenNames[name] || !r.isMonitorValueType(sig.Results().At(0).Type()) {
 				continue
 			}

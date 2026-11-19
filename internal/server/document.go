@@ -56,16 +56,16 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 			return false
 		}
 		seenCalls[callExpr] = true
-		for _, kwarg := range callExpr.Kwargs {
+		for kwarg, targets := range callExprKwargTargets(typeInfo, callExpr, 0) {
 			kwargNames[kwarg.Name.Pos()] = struct{}{}
 			linkRange := RangeForNode(proj, kwarg.Name)
 			seen := make(map[URI]struct{})
-			for _, target := range lookupCallExprKwargTargets(typeInfo, callExpr, kwarg.Name.Name) {
+			for _, target := range targets {
 				obj := kwargTargetObject(target.target)
 				if obj == nil {
 					continue
 				}
-				for _, def := range ctx.definitionsForSelection(obj, target.receiver) {
+				for _, def := range ctx.definitionsForSelection(obj, target.binding.ContainerType()) {
 					uri := URI(def.ID.String())
 					if _, ok := seen[uri]; ok {
 						continue
