@@ -1,5 +1,4 @@
-// Package appends defines an Analyzer that detects
-// if there is only one variable in append.
+// Package appends defines an Analyzer that detects append calls with no values to add.
 //
 // # Analyzer appends
 //
