@@ -18,8 +18,10 @@ package xgoutil
 
 import (
 	gotypes "go/types"
+	"slices"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,6 +96,20 @@ func TestIsNamedStructType(t *testing.T) {
 }
 
 func TestStructMembers(t *testing.T) {
+	t.Run("StaticValueDoesNotHidePromotedField", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/framework", "framework")
+		field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)
+		base := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Base", nil), gotypes.NewStruct([]*gotypes.Var{field}, nil), nil)
+		embedded := gotypes.NewField(0, pkg, "Base", base, true)
+		owner := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Owner", nil), gotypes.NewStruct([]*gotypes.Var{embedded}, nil), nil)
+		value := gotypes.NewVar(0, pkg, "XGos_Owner_Count", gotypes.Typ[gotypes.Int])
+		gogen.NewStaticMember(owner, 0, pkg, "Count", value)
+
+		members := slices.Collect(StructMembers(owner, nil))
+		require.Len(t, members, 2)
+		assert.Same(t, field, members[1].Member)
+	})
+
 	t.Run("SelectorBoundary", func(t *testing.T) {
 		pkg := gotypes.NewPackage("example.com/framework", "framework")
 		field := gotypes.NewField(token.NoPos, pkg, "Count", gotypes.Typ[gotypes.Int], false)

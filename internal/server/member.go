@@ -5,7 +5,6 @@ import (
 	"iter"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
@@ -38,17 +37,21 @@ func resolvedNamedType(typ gotypes.Type) *gotypes.Named {
 // memberForIdent resolves the selected member without discarding its declaration
 // or selector package.
 func (r *definitionContext) memberForIdent(ident *ast.Ident, obj gotypes.Object) *xgoutil.StructMember {
+	var hasReceiver bool
 	switch obj := obj.(type) {
 	case *gotypes.Var:
-		if !obj.IsField() {
-			return nil
-		}
+		hasReceiver = obj.IsField()
 	case *gotypes.Func:
-		if obj.Signature().Recv() == nil {
-			return nil
-		}
+		hasReceiver = obj.Signature().Recv() != nil
+	case *gotypes.Const:
+		// Static values are recorded as package declarations by the compiler.
 	default:
 		return nil
+	}
+	if !hasReceiver {
+		if _, _, static := xgoutil.SplitXGosMemberName(obj.Name()); !static || ident.Name == obj.Name() {
+			return nil
+		}
 	}
 	proj := r.proj
 	info, _ := expressionTypeInfo(proj)
@@ -89,8 +92,17 @@ func (r *definitionContext) memberForObject(receiver gotypes.Type, obj gotypes.O
 	if receiver == nil {
 		return nil
 	}
-	if selector, ok := r.memberSelectorsFor(receiver)[types.ObjectOrigin(obj)]; ok {
+	origin := types.ObjectOrigin(obj)
+	if selector, ok := r.memberSelectorsFor(receiver)[origin]; ok {
 		return &xgoutil.StructMember{Member: obj, Selector: selector}
+	}
+	if named, ok := receiver.(*gotypes.Named); ok {
+		for method := range named.Origin().Methods() {
+			if static := types.StaticMemberObject(method); static != nil &&
+				(method == origin || types.ObjectOrigin(static) == origin) {
+				return &xgoutil.StructMember{Member: method, Selector: named}
+			}
+		}
 	}
 	return nil
 }
@@ -108,7 +120,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 			selectors[origin] = selector
 		}
 	}
-	members := xgoutil.StructMembers(receiver, r.isFrameworkBaseType)
+	members := r.selectorMembers(receiver)
 	_, isInterface := receiver.Underlying().(*gotypes.Interface)
 	if isInterface {
 		members = importedInterfaceMembers(receiver)
@@ -126,6 +138,21 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 	}
 	r.memberSelectors[receiver] = selectors
 	return selectors
+}
+
+// selectorMembers yields fields and methods available through a concrete type.
+func (r *definitionContext) selectorMembers(receiver gotypes.Type) iter.Seq[xgoutil.StructMember] {
+	if named, ok := receiver.(*gotypes.Named); ok && !xgoutil.IsNamedStructType(named) {
+		return func(yield func(xgoutil.StructMember) bool) {
+			for method := range named.Methods() {
+				if xgoutil.IsExportedOrInMainPkg(method) &&
+					!yield(xgoutil.StructMember{Member: method, Selector: named}) {
+					return
+				}
+			}
+		}
+	}
+	return xgoutil.StructMembers(receiver, r.isFrameworkBaseType)
 }
 
 // importedInterfaceMembers yields methods with their public imported selectors.
@@ -218,8 +245,9 @@ func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
 				return ""
 			case *ast.GenDecl:
 				if structType == nil && node == astFile.ClassFields {
-					name, _ := cl.GetFileClassType(astFile, proj.Fset.PositionFor(astFile.Pos(), false).Filename, proj.Module().LookupClass)
-					return name
+					if owner := typeInfo.ClassTypes[astFile]; owner != nil {
+						return owner.Obj().Name()
+					}
 				}
 				return ""
 			}

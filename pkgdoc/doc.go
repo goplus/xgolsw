@@ -19,7 +19,7 @@ package pkgdoc
 import (
 	goast "go/ast"
 	godoc "go/doc"
-	"strings"
+	"slices"
 
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -80,21 +80,27 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 	pkgDoc.collectGoDirectives(pkg)
 
 	vars, consts, funcs := docPkg.Vars, docPkg.Consts, docPkg.Funcs
+	namedTypes := make(map[string]bool)
 	for _, t := range docPkg.Types {
 		// go/doc associates declarations with their type, including exported
 		// declarations whose type is unexported.
 		vars = append(vars, t.Vars...)
 		consts = append(consts, t.Consts...)
 		funcs = append(funcs, t.Funcs...)
-		if !token.IsExported(t.Name) {
-			continue
+		var typeDoc *TypeDoc
+		if token.IsExported(t.Name) {
+			typeDoc = pkgDoc.typeDoc(t.Name)
+			typeDoc.Doc = t.Doc
 		}
-
-		typeDoc := pkgDoc.typeDoc(t.Name)
-		typeDoc.Doc = t.Doc
 		for _, spec := range t.Decl.Specs {
 			typeSpec, ok := spec.(*goast.TypeSpec)
 			if !ok {
+				continue
+			}
+			if !typeSpec.Assign.IsValid() {
+				namedTypes[typeSpec.Name.Name] = true
+			}
+			if typeDoc == nil {
 				continue
 			}
 			switch typ := typeSpec.Type.(type) {
@@ -126,6 +132,9 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 				}
 			}
 		}
+		if typeDoc == nil {
+			continue
+		}
 		for _, m := range t.Methods {
 			if token.IsExported(m.Name) {
 				typeDoc.Methods[m.Name] = m.Doc
@@ -140,16 +149,21 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 			}
 		}
 	}
-	isXGoPackage := false
 	for _, c := range consts {
 		for _, name := range c.Names {
 			if token.IsExported(name) {
 				pkgDoc.Consts[name] = c.Doc
-				if xgoutil.IsXGoPackageMarkerName(name) {
-					isXGoPackage = true
-				}
 			}
 		}
+	}
+	_, isXGoPackage := pkgDoc.Consts[xgoutil.XGoPackage]
+	if _, legacy := pkgDoc.Consts[xgoutil.GopPackage]; legacy && !isXGoPackage {
+		_, hasVar := pkgDoc.Vars[xgoutil.XGoPackage]
+		_, hasType := pkgDoc.Types[xgoutil.XGoPackage]
+		hasFunc := slices.ContainsFunc(funcs, func(f *godoc.Func) bool {
+			return f.Name == xgoutil.XGoPackage
+		})
+		isXGoPackage = !hasVar && !hasType && !hasFunc
 	}
 	for _, f := range funcs {
 		if !token.IsExported(f.Name) {
@@ -159,12 +173,12 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		if !isXGoPackage {
 			continue
 		}
-		if strings.HasPrefix(f.Name, xgoutil.XGotPrefix) {
-			recvTypeName, methodName, ok := xgoutil.SplitXGotMethodName(f.Name, true)
-			if !ok {
-				continue
-			}
-			pkgDoc.typeDoc(recvTypeName).Methods[methodName] = f.Doc
+		owner, method, ok := xgoutil.SplitXGotMethodName(f.Name, true)
+		if !ok {
+			owner, method, ok = xgoutil.SplitXGosMemberName(f.Name)
+		}
+		if ok && namedTypes[owner] {
+			pkgDoc.typeDoc(owner).Methods[method] = f.Doc
 		}
 	}
 

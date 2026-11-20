@@ -343,7 +343,7 @@ func TestRequiredParamCount(t *testing.T) {
 		{name: "Required", params: []string{"first", "second"}, want: 2},
 		{name: "Optional", params: []string{"__xgo_optional_first", "__xgo_optional_second"}},
 		{name: "Mixed", params: []string{"first", "__xgo_optional_second", "__xgo_optional_third"}, want: 1},
-		{name: "LegacyOptional", params: []string{"first", "__gop_optional_second"}, want: 1},
+		{name: "OrdinaryParamWithHistoricalPrefix", params: []string{"first", "__gop_optional_second"}, want: 2},
 		{name: "LocalOptional", params: []string{"first", "second"}, optional: true, want: 1},
 		{name: "Variadic", params: []string{"first", "rest"}, variadic: true, want: 1},
 		{name: "VariadicOnly", params: []string{"rest"}, variadic: true},
@@ -466,7 +466,7 @@ func TestResolveCallExprKwarg(t *testing.T) {
 		secondOptionalParam := gotypes.NewParam(
 			token.NoPos,
 			pkg,
-			"__gop_optional_second",
+			"__xgo_optional_second",
 			gotypes.NewMap(gotypes.Typ[gotypes.String], gotypes.Typ[gotypes.String]),
 		)
 		sig := gotypes.NewSignatureType(
@@ -509,7 +509,7 @@ func TestSourceParamName(t *testing.T) {
 	}{
 		{name: "__xgo_autoclosure_condition", want: "condition"},
 		{name: "__xgo_optional_opts", want: "opts"},
-		{name: "__gop_optional_opts", want: "opts"},
+		{name: "__gop_optional_opts", want: "__gop_optional_opts"},
 		{name: "__xgo_internal_condition", want: "__xgo_internal_condition"},
 		{name: "opts", want: "opts"},
 	} {
@@ -640,6 +640,108 @@ func TestSourceParamType(t *testing.T) {
 				assert.Nil(t, resultType)
 			}
 			assert.True(t, gotypes.Identical(want, SourceParamType(param)))
+		})
+	}
+}
+
+func TestResolveCallExprSignatureForTypeSelector(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		template   bool
+		concrete   bool
+		unresolved bool
+	}{
+		{name: "Static"},
+		{name: "Template", template: true},
+		{name: "RecordedStaticSignature", concrete: true},
+		{name: "UnresolvedTemplate", template: true, unresolved: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/framework", "framework")
+			owner := gotypes.NewTypeName(token.NoPos, pkg, "Item", nil)
+			named := gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+			value := gotypes.NewParam(token.NoPos, pkg, "value", gotypes.Typ[gotypes.Int])
+			params := []*gotypes.Var{value}
+			if tt.template {
+				receiver := gotypes.NewParam(token.NoPos, pkg, "item", named)
+				params = append([]*gotypes.Var{receiver}, params...)
+			}
+			impl := newTestFunc(pkg, "Implementation", false, params...)
+			var member *gotypes.Func
+			if tt.template {
+				member = gogen.NewTemplateRecvMethod(named, token.NoPos, pkg, "Call", impl)
+			} else {
+				member = gogen.NewStaticMember(named, token.NoPos, pkg, "Call", impl)
+			}
+			typeIdent := &ast.Ident{Name: "Item"}
+			selector := &ast.SelectorExpr{X: typeIdent, Sel: &ast.Ident{Name: "Call"}}
+			info := new(types.Info)
+			info.Uses = map[*ast.Ident]gotypes.Object{typeIdent: owner, selector.Sel: member}
+			call := &ast.CallExpr{Fun: selector}
+			wantSig := impl.Signature()
+			var recorded gotypes.Type = member.Type()
+			if tt.unresolved {
+				call.Fun = &ast.IndexExpr{X: selector, Index: &ast.Ident{Name: "string"}}
+				recorded = nil
+			} else if tt.concrete {
+				recorded = wantSig
+			}
+			info.Types = map[ast.Expr]gotypes.TypeAndValue{call.Fun: {Type: recorded}}
+			fun, sig, tuple := ResolveCallExprSignature(info, call)
+			if tt.unresolved {
+				assert.Nil(t, fun)
+				assert.Nil(t, sig)
+				assert.Nil(t, tuple)
+				return
+			}
+			assert.Same(t, impl, fun)
+			assert.Same(t, wantSig, sig)
+			assert.Same(t, wantSig.Params(), tuple)
+		})
+	}
+}
+
+func TestResolveFuncSignatureForUnrecordedInstantiation(t *testing.T) {
+	integerConstraint := gotypes.NewInterfaceType(nil, []gotypes.Type{
+		gotypes.NewUnion([]*gotypes.Term{gotypes.NewTerm(true, gotypes.Typ[gotypes.Int])}),
+	}).Complete()
+	for _, tt := range []struct {
+		name     string
+		args     []string
+		concrete bool
+	}{
+		{name: "FullTypeArguments", args: []string{"int", "string"}, concrete: true},
+		{name: "TooManyTypeArguments", args: []string{"int", "string", "bool"}},
+		{name: "ValueArgument", args: []string{"int", "true"}},
+		{name: "ConstraintMismatch", args: []string{"string", "int"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			first := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, nil, "A", nil), integerConstraint)
+			second := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, nil, "B", nil), newTestEmptyInterface())
+			param := gotypes.NewParam(token.NoPos, nil, "key", first)
+			result := gotypes.NewParam(token.NoPos, nil, "", second)
+			decl := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{first, second},
+				gotypes.NewTuple(param), gotypes.NewTuple(result), false)
+			ident := &ast.Ident{Name: "Choose"}
+			fun := gotypes.NewFunc(token.NoPos, nil, ident.Name, decl)
+			uses := map[*ast.Ident]gotypes.Object{ident: fun}
+			indexed := &ast.IndexListExpr{X: ident}
+			for _, name := range tt.args {
+				arg := &ast.Ident{Name: name}
+				uses[arg] = gotypes.Universe.Lookup(name)
+				indexed.Indices = append(indexed.Indices, arg)
+			}
+			info := newTestTypeInfo(nil, uses)
+			sig, params := ResolveFuncSignatureForCall(info, &ast.CallExpr{Fun: indexed}, fun)
+			if !tt.concrete {
+				assert.Same(t, decl, sig)
+				return
+			}
+			require.NotNil(t, sig)
+			require.Equal(t, 1, params.Len())
+			require.Equal(t, 1, sig.Results().Len())
+			assert.Same(t, gotypes.Typ[gotypes.Int], params.At(0).Type())
+			assert.Same(t, gotypes.Typ[gotypes.String], sig.Results().At(0).Type())
 		})
 	}
 }
@@ -846,7 +948,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	})
 
 	t.Run("XGoPackageXGotMethod", func(t *testing.T) {
-		ident := &ast.Ident{Name: "XGot_Sprite_Move"}
+		ident := &ast.Ident{Name: "move"}
 		arg := &ast.Ident{Name: "arg1"}
 		expr := &ast.CallExpr{
 			Fun:  ident,
@@ -855,9 +957,12 @@ func TestResolvedCallExprArgs(t *testing.T) {
 
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "Sprite", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		recv := gotypes.NewParam(token.NoPos, pkg, "recv", gotypes.Typ[gotypes.Int])
 		param := gotypes.NewParam(token.NoPos, pkg, "p1", gotypes.Typ[gotypes.Int])
-		sig := gotypes.NewSignatureType(recv, nil, nil, gotypes.NewTuple(recv, param), nil, false)
+		sig := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(recv, param), nil, false)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_Move", sig)
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
 
@@ -888,6 +993,9 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	t.Run("XGoPackageXGoxMethod", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "Sprite", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		constraint := gotypes.NewInterfaceType(nil, nil)
 		constraint.Complete()
 		typeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "T", nil), constraint)
@@ -896,7 +1004,7 @@ func TestResolvedCallExprArgs(t *testing.T) {
 		sig := gotypes.NewSignatureType(nil, nil, []*gotypes.TypeParam{typeParam}, gotypes.NewTuple(recv, param), nil, false)
 		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Sprite_XGox_Move", sig)
 
-		ident := &ast.Ident{Name: "XGot_Sprite_XGox_Move"}
+		ident := &ast.Ident{Name: "move"}
 		typeInfo := newTestTypeInfo(nil, map[*ast.Ident]gotypes.Object{ident: fun})
 		resolved := slices.Collect(ResolvedCallExprArgs(typeInfo, &ast.CallExpr{
 			Fun: ident,
@@ -964,6 +1072,9 @@ func TestResolvedCallExprArgs(t *testing.T) {
 	t.Run("XGoPackagePartialXGoxTemplateMethod", func(t *testing.T) {
 		pkg := gotypes.NewPackage("test", "test")
 		markAsXGoPackage(pkg)
+		owner := gotypes.NewTypeName(token.NoPos, pkg, "App", nil)
+		gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+		pkg.Scope().Insert(owner)
 		constraint := gotypes.NewInterfaceType(nil, nil)
 		constraint.Complete()
 		inTypeParam := gotypes.NewTypeParam(gotypes.NewTypeName(token.NoPos, pkg, "InT", nil), constraint)
@@ -1865,4 +1976,64 @@ func TestSourceExprIndex(t *testing.T) {
 		})
 	}
 	assert.Equal(t, -1, SourceExprIndex(nil, first))
+}
+
+func TestResolveFuncSignatureForCallTemplateReceiver(t *testing.T) {
+	for _, tt := range []struct {
+		name, selector            string
+		typeSelector, hasReceiver bool
+	}{
+		{name: "Bound", selector: "choose"},
+		{name: "TypeSelector", selector: "Choose", typeSelector: true, hasReceiver: true},
+		{name: "EncodedName", selector: "Gopt_Item_Choose", hasReceiver: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("example.com/framework", "framework")
+			markAsXGoPackage(pkg)
+			owner := gotypes.NewTypeName(0, pkg, "Item", nil)
+			item := gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+			pkg.Scope().Insert(owner)
+			receiver := gotypes.NewParam(0, pkg, "item", gotypes.NewPointer(item))
+			value := gotypes.NewParam(0, pkg, "value", gotypes.Typ[gotypes.Int])
+			signature := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(receiver, value), nil, false)
+			fun := gotypes.NewFunc(0, pkg, "Gopt_Item_Choose", signature)
+
+			sel := &ast.Ident{Name: tt.selector}
+			var callee ast.Expr = sel
+			bindings := map[*ast.Ident]gotypes.Object{sel: fun}
+			if tt.selector != fun.Name() {
+				expr := &ast.Ident{Name: "item"}
+				bindings[expr] = gotypes.NewVar(0, pkg, "item", item)
+				if tt.typeSelector {
+					expr.Name = "Item"
+					bindings[expr] = owner
+				}
+				callee = &ast.SelectorExpr{X: expr, Sel: sel}
+			}
+			info := newTestTypeInfo(nil, bindings)
+			_, params := ResolveFuncSignatureForCall(info, &ast.CallExpr{Fun: callee}, fun)
+			want := []*gotypes.Var{value}
+			if tt.hasReceiver {
+				want = []*gotypes.Var{receiver, value}
+			}
+			assert.Equal(t, want, slices.Collect(params.Variables()))
+		})
+	}
+}
+
+func TestResolveFuncSignatureWithMissingTemplateReceiver(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/framework", "framework")
+	markAsXGoPackage(pkg)
+	owner := gotypes.NewTypeName(0, pkg, "Item", nil)
+	gotypes.NewNamed(owner, gotypes.NewStruct(nil, nil), nil)
+	pkg.Scope().Insert(owner)
+	signature := gotypes.NewSignatureType(nil, nil, nil, nil, nil, false)
+	fun := gotypes.NewFunc(0, pkg, "Gopt_Item_Choose", signature)
+
+	sig, params := ResolveFuncSignature(fun)
+	assert.Nil(t, sig)
+	assert.Nil(t, params)
+	sig, params = ResolveFuncSignatureForCall(nil, &ast.CallExpr{Fun: &ast.Ident{Name: "choose"}}, fun)
+	assert.Nil(t, sig)
+	assert.Nil(t, params)
 }

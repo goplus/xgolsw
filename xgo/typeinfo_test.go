@@ -18,6 +18,8 @@ package xgo
 
 import (
 	"fmt"
+	goast "go/ast"
+	goparser "go/parser"
 	gotypes "go/types"
 	"strings"
 	"testing"
@@ -636,4 +638,112 @@ func getCounter() int {
 		assert.ErrorIs(t, err, ErrUnknownCacheKind)
 		assert.Nil(t, typeInfo)
 	})
+}
+
+func TestProjectTypeInfoStaticMethodReceivers(t *testing.T) {
+	proj := newTestProject(t, map[string]*File{"main.xgo": file(`type Record struct{}
+func Record.Choose() {}
+func Missing.Choose() {}
+`)}, FeatAll)
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	astFile, err := proj.ASTFile("main.xgo")
+	require.NoError(t, err)
+	var receivers []*ast.Ident
+	for _, decl := range astFile.Decls {
+		if method, ok := decl.(*ast.FuncDecl); ok && method.Static {
+			ident, ok := method.Recv.List[0].Type.(*ast.Ident)
+			require.True(t, ok)
+			receivers = append(receivers, ident)
+		}
+	}
+	require.Len(t, receivers, 2)
+	owner := info.Pkg.Scope().Lookup("Record")
+	require.NotNil(t, owner)
+	assert.Same(t, owner, info.Uses[receivers[0]])
+	assert.Nil(t, info.Uses[receivers[1]])
+}
+
+func TestProjectFlatClassTypes(t *testing.T) {
+	const entry = "main_fixture.gox"
+	const fragment = "nested/Chunk_fixture.gox"
+	for _, tt := range []struct {
+		name, source, peer, ordinary string
+		baseAlias, typeError         string
+		hasEntry, hasOwner           bool
+	}{
+		{name: "Body", hasEntry: true, hasOwner: true, source: "func Read() int { return Value }"},
+		{name: "EmptyFragment", hasEntry: true, hasOwner: true},
+		{name: "SynthesizedOwner", hasOwner: true, peer: "const Limit = 5", ordinary: "var Current *App"},
+		{name: "SynthesizedAliasOwner", hasOwner: true, ordinary: "var Current *AppAlias",
+			baseAlias: "AppAlias", typeError: "has no method Main"},
+		{name: "NoCheckedOwner", peer: "const Limit = 5"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string]*File{
+				fragment:     file(tt.source),
+				"main.xgo":   file("type Chunk struct{}\n" + tt.ordinary),
+				"Record.gox": file("func .Choose(value int) int { return value }"),
+			}
+			if tt.hasEntry {
+				files[entry] = file("var Value int")
+			}
+			if tt.peer != "" {
+				files["Peer_fixture.gox"] = file(tt.peer)
+			}
+			proj := newTestProject(t, files, FeatAll)
+			config := testframework.NewModule(t).Module
+			framework := config.Opt.Projects[0]
+			framework.Flat = true
+			framework.Works = nil
+			wantOwner := framework.Class
+			if tt.baseAlias != "" {
+				framework.Class = tt.baseAlias
+				wantOwner = tt.baseAlias
+			}
+			module, err := NewModule(config)
+			require.NoError(t, err)
+			proj.SetModule(module)
+			baseSource := `package framework
+const XGoPackage = true
+type App struct{}
+func XGot_App_Main(app any, items ...any) {}
+`
+			if tt.baseAlias != "" {
+				baseSource += "type " + tt.baseAlias + " = App\n"
+			}
+			baseFile, err := goparser.ParseFile(proj.Fset, "framework.go", baseSource, 0)
+			require.NoError(t, err)
+			base, err := new(gotypes.Config).Check(testframework.PkgPath, proj.Fset, []*goast.File{baseFile}, nil)
+			require.NoError(t, err)
+			fallback := proj.Importer
+			proj.Importer = pkgDocTestImporter(func(path string) (*gotypes.Package, error) {
+				if path == base.Path() {
+					return base, nil
+				}
+				return fallback.Import(path)
+			})
+
+			info, err := proj.TypeInfo()
+			if tt.typeError != "" {
+				require.ErrorContains(t, err, tt.typeError)
+			} else {
+				require.NoError(t, err)
+			}
+			file, err := proj.ASTFile(fragment)
+			require.NoError(t, err)
+			if tt.hasOwner {
+				owner := info.ClassTypes[file]
+				require.NotNil(t, owner)
+				assert.Same(t, info.Pkg.Scope().Lookup(wantOwner), owner.Obj())
+			} else {
+				assert.Nil(t, info.ClassTypes[file])
+			}
+			doc, err := proj.PkgDoc()
+			require.NoError(t, err)
+			require.Contains(t, doc.Types, "Chunk")
+			assert.Empty(t, doc.Types["Chunk"].Methods)
+			assert.Contains(t, doc.Types, "Record")
+		})
+	}
 }

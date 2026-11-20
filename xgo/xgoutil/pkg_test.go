@@ -19,6 +19,7 @@ package xgoutil
 import (
 	"go/constant"
 	gotypes "go/types"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,10 +54,10 @@ func TestIsMarkedAsXGoPackage(t *testing.T) {
 	}{
 		{name: "XGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(true), want: true},
 		{name: "LegacyGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(true), want: true},
-		{name: "WrongTypeXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1)},
-		{name: "WrongTypeGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1)},
-		{name: "WrongValueXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false)},
-		{name: "WrongValueGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false)},
+		{name: "IntXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1), want: true},
+		{name: "IntGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.Int], val: constant.MakeInt64(1), want: true},
+		{name: "FalseXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false), want: true},
+		{name: "FalseGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool], val: constant.MakeBool(false), want: true},
 		{name: "NilValueXGoPackageMarker", marker: XGoPackage, typ: gotypes.Typ[gotypes.UntypedBool]},
 		{name: "NilValueGopPackageMarker", marker: GopPackage, typ: gotypes.Typ[gotypes.UntypedBool]},
 	} {
@@ -72,6 +73,39 @@ func TestIsMarkedAsXGoPackage(t *testing.T) {
 			pkg := gotypes.NewPackage("test", "test")
 			pkg.Scope().Insert(gotypes.NewVar(0, pkg, marker, gotypes.Typ[gotypes.UntypedBool]))
 			assert.False(t, IsMarkedAsXGoPackage(pkg))
+		})
+	}
+}
+
+func TestXGoPackageDependencies(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		current constant.Value
+		want    []string
+		marked  bool
+	}{
+		{name: "Historical", want: []string{"legacy.example/pkg"}, marked: true},
+		{name: "Current", current: constant.MakeString("example.com/one,example.com/two"),
+			want: []string{"example.com/one", "example.com/two"}, marked: true},
+		{name: "BooleanWithHistorical", current: constant.MakeBool(true), marked: true},
+		{name: "NonConstantWithHistorical"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pkg := gotypes.NewPackage("test", "test")
+			scope := pkg.Scope()
+			scope.Insert(gotypes.NewConst(0, pkg, GopPackage, gotypes.Typ[gotypes.String], constant.MakeString("legacy.example/pkg")))
+			if tt.current != nil {
+				typ := gotypes.Typ[gotypes.String]
+				if tt.current.Kind() == constant.Bool {
+					typ = gotypes.Typ[gotypes.Bool]
+				}
+				scope.Insert(gotypes.NewConst(0, pkg, XGoPackage, typ, tt.current))
+			} else if !tt.marked {
+				scope.Insert(gotypes.NewVar(0, pkg, XGoPackage, gotypes.Typ[gotypes.String]))
+			}
+
+			assert.Equal(t, tt.marked, IsMarkedAsXGoPackage(pkg))
+			assert.Equal(t, tt.want, slices.Collect(XGoPackageDependencies(pkg)))
 		})
 	}
 }

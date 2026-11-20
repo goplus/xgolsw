@@ -36,33 +36,140 @@ func IsXGotMethodName(name string) bool {
 	return ok
 }
 
-// SplitXGotMethodName splits an XGo template method name into receiver type
-// name and method name.
+// SplitXGotMethodName decodes the receiver and method from an XGot_ or Gopt_
+// name, including the double-underscore form. If trimXGox is true, it strips
+// the method's XGox_ prefix.
 func SplitXGotMethodName(name string, trimXGox bool) (recvTypeName string, methodName string, ok bool) {
-	if !strings.HasPrefix(name, XGotPrefix) {
-		return "", "", false
-	}
-	recvTypeName, methodName, ok = strings.Cut(name[len(XGotPrefix):], "_")
+	recvTypeName, methodName, ok = splitXGoMemberName(name, XGotPrefix, "Gopt_")
 	if !ok {
 		return "", "", false
 	}
 	if trimXGox {
-		if funcName, ok := SplitXGoxFuncName(methodName); ok {
+		if funcName, ok := splitXGoxMethodName(methodName); ok {
 			methodName = funcName
 		}
 	}
 	return
 }
 
+// TemplateMethodName decodes a package-level template implementation whose
+// receiver names a defined type in a marked package. The trimXGox option
+// follows [SplitXGotMethodName].
+func TemplateMethodName(fun *gotypes.Func, trimXGox bool) (string, string, bool) {
+	owner, method, ok := SplitXGotMethodName(fun.Name(), trimXGox)
+	if ok && hasEncodedMemberOwner(fun, owner) {
+		return owner, method, true
+	}
+	return "", "", false
+}
+
+// hasEncodedMemberOwner reports whether a package-level function's encoded
+// owner names a defined type in the marked package.
+func hasEncodedMemberOwner(fun *gotypes.Func, owner string) bool {
+	if fun.Signature().Recv() != nil || !IsMarkedAsXGoPackage(fun.Pkg()) {
+		return false
+	}
+	obj, ok := fun.Pkg().Scope().Lookup(owner).(*gotypes.TypeName)
+	if !ok {
+		return false
+	}
+	_, ok = obj.Type().(*gotypes.Named)
+	return ok
+}
+
+// ReconstructedMethodImplementation returns the function wrapped by a static
+// or template method. The second result reports template receiver binding.
+func ReconstructedMethodImplementation(fun *gotypes.Func) (implementation *gotypes.Func, template bool) {
+	if fun == nil {
+		return nil, false
+	}
+	ext, _ := gogen.CheckFuncEx(fun.Signature())
+	switch member := ext.(type) {
+	case *gogen.TyTemplateRecvMethod:
+		implementation, _ = member.Obj().(*gotypes.Func)
+		return implementation, true
+	case *gogen.TyStaticMember:
+		implementation, _ = member.Obj().(*gotypes.Func)
+	}
+	return implementation, false
+}
+
+// ReferencesEncodedFuncName reports whether the source names the encoded Go
+// function directly instead of using its reconstructed method or callable.
+func ReferencesEncodedFuncName(fun *gotypes.Func, name string) bool {
+	encodedName := fun.Name()
+	if name != encodedName && name != ToLowerCamelCase(encodedName) {
+		// The compiler records the selected implementation at an overload call.
+		match := xgoOverloadFuncNameRE.FindStringSubmatch(encodedName)
+		if match == nil {
+			return false
+		}
+		group := match[1]
+		if name != group && name != ToLowerCamelCase(group) {
+			return false
+		}
+	}
+	if _, _, ok := TemplateMethodName(fun, false); ok {
+		return true
+	}
+	if owner, _, ok := SplitXGosMemberName(encodedName); ok && hasEncodedMemberOwner(fun, owner) {
+		return true
+	}
+	_, ok := SplitXGoxFuncName(encodedName)
+	return ok && IsMarkedAsXGoPackage(fun.Pkg()) && fun.Signature().Recv() == nil
+}
+
+// SplitXGosMemberName splits a static member into its owning type and name.
+func SplitXGosMemberName(name string) (recvTypeName, memberName string, ok bool) {
+	return splitXGoMemberName(name, "XGos_", "Gops_")
+}
+
+// XGosMemberName returns the Go implementation name emitted for a static member.
+func XGosMemberName(owner, member string) string {
+	separator := "_"
+	if strings.ContainsRune(owner, '_') || strings.ContainsRune(member, '_') {
+		separator = "__"
+	}
+	return "XGos" + separator + owner + separator + member
+}
+
+// splitXGoMemberName decodes the shared receiver and member name encoding.
+func splitXGoMemberName(name, current, historical string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(name, current)
+	if !ok {
+		rest, ok = strings.CutPrefix(name, historical)
+		if !ok {
+			return "", "", false
+		}
+	}
+	separator := "_"
+	if unescaped, ok := strings.CutPrefix(rest, "_"); ok {
+		rest, separator = unescaped, "__"
+	}
+	recv, member, found := strings.Cut(rest, separator)
+	if !found || recv == "" || member == "" {
+		return "", "", false
+	}
+	return recv, member, true
+}
+
+// splitXGoxMethodName recognizes the type-as-parameter spelling used when
+// gogen adds an alias to a reconstructed method.
+func splitXGoxMethodName(name string) (string, bool) {
+	method, ok := strings.CutPrefix(name, XGoxPrefix)
+	return method, ok && method != ""
+}
+
 // SplitXGoxFuncName splits an XGo type as parameters function name into the
 // function name.
 func SplitXGoxFuncName(name string) (funcName string, ok bool) {
-	if !strings.HasPrefix(name, XGoxPrefix) {
+	if funcName, ok = strings.CutPrefix(name, XGoxPrefix); !ok {
+		funcName, ok = strings.CutPrefix(name, "Gopx_")
+	}
+	if !ok || funcName == "" {
 		return "", false
 	}
-	funcName = strings.TrimPrefix(name, XGoxPrefix)
-	ok = true
-	return
+	return funcName, true
 }
 
 // ParseXGoFuncName parses the XGo overloaded function name.
@@ -109,10 +216,15 @@ func IsUnexpandableXGoOverloadableFunc(fun *gotypes.Func) bool {
 	return false
 }
 
-// ExpandXGoOverloadableFunc expands the given XGo function with a signature
-// like `func(__xgo_overload_args__ interface{_()})` to all its overloads. It
-// skips unresolved candidates left by incomplete declarations and returns nil
-// if the function is not qualified for overload expansion.
+// IsOverloadPlaceholder reports whether fun is a gogen filler for an unused
+// overload index.
+func IsOverloadPlaceholder(fun *gotypes.Func) bool {
+	return fun != nil && fun.Name() == "_" && !fun.Pos().IsValid()
+}
+
+// ExpandXGoOverloadableFunc returns the source overloads of a reconstructed
+// function. It omits unresolved candidates and unused indices. It returns nil
+// if the function does not support overload expansion.
 func ExpandXGoOverloadableFunc(fun *gotypes.Func) []*gotypes.Func {
 	typ, objs := gogen.CheckSigFuncExObjects(fun.Type().(*gotypes.Signature))
 	if typ == nil {
@@ -120,7 +232,7 @@ func ExpandXGoOverloadableFunc(fun *gotypes.Func) []*gotypes.Func {
 	}
 	overloads := make([]*gotypes.Func, 0, len(objs))
 	for _, obj := range objs {
-		if overload, ok := obj.(*gotypes.Func); ok && overload != nil {
+		if overload, ok := obj.(*gotypes.Func); ok && overload != nil && !IsOverloadPlaceholder(overload) {
 			overloads = append(overloads, overload)
 		}
 	}

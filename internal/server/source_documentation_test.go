@@ -2,6 +2,8 @@ package server
 
 import (
 	gotypes "go/types"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/goplus/xgo/token"
@@ -9,6 +11,75 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServerOverloadDocumentation(t *testing.T) {
+	const groupDoc = "Choose selects a conversion."
+	const candidateDoc = "chooseString handles text."
+	const fixture = `func chooseInt(value int) int { return value }
+// ` + candidateDoc + `
+func chooseString(value string) int { return len(value) }
+
+// ` + groupDoc + `
+func Choose = (
+chooseInt
+chooseString
+)
+`
+	for _, tt := range []struct {
+		name, source string
+		wantDocs     []string
+	}{
+		{name: "Declaration", source: strings.Replace(fixture, "func Choose", "func Ch|oose", 1),
+			wantDocs: []string{groupDoc, candidateDoc}},
+		{name: "UndocumentedCandidate", source: fixture + "println Ch|oose(1)\n",
+			wantDocs: []string{groupDoc}},
+		{name: "DocumentedCandidate", source: fixture + "println Ch|oose(\"text\")\n",
+			wantDocs: []string{candidateDoc}},
+		{name: "DirectCandidate", source: fixture + "println chooseI|nt(1)\n",
+			wantDocs: []string{""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos}
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			for _, doc := range []string{groupDoc, candidateDoc} {
+				assert.Equal(t, slices.Contains(tt.wantDocs, doc), strings.Contains(hover.Contents.Value, doc))
+			}
+
+			help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			require.NotNil(t, help)
+			require.Len(t, help.Signatures, len(tt.wantDocs))
+			for i, want := range tt.wantDocs {
+				doc := help.Signatures[i].Documentation
+				if want == "" {
+					assert.Nil(t, doc)
+				} else {
+					require.NotNil(t, doc)
+					assert.Equal(t, want, doc.Value)
+				}
+			}
+			if tt.name == "UndocumentedCandidate" {
+				items := completionItemsAt(t, s, "main.xgo", pos)
+				var docs []string
+				for _, item := range items {
+					if item.Label == "Choose" {
+						require.NotNil(t, item.Documentation)
+						doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+						docs = append(docs, doc.Value)
+					}
+				}
+				assert.True(t, slices.ContainsFunc(docs, func(doc string) bool { return strings.Contains(doc, groupDoc) }))
+			}
+		})
+	}
+}
 
 func TestDefinitionContextSourceDocumentation(t *testing.T) {
 	for _, tt := range []struct {
@@ -65,6 +136,22 @@ echo |value
 		{name: "ParameterDoesNotBorrowFunctionDocumentation", source: `// Function documentation.
 func run(value int) { echo |value }
 `},
+		{name: "MethodsWithSameName", source: `type First struct{}
+type Second struct{}
+// Other documentation.
+func (First) Use() {}
+// Declaration documentation.
+func (Second) Use() {}
+var second Second
+second.U|se()
+`, want: "Declaration documentation.\n"},
+		{name: "InterfaceMethod", source: `type Runner interface {
+// Declaration documentation.
+Run()
+}
+var runner Runner
+runner.R|un()
+`, want: "Declaration documentation.\n"},
 		{name: "FieldTrailingComment", source: `type Item struct {
 Value int // Declaration documentation.
 }

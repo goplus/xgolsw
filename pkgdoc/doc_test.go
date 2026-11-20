@@ -135,3 +135,55 @@ func newGoTestDoc(t *testing.T, source string) *PkgDoc {
 	require.NoError(t, err)
 	return NewGo("example.com/sample", &goast.Package{Name: "sample", Files: map[string]*goast.File{"sample.go": file}})
 }
+
+func TestNewGoExtendedMethodOwners(t *testing.T) {
+	for _, tt := range []struct {
+		name, current string
+		marked        bool
+	}{
+		{name: "Historical", marked: true},
+		{name: "Current", current: "const XGoPackage = false", marked: true},
+		{name: "CurrentVariable", current: "var XGoPackage bool"},
+		{name: "CurrentType", current: "type XGoPackage bool"},
+		{name: "CurrentFunction", current: "func XGoPackage() bool { return true }"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := newGoTestDoc(t, `package sample
+const GopPackage = true
+type Item struct{}
+type hidden struct{}
+type Alias = Item
+
+func Gopt_Item_Copy(item *Item) {}
+func Gopt_hidden_Copy(item *hidden) {}
+func Gopt_Missing_Copy(item int) {}
+func Gopt_Alias_Copy(item *Alias) {}
+
+// Choose selects an item.
+func XGos_Item_Choose() {}
+// Find_Value finds an item.
+func Gops__Item__Find_Value() {}
+func XGos_Missing_Choose() {}
+func XGos_Alias_Choose() {}
+`+tt.current+"\n")
+			require.Contains(t, doc.Types, "Item")
+			if tt.marked {
+				assert.Contains(t, doc.Types["Item"].Methods, "Copy")
+				assert.Equal(t, "Choose selects an item.\n", doc.Types["Item"].Methods["Choose"])
+				assert.Equal(t, "Find_Value finds an item.\n", doc.Types["Item"].Methods["Find_Value"])
+				require.Contains(t, doc.Types, "hidden")
+				assert.Contains(t, doc.Types["hidden"].Methods, "Copy")
+			} else {
+				assert.Empty(t, doc.Types["Item"].Methods)
+				assert.NotContains(t, doc.Types, "hidden")
+			}
+			assert.NotContains(t, doc.Types, "Missing")
+			require.Contains(t, doc.Types, "Alias")
+			assert.Empty(t, doc.Types["Alias"].Methods)
+			assert.Contains(t, doc.Funcs, "Gopt_Missing_Copy")
+			assert.Equal(t, "Choose selects an item.\n", doc.Funcs["XGos_Item_Choose"])
+			assert.Equal(t, "Find_Value finds an item.\n", doc.Funcs["Gops__Item__Find_Value"])
+			assert.Contains(t, doc.Funcs, "XGos_Missing_Choose")
+		})
+	}
+}

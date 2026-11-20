@@ -296,6 +296,15 @@ var handler Handler
 func (h *Handler) Use(value int) {}
 var handler Handler
 `, "(*Handler).Use(&handler, 1)", "Use(*Handler, value int)", 1},
+				{"ImplicitPointerMethodExpression", `type Handler struct{}
+func (h *Handler) Use(value int) {}
+var handler Handler
+`, "Handler.Use(&handler, 1)", "Use(*Handler, value int)", 1},
+				{"PromotedPointerMethodExpression", `type Base struct{}
+func (b *Base) Use(value int) {}
+type Handler struct { *Base }
+var handler Handler
+`, "Handler.Use(&handler, 1)", "Use(*Handler, value int)", 1},
 				{"PromotedMethodExpression", `type Base struct{}
 func (b Base) Use(value int) {}
 type Handler struct { Base }

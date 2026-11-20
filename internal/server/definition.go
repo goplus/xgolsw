@@ -10,15 +10,18 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_declaration
 func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error) {
-	return s.textDocumentDefinition(&DefinitionParams{
-		TextDocumentPositionParams: params.TextDocumentPositionParams,
-		WorkDoneProgressParams:     params.WorkDoneProgressParams,
-		PartialResultParams:        params.PartialResultParams,
-	})
+	return s.documentSymbolLocation(params.TextDocumentPositionParams, true)
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
+	return s.documentSymbolLocation(params.TextDocumentPositionParams, false)
+}
+
+// documentSymbolLocation finds the selected object's location. With
+// preferDeclaration, it tries the source object first, including overload
+// groups and reconstructed static members.
+func (s *Server) documentSymbolLocation(params TextDocumentPositionParams, preferDeclaration bool) (any, error) {
 	proj := s.requestProject()
 	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
@@ -36,9 +39,16 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 	astPkg, _ := proj.ASTPackage()
 
-	ident, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
+	ident, obj, kwarg := objectAtPosition(proj, typeInfo, astFile, position)
 	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
+	}
+	if preferDeclaration && kwarg == nil {
+		if source := typeInfo.SourceObjectOf(ident); source != nil && source != obj {
+			if loc := s.objectDefinitionLocation(proj, typeInfo, source); loc != nil {
+				return *loc, nil
+			}
+		}
 	}
 	if obj == nil {
 		return nil, nil

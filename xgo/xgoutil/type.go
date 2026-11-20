@@ -39,6 +39,24 @@ func IsValidType(typ gotypes.Type) bool {
 	return typ != nil && typ != gotypes.Typ[gotypes.Invalid]
 }
 
+// MethodExpressionReceiver returns the explicit receiver for an ordinary XGo
+// method expression. It returns nil for an invalid selector type or a pointer
+// selector for a non-interface value-receiver method.
+func MethodExpressionReceiver(selector, declared gotypes.Type) gotypes.Type {
+	if !IsValidType(selector) {
+		return nil
+	}
+	_, selectorIsPointer := selector.(*gotypes.Pointer)
+	_, declaredIsPointer := declared.(*gotypes.Pointer)
+	if selectorIsPointer && !declaredIsPointer && !gotypes.IsInterface(declared) {
+		return nil
+	}
+	if declaredIsPointer && !selectorIsPointer {
+		return gotypes.NewPointer(selector)
+	}
+	return selector
+}
+
 // IsTypeExpr reports whether expr denotes a type. The second result is false
 // when the recorded type information does not determine this.
 func IsTypeExpr(typeInfo *types.Info, expr ast.Expr) (isType, known bool) {

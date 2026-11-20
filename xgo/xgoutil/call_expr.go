@@ -36,11 +36,8 @@ const (
 	// xgoAutoclosureParamPrefix prefixes generated names for XGo autoclosure parameters.
 	xgoAutoclosureParamPrefix = "__xgo_autoclosure_"
 
-	// xgoOptionalParamPrefix prefixes generated names for current XGo optional parameters.
+	// xgoOptionalParamPrefix prefixes generated names for XGo optional parameters.
 	xgoOptionalParamPrefix = "__xgo_optional_"
-
-	// gopOptionalParamPrefix prefixes generated names for legacy XGo optional parameters.
-	gopOptionalParamPrefix = "__gop_optional_"
 )
 
 // ResolvedCallExprArgKind describes how an argument is spelled in source.
@@ -156,12 +153,20 @@ func CreateCallExprFromBranchStmt(typeInfo *types.Info, stmt *ast.BranchStmt) *a
 // parentheses and explicit type arguments. The identifier may name a function
 // value rather than a function declaration.
 func CallExprFunIdent(expr *ast.CallExpr) *ast.Ident {
-	for fun := expr.Fun; ; {
+	switch node := callExprCallee(expr.Fun).(type) {
+	case *ast.Ident:
+		return node
+	case *ast.SelectorExpr:
+		return node.Sel
+	default:
+		return nil
+	}
+}
+
+// callExprCallee unwraps parentheses and explicit type arguments.
+func callExprCallee(fun ast.Expr) ast.Expr {
+	for {
 		switch node := fun.(type) {
-		case *ast.Ident:
-			return node
-		case *ast.SelectorExpr:
-			return node.Sel
 		case *ast.ParenExpr:
 			fun = node.X
 		case *ast.IndexExpr:
@@ -169,7 +174,7 @@ func CallExprFunIdent(expr *ast.CallExpr) *ast.Ident {
 		case *ast.IndexListExpr:
 			fun = node.X
 		default:
-			return nil
+			return fun
 		}
 	}
 }
@@ -185,7 +190,9 @@ func FuncFromCallExpr(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Func {
 }
 
 // ResolveCallExprSignature resolves the call signature and source-visible
-// parameters for expr. The function declaration is nil for function values.
+// parameters for expr. It returns the selected function, unwrapping a static
+// member or a reconstructed callable with a single candidate. The function is
+// nil for calls through function values.
 func ResolveCallExprSignature(typeInfo *types.Info, expr *ast.CallExpr) (fun *gotypes.Func, sig *gotypes.Signature, params *gotypes.Tuple) {
 	if typeInfo == nil || expr == nil {
 		return nil, nil, nil
@@ -195,7 +202,7 @@ func ResolveCallExprSignature(typeInfo *types.Info, expr *ast.CallExpr) (fun *go
 	if fun != nil {
 		sig, params = ResolveFuncSignatureForCall(typeInfo, expr, fun)
 	} else {
-		sig = callExprSignature(typeInfo, expr)
+		sig = callExprSignature(typeInfo, expr, nil)
 		if sig != nil {
 			params = sig.Params()
 		}
@@ -203,19 +210,26 @@ func ResolveCallExprSignature(typeInfo *types.Info, expr *ast.CallExpr) (fun *go
 	if sig == nil {
 		return nil, nil, nil
 	}
+	if fun != nil {
+		if member, ok := types.StaticMemberObject(fun).(*gotypes.Func); ok {
+			fun = member
+		} else if candidates := ExpandXGoOverloadableFunc(fun); len(candidates) == 1 {
+			fun = candidates[0]
+		}
+	}
 	return fun, sig, params
 }
 
-// callExprSignature returns the callee's actual function type. Conversions and
-// builtins do not have ordinary function call semantics.
-func callExprSignature(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Signature {
+// callExprSignature returns the callee's actual function type. A declaration
+// signature can recover an instantiation that the checker did not record.
+func callExprSignature(typeInfo *types.Info, expr *ast.CallExpr, decl *gotypes.Signature) *gotypes.Signature {
 	isType, _ := IsTypeExpr(typeInfo, expr.Fun)
 	if isType || typeInfo.Types[expr.Fun].IsBuiltin() {
 		return nil
 	}
 	typ := typeInfo.TypeOf(expr.Fun)
 	if typ == nil {
-		return nil
+		return instantiateCallExprSignature(typeInfo, expr.Fun, decl)
 	}
 	sig, _ := typ.Underlying().(*gotypes.Signature)
 	if sig == nil {
@@ -227,45 +241,107 @@ func callExprSignature(typeInfo *types.Info, expr *ast.CallExpr) *gotypes.Signat
 	return sig
 }
 
+// instantiateCallExprSignature recovers a function value with multiple explicit
+// type arguments. XGo can omit the type of a standalone IndexListExpr.
+func instantiateCallExprSignature(info *types.Info, callee ast.Expr, decl *gotypes.Signature) *gotypes.Signature {
+	indexed, ok := astutil.Unparen(callee).(*ast.IndexListExpr)
+	if !ok || decl == nil || len(indexed.Indices) < 2 || decl.TypeParams().Len() != len(indexed.Indices) {
+		return nil
+	}
+	args := make([]gotypes.Type, 0, len(indexed.Indices))
+	for _, index := range indexed.Indices {
+		typ := info.TypeOf(index)
+		if isType, _ := IsTypeExpr(info, index); !isType || !IsValidType(typ) {
+			return nil
+		}
+		args = append(args, typ)
+	}
+	instantiated, err := gotypes.Instantiate(nil, decl, args, true)
+	if err != nil {
+		return nil
+	}
+	return instantiated.(*gotypes.Signature)
+}
+
 // ResolveFuncSignatureForCall resolves fun's signature and normalized
 // parameter list for expr.
 func ResolveFuncSignatureForCall(typeInfo *types.Info, expr *ast.CallExpr, fun *gotypes.Func) (sig *gotypes.Signature, params *gotypes.Tuple) {
-	if expr == nil || fun == nil {
+	if expr == nil || fun == nil || IsOverloadPlaceholder(fun) {
 		return nil, nil
 	}
 
 	sig = fun.Signature()
-	if _, ok := gogen.CheckFuncEx(sig); ok {
+	_, extended := gogen.CheckFuncEx(sig)
+	paramOffset, isXGox := xgoFuncParamLayout(fun)
+	var typeReceiver ast.Expr
+	selector, _ := callExprCallee(expr.Fun).(*ast.SelectorExpr)
+	if typeInfo != nil && selector != nil {
+		if isType, _ := IsTypeExpr(typeInfo, selector.X); isType {
+			typeReceiver = selector.X
+		}
+	}
+	if typeInfo != nil && selector != nil && (paramOffset > 0 || extended || typeReceiver != nil) {
+		source, _ := typeInfo.SourceObjectOf(selector.Sel).(*gotypes.Func)
+		implementation, template := ReconstructedMethodImplementation(source)
+		// A template selected without the type-as-parameter wrapper binds only
+		// value arguments. Static and unbound template calls use the callee type.
+		isXGox = isXGox && !template
+		if typeReceiver != nil && implementation != nil && (source == fun || implementation == fun) &&
+			typeInfo.ObjectOf(selector.Sel) == source {
+			if actual := callExprSignature(typeInfo, expr, implementation.Signature()); actual != nil {
+				return actual, actual.Params()
+			}
+			// The recorder can keep a synthetic wrapper or pending inference
+			// type. Use the declaration when the callee has such a record.
+			if source == fun && typeInfo.Types[expr.Fun].Type != nil {
+				impl := implementation.Signature()
+				if _, extended := gogen.CheckFuncEx(impl); !extended {
+					return impl, impl.Params()
+				}
+			}
+		}
+	}
+	if extended {
 		return nil, nil
 	}
-	// Ordinary calls may instantiate a generic function or expose the receiver
-	// as a method expression parameter. Only the selected declaration can use
-	// that expression type. Other overload candidates retain their own types.
-	// XGot and XGox declarations need source parameter normalization instead.
-	paramOffset, isXGox := xgoFuncParamLayout(fun)
-	if typeInfo != nil && paramOffset == 0 && !isXGox && FuncFromCallExpr(typeInfo, expr) == fun {
-		if actual := callExprSignature(typeInfo, expr); actual != nil {
+	// Selecting a template through its type can expose the explicit receiver.
+	encoded := paramOffset > 0 && !isXGox && typeReceiver != nil
+	if !encoded && (paramOffset > 0 || isXGox) {
+		if ident := CallExprFunIdent(expr); ident != nil {
+			encoded = ReferencesEncodedFuncName(fun, ident.Name)
+		}
+	}
+	// The callee type can include generic instantiation or a method expression's
+	// receiver. Other overload candidates retain their declaration types.
+	if typeInfo != nil && (encoded || paramOffset == 0 && !isXGox) && FuncFromCallExpr(typeInfo, expr) == fun {
+		if actual := callExprSignature(typeInfo, expr, sig); actual != nil {
 			sig = actual
 		}
 	}
+	if encoded {
+		return sig, sig.Params()
+	}
 	typeArgCount := 0
-	if typeParams := sig.TypeParams(); typeParams != nil {
+	if typeParams := sig.TypeParams(); isXGox && typeParams != nil {
 		typeArgCount = typeParams.Len()
+		if typeInfo != nil {
+			typeArgCount = callExprXGoxTypeArgCount(typeInfo, expr, sig, typeArgCount)
+		}
 	}
-	if typeInfo != nil {
-		typeArgCount = callExprXGoxTypeArgCount(typeInfo, expr, fun, sig)
+	params, ok := normalizedCallExprParams(sig, paramOffset, isXGox, typeArgCount)
+	if !ok {
+		return nil, nil
 	}
-	params = normalizedCallExprParams(fun, sig, typeArgCount)
 	// XGo's member recorder can retain the method declaration signature for
 	// a method expression. Its explicit receiver has the selector's type,
 	// which may differ from the declaring receiver for promoted methods.
-	if typeInfo != nil && sig.Recv() != nil {
-		if selector, ok := astutil.Unparen(expr.Fun).(*ast.SelectorExpr); ok {
-			if isType, _ := IsTypeExpr(typeInfo, selector.X); isType {
-				recv := gotypes.NewParam(token.NoPos, fun.Pkg(), "", typeInfo.TypeOf(selector.X))
-				params = gotypes.NewTuple(slices.AppendSeq([]*gotypes.Var{recv}, params.Variables())...)
-			}
+	if typeReceiver != nil && sig.Recv() != nil {
+		receiver := MethodExpressionReceiver(typeInfo.TypeOf(typeReceiver), sig.Recv().Type())
+		if receiver == nil {
+			return nil, nil
 		}
+		recv := gotypes.NewParam(token.NoPos, fun.Pkg(), "", receiver)
+		params = gotypes.NewTuple(slices.AppendSeq([]*gotypes.Var{recv}, params.Variables())...)
 	}
 	return sig, params
 }
@@ -282,16 +358,23 @@ func ResolveFuncSignature(fun *gotypes.Func) (sig *gotypes.Signature, params *go
 	if typeParams := sig.TypeParams(); typeParams != nil {
 		typeArgCount = typeParams.Len()
 	}
-	return sig, normalizedCallExprParams(fun, sig, typeArgCount)
+	paramOffset, isXGox := xgoFuncParamLayout(fun)
+	params, ok := normalizedCallExprParams(sig, paramOffset, isXGox, typeArgCount)
+	if !ok {
+		return nil, nil
+	}
+	return sig, params
 }
 
-// normalizedCallExprParams returns the parameter list that should be exposed to
-// callers after applying XGo-specific function normalization.
-func normalizedCallExprParams(fun *gotypes.Func, sig *gotypes.Signature, typeArgCount int) *gotypes.Tuple {
+// normalizedCallExprParams returns the source-visible parameters. An imported
+// template can be reconstructed even when its receiver parameter is missing.
+func normalizedCallExprParams(sig *gotypes.Signature, paramOffset int, isXGox bool, typeArgCount int) (*gotypes.Tuple, bool) {
 	params := sig.Params()
-	paramOffset, isXGox := xgoFuncParamLayout(fun)
+	if paramOffset > params.Len() {
+		return nil, false
+	}
 	if paramOffset == 0 && !isXGox {
-		return params
+		return params, true
 	}
 
 	var vars []*gotypes.Var
@@ -309,7 +392,7 @@ func normalizedCallExprParams(fun *gotypes.Func, sig *gotypes.Signature, typeArg
 	for i := paramOffset; i < params.Len(); i++ {
 		vars = append(vars, params.At(i))
 	}
-	return gotypes.NewTuple(vars...)
+	return gotypes.NewTuple(vars...), true
 }
 
 // NormalizedCallExprTypeArgCount returns the number of normalized XGox type
@@ -318,12 +401,19 @@ func NormalizedCallExprTypeArgCount(fun *gotypes.Func, params *gotypes.Tuple) in
 	if fun == nil || params == nil {
 		return 0
 	}
-	paramOffset, isXGox := xgoFuncParamLayout(fun)
+	_, isXGox := xgoFuncParamLayout(fun)
 	if !isXGox {
 		return 0
 	}
-	valueParamCount := fun.Signature().Params().Len() - paramOffset
-	return max(params.Len()-valueParamCount, 0)
+	// Normalization inserts synthetic parameters named after the type
+	// parameters. In a Go declaration, value parameters cannot reuse those names.
+	typeParams := fun.Signature().TypeParams()
+	var count int
+	for count < min(typeParams.Len(), params.Len()) &&
+		params.At(count).Name() == typeParams.At(count).Obj().Name() {
+		count++
+	}
+	return count
 }
 
 // xgoFuncParamLayout reports the number of generated receiver parameters to
@@ -332,8 +422,8 @@ func xgoFuncParamLayout(fun *gotypes.Func) (paramOffset int, isXGox bool) {
 	if !IsMarkedAsXGoPackage(fun.Pkg()) {
 		return 0, false
 	}
-	if _, methodName, ok := SplitXGotMethodName(fun.Name(), false); ok {
-		_, isXGox = SplitXGoxFuncName(methodName)
+	if _, methodName, ok := TemplateMethodName(fun, false); ok {
+		_, isXGox = splitXGoxMethodName(methodName)
 		return 1, isXGox
 	}
 	_, isXGox = SplitXGoxFuncName(fun.Name())
@@ -343,14 +433,7 @@ func xgoFuncParamLayout(fun *gotypes.Func) (paramOffset int, isXGox bool) {
 // callExprXGoxTypeArgCount returns the type-argument prefix that remains
 // explicit in a call. Once a value argument starts, XGo infers the remaining
 // type parameters.
-func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, fun *gotypes.Func, sig *gotypes.Signature) int {
-	_, isXGox := xgoFuncParamLayout(fun)
-	typeParams := sig.TypeParams()
-	if !isXGox || typeParams == nil {
-		return 0
-	}
-
-	typeArgCount := typeParams.Len()
+func callExprXGoxTypeArgCount(typeInfo *types.Info, expr *ast.CallExpr, sig *gotypes.Signature, typeArgCount int) int {
 	args, _ := CallExprArgs(typeInfo, expr, sig.Params())
 	for i := 0; i < min(typeArgCount, len(args)); i++ {
 		isType, known := IsTypeExpr(typeInfo, args[i])
@@ -463,13 +546,7 @@ func isOptionalParam(typeInfo *types.Info, param *gotypes.Var) bool {
 // trimOptionalParamPrefix returns the source-facing parameter name after
 // removing a generated XGo optional parameter prefix.
 func trimOptionalParamPrefix(name string) (string, bool) {
-	if name, ok := strings.CutPrefix(name, xgoOptionalParamPrefix); ok {
-		return name, true
-	}
-	if name, ok := strings.CutPrefix(name, gopOptionalParamPrefix); ok {
-		return name, true
-	}
-	return name, false
+	return strings.CutPrefix(name, xgoOptionalParamPrefix)
 }
 
 // anyType returns the predeclared `any` type.

@@ -19,6 +19,7 @@ package types
 import (
 	gotypes "go/types"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/x/typesutil"
 )
@@ -30,6 +31,9 @@ type Info struct {
 
 	// Pkg is the package associated with this type information.
 	Pkg *gotypes.Package
+
+	// ClassTypes maps source classfiles to their compiler-generated types.
+	ClassTypes map[*ast.File]*gotypes.Named
 
 	// ObjToDef is a reverse mapping for O(1) object-to-identifier lookup.
 	// For identifiers that do not denote objects, the object is nil and
@@ -47,8 +51,8 @@ type Info struct {
 }
 
 // TypeOf returns the source expression's type, including an implicit call's
-// result when available, or nil for an absent expression. ObjectOf still returns
-// the callable declaration.
+// result when available, or nil if the expression has no usable Go type.
+// ObjectOf still returns the callable declaration.
 func (i *Info) TypeOf(expr ast.Expr) gotypes.Type {
 	if expr == nil {
 		return nil
@@ -56,7 +60,13 @@ func (i *Info) TypeOf(expr ast.Expr) gotypes.Type {
 	if typ := i.ImplicitCallTypes[expr]; typ != nil {
 		return typ
 	}
-	return i.Info.TypeOf(expr)
+	typ := i.Info.TypeOf(expr)
+	if _, signature := typ.(*gotypes.Signature); !signature && gogen.IsFunc(typ) {
+		// Gogen records a pending inference type for partially instantiated
+		// functions. That type cannot be used with go/types operations.
+		return nil
+	}
+	return typ
 }
 
 // RefIdentsFor returns all identifiers where the given object is referenced,
@@ -90,11 +100,16 @@ func (i *Info) SourceObjectOf(ident *ast.Ident) gotypes.Object {
 }
 
 // ObjectDeclaration returns the object at the shared declaration of obj,
-// including generic members and the branch variables of a type switch.
+// including static members, generic members, and type switch variables.
 // Objects without a recorded declaration, including nil, retain their origin.
 func (i *Info) ObjectDeclaration(obj gotypes.Object) gotypes.Object {
 	if obj == nil {
 		return nil
+	}
+	if fun, ok := obj.(*gotypes.Func); ok {
+		if member := StaticMemberObject(fun); member != nil {
+			obj = member
+		}
 	}
 	obj = ObjectOrigin(obj)
 	if ident := i.ObjToDef[obj]; ident != nil {
@@ -116,4 +131,14 @@ func ObjectOrigin(obj gotypes.Object) gotypes.Object {
 	default:
 		return obj
 	}
+}
+
+// StaticMemberObject returns the Go declaration implemented by a reconstructed
+// static member, or nil for ordinary functions and other extensions.
+func StaticMemberObject(fun *gotypes.Func) gotypes.Object {
+	ext, _ := gogen.CheckFuncEx(fun.Signature())
+	if member, ok := ext.(*gogen.TyStaticMember); ok {
+		return member.Obj()
+	}
+	return nil
 }

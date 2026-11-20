@@ -19,6 +19,7 @@ package xgoutil
 import (
 	"go/constant"
 	gotypes "go/types"
+	"iter"
 	"strings"
 )
 
@@ -32,17 +33,39 @@ const (
 	GopPackage = "GopPackage"
 )
 
-// IsMarkedAsXGoPackage reports whether the given package is marked as an XGo package.
-// It recognizes both the current XGoPackage marker and the legacy GopPackage marker.
+// IsMarkedAsXGoPackage reports whether gogen recognizes the package marker
+// used to initialize its XGo declarations.
 func IsMarkedAsXGoPackage(pkg *gotypes.Package) bool {
-	if pkg == nil {
-		return false
+	return xgoPackageMarker(pkg) != nil
+}
+
+// XGoPackageDependencies yields the import paths in the selected package marker.
+// Paths use the same comma separation as gogen's package initializer.
+func XGoPackageDependencies(pkg *gotypes.Package) iter.Seq[string] {
+	marker := xgoPackageMarker(pkg)
+	if marker == nil || marker.Val().Kind() != constant.String {
+		return func(func(string) bool) {}
+	}
+	return strings.SplitSeq(constant.StringVal(marker.Val()), ",")
+}
+
+// xgoPackageMarker selects the current declaration before considering the
+// historical spelling. Like gogen, it requires a constant and interprets
+// only string values as dependency lists.
+func xgoPackageMarker(pkg *gotypes.Package) *gotypes.Const {
+	if pkg == nil || pkg.Scope() == nil {
+		return nil
 	}
 	scope := pkg.Scope()
-	if scope == nil {
-		return false
+	obj := scope.Lookup(XGoPackage)
+	if obj == nil {
+		obj = scope.Lookup(GopPackage)
 	}
-	return isXGoPackageMarker(scope.Lookup(XGoPackage)) || isXGoPackageMarker(scope.Lookup(GopPackage))
+	marker, ok := obj.(*gotypes.Const)
+	if !ok || marker.Val() == nil {
+		return nil
+	}
+	return marker
 }
 
 // IsXGoPackageMarkerName reports whether name is a supported XGo package marker name.
@@ -60,22 +83,6 @@ func IsXGoInternalName(name string) bool {
 		strings.HasPrefix(name, "Gop_") ||
 		strings.HasPrefix(name, "__xgo_") ||
 		strings.HasPrefix(name, "__gop_")
-}
-
-// isXGoPackageMarker reports whether the object is a truthy XGo package marker.
-func isXGoPackageMarker(obj gotypes.Object) bool {
-	if obj == nil {
-		return false
-	}
-	cnst, ok := obj.(*gotypes.Const)
-	if !ok {
-		return false
-	}
-	if cnst.Type() != gotypes.Typ[gotypes.UntypedBool] {
-		return false
-	}
-	cnstVal := cnst.Val()
-	return cnstVal != nil && constant.BoolVal(cnstVal)
 }
 
 // PkgPath returns the package path of the given pkg. It returns "builtin" if

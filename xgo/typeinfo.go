@@ -36,6 +36,8 @@ type typeInfoCacheKind struct{}
 
 // typeInfoCache is a cache for [types.Info].
 type typeInfoCache struct {
+	astPkg     *ast.Package
+	parserErr  error
 	typeInfo   *types.Info
 	checkerErr error
 }
@@ -64,16 +66,17 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		FuncDecorators: make(map[*ast.CallExpr]bool),
 	}
 
+	module := proj.Module()
 	var checkerErrs errors.List
 	if err := typesutil.NewChecker(
 		&gotypes.Config{
 			Error:    func(err error) { checkerErrs.Add(err) },
-			Importer: newDependencyImporter(proj.Importer),
+			Importer: proj.newDependencyImporter(),
 		},
 		&typesutil.Config{
 			Types: typeInfo.Pkg,
 			Fset:  proj.Fset,
-			Mod:   proj.Module().mod,
+			Mod:   module.mod,
 		},
 		nil,
 		&typeInfo.Info,
@@ -102,6 +105,10 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 				recordTypeSwitchDeclaration(typeInfo, stmt)
 				return true
 			}
+			if decl, ok := node.(*ast.FuncDecl); ok && decl.Static {
+				recordStaticMethodReceiver(typeInfo, decl)
+				return true
+			}
 			spec, ok := node.(*ast.TypeSpec)
 			if !ok || typeInfo.Defs[spec.Name] != nil {
 				return true
@@ -118,6 +125,8 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 			return true
 		})
 	}
+
+	recordClassTypes(typeInfo, astPkg, module)
 
 	// XGo completes interfaces before setting their named underlying types.
 	// Go 1.26 no longer rejects cycles during that early step. Check after
@@ -138,7 +147,21 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 	for _, err := range cycleErrors {
 		checkerErrs.Add(err)
 	}
-	return &typeInfoCache{typeInfo, checkerErrs.ToError()}, nil
+	return &typeInfoCache{astPkg, astErr, typeInfo, checkerErrs.ToError()}, nil
+}
+
+// recordStaticMethodReceiver records the type use omitted by static method lowering.
+func recordStaticMethodReceiver(info *types.Info, decl *ast.FuncDecl) {
+	if decl.IsClass || len(decl.Recv.List) == 0 || info.Defs[decl.Name] == nil {
+		return
+	}
+	ident, ok := decl.Recv.List[0].Type.(*ast.Ident)
+	if !ok || info.Uses[ident] != nil {
+		return
+	}
+	if owner, ok := info.Pkg.Scope().Lookup(ident.Name).(*gotypes.TypeName); ok {
+		info.Uses[ident] = owner
+	}
 }
 
 // hasInterfaceEmbeddingCycle reports whether typ embeds an interface cycle.

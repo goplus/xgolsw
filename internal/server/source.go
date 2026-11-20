@@ -14,10 +14,11 @@ import (
 
 // sourceIdent describes an identifier as written in a project source file.
 type sourceIdent struct {
-	ident  *ast.Ident
-	file   *ast.File
-	kind   protocol.DocumentHighlightKind
-	called bool
+	ident        *ast.Ident
+	file         *ast.File
+	kind         protocol.DocumentHighlightKind
+	called       bool
+	typeSelector bool
 }
 
 // sourceInfo indexes source references separately from compiler-generated uses.
@@ -94,7 +95,17 @@ func buildSourceInfoCache(proj *xgo.Project) (any, error) {
 				}
 			}
 			if ident, ok := node.(*ast.Ident); ok {
-				indexIdent(sourceIdent{ident: ident, file: astFile, kind: sourceHighlightKind(ident, stack), called: sourceIdentCalled(ident, stack)})
+				var typeSelector bool
+				if selector, ok := stack[len(stack)-1].(*ast.SelectorExpr); ok && selector.Sel == ident {
+					typeSelector, _ = xgoutil.IsTypeExpr(info, selector.X)
+				}
+				indexIdent(sourceIdent{
+					ident:        ident,
+					file:         astFile,
+					kind:         sourceHighlightKind(ident, stack),
+					called:       sourceIdentCalled(ident, stack),
+					typeSelector: typeSelector,
+				})
 			}
 			if branch, ok := node.(*ast.BranchStmt); ok {
 				if call := callExprFromNode(info, branch); call != nil {
