@@ -34,6 +34,13 @@ type PkgDoc struct {
 	Consts map[string]string
 	Types  map[string]*TypeDoc
 	Funcs  map[string]string
+
+	// Declarations records language-service directives by declaration key.
+	// Package-level keys use declaration names, and member keys use Type.Member.
+	// Names retain their original overload spelling. Receiver aliases use the
+	// resolved type name. Member entries may also appear under exported types
+	// derived from unexported types.
+	Declarations map[string]DeclarationMetadata `json:",omitempty"`
 }
 
 // typeDoc returns the documentation for the given type name. It creates a new
@@ -70,6 +77,7 @@ func NewGo(pkgPath string, pkg *goast.Package) *PkgDoc {
 		Types:  make(map[string]*TypeDoc),
 		Funcs:  make(map[string]string),
 	}
+	pkgDoc.collectGoDirectives(pkg)
 
 	vars, consts, funcs := docPkg.Vars, docPkg.Consts, docPkg.Funcs
 	for _, t := range docPkg.Types {

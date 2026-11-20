@@ -154,7 +154,7 @@ var Runner, Other Actor
 				result.spxSpriteResourceAutoBindings[runner] = struct{}{}
 				file, err := proj.ASTFile("main.xgo")
 				require.NoError(t, err)
-				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
+				literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), `"value"`)
 				got := inferSpxSpriteResourceEnclosingNode(s.getProj(), result, literal)
 				if tt.want == "" {
 					assert.Nil(t, got)
@@ -208,7 +208,7 @@ func run() {}
 				result.spxResourceSet = *set
 				file, err := proj.ASTFile(tt.filename)
 				require.NoError(t, err)
-				literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"value"`)
+				literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), `"value"`)
 				got := inferSpxSpriteResourceEnclosingNode(s.getProj(), result, literal)
 				if tt.want == "" {
 					assert.Nil(t, got)

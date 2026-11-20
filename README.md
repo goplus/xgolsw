@@ -91,6 +91,43 @@ previously obtained method references. Other instances in the same WASM runtime 
 *Note: This table lists implemented message handlers. Clients should use the `initialize` response to determine which
 capabilities are advertised for their client capabilities.*
 
+## Declaration directives
+
+Put `//xgols:notRecommended` in a declaration's leading documentation comment to omit the declaration from proactive
+symbol recommendations. The language server applies this policy to ordinary identifier and member completions,
+property-name string completions such as `showVar`, and the `predefinedNames` returned by `xgo.getInputSlots`.
+Clients using `xgo.getProperties` to offer suggestions can request the same server-side filtering by passing
+`excludeNotRecommended: true`. Unmarked declarations stay subject to the usual candidate selection rules.
+
+```go
+// reportTurn records execution for a course.
+//xgols:notRecommended
+func reportTurn(angle float64) {
+    println(angle)
+}
+```
+
+The directive supports functions, methods, variables (including classfile fields), constants, and types. Leading comments
+on fields and interface methods directly declared in a type definition or alias are also supported. It controls
+recommendations for that declaration only. Explicit uses retain normal compilation, diagnostics, hover, signature help,
+parameter hints, navigation, references, and rename behavior. A marked type does not mark its members, and a marked
+function does not mark declarations inside its body. Symbol browsing and file outlines are outside this policy.
+
+The spelling is exact and case-sensitive. Put `//xgols:notRecommended` on its own line anywhere in the leading comment
+group, before or after ordinary documentation. The group must be immediately above the declaration. Trailing whitespace
+is allowed. Block comments, end-of-line comments, detached comment groups, and directives with arguments are not
+recognized.
+
+For grouped `var`, `const`, and `type` declarations, a directive on the group applies to every declaration in the group.
+A directive on an individual spec applies only to that spec, including every name declared together by that spec.
+Overload declarations follow the same declaration identity rule: marking an overload alias omits recommendations through
+that alias; marking one implementation omits only candidates that use that implementation. Other unmarked aliases and
+SDK overloads remain eligible. Enum entries do not accept this directive.
+
+Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
+annotations from raw comments in the Go files selected for the build. A directive present only in a dependency's XGo
+source is outside this collection. Existing package data without annotations keeps its current behavior.
+
 ## Predefined commands
 
 ### XGo resource renaming
@@ -237,7 +274,7 @@ interface XGoInputSlot {
   input: XGoInput
 
   /**
-   * The available user-predefined identifiers.
+   * The available user-predefined identifiers, omitting declarations marked `//xgols:notRecommended`.
    */
   predefinedNames: string[]
 }
@@ -539,6 +576,10 @@ Type aliases to these types are also accepted. Properties include:
 Embedded fields themselves are excluded. Member lookup and shadowing follow XGo's rules. Fields are listed before methods,
 and names within each group are sorted alphabetically.
 
+Pass `excludeNotRecommended: true` to omit properties whose source declaration or selected overload implementation is
+marked `//xgols:notRecommended`. The default query includes all readable properties, including for checking existing
+property bindings.
+
 Framework adapters can supply their runtime property rules. For spx game and sprite types, properties follow monitor
 lookup and remain limited to supported scalar values, `spx.Value`, and `spx.List`. Ordinary types in the same project use
 the XGo rules above.
@@ -571,6 +612,11 @@ interface XGoGetPropertiesParams {
    * The name of a package-scope struct or classfile type, or an alias to one.
    */
   target: string
+
+  /**
+   * Omit properties marked not recommended when listing suggestions. Defaults to false.
+   */
+  excludeNotRecommended?: boolean
 }
 ```
 

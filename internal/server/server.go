@@ -85,6 +85,7 @@ func New(
 	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)
 	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
 	proj.RegisterCacheBuilder(diagnosticCacheKind{}, buildDiagnosticCache)
+	proj.RegisterFileCacheBuilder(notRecommendedFileCacheKind{}, buildNotRecommendedFileCache)
 	return &Server{
 		ctx:              ctx,
 		cancel:           cancel,

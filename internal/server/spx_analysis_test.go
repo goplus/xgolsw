@@ -349,7 +349,7 @@ func current() SpriteCostumeName {
 						require.NoError(t, err)
 						file, err := proj.ASTFile("Runner.spx")
 						require.NoError(t, err)
-						literal := inputSlotLiteral(t, newInputSlotContext(proj, file), `"invalid"`)
+						literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), `"invalid"`)
 						pos := token.NoPos
 						if name == "UnregisteredPosition" {
 							pos = token.Pos(proj.Fset.Base())

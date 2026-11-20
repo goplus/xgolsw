@@ -77,6 +77,7 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 		sourcePos:      sourcePos,
 		innermostScope: innermostScope,
 	}
+	ctx.itemSet.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
 	ctx.frameworkResult, err = analyzeFramework(proj)
 	if err != nil {
 		return nil, err
@@ -1614,6 +1615,7 @@ type completionItemSet struct {
 	supportedKinds                map[CompletionItemKind]struct{}
 	isCompatibleWithExpectedTypes func(typ gotypes.Type) bool
 	isCompatibleWithCallResults   func(results *gotypes.Tuple) bool
+	notRecommended                func(symbolDefinition) bool
 	disallowVoidFuncs             bool
 	expectedFuncResultCount       int
 	callResult                    bool
@@ -1804,6 +1806,9 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 		// Distinct source aliases can share the same implementation definition.
 		definitionKey := def.ID.String() + "\x00" + def.CompletionItemLabel
 		if _, ok := s.seenDefinitions[definitionKey]; ok {
+			continue
+		}
+		if s.notRecommended != nil && s.notRecommended(def) {
 			continue
 		}
 		s.seenDefinitions[definitionKey] = struct{}{}

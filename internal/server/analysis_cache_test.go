@@ -386,7 +386,12 @@ use Selected
 		s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(*xgo.Project) (any, error) {
 			return nil, failure
 		})
-		_, err := s.renameResources(nil)
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{
+			TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"},
+		}})
+		assert.ErrorIs(t, err, failure)
+		assert.Empty(t, slots)
+		_, err = s.renameResources(nil)
 		assert.ErrorIs(t, err, failure)
 	})
 }

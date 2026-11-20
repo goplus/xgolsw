@@ -426,7 +426,7 @@ func run() {}
 						require.NoError(t, err, updated)
 						file, err := proj.ASTFile(tt.filename)
 						require.NoError(t, err)
-						literal := inputSlotLiteral(t, newInputSlotContext(proj, file), edit.NewText)
+						literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), edit.NewText)
 						value := info.Types[literal].Value
 						require.NotNil(t, value)
 						assert.Equal(t, label, constant.StringVal(value))
@@ -493,6 +493,24 @@ showVar "s|"
 			})
 		}
 	})
+}
+
+func TestSpxNotRecommendedPropertyStringCompletion(t *testing.T) {
+	source, pos := typeDisplayTestSource(t, `var (
+    //xgols:notRecommended
+    score int
+    lives int
+)
+onStart => {
+    showVar "|score"
+}
+`)
+	s := newSpxTestServer(t, map[string][]byte{"main.spx": []byte(source), "assets/index.json": []byte(`{}`)})
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+	labels := completionItemLabels(completionItemsAt(t, s, "main.spx", pos))
+	assert.NotContains(t, labels, "score")
+	assert.Contains(t, labels, "lives")
 }
 
 func TestServerTextDocumentCompletionSpxResourceOverloads(t *testing.T) {

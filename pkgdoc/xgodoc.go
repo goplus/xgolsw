@@ -41,6 +41,7 @@ func NewXGo(pkgPath string, pkg *ast.Package, lookupClass func(ext string) (*mod
 		Types:  make(map[string]*TypeDoc),
 		Funcs:  make(map[string]string),
 	}
+	pkgDoc.collectXGoDirectives(pkg, lookupClass)
 
 	filenames := slices.Sorted(maps.Keys(pkg.Files))
 	// Select the first documented file in source filename order.

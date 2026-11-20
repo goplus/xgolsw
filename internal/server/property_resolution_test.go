@@ -244,7 +244,7 @@ func TestServerXGoGetPropertiesProjectState(t *testing.T) {
 				require.NoError(t, err)
 				named := requirePropertyTestType(t, info.Pkg, "App")
 				ctx := &definitionContext{proj: state.proj, lookupPkgDoc: s.lookupPkgDoc}
-				properties := ctx.collectPropertiesFromNamedType(named)
+				properties := ctx.collectPropertiesFromNamedType(named, nil)
 				index := slices.IndexFunc(properties, func(p XGoProperty) bool { return p.Name == "label" })
 				require.NotEqual(t, -1, index)
 				assert.Equal(t, state.want, properties[index].Type)
