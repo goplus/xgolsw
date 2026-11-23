@@ -7,7 +7,6 @@ import (
 	"iter"
 	"slices"
 
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -54,15 +53,15 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 	pos := typeName.Pos()
 	file := sourceASTFile(proj, pos)
 	if file == nil {
-		// Generated class types can have no declaration position. Resolve
-		// their source file through the same registration as the compiler.
-		astPkg, _ := proj.ASTPackage()
-		if astPkg != nil {
-			for filename, candidate := range astPkg.Files {
-				if name, _ := cl.GetFileClassType(candidate, filename, proj.Module().LookupClass); name == typeName.Name() {
-					file, pos = candidate, candidate.Pos()
-					break
-				}
+		// Generated class types have no declaration position. Prefer the entry
+		// file when a flat project's type belongs to multiple source files.
+		for candidate, owner := range typeInfo.ClassTypes {
+			if owner.Obj() != typeName {
+				continue
+			}
+			if file == nil || candidate.IsProj && !file.IsProj ||
+				candidate.IsProj == file.IsProj && candidate.Pos() < pos {
+				file, pos = candidate, candidate.Pos()
 			}
 		}
 	}
@@ -88,13 +87,13 @@ func (s *Server) xgoGetProperties(params XGoGetPropertiesParams) ([]XGoProperty,
 }
 
 // propertyObject identifies a readable field or implicit call and its result.
-// Object is the source member. Function is the implementation selected for an
+// Object is the source member. Implementation is the callable selected for an
 // implicit call and may differ from an overload or template declaration.
 type propertyObject struct {
-	Name     string
-	Object   gotypes.Object
-	Type     gotypes.Type
-	Function *gotypes.Func
+	Name           string
+	Object         gotypes.Object
+	Type           gotypes.Type
+	Implementation gotypes.Object
 }
 
 // propertyObjects resolves properties against the actual receiver. Framework
@@ -117,19 +116,26 @@ func (r *definitionContext) propertyObjects(named *gotypes.Named) iter.Seq[prope
 			if field, ok := resolved.object.(*gotypes.Var); ok && field.Embedded() {
 				continue
 			}
-			if !yield(propertyObject{Name: name, Object: resolved.object, Type: resolved.typ, Function: resolved.function}) {
+			if !yield(propertyObject{Name: name, Object: resolved.object, Type: resolved.typ, Implementation: resolved.implementation}) {
 				return
 			}
 		}
 	}
 }
 
-// propertyCandidates yields possible names without deciding shadowing. An
-// outer field named Size hides the method spelling Size, but need not hide
-// an inherited XGo alias size. The compiler resolves each candidate name.
-func propertyCandidates(typ gotypes.Type) iter.Seq[gotypes.Object] {
+// memberCandidates yields fields and methods before resolving shadowing.
+// An outer field named Size need not hide a promoted method's alias size.
+func memberCandidates(typ gotypes.Type) iter.Seq[gotypes.Object] {
 	return func(yield func(gotypes.Object) bool) {
 		seen := make(map[gotypes.Type]bool)
+		yieldNamedMethods := func(named *gotypes.Named) bool {
+			for method := range named.Methods() {
+				if !yield(method) {
+					return false
+				}
+			}
+			return true
+		}
 		var walk func(gotypes.Type) bool
 		walk = func(typ gotypes.Type) bool {
 			typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
@@ -137,12 +143,8 @@ func propertyCandidates(typ gotypes.Type) iter.Seq[gotypes.Object] {
 				return true
 			}
 			seen[typ] = true
-			if named, ok := typ.(*gotypes.Named); ok {
-				for method := range named.Methods() {
-					if !yield(method) {
-						return false
-					}
-				}
+			if named, ok := typ.(*gotypes.Named); ok && !yieldNamedMethods(named) {
+				return false
 			}
 			switch underlying := typ.Underlying().(type) {
 			case *gotypes.Struct:
@@ -159,6 +161,13 @@ func propertyCandidates(typ gotypes.Type) iter.Seq[gotypes.Object] {
 			case *gotypes.Interface:
 				for method := range underlying.Methods() {
 					if !yield(method) {
+						return false
+					}
+				}
+				// Gogen also looks for reconstructed methods on directly
+				// embedded named interfaces, outside the Go method set.
+				for embedded := range underlying.EmbeddedTypes() {
+					if named, ok := embedded.(*gotypes.Named); ok && !yieldNamedMethods(named) {
 						return false
 					}
 				}
@@ -185,11 +194,17 @@ func (r *definitionContext) propertyMembers(named *gotypes.Named) iter.Seq[prope
 				kind = XGoPropertyKindMethod
 			}
 			obj := property.Object
-			if property.Function != nil {
-				obj = property.Function
+			if property.Implementation != nil {
+				obj = property.Implementation
 			}
 			for _, def := range r.definitionsForSelection(obj, named) {
 				def.SourceObject = property.Object
+				if property.Implementation != nil {
+					def.Implementation = property.Implementation
+				}
+				if obj != property.Object && def.Detail == "" {
+					def.Detail = r.overloadDocumentation(property.Object)
+				}
 				if !yield(propertyMember{property, kind, def}) {
 					return
 				}

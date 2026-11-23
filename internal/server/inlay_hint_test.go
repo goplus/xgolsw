@@ -328,6 +328,49 @@ func main() {
 }
 
 func TestCollectInlayHints(t *testing.T) {
+	t.Run("OverloadAutoclosureTooltip", func(t *testing.T) {
+		const declarations = `func deferred(__xgo_autoclosure_value func() int, label string) {}
+func immediate(value int, label bool) {}
+func unnamed(_ int, label bool) {}
+func unnamedText(_ int, label string) {}
+func alsoDeferred(__xgo_autoclosure_value func() int, label bool) {}
+`
+		for _, tt := range []struct {
+			name, overloads string
+			deferred        bool
+			noHint          bool
+		}{
+			{name: "DeferredFirst", overloads: "deferred; immediate"},
+			{name: "ImmediateFirst", overloads: "immediate; deferred"},
+			{name: "UnnamedFirst", overloads: "unnamed; deferred"},
+			{name: "UnnamedLast", overloads: "deferred; unnamed"},
+			{name: "BothDeferred", overloads: "deferred; alsoDeferred", deferred: true},
+			{name: "BothUnnamed", overloads: "unnamed; unnamedText", noHint: true},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				const filename = "main.xgo"
+				source := declarations + "func handle = (" + tt.overloads + ")\nhandle 1, unknown\n"
+				s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+				t.Cleanup(s.Close)
+				proj := s.requestProject()
+				_, err := proj.TypeInfo()
+				require.ErrorContains(t, err, "undefined: unknown")
+				file, err := proj.ASTFile(filename)
+				require.NoError(t, err)
+				hints := collectInlayHints(proj, file, 0, 0)
+				if tt.noHint {
+					assert.Empty(t, hints)
+					return
+				}
+				want := InlayHint{Position: Position{Line: 6, Character: 7}, Label: "value", Kind: Parameter}
+				if tt.deferred {
+					want.Tooltip = &InlayHintTooltip{Value: autoclosureParamDocumentation}
+				}
+				assert.Equal(t, []InlayHint{want}, hints)
+			})
+		}
+	})
+
 	t.Run("VariadicOverloadParameters", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string

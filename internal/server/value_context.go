@@ -159,6 +159,22 @@ func literalTargetType(literal ast.Node, typ gotypes.Type, target ast.Expr, pare
 	return nil
 }
 
+// expandedTupleArgumentTypes returns the types for element when its tuple
+// literal expands into arguments of the surrounding call.
+func expandedTupleArgumentTypes(info *types.Info, tuplePath []ast.Node, element ast.Expr) []gotypes.Type {
+	for _, parent := range tuplePath[1:] {
+		if _, ok := parent.(*ast.ParenExpr); ok {
+			continue
+		}
+		if call := callExprFromNode(info, parent); call != nil {
+			expected, _ := expectedTypesForCallArg(info, call, element)
+			return expected
+		}
+		break
+	}
+	return nil
+}
+
 // literalTypes resolves a literal's element container. An explicit composite
 // type takes precedence over an outer interface or assignment type.
 func literalTypes(info *types.Info, path []ast.Node) []gotypes.Type {
@@ -319,6 +335,12 @@ func errorWrapResultType(info *types.Info, expr *ast.ErrWrapExpr) gotypes.Type {
 
 // errorWrapOperandTypes restores the trailing error consumed by ! or ?.
 func errorWrapOperandTypes(info *types.Info, expr *ast.ErrWrapExpr, path []ast.Node) []gotypes.Type {
+	if len(path) > 1 {
+		if call, ok := path[1].(*ast.CallExpr); ok && call.Fun == expr && call.IsCommand() {
+			// The command's result is wrapped after the callee runs.
+			return nil
+		}
+	}
 	expected := expectedExprTypes(info, path)
 	if len(expected) == 0 {
 		return validExpectedType(info.TypeOf(expr.X))
@@ -387,7 +409,7 @@ func expectedExprTypes(info *types.Info, path []ast.Node) []gotypes.Type {
 	for index, node := range path[1:] {
 		outer := path[index+1:]
 		if call := callExprFromNode(info, node); call != nil {
-			if target == call.Fun {
+			if target == call.Fun || target == xgoutil.CallExprFun(call) {
 				return validExpectedType(info.TypeOf(target))
 			}
 			types, _ := expectedTypesForCallArg(info, call, target)
@@ -427,17 +449,8 @@ func expectedExprTypes(info *types.Info, path []ast.Node) []gotypes.Type {
 					result = append(result, typ)
 				}
 			}
-			// A tuple expanded into call arguments has no single target type.
-			if len(result) == 0 {
-				for _, parent := range outer[1:] {
-					if _, ok := parent.(*ast.ParenExpr); ok {
-						continue
-					}
-					if call := callExprFromNode(info, parent); call != nil {
-						result, _ = expectedTypesForCallArg(info, call, target)
-					}
-					break
-				}
+			if _, tuple := node.(*ast.TupleLit); tuple {
+				result = append(result, expandedTupleArgumentTypes(info, outer, target)...)
 			}
 			return deduplicateTypes(result)
 		case *ast.BinaryExpr:

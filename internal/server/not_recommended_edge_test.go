@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/goplus/xgo/ast"
@@ -8,6 +9,69 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServerNotRecommendedParenthesizedMembers(t *testing.T) {
+	const declarations = `type Record ((struct {
+    //xgols:notRecommended
+    HiddenField string
+    VisibleField string
+}))
+type Reader = (interface {
+    //xgols:notRecommended
+    HiddenText() string
+    VisibleText() string
+})
+type Pointer *(struct {
+    //xgols:notRecommended
+    HiddenValue int
+    VisibleValue int
+})
+var record Record
+var reader Reader
+var pointer Pointer
+`
+	for _, tt := range []struct{ name, use, want, hidden string }{
+		{"Struct", "println record.|VisibleField", "VisibleField", "HiddenField"},
+		{"InterfaceAlias", "println reader.|VisibleText()", "VisibleText", "HiddenText"},
+		{"DefinedPointer", "println pointer.|VisibleValue", "VisibleValue", "HiddenValue"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, declarations+tt.use+"\n")
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+			labels := completionItemLabels(completionItemsAt(t, s, "main.xgo", pos))
+			assert.Contains(t, labels, tt.want)
+			assert.NotContains(t, labels, tt.hidden)
+		})
+	}
+
+	t.Run("Properties", func(t *testing.T) {
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(declarations)})
+		t.Cleanup(s.Close)
+		for _, exclude := range []bool{false, true} {
+			properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: "Record", ExcludeNotRecommended: exclude})
+			require.NoError(t, err)
+			assert.True(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == "VisibleField" }))
+			assert.Equal(t, !exclude, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == "HiddenField" }))
+		}
+	})
+
+	t.Run("InputNames", func(t *testing.T) {
+		s := newImportTestServer(t, map[string][]byte{
+			"main_fixture.gox": []byte("func (self *Record) Run() { use \"text\" }\n"),
+			"types.xgo":        []byte(declarations + "func Use(value string) {}\n"),
+		})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}})
+		require.NoError(t, err)
+		require.NotEmpty(t, slots)
+		names := slots[len(slots)-1].PredefinedNames
+		assert.Contains(t, names, "VisibleField")
+		assert.NotContains(t, names, "HiddenField")
+	})
+}
 
 func TestNotRecommendedDeclarationsGenericEmbeddedFields(t *testing.T) {
 	for _, tt := range []struct {
@@ -94,7 +158,7 @@ func TestServerNotRecommendedClassEmbeddedField(t *testing.T) {
 var box Box
 println box.|Value
 `)
-			s := newTestServer(t, map[string][]byte{
+			s := newImportTestServer(t, map[string][]byte{
 				"main.xgo": []byte(source),
 				"Box.gox":  []byte("var (\n" + tt.directive + "*Embedded\nVisible int\n)\n"),
 			})

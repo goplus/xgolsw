@@ -352,6 +352,25 @@ func main() {
 		}, loc)
 	})
 
+	t.Run("ShortUnicodeKwargHasNoDefinition", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, "type Options struct { \u2c7e int }\n"+
+			"func configure(opts Options?) {}\nconfigure |\u023f = 1\n")
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.Error(t, err)
+
+		def, err := s.textDocumentDefinition(&DefinitionParams{
+			TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)},
+				Position:     pos,
+			},
+		})
+		require.NoError(t, err)
+		assert.Nil(t, def)
+	})
+
 	t.Run("MapKwargHasNoDefinition", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"main.xgo": []byte(`
@@ -590,6 +609,200 @@ func main() {
 			},
 		}, loc)
 	})
+}
+
+func TestServerOverloadDefinition(t *testing.T) {
+	const declarations = `func supply(value int) int { return value }
+func Choose = (
+supply
+)
+`
+	for _, tt := range []struct {
+		name, source string
+		definition   uint32
+	}{
+		{name: "ParenthesizedCall", source: "_ = (Ch|oose)(1)\n"},
+		{name: "AliasReference", source: "func Other = (Ch|oose)\n", definition: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, declarations+tt.source)
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+
+			uri := s.toDocumentURI("main.xgo")
+			locationAt := func(line uint32) Location {
+				return Location{URI: uri, Range: Range{Start: Position{Line: line, Character: 5}, End: Position{Line: line, Character: 11}}}
+			}
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: position}
+			definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, locationAt(tt.definition), definition)
+			declaration, err := s.textDocumentDeclaration(&DeclarationParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, locationAt(1), declaration)
+		})
+	}
+}
+
+func TestServerForwardedOverloadDefinition(t *testing.T) {
+	for _, tt := range []struct {
+		name, source, implementation string
+		definition, declaration      Position
+	}{
+		{
+			name: "ParenthesizedAcrossGroups",
+			source: `func pickFirst(value any) int { return 1 }
+func pickText(value string) int { return len(value) }
+func Pick = (
+	pickFirst
+	pickText
+)
+func Relay = (Pick)
+func Run = (Relay)
+_ = ((Ru|n))("text")
+`,
+			implementation: "pickFirst",
+			definition:     Position{Character: 5},
+			declaration:    Position{Line: 7, Character: 5},
+		},
+		{
+			name: "RequiredArguments",
+			source: `func pickLong(value string, level int) {}
+func pickShort(value string) {}
+func Pick = (
+	pickLong
+	pickShort
+)
+func Run = (Pick)
+Ru|n("text")
+`,
+			implementation: "pickShort",
+			definition:     Position{Line: 1, Character: 5},
+			declaration:    Position{Line: 6, Character: 5},
+		},
+		{
+			name: "FunctionVariable",
+			source: `func pickNumber(value int) int { return value }
+var pickText = func(value string) int { return len(value) }
+func Pick = (
+	pickNumber
+	pickText
+)
+func Run = (Pick)
+_ = Ru|n("text")
+`,
+			implementation: "pickText",
+			definition:     Position{Line: 1, Character: 4},
+			declaration:    Position{Line: 6, Character: 5},
+		},
+		{
+			name: "PointerMethod",
+			source: `type Record struct{}
+func (*Record) pickNumber(value int) int { return value }
+func (*Record) pickText(value string) int { return len(value) }
+func (Record).Pick = (
+	(*Record).pickNumber
+	(*Record).pickText
+)
+func (Record).Run = ((Record).Pick)
+var record Record
+_ = record.r|un("text")
+`,
+			implementation: "pickText",
+			definition:     Position{Line: 2, Character: 15},
+			declaration:    Position{Line: 7, Character: 14},
+		},
+		{
+			name: "ImplicitMethod",
+			source: `type Record struct{}
+func (Record) pickNumber(value int) int { return value }
+func (Record) pickDefault() int { return 2 }
+func (Record).Pick = (
+	(Record).pickNumber
+	(Record).pickDefault
+)
+func (Record).Run = ((Record).Pick)
+var record Record
+var result = record.r|un
+`,
+			implementation: "pickDefault",
+			definition:     Position{Line: 2, Character: 14},
+			declaration:    Position{Line: 7, Character: 14},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "main.xgo"
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+
+			uri := s.toDocumentURI(filename)
+			location := func(start Position, name string) Location {
+				end := start
+				end.Character += uint32(len(name))
+				return Location{URI: uri, Range: Range{Start: start, End: end}}
+			}
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: pos}
+			definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, location(tt.definition, tt.implementation), definition)
+			declaration, err := s.textDocumentDeclaration(&DeclarationParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, location(tt.declaration, "Run"), declaration)
+		})
+	}
+}
+
+func TestServerInlineOverloadLocations(t *testing.T) {
+	const filename = "main.xgo"
+	const declarations = `func Choose = (
+	func(value int) int { return value }
+	func(value string) int { return len(value) }
+)
+`
+	for _, tt := range []struct {
+		name, usage    string
+		implementation uint32
+		group          bool
+	}{
+		{name: "GroupCall", usage: "_ = Ch|oose(\"text\")\n", implementation: 2, group: true},
+		{name: "EncodedValue", usage: "_ = Choose__|0\n", implementation: 1},
+		{name: "EncodedAlias", usage: "_ = choose__|0(1)\n", implementation: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, declarations+tt.usage)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+			uri := s.toDocumentURI(filename)
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: pos}
+
+			start := Position{Line: tt.implementation, Character: 1}
+			implementation := Location{URI: uri, Range: Range{Start: start, End: start}}
+			definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, implementation, definition)
+
+			wantDeclaration := implementation
+			if tt.group {
+				wantDeclaration.Range = Range{Start: Position{Character: 5}, End: Position{Character: 11}}
+			}
+			declaration, err := s.textDocumentDeclaration(&DeclarationParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			assert.Equal(t, wantDeclaration, declaration)
+
+			if !tt.group {
+				prepared, err := s.textDocumentPrepareRename(&PrepareRenameParams{TextDocumentPositionParams: params})
+				require.NoError(t, err)
+				assert.Nil(t, prepared)
+				edit, err := s.textDocumentRename(&RenameParams{TextDocument: params.TextDocument, Position: pos, NewName: "Fetch"})
+				require.NoError(t, err)
+				assert.Nil(t, edit)
+			}
+		})
+	}
 }
 
 func TestServerTextDocumentTypeDefinition(t *testing.T) {

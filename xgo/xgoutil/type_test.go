@@ -97,6 +97,64 @@ func TestIsValidType(t *testing.T) {
 	})
 }
 
+func TestTypeInitializer(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/measure", "measure")
+	number := gotypes.Typ[gotypes.Int]
+	distance := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Distance", nil), number, nil)
+	alias := gotypes.NewAlias(gotypes.NewTypeName(0, pkg, "Length", nil), distance)
+	mass := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Mass", nil), number, nil)
+	velocity := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Velocity", nil), number, nil)
+	ratio := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "Ratio", nil), number, nil)
+	params := gotypes.NewTuple(gotypes.NewParam(0, pkg, "value", number))
+	results := gotypes.NewTuple(gotypes.NewParam(0, pkg, "", distance))
+	sig := gotypes.NewSignatureType(nil, nil, nil, params, results, false)
+	init := gotypes.NewFunc(0, pkg, "Distance_Init", sig)
+	pkg.Scope().Insert(init)
+	pkg.Scope().Insert(gotypes.NewVar(0, pkg, "Velocity_Init", velocity))
+	ratioResults := gotypes.NewTuple(gotypes.NewParam(0, pkg, "", ratio))
+	ratioSignature := gotypes.NewSignatureType(nil, nil, nil, params, ratioResults, false)
+	ratioFunction := gotypes.NewNamed(gotypes.NewTypeName(0, pkg, "RatioFunc", nil), ratioSignature, nil)
+	ratioInit := gotypes.NewVar(0, pkg, "Ratio_Init", ratioFunction)
+	pkg.Scope().Insert(ratioInit)
+
+	assert.Same(t, init, TypeInitializer(distance))
+	assert.Same(t, init, TypeInitializer(alias))
+	assert.Same(t, ratioInit, TypeInitializer(ratio))
+	assert.Nil(t, TypeInitializer(gotypes.NewPointer(distance)))
+	assert.Nil(t, TypeInitializer(mass))
+	assert.Nil(t, TypeInitializer(velocity))
+	assert.Nil(t, TypeInitializer(gotypes.Universe.Lookup("error").Type()))
+}
+
+func TestMethodExpressionReceiver(t *testing.T) {
+	base := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Base", nil), gotypes.NewStruct(nil, nil), nil)
+	outer := gotypes.NewNamed(gotypes.NewTypeName(0, nil, "Outer", nil), gotypes.NewStruct(nil, nil), nil)
+	basePointer := gotypes.NewPointer(base)
+	outerPointer := gotypes.NewPointer(outer)
+	iface := gotypes.NewInterfaceType(nil, nil).Complete()
+	for _, tt := range []struct {
+		name                     string
+		selector, declared, want gotypes.Type
+	}{
+		{name: "Value", selector: outer, declared: base, want: outer},
+		{name: "Pointer", selector: outerPointer, declared: basePointer, want: outerPointer},
+		{name: "PointerThroughValueType", selector: outer, declared: basePointer, want: outerPointer},
+		{name: "ValueThroughPointerType", selector: outerPointer, declared: base},
+		{name: "InterfaceThroughPointerType", selector: outerPointer, declared: iface, want: outerPointer},
+		{name: "MissingSelectorType", declared: basePointer},
+		{name: "InvalidSelectorType", selector: gotypes.Typ[gotypes.Invalid], declared: base},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			receiver := MethodExpressionReceiver(tt.selector, tt.declared)
+			if tt.want == nil {
+				assert.Nil(t, receiver)
+			} else {
+				assert.True(t, gotypes.Identical(tt.want, receiver))
+			}
+		})
+	}
+}
+
 func TestIsTypesCompatible(t *testing.T) {
 	t.Run("NilTypes", func(t *testing.T) {
 		assert.False(t, IsTypesCompatible(nil, nil))

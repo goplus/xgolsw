@@ -118,6 +118,7 @@ func GetDamage() int { return 10 }
 
 func CurrentValue() Value { return value }
 func CurrentList() List { return list }
+func For() int { return 1 }
 `)}
 		s := newSpxTestServer(t, files)
 		_, err := s.workspaceRootFS.TypeInfo()
@@ -132,6 +133,7 @@ func CurrentList() List { return list }
 		} {
 			assert.Contains(t, properties, want)
 		}
+		assert.False(t, slices.ContainsFunc(properties, func(p XGoProperty) bool { return p.Name == "for" }))
 	})
 }
 

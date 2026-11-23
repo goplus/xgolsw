@@ -10,15 +10,18 @@ import (
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_declaration
 func (s *Server) textDocumentDeclaration(params *DeclarationParams) (any, error) {
-	return s.textDocumentDefinition(&DefinitionParams{
-		TextDocumentPositionParams: params.TextDocumentPositionParams,
-		WorkDoneProgressParams:     params.WorkDoneProgressParams,
-		PartialResultParams:        params.PartialResultParams,
-	})
+	return s.documentSymbolLocation(params.TextDocumentPositionParams, true)
 }
 
 // See https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#textDocument_definition
 func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
+	return s.documentSymbolLocation(params.TextDocumentPositionParams, false)
+}
+
+// documentSymbolLocation finds a symbol's location or its call implementation. With
+// preferDeclaration, it tries the source object first, including overload
+// groups and reconstructed static members.
+func (s *Server) documentSymbolLocation(params TextDocumentPositionParams, preferDeclaration bool) (any, error) {
 	proj := s.requestProject()
 	filename, err := s.fromDocumentURI(params.TextDocument.URI)
 	if err != nil {
@@ -36,9 +39,22 @@ func (s *Server) textDocumentDefinition(params *DefinitionParams) (any, error) {
 	}
 	astPkg, _ := proj.ASTPackage()
 
-	ident, obj, _ := objectAtPosition(proj, typeInfo, astFile, position)
+	ident, obj, kwarg := objectAtPosition(proj, typeInfo, astFile, position)
 	if xgoutil.IsBlankIdent(ident) || xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
+	}
+	if kwarg == nil {
+		var target gotypes.Object
+		if preferDeclaration {
+			target = typeInfo.SourceObjectOf(ident)
+		} else if typeInfo.Overloads[ident] != nil {
+			target = callImplementationForIdent(typeInfo, astFile, ident)
+		}
+		if target != nil && target != obj {
+			if loc := s.objectDefinitionLocation(proj, typeInfo, target); loc != nil {
+				return *loc, nil
+			}
+		}
 	}
 	if obj == nil {
 		return nil, nil

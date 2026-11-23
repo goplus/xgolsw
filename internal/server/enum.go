@@ -1028,10 +1028,8 @@ func isUntypedType(typ gotypes.Type) bool {
 // enumBasicTypeConstraintForExpr returns the basic type category imposed by
 // expr when it denotes an untyped value.
 func enumBasicTypeConstraintForExpr(typeInfo *types.Info, expr ast.Expr) gotypes.BasicInfo {
-	if typeAndValue, ok := typeInfo.Types[expr]; ok && xgoutil.IsValidType(typeAndValue.Type) {
-		if basic, ok := typeAndValue.Type.Underlying().(*gotypes.Basic); ok && basic.Info()&gotypes.IsUntyped != 0 {
-			return enumUntypedBasicConstraint(basic, typeAndValue.Value)
-		}
+	if basic, ok := typeInfo.TypeOf(expr).(*gotypes.Basic); ok && basic.Info()&gotypes.IsUntyped != 0 {
+		return enumUntypedBasicConstraint(basic, typeInfo.Types[expr].Value)
 	}
 	switch expr := expr.(type) {
 	case *ast.BasicLit:

@@ -6,6 +6,8 @@ import (
 	goparser "go/parser"
 	gotypes "go/types"
 	"io/fs"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/goplus/xgo/token"
@@ -20,6 +22,43 @@ func TestProjectImport(t *testing.T) {
 		pkg, err := proj.Import("unsafe")
 		require.NoError(t, err)
 		assert.Same(t, gotypes.Unsafe, pkg)
+	})
+
+	t.Run("DefaultImporterMissingDependency", func(t *testing.T) {
+		if _, err := exec.LookPath("go"); err != nil {
+			t.Skip("requires the Go toolchain")
+		}
+		t.Chdir(t.TempDir())
+		t.Setenv("GOWORK", "off")
+		t.Setenv("GOPROXY", "off")
+		const root = "example.com/importfixture"
+		const dependency = root + "/dep"
+		require.NoError(t, os.WriteFile("go.mod", []byte("module "+root+"\n\ngo 1.26\n"), 0o600))
+		require.NoError(t, os.WriteFile("root.go", []byte(`package fixture
+const XGoPackage = "example.com/importfixture/dep"
+func Pick__0(value int) int { return value }
+func Pick__1(value string) int { return len(value) }
+`), 0o600))
+
+		proj := NewProject(nil, map[string]*File{"main.xgo": file(`import fixture "example.com/importfixture"
+_ = fixture.Pick(1)
+`)}, FeatAll)
+		pkg, err := proj.Import(root)
+		require.ErrorContains(t, err, "failed to import XGo dependency")
+		assert.ErrorContains(t, err, dependency)
+		assert.Nil(t, pkg)
+		_, err = proj.TypeInfo()
+		require.ErrorContains(t, err, "failed to import XGo dependency")
+		assert.ErrorContains(t, err, dependency)
+
+		require.NoError(t, os.Mkdir("dep", 0o700))
+		require.NoError(t, os.WriteFile("dep/dep.go", []byte("package dep\nconst XGoPackage = true\n"), 0o600))
+		pkg, err = proj.Import(root)
+		require.NoError(t, err)
+		require.NotNil(t, pkg)
+		assert.NotNil(t, pkg.Scope().Lookup("Pick"))
+		_, err = proj.Fork().TypeInfo()
+		require.NoError(t, err)
 	})
 
 	t.Run("InitializesOverloads", func(t *testing.T) {
@@ -108,6 +147,11 @@ echo framework.Value
 				}
 				_, err = proj.Fork().TypeInfo()
 				require.NoError(t, err)
+
+				available = false
+				pkg, err = proj.Import(testframework.PkgPath)
+				require.NoError(t, err)
+				assert.Same(t, framework, pkg)
 			})
 		}
 	})
@@ -139,9 +183,10 @@ echo framework.Value
 			assert.NotNil(t, imported.Scope().Lookup("Pick"))
 		}
 
-		// Separate imports in one compilation share already loaded dependencies.
+		// An initialized package needs no dependency lookup, and direct and
+		// indirect imports still share its package object.
 		const extraPath = "example.com/extra"
-		packages[extraPath] = newImportTestPackage(t, extraPath, fmt.Sprintf("XGoPackage = %q", depPath))
+		packages[extraPath] = newImportTestPackage(t, extraPath, fmt.Sprintf("XGoPackage = %q", testframework.PkgPath+","+depPath))
 		clear(calls)
 		proj.PutFile("main.xgo", file(`import root "example.com/framework"
 import extra "example.com/extra"
@@ -149,9 +194,7 @@ echo root.Pick(1), extra.Pick("value")
 `))
 		_, err = proj.TypeInfo()
 		require.NoError(t, err)
-		for path := range packages {
-			assert.Equal(t, 1, calls[path])
-		}
+		assert.Equal(t, map[string]int{testframework.PkgPath: 1, extraPath: 1, depPath: 1}, calls)
 	})
 }
 

@@ -90,7 +90,7 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 	hasResolvedSignature := sig != nil
 
 	var inlayHints []InlayHint
-	labelsByPosition := make(map[Position]string)
+	hintIndices := make(map[Position]int)
 	ambiguousPositions := make(map[Position]struct{})
 	seenVariadicParams := make(map[*gotypes.Var]bool)
 	for resolvedArg := range resolvedCallExprArgs(typeInfo, callExpr) {
@@ -114,35 +114,47 @@ func collectInlayHintsFromCallExpr(proj *xgo.Project, callExpr *ast.CallExpr) []
 			continue
 		}
 
-		// Create an inlay hint with the parameter name before the argument.
-		position := proj.Fset.PositionFor(resolvedArg.Arg.Pos(), false)
 		label := xgoutil.SourceParamName(resolvedArg.Param)
-		if label == "" || label == "_" {
+		if label == "_" {
+			label = ""
+		}
+		if label == "" && hasResolvedSignature {
 			continue
 		}
-		if variadicArg {
+		if variadicArg && label != "" {
 			label += "..."
 		}
-		hint := InlayHint{
-			Position: FromPosition(proj, astFile, position),
-			Label:    label,
-			Kind:     Parameter,
-		}
-		if _, ok := xgoutil.AutoclosureParamResultType(resolvedArg.Param); ok {
-			hint.Tooltip = &InlayHintTooltip{Value: autoclosureParamDocumentation}
-		}
-		if existingLabel, ok := labelsByPosition[hint.Position]; ok {
-			if existingLabel != hint.Label {
-				ambiguousPositions[hint.Position] = struct{}{}
+
+		position := proj.Fset.PositionFor(resolvedArg.Arg.Pos(), false)
+		pos := FromPosition(proj, astFile, position)
+		_, autoclosure := xgoutil.AutoclosureParamResultType(resolvedArg.Param)
+		if index, ok := hintIndices[pos]; ok {
+			existing := &inlayHints[index]
+			if existing.Label != "" && label != "" && existing.Label != label {
+				ambiguousPositions[pos] = struct{}{}
+			}
+			existing.Label = cmp.Or(existing.Label, label)
+			if !autoclosure {
+				existing.Tooltip = nil
 			}
 			continue
 		}
-		labelsByPosition[hint.Position] = hint.Label
+
+		// Unnamed alternatives still contribute to the autoclosure decision.
+		hint := InlayHint{
+			Position: pos,
+			Label:    label,
+			Kind:     Parameter,
+		}
+		if autoclosure {
+			hint.Tooltip = &InlayHintTooltip{Value: autoclosureParamDocumentation}
+		}
+		hintIndices[pos] = len(inlayHints)
 		inlayHints = append(inlayHints, hint)
 	}
 	return slices.DeleteFunc(inlayHints, func(hint InlayHint) bool {
-		_, ok := ambiguousPositions[hint.Position]
-		return ok
+		_, ambiguous := ambiguousPositions[hint.Position]
+		return hint.Label == "" || ambiguous
 	})
 }
 

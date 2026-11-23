@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/goplus/xgo/scanner"
+	"github.com/goplus/xgolsw/internal"
+	"github.com/goplus/xgolsw/internal/pkgdata"
 	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/stretchr/testify/assert"
@@ -89,6 +91,162 @@ func Reset() {
 }
 
 func TestProjectPkgDoc(t *testing.T) {
+	t.Run("PlainSourceWithoutTypeChecking", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`// Choose selects a value.
+func Choose(value int) int { return value }
+`)}, FeatAll)
+		var typeChecks int
+		proj.RegisterCacheBuilder(typeInfoCacheKind{}, func(p *Project) (any, error) {
+			typeChecks++
+			return buildTypeInfoCache(p)
+		})
+
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		assert.Equal(t, "Choose selects a value.\n", doc.Funcs["Choose"])
+		assert.Zero(t, typeChecks)
+		_, err = proj.TypeInfo()
+		require.NoError(t, err)
+		assert.Equal(t, 1, typeChecks)
+	})
+
+	t.Run("StaticClassMethod", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"Record.gox": file(`// Choose selects an item.
+//xgols:notRecommended
+func .Choose(value int) int { return value }
+`)}, FeatAll)
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.Contains(t, doc.Types, "Record")
+		const want = "Choose selects an item.\n"
+		assert.Equal(t, want, doc.Types["Record"].Methods["Choose"])
+		assert.Equal(t, want, doc.Funcs["XGos_Record_Choose"])
+		assert.True(t, doc.Declarations["Record.Choose"].NotRecommended)
+		implementation := info.Pkg.Scope().Lookup("XGos_Record_Choose")
+		require.NotNil(t, implementation)
+		assert.True(t, doc.ObjectMetadata(implementation).NotRecommended)
+		record := info.Pkg.Scope().Lookup("Record")
+		require.NotNil(t, record)
+		selector, _, _ := gotypes.LookupFieldOrMethod(record.Type(), false, info.Pkg, "Choose")
+		require.NotNil(t, selector)
+		assert.True(t, doc.ObjectMetadata(selector).NotRecommended)
+	})
+
+	t.Run("FlatFragmentWithInvalidFields", func(t *testing.T) {
+		proj := newFrameworkTestProject(t, map[string]*File{
+			"main_fixture.gox": file(`// Count holds the item count.
+var Count int
+`),
+			"nested/part_fixture.gox": file(`// Count does not declare a field here.
+//xgols:notRecommended
+var Count int
+//xgols:notRecommended
+var Invalid int
+
+// Read returns the item count.
+func Read() int { return Count }
+`),
+		}, FeatAll)
+		config := testframework.NewModule(t).Module
+		project := config.Opt.Projects[0]
+		project.Flat = true
+		project.Works = nil
+		module, err := NewModule(config)
+		require.NoError(t, err)
+		proj.SetModule(module)
+
+		_, err = proj.TypeInfo()
+		require.ErrorContains(t, err, "multiple top-level var declarations in classfile")
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		app := doc.Types["App"]
+		require.NotNil(t, app)
+		assert.Equal(t, map[string]string{"Count": "Count holds the item count.\n"}, app.Fields)
+		assert.Equal(t, "Read returns the item count.\n", app.Methods["Read"])
+		assert.Empty(t, doc.Vars)
+		assert.Empty(t, doc.Declarations)
+	})
+
+	t.Run("EmbeddedClassFields", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"Record.gox": file(`var (
+	// Item is the embedded value.
+	//xgols:notRecommended
+	*Item
+	Other // Other is a second embedded value.
+)
+
+type Item struct { Value int }
+type Other struct { Count int }
+`)}, FeatAll)
+		data, err := pkgdata.New(testframework.NewPkgDataZip(t))
+		require.NoError(t, err)
+		proj.Importer = internal.NewImporter(data.OpenExport)
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		record := info.Pkg.Scope().Lookup("Record")
+		require.NotNil(t, record)
+		item, _, _ := gotypes.LookupFieldOrMethod(record.Type(), false, info.Pkg, "Item")
+		require.NotNil(t, item)
+
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.Contains(t, doc.Types, "Record")
+		assert.Equal(t, map[string]string{
+			"Item":  "Item is the embedded value.\n",
+			"Other": "Other is a second embedded value.\n",
+		}, doc.Types["Record"].Fields)
+		assert.True(t, doc.ObjectMetadata(item).NotRecommended)
+		assert.Empty(t, doc.Vars)
+	})
+
+	t.Run("ParenthesizedMethodReceivers", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`type Record struct { Value int }
+
+// Read reads the record value.
+//xgols:notRecommended
+func (r (Record)) Read() int { return r.Value }
+
+// Set replaces the record value.
+//xgols:notRecommended
+func (r (*(Record))) Set(value int) { r.Value = value }
+`)}, FeatAll)
+		_, err := proj.TypeInfo()
+		require.NoError(t, err)
+		doc, err := proj.PkgDoc()
+		require.NoError(t, err)
+		require.Contains(t, doc.Types, "Record")
+		assert.Equal(t, "Read reads the record value.\n", doc.Types["Record"].Methods["Read"])
+		assert.Equal(t, "Set replaces the record value.\n", doc.Types["Record"].Methods["Set"])
+		assert.True(t, doc.Declarations["Record.Read"].NotRecommended)
+		assert.True(t, doc.Declarations["Record.Set"].NotRecommended)
+	})
+
+	t.Run("EditBeforeTypeChecking", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"Record.gox": file("var Count int\n")}, FeatAll)
+		started, resume := make(chan struct{}), make(chan struct{})
+		release := sync.OnceFunc(func() { close(resume) })
+		t.Cleanup(release)
+		proj.RegisterCacheBuilder(typeInfoCacheKind{}, func(p *Project) (any, error) {
+			close(started)
+			<-resume
+			return buildTypeInfoCache(p)
+		})
+
+		result := make(chan error, 1)
+		go func() {
+			_, err := proj.PkgDoc()
+			result <- err
+		}()
+		<-started
+		proj.PutFile("Record.gox", file("var ("))
+		release()
+		var parserErrs scanner.ErrorList
+		require.ErrorAs(t, <-result, &parserErrs)
+		assert.NotEmpty(t, parserErrs)
+	})
+
 	t.Run("ConcurrentTypeChecking", func(t *testing.T) {
 		for _, tt := range []struct {
 			name       string

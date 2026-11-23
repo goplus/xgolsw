@@ -1012,6 +1012,54 @@ func main() {
 	})
 }
 
+func TestServerTextDocumentRenamePackageFunctionAlias(t *testing.T) {
+	source, pos := typeDisplayTestSource(t, `func XGo_Re|ad() int { return 1 }
+var value = xGo_Read
+var exact = XGo_Read()
+`)
+	s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+
+	uri := s.toDocumentURI("main.xgo")
+	edit, err := s.textDocumentRename(&RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		NewName:      "XGo_Fetch",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, edit)
+	want := strings.ReplaceAll(source, "_Read", "_Fetch")
+	assert.Equal(t, want, applyResourceRenameTestEdits(t, source, edit.Changes[uri]))
+}
+
+func TestServerTextDocumentRenameErrorWrappedCommandAlias(t *testing.T) {
+	const filename = "main.xgo"
+	source, pos := typeDisplayTestSource(t, `func Sa|ve(path string) error { return nil }
+save! "file.txt"
+save("other.txt")!
+`)
+	s := newErrorWrapTestServer(t, source)
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+
+	uri := s.toDocumentURI(filename)
+	edit, err := s.textDocumentRename(&RenameParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		NewName:      "store",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, edit)
+	updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
+	assert.Equal(t, `func store(path string) error { return nil }
+store! "file.txt"
+store("other.txt")!
+`, updated)
+	s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(updated), Version: 1}})
+	requireNoDiagnostics(t, s)
+}
+
 func TestServerTextDocumentRenameExistingErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -1460,6 +1508,145 @@ println Record{}.Value()
 	}
 }
 
+func TestServerTextDocumentRenameStructKwarg(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		source  string
+		newName string
+		want    string
+	}{
+		{
+			name: "AtDeclaration",
+			source: `type Options struct { count int; |Total int }
+type Alias = Options
+func configure(opts Options?) {}
+func alternate(opts Alias?) {}
+configure count = 2, total = 1
+alternate total = 3
+`,
+			newName: "Count",
+			want: `type Options struct { count int; Count int }
+type Alias = Options
+func configure(opts Options?) {}
+func alternate(opts Alias?) {}
+configure count = 2, Count = 1
+alternate count = 3
+`,
+		},
+		{
+			name: "AtKeyword",
+			source: `type Options struct { count int; Total int }
+func configure(opts Options?) {}
+configure |total = 1
+`,
+			newName: "count",
+			want: `type Options struct { count int; Count int }
+func configure(opts Options?) {}
+configure Count = 1
+`,
+		},
+		{
+			name: "EmbeddedType",
+			source: `type |Other int
+type Options struct { count int; Other }
+type Secondary struct { Other; count int }
+func configure(opts Options?) {}
+func alternate(opts Secondary?) {}
+configure other = 1
+alternate other = 2
+`,
+			newName: "Count",
+			want: `type Count int
+type Options struct { count int; Count }
+type Secondary struct { Count; count int }
+func configure(opts Options?) {}
+func alternate(opts Secondary?) {}
+configure Count = 1
+alternate count = 2
+`,
+		},
+		{
+			name:    "NonReversibleCase",
+			source:  "type Options struct { |Value int }\nfunc configure(opts Options?) {}\nconfigure value = 1\n",
+			newName: "\u212a",
+			want:    "type Options struct { \u212a int }\nfunc configure(opts Options?) {}\nconfigure \u212a = 1\n",
+		},
+		{
+			name:    "ShortAlias",
+			source:  "type Options struct { |Value int }\nfunc configure(opts Options?) {}\nconfigure value = 1\n",
+			newName: "\u2c7e",
+			want:    "type Options struct { \u2c7e int }\nfunc configure(opts Options?) {}\nconfigure \u2c7e = 1\n",
+		},
+		{
+			name: "ReservedAlias",
+			source: `type Options struct { |Count int }
+func configure(opts Options?) {}
+configure count = 1
+`,
+			newName: "For",
+			want: `type Options struct { For int }
+func configure(opts Options?) {}
+configure For = 1
+`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, position := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+
+			uri := s.toDocumentURI("main.xgo")
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: uri},
+				Position:     position,
+				NewName:      tt.newName,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			updated := applyResourceRenameTestEdits(t, source, edit.Changes[uri])
+			assert.Equal(t, tt.want, updated)
+			s.ModifyFiles([]FileChange{{Path: "main.xgo", Content: []byte(updated), Version: 1}})
+			requireNoDiagnostics(t, s)
+		})
+	}
+}
+
+func TestServerTextDocumentRenameUnicodeKwargAcrossFiles(t *testing.T) {
+	const declFile, useFile = "options.xgo", "main.xgo"
+	const declarations = "type Options struct { \u2c7ecore int }\nfunc configure(opts Options?) {}\n"
+	source, pos := typeDisplayTestSource(t, "func run() { /* \U0001f600 */ configure \u023f|core = 1 }\n")
+	s := newImportTestServer(t, map[string][]byte{declFile: []byte(declarations), useFile: []byte(source)})
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+
+	declURI, useURI := s.toDocumentURI(declFile), s.toDocumentURI(useFile)
+	document := TextDocumentIdentifier{URI: useURI}
+	definition, err := s.textDocumentDefinition(&DefinitionParams{
+		TextDocumentPositionParams: TextDocumentPositionParams{TextDocument: document, Position: pos},
+	})
+	require.NoError(t, err)
+	const fieldStart = uint32(len("type Options struct { "))
+	assert.Equal(t, Location{URI: declURI, Range: Range{
+		Start: Position{Character: fieldStart},
+		End:   Position{Character: fieldStart + 5},
+	}}, definition)
+
+	edit, err := s.textDocumentRename(&RenameParams{TextDocument: document, Position: pos, NewName: "\u023f"})
+	require.NoError(t, err)
+	require.NotNil(t, edit)
+	require.Len(t, edit.Changes, 2)
+	updatedDecl := applyResourceRenameTestEdits(t, declarations, edit.Changes[declURI])
+	updatedUse := applyResourceRenameTestEdits(t, source, edit.Changes[useURI])
+	assert.Equal(t, strings.Replace(declarations, "\u2c7ecore", "\u2c7e", 1), updatedDecl)
+	assert.Equal(t, strings.Replace(source, "\u023fcore", "\u2c7e", 1), updatedUse)
+	s.ModifyFiles([]FileChange{
+		{Path: declFile, Content: []byte(updatedDecl), Version: 1},
+		{Path: useFile, Content: []byte(updatedUse), Version: 1},
+	})
+	requireNoDiagnostics(t, s)
+}
+
 func TestServerTextDocumentRenameKeywordKwarg(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -1473,7 +1660,7 @@ configure |count=1
 		{name: "KeywordAtDeclaration", source: `type Options struct { |Count int }
 func configure(opts Options?) {}
 configure count=1
-`, newName: "For"},
+`, newName: "for"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -1486,6 +1673,50 @@ configure count=1
 			assert.ErrorIs(t, err, jsonrpc2.ErrInvalidParams)
 			assert.Nil(t, edit)
 			assert.Empty(t, replier.messages)
+		})
+	}
+}
+
+func TestServerTextDocumentRenameOverloadSelection(t *testing.T) {
+	const declarations = `type |Score int
+func Score_Init(value string) Score { return 0 }
+func score(value Score) int { return 1 }
+func text(value string) string { return value }
+func choose = (score; text)
+`
+	for _, tt := range []struct {
+		name, source string
+	}{
+		{"Direct", "var result = choose(\"value\")\n"},
+		{"ParenthesizedNested", "func forward = (choose)\nvar result = (forward)(\"value\")\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "main.xgo"
+			source, pos := typeDisplayTestSource(t, declarations+tt.source)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			info, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			result := info.Pkg.Scope().Lookup("result")
+			require.NotNil(t, result)
+			assert.Equal(t, "int", result.Type().String())
+
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)},
+				Position:     pos,
+				NewName:      "Value",
+			})
+			assert.ErrorContains(t, err, "selected overload")
+			assert.Nil(t, edit)
+
+			// The edit would type check while still changing the selected overload.
+			updated := strings.NewReplacer("type Score", "type Value", ") Score", ") Value", "value Score", "value Value").Replace(source)
+			s.ModifyFiles([]FileChange{{Path: filename, Content: []byte(updated), Version: 1}})
+			info, err = s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			result = info.Pkg.Scope().Lookup("result")
+			require.NotNil(t, result)
+			assert.Equal(t, "string", result.Type().String())
 		})
 	}
 }

@@ -2,50 +2,15 @@ package server
 
 import (
 	"fmt"
-	"go/constant"
-	gotoken "go/token"
 	gotypes "go/types"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
-
-// timeDurationUnitDecl is the built-in unit declaration for time.Duration.
-const timeDurationUnitDecl = "ns=1,us=1000,\u00b5s=1000,ms=1000000,s=1000000000,m=60000000000,h=3600000000000,d=86400000000000"
-
-// xgoUnitSpec describes one unit suffix available for an XGo unit literal.
-type xgoUnitSpec struct {
-	Name       string
-	Factor     string
-	SourceType gotypes.Type
-}
-
-// xgoUnitSpecsForType returns the unit suffixes available for typ.
-func xgoUnitSpecsForType(typ gotypes.Type) []xgoUnitSpec {
-	if alias, ok := typ.(*gotypes.Alias); ok {
-		obj := alias.Obj()
-		if decl, ok := xgoUnitDeclForTypeName(obj); ok {
-			return parseXGoUnitDecl(decl, typ)
-		}
-		typ = gotypes.Unalias(typ)
-	}
-
-	obj, ok := xgoUnitTypeName(typ)
-	if !ok {
-		return nil
-	}
-	decl, ok := xgoUnitDeclForTypeName(obj)
-	if !ok {
-		return nil
-	}
-	return parseXGoUnitDecl(decl, typ)
-}
 
 // xgoUnitTypeName returns the type name object that owns typ's unit declaration.
 func xgoUnitTypeName(typ gotypes.Type) (*gotypes.TypeName, bool) {
@@ -62,96 +27,6 @@ func xgoUnitTypeName(typ gotypes.Type) (*gotypes.TypeName, bool) {
 	}
 }
 
-// xgoUnitSpecForType returns the unit suffix named name for typ.
-func xgoUnitSpecForType(typ gotypes.Type, name string) (xgoUnitSpec, bool) {
-	for _, spec := range xgoUnitSpecsForType(typ) {
-		if spec.Name == name {
-			return spec, true
-		}
-	}
-	return xgoUnitSpec{}, false
-}
-
-// xgoUnitDeclForTypeName returns the raw XGo unit declaration string for obj.
-func xgoUnitDeclForTypeName(obj *gotypes.TypeName) (string, bool) {
-	if obj == nil {
-		return "", false
-	}
-	pkg := obj.Pkg()
-	if pkg == nil {
-		return "", false
-	}
-
-	if pkg.Path() == "time" && obj.Name() == "Duration" {
-		return timeDurationUnitDecl, true
-	}
-
-	// gogen.ValWithUnit imports non-time unit declarations by package path.
-	// Main-package unit declarations are not accepted by the compiler.
-	if pkg.Path() == "" || xgoutil.IsMainPkg(pkg) {
-		return "", false
-	}
-
-	scope := pkg.Scope()
-	if scope == nil {
-		return "", false
-	}
-	unitObj, ok := scope.Lookup("XGou_" + obj.Name()).(*gotypes.Const)
-	if !ok {
-		return "", false
-	}
-	val := unitObj.Val()
-	if val == nil || val.Kind() != constant.String {
-		return "", false
-	}
-	return constant.StringVal(val), true
-}
-
-// parseXGoUnitDecl parses an XGo unit declaration into ordered unit specs.
-func parseXGoUnitDecl(decl string, typ gotypes.Type) []xgoUnitSpec {
-	parts := strings.Split(decl, ",")
-	specs := make([]xgoUnitSpec, 0, len(parts))
-	for _, part := range parts {
-		name, factor, ok := strings.Cut(part, "=")
-		if !ok || !isXGoUnitName(name) || !isXGoUnitFactor(factor) {
-			continue
-		}
-		specs = append(specs, xgoUnitSpec{
-			Name:       name,
-			Factor:     factor,
-			SourceType: typ,
-		})
-	}
-	return specs
-}
-
-// isXGoUnitName reports whether name matches the unit suffix syntax accepted by
-// the XGo scanner.
-func isXGoUnitName(name string) bool {
-	if !utf8.ValidString(name) {
-		return false
-	}
-	for i, r := range name {
-		if i == 0 {
-			if r != '_' && !unicode.IsLetter(r) {
-				return false
-			}
-			continue
-		}
-		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return name != ""
-}
-
-// isXGoUnitFactor reports whether factor is a non-negative numeric literal that
-// can be used as an XGo unit multiplier.
-func isXGoUnitFactor(factor string) bool {
-	value := constant.MakeFromLiteral(factor, gotoken.FLOAT, 0)
-	return value.Kind() != constant.Unknown && constant.Sign(value) >= 0
-}
-
 // xgoUnitStart returns the source position where lit's unit suffix starts.
 func xgoUnitStart(lit *ast.NumberUnitLit) token.Pos {
 	return lit.ValuePos + token.Pos(len(lit.Value))
@@ -160,6 +35,21 @@ func xgoUnitStart(lit *ast.NumberUnitLit) token.Pos {
 // isXGoUnitNumberKind reports whether kind can carry an XGo unit suffix.
 func isXGoUnitNumberKind(kind token.Token) bool {
 	return kind == token.INT || kind == token.FLOAT
+}
+
+// xgoUnitSuffixFitsNumber reports whether appending suffix preserves the
+// numeric token and produces a separate unit token.
+func xgoUnitSuffixFitsNumber(number, suffix string) bool {
+	source := []byte(number + suffix)
+	file := token.NewFileSet().AddFile("", -1, len(source))
+	var lexer scanner.Scanner
+	lexer.Init(file, source, nil, 0)
+	_, kind, value := lexer.Scan()
+	if !isXGoUnitNumberKind(kind) || value != number {
+		return false
+	}
+	_, kind, value = lexer.Scan()
+	return lexer.ErrorCount == 0 && kind == token.UNIT && value == suffix
 }
 
 // xgoUnitExpectedTypesAtPosition returns expected types for the unit literal at pos.
@@ -211,18 +101,20 @@ func xgoUnitLiteralExpectedTypes(typeInfo *types.Info, path []ast.Node, lit ast.
 		if call == nil {
 			continue
 		}
-		for resolvedArg := range resolvedCallExprArgs(typeInfo, call) {
+		for resolvedArg := range xgoutil.ResolvedCallExprArgs(typeInfo, call) {
 			if resolvedArg.Arg == lit {
-				appendType(xgoUnitExpectedTypeForResolvedArg(resolvedArg))
+				appendType(xgoUnitArgumentType(resolvedArg.ExpectedType, resolvedArg.KwargTarget))
 			}
 		}
-		for _, overload := range callExprFuncOverloads(typeInfo, call) {
-			if !overloadMatchesCallExpr(typeInfo, call, overload, -1) {
+		for _, overload := range callExprOverloads(typeInfo, call) {
+			// An alternate overload can supply a replacement for the written unit.
+			bound, _, matches := overload.matchArgs(typeInfo, call, lit)
+			if !matches {
 				continue
 			}
-			for resolvedArg := range xgoutil.ResolvedCallExprArgsForFunc(typeInfo, call, overload) {
+			for resolvedArg := range bound.args(typeInfo, call) {
 				if resolvedArg.Arg == lit {
-					appendType(xgoUnitExpectedTypeForResolvedArg(resolvedArg))
+					appendType(xgoUnitArgumentType(resolvedArg.ExpectedType, resolvedArg.KwargTarget))
 				}
 			}
 		}
@@ -257,16 +149,15 @@ func sameXGoUnitTypeName(a, b *gotypes.TypeName) bool {
 	return aPkg.Path() == bPkg.Path()
 }
 
-// xgoUnitExpectedTypeForResolvedArg returns the expected type only for source
-// contexts that the XGo compiler accepts for unit literals.
-func xgoUnitExpectedTypeForResolvedArg(resolvedArg xgoutil.ResolvedCallExprArg) gotypes.Type {
-	switch resolvedArg.Kind {
-	case xgoutil.ResolvedCallExprArgPositional:
-		return resolvedArg.ExpectedType
-	case xgoutil.ResolvedCallExprArgKeyword:
-		if resolvedArg.KwargTarget != nil && resolvedArg.KwargTarget.Kind == xgoutil.ResolvedCallExprKwargTargetInterfaceMethod {
-			return resolvedArg.ExpectedType
-		}
+// xgoUnitArgumentType returns the type used to lower a unit literal in a
+// positional argument or a keyword that becomes a builder method argument.
+func xgoUnitArgumentType(typ gotypes.Type, keyword *xgoutil.ResolvedCallExprKwargTarget) gotypes.Type {
+	if keyword == nil {
+		return typ
+	}
+	switch keyword.Kind {
+	case xgoutil.ResolvedCallExprKwargTargetInterfaceMethod, xgoutil.ResolvedCallExprKwargTargetInterfaceSet:
+		return typ
 	}
 	return nil
 }
@@ -288,7 +179,7 @@ func hoverForXGoUnit(
 	}
 
 	for _, expectedType := range xgoUnitLiteralExpectedTypes(typeInfo, path, lit) {
-		spec, ok := xgoUnitSpecForType(expectedType, lit.Unit)
+		spec, ok := xgoutil.UnitSpecForType(expectedType, lit.Unit)
 		if !ok {
 			continue
 		}

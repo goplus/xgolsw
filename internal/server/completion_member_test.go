@@ -39,7 +39,7 @@ echo item.|Value
 		{name: "UnnamedPointerAlias", source: `type Item = *struct { Value int }
 var item Item
 echo item.|Value
-`, label: "Value", overview: "field Value int", id: "xgo:main?Value"},
+`, label: "Value", overview: "field Value int", id: "xgo:main?Item.Value"},
 		{name: "UnnamedCallResult", source: `func item() struct { Value int } { return struct { Value int }{} }
 echo item().|Value
 `, label: "Value", overview: "field Value int", id: "xgo:main?Value"},

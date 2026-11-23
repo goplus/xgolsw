@@ -4,6 +4,7 @@ import (
 	gotypes "go/types"
 
 	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
@@ -21,7 +22,8 @@ func spxSpriteResourceForObject(result *spxAnalysis, obj gotypes.Object) *SpxSpr
 // spxSpriteTypeForFile resolves a work class through its registered compiler
 // naming rules. The runtime identifies sprite resources by generated type name.
 func spxSpriteTypeForFile(proj *xgo.Project, filename string) *gotypes.Named {
-	if spxFrameworkForFile(proj, filename) == nil {
+	framework := spxFrameworkForFile(proj, filename)
+	if framework == nil || framework.Flat {
 		return nil
 	}
 	file, _ := proj.ASTFile(filename)
@@ -42,28 +44,36 @@ func spxSpriteResourceForFile(proj *xgo.Project, result *spxAnalysis, filename s
 
 // spxSpriteResourceForCall resolves an explicit receiver through auto-binding
 // object identity. Implicit receivers and the compiler-generated this receiver
-// use the call's physical classfile.
+// use the registered sprite class of the enclosing receiver.
 func spxSpriteResourceForCall(proj *xgo.Project, result *spxAnalysis, call *ast.CallExpr) *SpxSpriteResource {
-	switch fun := call.Fun.(type) {
+	file := sourceASTFile(proj, call.Pos())
+	if file == nil {
+		return nil
+	}
+	typeInfo, _ := proj.TypeInfo()
+	if typeInfo == nil {
+		return nil
+	}
+	switch fun := astutil.Unparen(xgoutil.CallExprFun(call)).(type) {
 	case *ast.Ident:
-		return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(call.Pos(), false).Filename)
+		// The enclosing class receiver supplies the sprite for a bare call.
 	case *ast.SelectorExpr:
-		ident, ok := fun.X.(*ast.Ident)
+		ident, ok := astutil.Unparen(fun.X).(*ast.Ident)
 		if !ok {
 			return nil
 		}
-		typeInfo, _ := proj.TypeInfo()
-		if typeInfo == nil {
-			return nil
-		}
 		astPkg, _ := proj.ASTPackage()
-		if xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
-			return spxSpriteResourceForFile(proj, result, proj.Fset.PositionFor(call.Pos(), false).Filename)
+		if !xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
+			return spxSpriteResourceForObject(result, typeInfo.ObjectOf(ident))
 		}
-		return spxSpriteResourceForObject(result, typeInfo.ObjectOf(ident))
 	default:
 		return nil
 	}
+	named := classReceiverTypeAt(typeInfo, file, call.Pos())
+	if !result.hasSpxSpriteType(named) {
+		return nil
+	}
+	return result.spxResourceSet.Sprite(named.Obj().Name())
 }
 
 // inferSpxSpriteResourceEnclosingNode infers the enclosing [SpxSpriteResource]

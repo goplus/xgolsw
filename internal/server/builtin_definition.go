@@ -204,7 +204,7 @@ func (d typeDisplay) definitionForBuiltinAlias(alias string, importer gotypes.Im
 	var def symbolDefinition
 	switch obj := obj.(type) {
 	case *gotypes.TypeName:
-		def = d.definitionForType(obj, pkgDoc)
+		def = d.definitionForType(obj, obj.Name(), pkgDoc)
 	case *gotypes.Func:
 		def = d.definitionForFunc(obj, "", pkgDoc)
 	default:

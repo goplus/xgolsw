@@ -125,8 +125,11 @@ that alias; marking one implementation omits only candidates that use that imple
 SDK overloads remain eligible. Enum entries do not accept this directive.
 
 Imported declarations use directive metadata preserved in their `.pkgdoc` package data. `pkgdatagen` records these
-annotations from raw comments in the Go files selected for the build. A directive present only in a dependency's XGo
-source is outside this collection. Existing package data without annotations keeps its current behavior.
+annotations from raw comments in the Go files selected for the build. For a reconstructed API, annotate its Go
+declaration. Use the `XGoo_` constant for an overload group or the `XGos_` declaration for a static member. See
+[XGo symbol encodings](https://github.com/goplus/xgo/blob/9f42dc555d3c9e597cb3e3e8a518eda19a32f5cb/doc/tooling-conventions.md#go-symbol-encodings).
+A directive present only in a dependency's XGo source is outside this collection. Existing package data without
+annotations keeps its current behavior.
 
 ## Predefined commands
 

@@ -92,7 +92,8 @@ func TestSpxSpriteResourceForFile(t *testing.T) {
 func TestSpxSpriteResourceForCall(t *testing.T) {
 	for _, name := range []string{"NoPos", "UnregisteredPosition"} {
 		t.Run(name, func(t *testing.T) {
-			s := newTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n")})
+			s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte("echo 1\n")})
+			t.Cleanup(s.Close)
 			proj := s.getProj()
 			call := resourceTestCall(t, proj, "main.xgo")
 			pos := token.NoPos
@@ -126,14 +127,14 @@ func TestInferSpxSpriteResourceEnclosingNode(t *testing.T) {
 }
 `, ""},
 			{"ReceiverExpression", "(&Runner).Use(\"value\")\n", ""},
-			{"FunctionExpression", "(Runner.Use)(\"value\")\n", ""},
+			{"ParenthesizedCallee", "(Runner.Use)(\"value\")\n", "Runner"},
 			{"LineDirective", `//line virtual.xgo:100:20
 Runner.use "value"
 `, "Runner"},
 			{"NoCall", "const Name = \"value\"\n", ""},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				s := newTestServer(t, map[string][]byte{
+				s := newImportTestServer(t, map[string][]byte{
 					"main.xgo": []byte(`type Actor struct {}
 func (a *Actor) Use(name string) {}
 var Runner, Other Actor
@@ -142,6 +143,7 @@ var Runner, Other Actor
 					"assets/sprites/Runner/index.json": []byte(`{}`),
 					"assets/sprites/Other/index.json":  []byte(`{}`),
 				})
+				t.Cleanup(s.Close)
 				proj := s.getProj()
 				info, err := proj.TypeInfo()
 				require.NoError(t, err)
@@ -198,14 +200,12 @@ func run() {}
 				}
 				files[tt.filename] = []byte(tt.source)
 				s := newSpxTestServer(t, files)
+				t.Cleanup(s.Close)
 				proj := s.getProj()
 				_, err := proj.TypeInfo()
 				require.NoError(t, err)
-				set, err := NewSpxResourceSet(proj)
+				result, err := analyzeSpx(proj)
 				require.NoError(t, err)
-				result := newSpxAnalysis(proj)
-				result.mainSpxFile = "main.spx"
-				result.spxResourceSet = *set
 				file, err := proj.ASTFile(tt.filename)
 				require.NoError(t, err)
 				literal := inputSlotLiteral(t, newInputSlotContext(proj, file, nil), `"value"`)
@@ -213,8 +213,9 @@ func run() {}
 				if tt.want == "" {
 					assert.Nil(t, got)
 				} else {
-					require.NotNil(t, set.Sprite(tt.want))
-					assert.Same(t, set.Sprite(tt.want), got)
+					want := result.spxResourceSet.Sprite(tt.want)
+					require.NotNil(t, want)
+					assert.Same(t, want, got)
 				}
 			})
 		}
@@ -229,15 +230,14 @@ use "value"
 			"assets/index.json":                []byte(`{}`),
 			"assets/sprites/Runner/index.json": []byte(`{}`),
 		})
+		t.Cleanup(s.Close)
 		proj := s.getProj()
 		call := resourceTestCall(t, proj, "Runner.spx")
-		set, err := NewSpxResourceSet(proj)
+		result, err := analyzeSpx(proj)
 		require.NoError(t, err)
-		result := newSpxAnalysis(proj)
-		result.mainSpxFile = "main.spx"
-		result.spxResourceSet = *set
-		require.NotNil(t, set.Sprite("Runner"))
-		assert.Same(t, set.Sprite("Runner"), inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
+		want := result.spxResourceSet.Sprite("Runner")
+		require.NotNil(t, want)
+		assert.Same(t, want, inferSpxSpriteResourceEnclosingNode(s.getProj(), result, call))
 		s.ModifyFiles([]FileChange{{Path: "Runner.spx", Content: []byte(`func use(name string) {}
 use "other"
 `), Version: 1}})

@@ -7,6 +7,7 @@ import (
 	gotypes "go/types"
 	"testing"
 
+	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/stretchr/testify/assert"
@@ -134,7 +135,7 @@ type Reader interface {
 	Read() int
 }
 //xgols:notRecommended
-func (r *Record[T]) Turn__0() {}
+func (r (*Record[T])) Turn__0() {}
 //xgols:notRecommended
 func Helper() {}
 `, goparser.ParseComments)
@@ -189,30 +190,79 @@ func Helper() {}
 		stale := &PkgDoc{Path: pkg.Path(), Declarations: markedDeclarations("Missing.Field", "Limit.Field", "Reader.Field")}
 		assert.False(t, stale.ObjectMetadata(st.Field(0)).NotRecommended)
 	})
+
+	t.Run("ReconstructedOverload", func(t *testing.T) {
+		fset := token.NewFileSet()
+		file, err := goparser.ParseFile(fset, "sample.go", `package sample
+const XGoPackage = true
+func ChooseString(value string) string { return value }
+//xgols:notRecommended
+const XGoo_Choose = "ChooseString"
+`, goparser.ParseComments)
+		require.NoError(t, err)
+		pkg, err := new(gotypes.Config).Check("example.com/sample", fset, []*goast.File{file}, nil)
+		require.NoError(t, err)
+		gogen.InitXGoPackage(pkg)
+
+		doc := NewGo(pkg.Path(), &goast.Package{Name: "sample", Files: map[string]*goast.File{"sample.go": file}})
+		group := pkg.Scope().Lookup("Choose")
+		require.NotNil(t, group)
+		assert.True(t, doc.ObjectMetadata(group).NotRecommended)
+		assert.False(t, doc.ObjectMetadata(pkg.Scope().Lookup("ChooseString")).NotRecommended)
+		assert.False(t, (&PkgDoc{Path: pkg.Path()}).ObjectMetadata(group).NotRecommended)
+	})
+
+	t.Run("ReconstructedStaticMembers", func(t *testing.T) {
+		fset := token.NewFileSet()
+		file, err := goparser.ParseFile(fset, "sample.go", `package sample
+const XGoPackage = true
+type Record struct{}
+//xgols:notRecommended
+func XGos_Record_Choose(value int) int { return value }
+//xgols:notRecommended
+var XGos_Record_Current int
+//xgols:notRecommended
+const XGos_Record_Default = 1
+var XGos_Record_Visible int
+`, goparser.ParseComments)
+		require.NoError(t, err)
+		pkg, err := new(gotypes.Config).Check("example.com/sample", fset, []*goast.File{file}, nil)
+		require.NoError(t, err)
+		gogen.InitXGoPackage(pkg)
+
+		doc := NewGo(pkg.Path(), &goast.Package{Name: "sample", Files: map[string]*goast.File{"sample.go": file}})
+		record := pkg.Scope().Lookup("Record")
+		require.NotNil(t, record)
+		for _, name := range []string{"Choose", "Current", "Default", "Visible"} {
+			member, _, _ := gotypes.LookupFieldOrMethod(record.Type(), false, pkg, name)
+			require.NotNil(t, member, name)
+			assert.Equal(t, name != "Visible", doc.ObjectMetadata(member).NotRecommended, name)
+		}
+	})
 }
 
 func TestGoDirectivesForDerivedMembers(t *testing.T) {
 	const source = `package sample
 type Embedded struct{}
-type hidden[T any, U any] struct {
+type hidden[T any, U any] (struct {
 	//xgols:notRecommended
 	Embedded
 	//xgols:notRecommended
 	Value U
-}
+})
 //xgols:notRecommended
 func (hidden[T, U]) Read() {}
 type Public (hidden[int, string])
 func (Public) Read() {}
 
-type reader interface {
+type reader (interface {
 	//xgols:notRecommended
 	Get() int
-}
+})
 type Reader reader
 
 type Base struct{}
-type pointer = *Base
+type pointer = *(Base)
 //xgols:notRecommended
 func (pointer) Method() {}
 
@@ -255,7 +305,7 @@ func TestGoDirectivesIncompleteReceivers(t *testing.T) {
 		doc := &PkgDoc{}
 		doc.collectGoDirectives(&goast.Package{Files: map[string]*goast.File{"sample.go": {
 			Decls: []goast.Decl{&goast.FuncDecl{Name: goast.NewIdent("Incomplete"), Recv: recv, Doc: group}},
-		}}})
+		}}}, nil)
 		assert.Nil(t, doc.Declarations)
 	}
 }

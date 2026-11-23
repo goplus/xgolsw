@@ -45,15 +45,14 @@ func (s *Server) textDocumentPrepareRename(params *PrepareRenameParams) (*Range,
 		return nil, nil
 	}
 	obj = renameTarget(typeInfo, obj)
-	if !isRenameableObject(proj, obj) {
+	if !isRenameableObject(proj, typeInfo, obj) {
 		return nil, nil
 	}
 	if kwargTarget != nil {
 		return new(RangeForNode(proj, kwargTarget.ident)), nil
 	}
-	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil || defIdent.Implicit() || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
-		return nil, nil
+	if _, member, ok := encodedStaticMethodReference(typeInfo, obj, ident.Name); ok {
+		return new(RangeForPosEnd(proj, ident.End()-token.Pos(len(member)), ident.End())), nil
 	}
 
 	return new(RangeForNode(proj, ident)), nil
@@ -86,8 +85,18 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		return nil, nil
 	}
 	obj = renameTarget(typeInfo, obj)
-	if !isRenameableObject(proj, obj) {
+	if !isRenameableObject(proj, typeInfo, obj) {
 		return nil, nil
+	}
+	if owner, _, ok := encodedStaticMethodReference(typeInfo, obj, ident.Name); ok && kwargTarget == nil {
+		if newOwner, member, encoded := xgoutil.SplitXGosMemberName(xgoutil.UpperFirstASCII(params.NewName)); encoded {
+			if newOwner != owner {
+				return nil, fmt.Errorf("%w: static method rename must keep receiver %q", jsonrpc2.ErrInvalidParams, owner)
+			}
+			updated := *params
+			updated.NewName = member
+			params = &updated
+		}
 	}
 	if params.NewName == "_" || !token.IsIdentifier(params.NewName) {
 		return nil, fmt.Errorf("%w: invalid identifier %q", jsonrpc2.ErrInvalidParams, params.NewName)
@@ -96,9 +105,12 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 		kwargParams := *params
 		kwargParams.NewName = kwargDefinitionRenameText(obj, params.NewName)
 		params = &kwargParams
-	} else if isAliasCallable(obj) && ident.Name != obj.Name() && functionNameForAlias(ident.Name) == obj.Name() {
+	} else if def := typeInfo.ObjToDef[obj]; isAliasCallable(obj) && isFunctionAlias(ident.Name, def.Name) {
 		aliasParams := *params
-		aliasParams.NewName = functionNameForAlias(params.NewName)
+		aliasParams.NewName = xgoutil.UpperFirstASCII(params.NewName)
+		if isSourceMethod(obj, def.Name) {
+			aliasParams.NewName = xgoutil.MemberNameForAlias(params.NewName)
+		}
 		params = &aliasParams
 	}
 	if method, ok := obj.(*gotypes.Func); ok && method.Signature().Recv() != nil {
@@ -121,6 +133,17 @@ func (s *Server) textDocumentRename(params *RenameParams) (*WorkspaceEdit, error
 	return edit, nil
 }
 
+// encodedStaticMethodReference identifies a direct use of a source static
+// method's generated implementation.
+func encodedStaticMethodReference(info *types.Info, obj gotypes.Object, name string) (owner, member string, ok bool) {
+	def := info.ObjToDef[obj]
+	if def == nil || name != obj.Name() && !isFunctionAlias(name, obj.Name()) {
+		return "", "", false
+	}
+	owner, member, ok = xgoutil.SplitXGosMemberName(obj.Name())
+	return owner, member, ok && member == def.Name
+}
+
 // renameMethod renames related interface and implementation declarations
 // together so the resulting edits preserve their implementation relationships.
 func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *types.Info, target *gotypes.Func) (*WorkspaceEdit, error) {
@@ -134,8 +157,7 @@ func (s *Server) renameMethod(proj *xgo.Project, params *RenameParams, info *typ
 	}
 	methods := methodInfo.relatedMethods(target)
 	for _, method := range methods {
-		ident := info.ObjToDef[method]
-		if method.Pkg() != info.Pkg || ident == nil || ident.Implicit() {
+		if method.Pkg() != info.Pkg || !hasSourceSpelling(proj, info.ObjToDef[method]) {
 			return nil, fmt.Errorf("cannot rename %s: related method %s has no editable project declaration", target.Name(), method.FullName())
 		}
 	}
@@ -183,8 +205,9 @@ func (s *Server) checkRenameConflicts(proj *xgo.Project, edit *WorkspaceEdit) (*
 	return preview, nil
 }
 
-// checkConflicts verifies type errors, source bindings, and conversions against
-// the original project. Resource renames omit expressions replaced by literals.
+// checkConflicts verifies type errors, source bindings, overload selections, and
+// conversions against the original project. Resource renames omit expressions
+// replaced by literals.
 func (p *renamePreview) checkConflicts(proj *xgo.Project, before *sourceInfo, beforeConversions map[token.Pos]bool) error {
 	_, beforeErr := proj.TypeInfo()
 	_, afterErr := p.project.TypeInfo()
@@ -233,6 +256,12 @@ func (p *renamePreview) checkConflicts(proj *xgo.Project, before *sourceInfo, be
 	}
 	if err := p.checkBindings(proj, before.highlights, after.highlights); err != nil {
 		return err
+	}
+	for pos, implementation := range before.overloadSelections {
+		selected := after.overloadSelections[p.position(proj, pos)]
+		if selected == nil || !p.sameObject(proj, implementation, selected) {
+			return fmt.Errorf("rename conflicts with the selected overload at %s", proj.Fset.PositionFor(pos, false))
+		}
 	}
 	conversions := renameConversions(p.project)
 	for pos, convertible := range beforeConversions {
@@ -313,15 +342,13 @@ func checkMethodRenameConflicts(info *types.Info, source *sourceInfo, methodInfo
 		return nil
 	}
 	names := []string{name}
-	alias := functionAliasName(name)
-	for _, method := range methods {
-		if alias == name || !token.IsIdentifier(alias) {
-			break
-		}
-		for _, ref := range source.references[info.ObjectDeclaration(method)] {
-			ident := ref.ident
-			if ident.Name != method.Name() && functionNameForAlias(ident.Name) == method.Name() {
-				names = []string{name, alias}
+	if alias := xgoutil.MemberAliasName(name); alias != name {
+		for _, method := range methods {
+			refs := source.references[info.ObjectDeclaration(method)]
+			if slices.ContainsFunc(refs, func(ref sourceIdent) bool {
+				return isFunctionAlias(ref.ident.Name, method.Name())
+			}) {
+				names = append(names, alias)
 				break
 			}
 		}
@@ -365,28 +392,28 @@ func renameTarget(info *types.Info, obj gotypes.Object) gotypes.Object {
 	return obj
 }
 
-// isRenameableObject includes local types and range variables whose declaration
-// is recorded in the project without an object position from the compiler.
-func isRenameableObject(proj *xgo.Project, obj gotypes.Object) bool {
+// isRenameableObject checks the recorded source declaration, including
+// declarations whose objects lack a compiler position.
+func isRenameableObject(proj *xgo.Project, info *types.Info, obj gotypes.Object) bool {
+	if !hasSourceSpelling(proj, info.ObjToDef[obj]) || obj.Pkg() != info.Pkg {
+		return false
+	}
 	if xgoutil.IsRenameable(obj) {
 		return true
 	}
-	switch obj.(type) {
+	switch obj := obj.(type) {
 	case *gotypes.Var, *gotypes.TypeName:
-		file, _ := objectSource(proj, obj)
-		return file != nil
+		return true
+	case *gotypes.Func:
+		return xgoutil.IsInMainPkg(obj) && xgoutil.OverloadImplementations(obj) != nil
 	default:
 		return false
 	}
 }
 
-// renameObject builds a workspace edit for renaming obj.
+// renameObject builds edits for a declaration already checked to have a source name.
 func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo *types.Info, obj gotypes.Object) (*WorkspaceEdit, error) {
 	defIdent := typeInfo.ObjToDef[obj]
-	if defIdent == nil || xgoutil.NodeTokenFile(proj.Fset, defIdent) == nil {
-		return nil, fmt.Errorf("failed to find definition of object %q", obj.Name())
-	}
-
 	defLoc := s.locationForNode(proj, defIdent)
 
 	workspaceEdit := WorkspaceEdit{
@@ -399,27 +426,20 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 			},
 		},
 	}
-	refLocs := s.findReferenceLocations(proj, obj)
-	kwargRefLocs := s.kwargReferenceLocations(proj, obj)
+	targets := []gotypes.Object{obj}
 	if _, ok := obj.(*gotypes.TypeName); ok {
 		for _, field := range typeInfo.Defs {
 			if field != obj && renameTarget(typeInfo, field) == obj {
-				refLocs = append(refLocs, s.findReferenceLocations(proj, field)...)
-				kwargRefLocs = append(kwargRefLocs, s.kwargReferenceLocations(proj, field)...)
+				targets = append(targets, field)
 			}
 		}
 	}
-	kwargNewName := kwargRenameText(obj, params.NewName)
-	if len(kwargRefLocs) != 0 && !token.IsIdentifier(kwargNewName) {
-		return nil, fmt.Errorf("%w: invalid keyword argument name %q", jsonrpc2.ErrInvalidParams, kwargNewName)
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil, err
 	}
-	kwargRefSet := make(map[Location]struct{}, len(kwargRefLocs))
-	for _, refLoc := range kwargRefLocs {
-		kwargRefSet[refLoc] = struct{}{}
-	}
-	aliasRenames := s.functionAliasRenames(proj, typeInfo, obj, params.NewName)
 
-	seenRefLocs := make(map[Location]struct{}, len(refLocs)+len(kwargRefLocs))
+	seenRefLocs := make(map[Location]struct{})
 	appendRefEdit := func(refLoc Location, newText string) {
 		if _, ok := seenRefLocs[refLoc]; ok {
 			return
@@ -431,68 +451,188 @@ func (s *Server) renameObject(proj *xgo.Project, params *RenameParams, typeInfo 
 		})
 	}
 
-	for _, refLoc := range refLocs {
-		newText := params.NewName
-		if aliasText, ok := aliasRenames[refLoc]; ok {
-			newText = aliasText
+	for _, target := range targets {
+		origin := types.ObjectOrigin(target)
+		for _, ref := range source.kwargs[origin] {
+			spelling := source.kwargSpellingTypes[structKwargUse{ident: ref.ident, obj: origin}]
+			name := kwargRenameText(origin, spelling, params.NewName)
+			appendRefEdit(s.locationForNode(proj, ref.ident), name)
 		}
-		if _, ok := kwargRefSet[refLoc]; ok {
-			newText = kwargNewName
-		}
-		appendRefEdit(refLoc, newText)
 	}
-	for _, refLoc := range kwargRefLocs {
-		appendRefEdit(refLoc, kwargNewName)
+	referenceRenames := s.functionReferenceRenames(proj, typeInfo, obj, params.NewName)
+	for _, target := range targets {
+		for _, ref := range source.references[typeInfo.ObjectDeclaration(target)] {
+			loc := s.locationForNode(proj, ref.ident)
+			name := params.NewName
+			if text, ok := referenceRenames[loc]; ok {
+				name = text
+			}
+			appendRefEdit(loc, name)
+		}
+	}
+	if owner, ok := obj.(*gotypes.TypeName); ok && owner.Parent() == typeInfo.Pkg.Scope() {
+		for loc, text := range s.staticOwnerReferenceRenames(proj, typeInfo, owner, params.NewName) {
+			appendRefEdit(loc, text)
+		}
+	}
+	if group, ok := obj.(*gotypes.Func); ok {
+		for loc, text := range s.inlineOverloadReferenceRenames(proj, typeInfo, group, params.NewName) {
+			appendRefEdit(loc, text)
+		}
 	}
 
 	return &workspaceEdit, nil
 }
 
-// functionNameForAlias resolves the compiler's ASCII lowercase and underscore
-// alias spellings to their declaration names.
-func functionNameForAlias(name string) string {
-	if strings.HasPrefix(name, "_") {
-		return "XGo" + name
-	}
-	return upperFirstASCII(name)
+// isFunctionAlias reports whether a bound name is an ASCII or protocol alias.
+func isFunctionAlias(used, declared string) bool {
+	return used != declared && xgoutil.MemberNameForAlias(used) == declared
 }
 
-// functionAliasName returns the source alias for a function declaration, or its
-// unchanged name when the compiler does not supply an alias.
-func functionAliasName(name string) string {
-	if strings.HasPrefix(name, "XGo_") {
-		return strings.TrimPrefix(name, "XGo")
+// isSourceMethod reports whether an editable function declaration has a source
+// receiver, including static methods lowered to package-level functions.
+func isSourceMethod(obj gotypes.Object, declared string) bool {
+	fun, ok := obj.(*gotypes.Func)
+	if !ok {
+		return false
 	}
-	return xgoutil.ToLowerCamelCase(name)
+	if fun.Signature().Recv() != nil {
+		return true
+	}
+	_, member, encoded := xgoutil.SplitXGosMemberName(fun.Name())
+	return encoded && member == declared
 }
 
-// functionAliasRenames preserves alias calls and automatic property reads.
-// If newName has no usable alias, property reads become explicit calls.
-func (s *Server) functionAliasRenames(proj *xgo.Project, info *types.Info, obj gotypes.Object, newName string) map[Location]string {
+// functionReferenceRenames preserves alias calls, automatic property reads,
+// method expressions, and direct references to encoded static implementations.
+func (s *Server) functionReferenceRenames(proj *xgo.Project, info *types.Info, obj gotypes.Object, newName string) map[Location]string {
 	if !isAliasCallable(obj) {
 		return nil
 	}
-	newAlias := functionAliasName(newName)
-	useAlias := newAlias != newName && token.IsIdentifier(newAlias)
 	renamed := make(map[Location]string)
 	source, err := sourceInfoForProject(proj)
 	if err != nil {
 		return nil
 	}
+	declared := info.ObjToDef[obj].Name
+	newAlias := xgoutil.FunctionAliasName(newName)
+	if isSourceMethod(obj, declared) {
+		newAlias = xgoutil.MemberAliasName(newName)
+	}
+	useAlias := newAlias != newName
+	owner, member, static := xgoutil.SplitXGosMemberName(obj.Name())
+	var newImplementation string
+	if static && member == declared {
+		newImplementation = xgoutil.XGosMemberName(owner, newName)
+	}
 	for _, ref := range source.references[info.ObjectDeclaration(obj)] {
 		ident := ref.ident
-		if ident.Name == obj.Name() || functionNameForAlias(ident.Name) != obj.Name() {
+		if newImplementation != "" {
+			if text := encodedReferenceRenameText(ident.Name, obj.Name(), newImplementation, xgoutil.FunctionAliasName); text != "" {
+				renamed[s.locationForNode(proj, ident)] = text
+				continue
+			}
+		}
+		if !isFunctionAlias(ident.Name, declared) {
 			continue
 		}
 		text := newName
 		if useAlias {
 			text = newAlias
-		} else if !ref.called {
+		} else if !ref.called && !ref.typeSelector {
 			text += "()"
 		}
 		renamed[s.locationForNode(proj, ident)] = text
 	}
 	return renamed
+}
+
+// staticOwnerReferenceRenames updates references to implementations whose
+// encoded Go names change when the source type declaration is renamed.
+func (s *Server) staticOwnerReferenceRenames(proj *xgo.Project, info *types.Info, owner *gotypes.TypeName, newName string) map[Location]string {
+	source, err := sourceInfoForProject(proj)
+	if err != nil {
+		return nil
+	}
+	renamed := make(map[Location]string)
+	for ident, obj := range info.Defs {
+		fun, ok := obj.(*gotypes.Func)
+		if !ok || fun.Parent() != owner.Parent() {
+			continue
+		}
+		receiver, method, ok := xgoutil.SplitXGosMemberName(fun.Name())
+		if !ok || receiver != owner.Name() || method != ident.Name {
+			continue
+		}
+		newImplementation := xgoutil.XGosMemberName(newName, method)
+		for _, ref := range source.references[fun] {
+			if text := encodedReferenceRenameText(ref.ident.Name, fun.Name(), newImplementation, xgoutil.FunctionAliasName); text != "" {
+				renamed[s.locationForNode(proj, ref.ident)] = text
+			}
+		}
+	}
+	return renamed
+}
+
+// inlineOverloadReferenceRenames updates direct uses of implementations
+// generated from function literals in the renamed declaration.
+func (s *Server) inlineOverloadReferenceRenames(proj *xgo.Project, info *types.Info, group *gotypes.Func, newName string) iter.Seq2[Location, string] {
+	return func(yield func(Location, string) bool) {
+		implementations := xgoutil.OverloadImplementations(group)
+		if implementations == nil {
+			return
+		}
+		ident := info.ObjToDef[group]
+		file := sourceASTFile(proj, ident.Pos())
+		literals := make(map[token.Pos]bool)
+		for node := range xgoutil.PathEnclosingIntervalNodes(file, ident.Pos(), ident.End(), false) {
+			if decl, ok := node.(*ast.OverloadFuncDecl); ok && decl.Name == ident {
+				for _, candidate := range decl.Funcs {
+					if literal, ok := candidate.(*ast.FuncLit); ok {
+						literals[literal.Pos()] = true
+					}
+				}
+				break
+			}
+		}
+		if len(literals) == 0 {
+			return
+		}
+		source, err := sourceInfoForProject(proj)
+		if err != nil {
+			return
+		}
+		aliasName := xgoutil.FunctionAliasName
+		if group.Signature().Recv() != nil {
+			aliasName = xgoutil.MemberAliasName
+		}
+		for implementation := range implementations {
+			obj := info.ObjectDeclaration(implementation)
+			def := info.ObjToDef[obj]
+			if def == nil || !literals[def.Pos()] {
+				continue
+			}
+			// The compiler appends the implementation index to the group name.
+			suffix := strings.TrimPrefix(obj.Name(), group.Name())
+			for _, ref := range source.references[obj] {
+				if text := encodedReferenceRenameText(ref.ident.Name, obj.Name(), newName+suffix, aliasName); text != "" &&
+					!yield(s.locationForNode(proj, ref.ident), text) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// encodedReferenceRenameText preserves the spelling of an encoded reference.
+func encodedReferenceRenameText(used, original, replacement string, aliasName func(string) string) string {
+	if used == original {
+		return replacement
+	}
+	if isFunctionAlias(used, original) {
+		return aliasName(replacement)
+	}
+	return ""
 }
 
 // renameOffset records the cumulative byte displacement after a replacement.

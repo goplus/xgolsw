@@ -50,7 +50,7 @@ func (a *App) Label__1() string { return "" }`, ""},
 				definitionContext: definitionContext{proj: s.requestProject(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(PlainText),
 			}
-			ctx.collectPropertyNames("App")
+			ctx.collectPropertyNames(propertyCompletionTestType(t, info, "App"))
 			if tt.want == "" {
 				assert.Equal(t, -1, index)
 				assert.NotContains(t, completionItemLabels(ctx.itemSet.items), `"label"`)

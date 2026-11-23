@@ -7,6 +7,7 @@ import (
 	gotypes "go/types"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/goplus/mod/modfile"
 	"github.com/goplus/mod/modload"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/pkgdoc"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
@@ -45,7 +47,7 @@ func newMultiFrameworkTestServerWithModule(t testing.TB, files map[string][]byte
 	s := newTestServer(t, files)
 	proj := s.getProj()
 	baseImporter, baseLookup := proj.Importer, s.lookupPkgDoc
-	packages := make(map[string]*gotypes.Package)
+	packages := map[string]*gotypes.Package{"fmt": testframework.NewFmtPackage(t, proj.Fset)}
 	docs := make(map[string]*pkgdoc.PkgDoc)
 	importer := testImporterFunc(func(pkgPath string) (*gotypes.Package, error) {
 		if pkg := packages[pkgPath]; pkg != nil {
@@ -100,6 +102,13 @@ type PublicReader base.Reader
 type ReaderAlias = PublicReader
 type CombinedReader interface { PublicReader }
 type IntBox base.Box[int]
+type record struct {
+    // Value is the record's payload.
+    Value int
+    //xgols:notRecommended
+    Hidden int
+}
+type RecordPointer *record
 func (*App) initApp() {}
 type Item struct { *base.State }
 func (*Item) Main() {}
@@ -486,6 +495,57 @@ func TestServerImportedMemberDefinitions(t *testing.T) {
 			assert.Contains(t, doc.Value, wantDoc)
 		})
 	}
+
+	t.Run("DefinedPointerField", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `import f "example.com/first"
+var value f.RecordPointer
+echo value.|Value
+`)
+		s := newMultiFrameworkTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.NoError(t, err)
+		doc := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+		const wantID = "xgo:example.com/first?RecordPointer.Value"
+		const wantDoc = "Value is the record's payload."
+		hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: doc, Position: pos,
+		}})
+		require.NoError(t, err)
+		require.NotNil(t, hover)
+		assert.Contains(t, hover.Contents.Value, `def-id="`+wantID+`"`)
+		assert.Contains(t, hover.Contents.Value, wantDoc)
+		links, err := s.textDocumentDocumentLink(&DocumentLinkParams{TextDocument: doc})
+		require.NoError(t, err)
+		assert.Contains(t, links, DocumentLink{Range: hover.Range, Target: new(URI(wantID))})
+
+		items := completionItemsAt(t, s, filename, pos)
+		assert.NotContains(t, completionItemLabels(items), "Hidden")
+		item := completionItemByLabel(items, "Value")
+		require.NotNil(t, item)
+		data := requireValueAs[*CompletionItemData](t, item.Data)
+		assert.Equal(t, wantID, data.Definition.String())
+		require.NotNil(t, item.Documentation)
+		assert.Contains(t, requireValueAs[MarkupContent](t, item.Documentation.Value).Value, wantDoc)
+	})
+
+	t.Run("PointerToDefinedPointer", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `import f "example.com/first"
+var value *f.RecordPointer
+echo value.|Value
+`)
+		s := newMultiFrameworkTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.Error(t, err)
+		result, err := s.textDocumentCompletion(&CompletionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}, Position: pos,
+		}})
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
 }
 
 func TestServerRegisteredClassfileProperties(t *testing.T) {
@@ -516,7 +576,7 @@ func TestServerRegisteredClassfileProperties(t *testing.T) {
 				definitionContext: definitionContext{proj: s.getProj(), lookupPkgDoc: s.lookupPkgDoc},
 				typeInfo:          info, itemSet: newCompletionItemSet(Markdown),
 			}
-			ctx.collectPropertyNames(name)
+			ctx.collectPropertyNames(propertyCompletionTestType(t, info, name))
 			require.Len(t, ctx.itemSet.items, 2)
 			item := completionItemByLabel(ctx.itemSet.items, `"score"`)
 			require.NotNil(t, item)
@@ -530,7 +590,8 @@ func TestServerRegisteredClassfileProperties(t *testing.T) {
 	}
 }
 
-func TestServerRegisteredClassfileLiteralMembers(t *testing.T) {
+func TestServerRegisteredClassfileMemberReceivers(t *testing.T) {
+	const other = "type Other struct { Options }\n"
 	for _, tt := range []struct {
 		name, source, owner string
 	}{
@@ -540,6 +601,8 @@ func TestServerRegisteredClassfileLiteralMembers(t *testing.T) {
 		{"MapKey", "var values = map[int]int{|Count: 1}\n", "App"},
 		{"MapValue", "var values = map[int]int{1: |Count}\n", "App"},
 		{"SliceElement", "var values = []int{|Count}\n", "App"},
+		{"ExplicitMethod", other + "func (self *Other) Use() int { return |Count }\n", "Options"},
+		{"QualifiedReceiver", other + "func (self *Other) Use() int { return self.|Count }\n", "Options"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			source, position := typeDisplayTestSource(t, tt.source)
@@ -599,7 +662,7 @@ var Count int
 			require.NotNil(t, named)
 			assert.Same(t, info.Pkg.Scope().Lookup(tt.want), named.Obj())
 			ctx := &completionContext{definitionContext: definitionContext{proj: proj}, astFile: file}
-			assert.Equal(t, tt.want, ctx.getPropertyTarget())
+			assert.Same(t, named, ctx.getPropertyTarget())
 		})
 	}
 
@@ -673,4 +736,288 @@ func TestServerImportedClassfileMembers(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFlatClassfileOwners(t *testing.T) {
+	for _, tt := range []struct {
+		name, entry, fragment, want string
+	}{
+		{name: "FragmentMethod", entry: "main.flat", fragment: "// Read returns the score.\nfunc Read() int { return Score }\n", want: "App"},
+		{name: "EntryWithEmptyFragment", entry: "main.flat", want: "App"},
+		{name: "SynthesizedEntryWithEmptyFragment", want: "App"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			files := map[string][]byte{
+				"nested/Chunk.flat": []byte(tt.fragment),
+				"ordinary.xgo":      []byte("type Chunk struct { Decoy string }\n"),
+			}
+			if tt.entry == "" {
+				files["Constants.flat"] = []byte("const Limit = 5\n")
+				files["ordinary.xgo"] = append(files["ordinary.xgo"], "var Current *App\n"...)
+			} else {
+				files[tt.entry] = []byte("// Score is the game score.\nvar Score int\n")
+			}
+			s := newImportTestServer(t, files)
+			setImportTestFrameworkMethods(t, s, "")
+			t.Cleanup(s.Close)
+			proj := s.getProj()
+			proj.SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{
+				{Ext: ".flat", FullExt: "*.flat", Class: "App", PkgPaths: []string{testframework.PkgPath}, Flat: true},
+			}}}))
+			info, err := proj.TypeInfo()
+			require.NoError(t, err)
+			file, err := proj.ASTFile("nested/Chunk.flat")
+			require.NoError(t, err)
+			named := classTypeForFile(proj, file)
+			require.NotNil(t, named, "file is class: %t, scope: %s, class types: %v", file.IsClass, info.Pkg.Scope(), info.ClassTypes)
+			assert.Same(t, info.Pkg.Scope().Lookup(tt.want), named.Obj())
+			ctx := &completionContext{definitionContext: definitionContext{proj: proj}, astFile: file}
+			assert.Same(t, named, ctx.getPropertyTarget())
+
+			if tt.entry == "" {
+				return
+			}
+			doc, err := proj.PkgDoc()
+			require.NoError(t, err)
+			typeDoc := doc.Types[tt.want]
+			require.NotNil(t, typeDoc)
+			assert.Equal(t, "Score is the game score.\n", typeDoc.Fields["Score"])
+			if tt.fragment != "" {
+				assert.Equal(t, "Read returns the score.\n", typeDoc.Methods["Read"])
+			}
+			assert.Empty(t, doc.Types["Chunk"].Methods)
+		})
+	}
+}
+
+func TestFlatClassfileImports(t *testing.T) {
+	const entry = "main.flat"
+	const fragment = "nested/Part.flat"
+	for _, tt := range []struct {
+		name, filename, dotImport, importedName string
+		frameworkVisible                        bool
+	}{
+		{"Entry", entry, importTestPkgPath, "Value", true},
+		{"Fragment", fragment, importTestPkgPath, "Value", false},
+		{"FragmentWithExplicitFrameworkImport", fragment, testframework.PkgPath, "ValueFramework", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			header := "import . " + strconv.Quote(tt.dotImport) + "\n"
+			source, pos := typeDisplayTestSource(t, header+"_ = Va|lue\n")
+			files := map[string][]byte{entry: nil, fragment: nil}
+			files[tt.filename] = []byte(source)
+			s := newImportTestServer(t, files)
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, `const ValueFramework = 1
+func (*App) ValueReceiver() int { return 2 }
+`)
+			s.getProj().SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{{
+				Ext:      ".flat",
+				FullExt:  "*.flat",
+				Class:    "App",
+				PkgPaths: []string{testframework.PkgPath},
+				Flat:     true,
+				Import:   []*modfile.Import{{Name: "helpers", Path: "example.com/alternate"}},
+			}}}}))
+
+			labels := completionItemLabels(completionItemsAt(t, s, tt.filename, pos))
+			assert.Contains(t, labels, tt.importedName)
+			assert.Contains(t, labels, "helpers")
+			assert.Contains(t, labels, "valueReceiver")
+			if tt.frameworkVisible {
+				assert.Contains(t, labels, "ValueFramework")
+			} else {
+				assert.NotContains(t, labels, "ValueFramework")
+			}
+
+			source = header + "_ = " + tt.importedName + "\n_ = helpers.Value\n_ = ValueReceiver()\n_ = ValueFramework\n"
+			s.ModifyFiles([]FileChange{{Path: tt.filename, Content: []byte(source), Version: 1}})
+			_, err := s.requestProject().TypeInfo()
+			if tt.frameworkVisible {
+				assert.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "undefined: ValueFramework")
+				assert.Len(t, strings.Split(strings.TrimSpace(err.Error()), "\n"), 1)
+			}
+		})
+	}
+}
+
+func TestServerClassfileReceiverScope(t *testing.T) {
+	const globals = `type Other struct { ValueOther int }
+func (*Other) CountOther() int { return 1 }
+var ValueGlobal int
+var TextGlobal string
+`
+	for _, tt := range []struct {
+		name, filename, body string
+		want                 []string
+	}{
+		{"Implicit", "Record.gox", "func Run() { _ = Va|lueClass; echo 42 }\n", []string{"ValueClass", "countClass"}},
+		{"InlineOverload", "Record.gox", `func Run = (
+	func(value int) int { echo 42; return Va|lueClass }
+)
+`, []string{"ValueClass", "countClass"}},
+		{"Explicit", "Record.gox", "func (self *Other) Run() { _ = Va|lueOther; echo countOther, 42 }\n" +
+			"func Read() { echo 43 }\n", []string{"ValueOther", "countOther"}},
+		{"Static", "Record.gox", "func .Run(this *Other) { _ = this; _ = Va|lueGlobal; echo 42 }\n", nil},
+		{"Ordinary", "main.xgo", "func Run(this *Other) { _ = this; _ = Va|lueGlobal; echo 42 }\n", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var members string
+			if tt.filename == "Record.gox" {
+				members = "var ValueClass int\nfunc CountClass() int { return 2 }\n"
+			}
+			source, pos := typeDisplayTestSource(t, members+tt.body)
+			s := newImportTestServer(t, map[string][]byte{tt.filename: []byte(source), "globals.xgo": []byte(globals)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+
+			labels := completionItemLabels(completionItemsAt(t, s, tt.filename, pos))
+			ctx := inputSlotTestContext(t, s, tt.filename)
+			lit := inputSlotLiteral(t, ctx, "42")
+			names := collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, gotypes.Typ[gotypes.Int])
+			assert.Contains(t, labels, "ValueGlobal")
+			assert.Contains(t, names, "ValueGlobal")
+			if tt.name == "InlineOverload" {
+				assert.NotContains(t, labels, "TextGlobal")
+			}
+			for _, name := range []string{"ValueClass", "countClass", "ValueOther", "countOther"} {
+				label := xgoutil.UpperFirstASCII(name)
+				if slices.Contains(tt.want, name) {
+					assert.Contains(t, labels, label)
+					assert.Contains(t, names, name)
+				} else {
+					assert.NotContains(t, labels, label)
+					assert.NotContains(t, names, name)
+				}
+			}
+			if tt.name == "Explicit" {
+				lit := inputSlotLiteral(t, ctx, "43")
+				names := collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, gotypes.Typ[gotypes.Int])
+				assert.Contains(t, names, "countClass")
+				assert.NotContains(t, names, "countOther")
+			}
+		})
+	}
+}
+
+func TestTypeDisplayStaticClassfileMethod(t *testing.T) {
+	const filename = "Record.gox"
+	source, pos := typeDisplayTestSource(t, `import label "example.com/support/v2"
+func Label() string { return "" }
+func .Static() { _ = |label.Name("payload") }
+`)
+	s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+	t.Cleanup(s.Close)
+	proj := s.requestProject()
+	_, err := proj.TypeInfo()
+	require.NoError(t, err)
+	file, err := proj.ASTFile(filename)
+	require.NoError(t, err)
+	pkg, err := proj.Import(importTestPkgPath)
+	require.NoError(t, err)
+
+	display := newTypeDisplay(proj, file, PosAt(proj, file, pos))
+	name, ok := display.sourceTypeString(pkg.Scope().Lookup("Name").Type())
+	assert.True(t, ok)
+	assert.Equal(t, "label.Name", name)
+}
+
+func TestClassfileInitializerPredefinedNames(t *testing.T) {
+	const filename = "Record.gox"
+	s := newImportTestServer(t, map[string][]byte{filename: []byte(`var (
+	ValueClass int
+	InitialClass int = ValueClass + 42
+)
+const Limit = int(43)
+func CountClass() int { return ValueClass }
+`)})
+	t.Cleanup(s.Close)
+	_, err := s.requestProject().TypeInfo()
+	require.NoError(t, err)
+
+	ctx := inputSlotTestContext(t, s, filename)
+	for _, value := range []string{"42", "43", "42"} {
+		lit := inputSlotLiteral(t, ctx, value)
+		names := collectPredefinedNames(ctx, XGoInputSlotKindValue, lit, gotypes.Typ[gotypes.Int])
+		if value == "42" {
+			assert.Contains(t, names, "ValueClass")
+			assert.Contains(t, names, "countClass")
+		} else {
+			assert.NotContains(t, names, "ValueClass")
+			assert.NotContains(t, names, "countClass")
+		}
+	}
+}
+
+func TestServerLocalStaticMethodNavigation(t *testing.T) {
+	const filename = "Record.gox"
+	const declaration = "// Choose returns its argument.\nfunc .Choose(value int) int { return value }\n"
+	const call = "_ = Record.Choose(1)\n"
+	for _, tt := range []struct {
+		name, source    string
+		callRange       Range
+		callReplacement string
+	}{
+		{name: "Declaration", source: strings.Replace(declaration, "func .Choose", "func .Ch|oose", 1) + call,
+			callRange:       Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 17}},
+			callReplacement: "Select_Value"},
+		{name: "SelectorAlias", source: declaration + strings.Replace(call, "Record.Choose", "Record.ch|oose", 1),
+			callRange:       Range{Start: Position{Line: 2, Character: 11}, End: Position{Line: 2, Character: 17}},
+			callReplacement: "select_Value"},
+		{name: "EncodedUse", source: strings.Replace(declaration, "func .Choose", "func .Ch|oose", 1) + "_ = XGos_Record_Choose(1)\n",
+			callRange:       Range{Start: Position{Line: 2, Character: 4}, End: Position{Line: 2, Character: 22}},
+			callReplacement: "XGos__Record__Select_Value"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			uri := s.toDocumentURI(filename)
+			params := TextDocumentPositionParams{TextDocument: TextDocumentIdentifier{URI: uri}, Position: pos}
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?Record.Choose"`)
+			assert.Contains(t, hover.Contents.Value, `overview="func Choose(value int) int"`)
+			assert.Contains(t, hover.Contents.Value, "Choose returns its argument.")
+			location, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: params})
+			require.NoError(t, err)
+			definition := Range{Start: Position{Line: 1, Character: 6}, End: Position{Line: 1, Character: 12}}
+			assert.Equal(t, Location{URI: uri, Range: definition}, location)
+			refs, err := s.textDocumentReferences(&ReferenceParams{
+				TextDocumentPositionParams: params,
+				Context:                    ReferenceContext{IncludeDeclaration: true},
+			})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []Location{{URI: uri, Range: definition}, {URI: uri, Range: tt.callRange}}, refs)
+			edit, err := s.textDocumentRename(&RenameParams{
+				TextDocument: params.TextDocument,
+				Position:     params.Position,
+				NewName:      "Select_Value",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, edit)
+			assert.ElementsMatch(t, []TextEdit{
+				{Range: definition, NewText: "Select_Value"},
+				{Range: tt.callRange, NewText: tt.callReplacement},
+			}, edit.Changes[uri])
+		})
+	}
+}
+
+func TestServerUnqualifiedStaticMethodCompletion(t *testing.T) {
+	const filename = "Record.gox"
+	source, pos := typeDisplayTestSource(t, `func .Choose() int { return 1 }
+_ = Ch|oose()
+`)
+	s := newTestServer(t, map[string][]byte{filename: []byte(source)})
+	t.Cleanup(s.Close)
+	_, err := s.requestProject().TypeInfo()
+	require.Error(t, err)
+	assert.NotContains(t, completionItemLabels(completionItemsAt(t, s, filename, pos)), "Choose")
 }

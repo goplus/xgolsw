@@ -10,6 +10,47 @@ import (
 )
 
 func TestServerTextDocumentCompletionEnums(t *testing.T) {
+	t.Run("TypeInitializer", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `type Cents const (
+	Nickel = 5
+)
+type Color const (
+	Red = 1
+)
+type Amount struct { Value Cents }
+func Amount_Init(value Cents) Amount { return Amount{value} }
+var amount Amount = Ni|ckel
+`)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+
+		items := completionItemsAt(t, s, filename, pos)
+		item := completionItemByLabel(items, "Nickel")
+		require.NotNil(t, item)
+		assert.Equal(t, EnumMemberCompletion, item.Kind)
+		assert.NotContains(t, completionItemLabels(items), "Red")
+	})
+
+	t.Run("PendingGenericOperand", func(t *testing.T) {
+		const filename = "main.xgo"
+		source, pos := typeDisplayTestSource(t, `import f "example.com/framework"
+type Color const (
+	Red = iota
+)
+var comparison = f.Pair[int] == Re|
+`)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, "func Pair[A, B any](first A, second B) B { return second }\n")
+
+		items := completionItemsAt(t, s, filename, pos)
+		item := completionItemByLabel(items, "Red")
+		require.NotNil(t, item)
+		assert.Equal(t, EnumMemberCompletion, item.Kind)
+	})
+
 	t.Run("SourceKinds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name      string

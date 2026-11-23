@@ -10,6 +10,76 @@ import (
 )
 
 func TestServerTextDocumentSignatureHelp(t *testing.T) {
+	t.Run("OverloadTypeArguments", func(t *testing.T) {
+		const imports = "import dep \"example.com/dependency\"\n"
+		for _, tt := range []struct {
+			name, call      string
+			wantLabels      []string
+			activeParameter uint32
+			incomplete      bool
+		}{
+			{name: "InferredType", call: "(dep.convertEi|ther)(1)", wantLabels: []string{"convertEither(value T) T"}},
+			{name: "ExplicitType", call: "(dep.convertPairOrTy|pe)(int, 1)",
+				wantLabels: []string{"convertPairOrType(T Type, value T) T"}},
+			{name: "ComparableConstraint", call: "(dep.compareEi|ther)(any, 1)",
+				wantLabels: []string{"compareEither(T Type, value int) int"}},
+			{name: "DependentConstraint", call: "(dep.pickSliceOrPa|ir)([]int, int, 1)",
+				wantLabels: []string{"pickSliceOrPair(S Type, E Type, value E) E"}},
+			{name: "DependentConstraintWithInferredTail", call: "(dep.pickSliceOrPa|ir)([]int, 1)",
+				wantLabels: []string{"pickSliceOrPair(S Type, value E) E"}},
+			{name: "BoundSliceValue", call: "(dep.convertByTy|pe)(int, []int{1})",
+				wantLabels: []string{"convertByType(T Type, values []T) []T"}},
+			{name: "BoundScalarValue", call: "(dep.convertByTy|pe)(int, \"text\")",
+				wantLabels: []string{"convertByType(T Type, text string) T"}},
+			{name: "InferredDependentValue", call: "(dep.keepSliceOrPa|ir)(int, []int{1})",
+				wantLabels: []string{"keepSliceOrPair(A Type, values S) S"}},
+			{name: "InferredDependentValueWhileEditing", call: `(dep.joinSlicesOrPair)(int, []int{1}, []in|t{2})`,
+				wantLabels: []string{"joinSlicesOrPair(A Type, first S, second S) S"}, activeParameter: 2},
+			{name: "InferredDependentValueWithMissingArgument", call: `(dep.joinSlicesOrPair)(int, []int{1}, mis|sing)`, incomplete: true,
+				wantLabels: []string{"joinSlicesOrPair(A Type, first S, second S) S"}, activeParameter: 2},
+			{name: "InferredDependentValueWithIncompatibleArgument", call: `(dep.joinSlicesOrPair)(int, []int{1}, "te|xt")`, incomplete: true,
+				wantLabels: []string{"joinSlicesOrPair(A Type, first S, second S) S"}, activeParameter: 2},
+			{name: "InferredVariadicExpansion", call: `(dep.collectTailOrLabel|led)(int, 1, [][]int{{2}}...)`,
+				wantLabels: []string{"collectTailOrLabelled(A Type, first A, tail ...B) []B"}},
+			{name: "InferredVariadicTailWithEditedFirstElement", call: `(dep.collectTailOrLabelled)(int, 1, mis|sing, []int{2})`, incomplete: true,
+				wantLabels: []string{"collectTailOrLabelled(A Type, first A, tail ...B) []B", "collectTailOrLabelled(A Type, first A, label string, tail ...B) []B"}, activeParameter: 2},
+			{name: "InferredVariadicTailFromFixedArgument", call: `(dep.compareSlicesOrPair)(int, []int{1}, []in|t{2})`,
+				wantLabels: []string{"compareSlicesOrPair(A Type, first S, others ...S) S"}, activeParameter: 2},
+			{name: "CheckedFirstArgument", call: "(dep.convertEither)(|1)",
+				wantLabels: []string{"convertEither(value T) T"}},
+			{name: "UnresolvedFirstArgument", call: "(dep.convertEither)(mis|sing)", incomplete: true,
+				wantLabels: []string{"convertEither(value T) T", "convertEither(T Type, value T) T"}},
+			{name: "EditingValueAfterType", call: "(dep.convertPairOrType)(int, mis|sing)", incomplete: true,
+				wantLabels: []string{"convertPairOrType(T Type, value T) T"}, activeParameter: 1},
+			{name: "ConstraintFiltersCandidate", call: "(dep.transform)(int, mis|sing)", incomplete: true,
+				wantLabels: []string{"transform(T Type, value T) T"}, activeParameter: 1},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, imports+"_ = "+tt.call+"\n")
+				s := newNotRecommendedImportServer(t, source)
+				t.Cleanup(s.Close)
+				if tt.incomplete {
+					_, err := s.getProj().TypeInfo()
+					require.Error(t, err)
+				} else {
+					requireNoDiagnostics(t, s)
+				}
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")},
+					Position:     pos,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, help)
+				labels := make([]string, 0, len(help.Signatures))
+				for _, signature := range help.Signatures {
+					labels = append(labels, signature.Label)
+				}
+				assert.Equal(t, tt.wantLabels, labels)
+				assert.Equal(t, tt.activeParameter, help.ActiveParameter)
+			})
+		}
+	})
+
 	t.Run("TupleArguments", func(t *testing.T) {
 		for _, tt := range []struct {
 			name         string
@@ -33,6 +103,43 @@ func use = (ints, strings)
 				require.Len(t, help.Signatures, 1)
 				assert.Equal(t, tt.label, help.Signatures[0].Label)
 				assert.Equal(t, uint32(1), help.ActiveParameter)
+			})
+		}
+	})
+
+	t.Run("OverloadTupleParameterShapes", func(t *testing.T) {
+		const declarations = `type Pair (first int, second int)
+func packed(pair Pair) {}
+func expanded(first int, second string) {}
+func incompatible(first bool, second int) {}
+`
+		for _, tt := range []struct {
+			name, order     string
+			wantLabels      []string
+			activeParameter uint32
+		}{
+			{"PackedFirst", "packed\nexpanded", []string{"use(pair Pair)", "use(first int, second string)"}, 0},
+			{"ExpandedFirst", "expanded\npacked", []string{"use(first int, second string)", "use(pair Pair)"}, 1},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, declarations+"func use = (\n"+tt.order+"\nincompatible\n)\nuse((1, tr|ue))\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				_, err := s.requestProject().TypeInfo()
+				require.Error(t, err)
+
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")},
+					Position:     pos,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, help)
+				var labels []string
+				for _, signature := range help.Signatures {
+					labels = append(labels, signature.Label)
+				}
+				assert.Equal(t, tt.wantLabels, labels)
+				assert.Equal(t, tt.activeParameter, help.ActiveParameter)
 			})
 		}
 	})
@@ -87,6 +194,63 @@ func handle = (
 				})
 			}
 			assert.Equal(t, &SignatureHelp{Signatures: signatures}, help, tt.name)
+		}
+	})
+
+	t.Run("ForwardedOverloads", func(t *testing.T) {
+		const declarations = `func pickWithLimit(value string, limit int) int { return limit }
+func pickDefault(value string) int { return len(value) }
+func Pick = (
+    pickWithLimit
+    pickDefault
+)
+func Run = (Pick)
+
+type Record struct{}
+func (Record) pickNumber(value int) int { return value }
+func (Record) pickDefault() int { return 0 }
+func (Record).Pick = (
+    (Record).pickNumber
+    (Record).pickDefault
+)
+func (Record).Run = ((Record).Pick)
+var record Record
+`
+		for _, tt := range []struct {
+			name, call, wantError string
+			want                  []string
+		}{
+			{name: "CheckedArgument", call: `_ = Run("te|xt")`, want: []string{"Run(value string) int"}},
+			{name: "ParenthesizedCall", call: `_ = ((Run))("te|xt")`, want: []string{"Run(value string) int"}},
+			{name: "UnresolvedArgument", call: "_ = Run(mis|sing)", wantError: "undefined: missing",
+				want: []string{"Run(value string, limit int) int", "Run(value string) int"}},
+			{name: "ParenthesizedUnresolvedArgument", call: "_ = (Run)(mis|sing)", wantError: "undefined: missing",
+				want: []string{"Run(value string, limit int) int", "Run(value string) int"}},
+			{name: "ImplicitMethod", call: "_ = record.r|un", want: []string{"run() int"}},
+			{name: "ParenthesizedMethod", call: "_ = (record.r|un)()", want: []string{"run() int"}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				source, pos := typeDisplayTestSource(t, declarations+tt.call+"\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				_, err := s.getProj().TypeInfo()
+				if tt.wantError != "" {
+					require.ErrorContains(t, err, tt.wantError)
+				} else {
+					require.NoError(t, err)
+				}
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")},
+					Position:     pos,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, help)
+				var labels []string
+				for _, sig := range help.Signatures {
+					labels = append(labels, sig.Label)
+				}
+				assert.Equal(t, tt.want, labels)
+			})
 		}
 	})
 
@@ -219,6 +383,23 @@ const XGoo_Choose = "Choose__0,Choose__2"
 				assert.Zero(t, help.ActiveParameter)
 			})
 		}
+	})
+
+	t.Run("InvalidMethodIndex", func(t *testing.T) {
+		source, pos := typeDisplayTestSource(t, `import f "example.com/framework"
+var item f.Item
+_ = item.callbacks[0]("te|xt")
+`)
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+		t.Cleanup(s.Close)
+		setImportTestFrameworkMethods(t, s, "func (Item) Callbacks() []func(text string) int { return nil }\n")
+		_, err := s.requestProject().TypeInfo()
+		require.ErrorContains(t, err, "does not support indexing")
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+		}})
+		require.NoError(t, err)
+		assert.Nil(t, help)
 	})
 
 	t.Run("FrameworkOverloadIdentifier", func(t *testing.T) {
@@ -527,6 +708,51 @@ onStart => {
 		assert.NoError(t, err)
 	})
 
+	t.Run("AutoLambdaParameters", func(t *testing.T) {
+		const declarations = `func Repeat(__xgo_loop_body func() int) {}
+func Guard(__xgo_cond_action func() int) {}
+`
+		for _, tt := range []struct {
+			name, function, parameter string
+		}{
+			{name: "Loop", function: "repeat", parameter: "body"},
+			{name: "Conditional", function: "guard", parameter: "action"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				call := "f." + tt.function + " "
+				source, position := typeDisplayTestSource(t, "import f \"example.com/framework\"\nvar callback func() int\n"+
+					call+"=> { _ = 1 }\n"+call+"|callback\n")
+				s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+				t.Cleanup(s.Close)
+				setImportTestFrameworkMethods(t, s, declarations)
+				requireNoDiagnostics(t, s)
+
+				document := TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}
+				help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: document,
+					Position:     position,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, help)
+				require.Len(t, help.Signatures, 1)
+				wantParameter := tt.parameter + " func() int"
+				assert.Equal(t, tt.function+"("+wantParameter+")", help.Signatures[0].Label)
+				assert.Equal(t, []ParameterInformation{{Label: wantParameter}}, help.Signatures[0].Parameters)
+
+				hints, err := s.textDocumentInlayHint(&InlayHintParams{
+					TextDocument: document,
+					Range:        Range{Start: Position{Line: position.Line}, End: Position{Line: position.Line + 1}},
+				})
+				require.NoError(t, err)
+				assert.Equal(t, []InlayHint{{
+					Position: position,
+					Label:    tt.parameter,
+					Kind:     Parameter,
+				}}, hints)
+			})
+		}
+	})
+
 	t.Run("FuncDecorator", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{
 			"main.xgo": []byte(`func retry(times int, fn func()) {
@@ -557,6 +783,25 @@ func run() {
 	t.Run("InvalidFuncDecorator", func(t *testing.T) {
 		source, pos := typeDisplayTestSource(t, `func wrap(fn func(int)) {}
 @wr|ap
+func run() {}
+`)
+		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})
+		t.Cleanup(s.Close)
+		_, err := s.requestProject().TypeInfo()
+		require.ErrorContains(t, err, "invalid decorator")
+		help, err := s.textDocumentSignatureHelp(&SignatureHelpParams{TextDocumentPositionParams: TextDocumentPositionParams{
+			TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI("main.xgo")}, Position: pos,
+		}})
+		require.NoError(t, err)
+		assert.Nil(t, help)
+	})
+
+	t.Run("OverloadedFuncDecorator", func(t *testing.T) {
+		source, pos := typeDisplayTestSource(t, `func decorateInt(value int, fn func()) {}
+func decorateString(value string, fn func()) {}
+func decorate = (decorateInt; decorateString)
+
+@deco|rate(1)
 func run() {}
 `)
 		s := newImportTestServer(t, map[string][]byte{"main.xgo": []byte(source)})

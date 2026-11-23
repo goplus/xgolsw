@@ -141,3 +141,22 @@ func TestSpxFrameworkForFile(t *testing.T) {
 		assert.Empty(t, ctx.spxTypeName(spxTestType(t, s, "SpriteImpl")))
 	})
 }
+
+func TestSpxSpriteTypeForFileExcludesFlatFragments(t *testing.T) {
+	const fragment = "Chunk.spx"
+	s := newSpxSymbolTestServer(t, map[string][]byte{
+		"main.spx": []byte("var Score int\n"),
+		fragment:   []byte("func Read() int { return Score }\n"),
+	}, SpxPkgPath)
+	t.Cleanup(s.Close)
+	proj := s.getProj()
+	proj.SetModule(newTestModule(t, modload.Module{Opt: &modfile.File{Projects: []*modfile.Project{{
+		Ext: ".spx", Class: "Game", PkgPaths: []string{SpxPkgPath}, Flat: true,
+	}}}}))
+	file, err := proj.ASTFile(fragment)
+	require.NoError(t, err)
+	named := classTypeForFile(proj, file)
+	require.NotNil(t, named)
+	assert.Equal(t, "Game", named.Obj().Name())
+	assert.Nil(t, spxSpriteTypeForFile(proj, fragment))
+}

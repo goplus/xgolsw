@@ -62,7 +62,7 @@ func (s *Server) notifyPropertiesRenamed(proj *xgo.Project, params *RenameParams
 			}
 			newName := params.NewName
 			if _, method := obj.(*gotypes.Func); method {
-				newName = functionAliasName(newName)
+				newName = xgoutil.MemberAliasName(newName)
 			}
 			candidates = append(candidates, candidate{PropertyRenamedParams{
 				Target:       name,

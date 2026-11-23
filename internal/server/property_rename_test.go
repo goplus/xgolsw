@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/goplus/xgolsw/jsonrpc2"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +69,7 @@ _ = `+tt.use+"\n")
 			for _, target := range targets {
 				properties, err := s.xgoGetProperties(XGoGetPropertiesParams{Target: target})
 				require.NoError(t, err)
-				wantName := functionAliasName(tt.newName)
+				wantName := xgoutil.MemberAliasName(tt.newName)
 				if tt.name == "Field" {
 					wantName = tt.newName
 				}
@@ -127,7 +128,7 @@ _ = Base{}.label
 					assert.Len(t, notifications, failure.attempt)
 					require.NotEmpty(t, edit.Changes["file:///main.xgo"])
 					updated := applyResourceRenameTestEdits(t, source, edit.Changes["file:///main.xgo"])
-					want := strings.NewReplacer(tt.oldName, tt.newName, functionAliasName(tt.oldName), functionAliasName(tt.newName)).Replace(source)
+					want := strings.NewReplacer(tt.oldName, tt.newName, xgoutil.MemberAliasName(tt.oldName), xgoutil.MemberAliasName(tt.newName)).Replace(source)
 					assert.Equal(t, want, updated)
 					file, ok := proj.File("main.xgo")
 					require.True(t, ok)

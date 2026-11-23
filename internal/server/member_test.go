@@ -123,6 +123,23 @@ type PublicFirst interface { f.PublicReader; f.CombinedReader }
 	})
 }
 
+func TestDefinitionContextSelectorMembers(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/dependency", "dependency")
+	first := gotypes.NewField(token.NoPos, pkg, "First", gotypes.Typ[gotypes.Int], false)
+	second := gotypes.NewField(token.NoPos, pkg, "Second", gotypes.Typ[gotypes.String], false)
+	structure := gotypes.NewStruct([]*gotypes.Var{first, second}, nil)
+	receiver := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Pointer", nil), gotypes.NewPointer(structure), nil)
+	ctx := new(definitionContext)
+	calls := 0
+	ctx.selectorMembers(receiver)(func(member xgoutil.StructMember) bool {
+		calls++
+		assert.Same(t, first, member.Member)
+		assert.Same(t, receiver, member.Selector)
+		return false
+	})
+	assert.Equal(t, 1, calls)
+}
+
 func TestImportedInterfaceMembers(t *testing.T) {
 	for _, tt := range []struct {
 		name  string

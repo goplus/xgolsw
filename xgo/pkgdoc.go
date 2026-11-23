@@ -16,7 +16,10 @@
 
 package xgo
 
-import "github.com/goplus/xgolsw/pkgdoc"
+import (
+	"github.com/goplus/xgo/ast"
+	"github.com/goplus/xgolsw/pkgdoc"
+)
 
 // pkgDocCacheKind is a cache kind type for [pkgdoc.PkgDoc].
 type pkgDocCacheKind struct{}
@@ -33,9 +36,38 @@ func buildPkgDocCache(proj *Project) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Only class ownership requires checked types.
+	hasClass := false
+	for _, file := range pkg.Files {
+		if file.IsClass {
+			hasClass = true
+			break
+		}
+	}
+	var checked *typeInfoCache
+	if hasClass {
+		// Type checking also acquires astMu on a cache miss.
+		if data, err := proj.Cache(typeInfoCacheKind{}); err == nil {
+			checked = data.(*typeInfoCache)
+			if checked.parserErr != nil {
+				return nil, checked.parserErr
+			}
+		}
+	}
+
 	proj.astMu.Lock()
 	defer proj.astMu.Unlock()
-	return &pkgDocCache{pkgdoc.NewXGo(proj.PkgPath, pkg, proj.Module().LookupClass)}, nil
+	if checked == nil {
+		return &pkgDocCache{pkgdoc.NewXGo(proj.PkgPath, pkg, proj.Module().LookupClass)}, nil
+	}
+	// The owners are keyed by the exact syntax nodes used by the checker.
+	doc := pkgdoc.NewCheckedXGo(proj.PkgPath, checked.astPkg, checked.module.LookupClass, func(file *ast.File) string {
+		if owner := checked.typeInfo.ClassTypes[file]; owner != nil {
+			return owner.Obj().Name()
+		}
+		return ""
+	})
+	return &pkgDocCache{doc}, nil
 }
 
 // PkgDoc retrieves the [pkgdoc.PkgDoc] from the project.

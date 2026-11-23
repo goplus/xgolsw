@@ -276,8 +276,9 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 				addToken(node.ValuePos, node.ValuePos+token.Pos(len(node.Value)), NumberType, nil)
 			}
 		case *ast.CallExpr:
-			for _, kwarg := range node.Kwargs {
-				if len(lookupCallExprKwargTargets(typeInfo, node, kwarg.Name.Name)) > 0 {
+			for kwarg, targets := range callExprKwargTargets(typeInfo, node, 0) {
+				seenNodes[kwarg.Name] = true
+				if len(targets) > 0 {
 					addToken(kwarg.Name.Pos(), kwarg.Name.End(), PropertyType, nil)
 				}
 			}

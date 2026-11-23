@@ -44,7 +44,8 @@ show "Missing"
 	})
 
 	t.Run("PropertyShadowingUpdates", func(t *testing.T) {
-		s := newTestServer(t, nil)
+		s := newImportTestServer(t, nil)
+		t.Cleanup(s.Close)
 		for version, tt := range []struct {
 			name     string
 			members  string
@@ -126,4 +127,84 @@ func (*Record) Next() *Record { return nil }
 			}}}, diagnostics.diagnostics)
 		})
 	}
+}
+
+func TestSpxPropertyNamesUseCallReceiver(t *testing.T) {
+	const filename = "main.spx"
+	const declarations = `var stageScore int
+
+type Record struct {
+    Count int
+    Total int
+    //xgols:notRecommended
+    Hidden int
+}
+
+func (*Record) Show(name PropertyName) error { return nil }
+`
+	for _, tt := range []struct{ name, body string }{
+		{"ExplicitMethod", `func (r *Record) Check() {
+    show "|Count"
+    show "stageScore"
+    show "Hidden"
+}
+`},
+		{"ErrorWrappedCommand", `func check() {
+    var record Record
+    record.Show! "|Count"
+    record.Show! "stageScore"
+    record.Show! "Hidden"
+}
+`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, pos := typeDisplayTestSource(t, declarations+tt.body)
+			s := newSpxTestServer(t, map[string][]byte{filename: []byte(source), "assets/index.json": []byte(`{}`)})
+			t.Cleanup(s.Close)
+			addErrorWrapTestImport(t, s)
+			_, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+
+			labels := completionItemLabels(completionItemsAt(t, s, filename, pos))
+			assert.Contains(t, labels, "Count")
+			assert.Contains(t, labels, "Total")
+			assert.NotContains(t, labels, "Hidden")
+			assert.NotContains(t, labels, "stageScore")
+
+			report, err := s.workspaceDiagnostic(&WorkspaceDiagnosticParams{})
+			require.NoError(t, err)
+			require.NotNil(t, report)
+			require.Len(t, report.Items, 1)
+			items := requireWorkspaceFullDocumentDiagnosticReport(t, report.Items[0]).Items
+			require.Len(t, items, 1)
+			assert.Equal(t, Diagnostic{
+				Range: Range{
+					Start: Position{Line: pos.Line + 1, Character: pos.Character - 1},
+					End:   Position{Line: pos.Line + 1, Character: pos.Character - 1 + uint32(len(`"stageScore"`))},
+				},
+				Severity: SeverityError, Message: `unknown property "stageScore"`,
+			}, items[0])
+		})
+	}
+}
+
+func TestSpxPropertyNamesUseLocalReceiverType(t *testing.T) {
+	const filename = "main.spx"
+	source, pos := typeDisplayTestSource(t, `type Record struct { PackageField int }
+
+func check() {
+    type Record struct {
+        Show func(name PropertyName)
+        LocalField int
+    }
+    var item Record
+    item.Show("|LocalField")
+}
+`)
+	s := newSpxTestServer(t, map[string][]byte{filename: []byte(source), "assets/index.json": []byte(`{}`)})
+	t.Cleanup(s.Close)
+	requireNoDiagnostics(t, s)
+	labels := completionItemLabels(completionItemsAt(t, s, filename, pos))
+	assert.Contains(t, labels, "LocalField")
+	assert.NotContains(t, labels, "PackageField")
 }

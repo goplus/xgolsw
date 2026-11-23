@@ -3,9 +3,11 @@ package server
 import (
 	"go/constant"
 	gotypes "go/types"
+	"slices"
 	"testing"
 
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,29 +105,201 @@ func containsCompletionItemKind(items []CompletionItem, kind CompletionItemKind)
 	return false
 }
 
-func TestParseXGoUnitDecl(t *testing.T) {
-	t.Run("Valid", func(t *testing.T) {
-		specs := parseXGoUnitDecl("m=1000,\u00b5s=1000,_step=2,step2=3", gotypes.Typ[gotypes.Int])
+const keywordUnitTestTypes = `type Distance int
+const XGou_Distance = "cm=1,m=100,cm=-1"
+type Seconds = float64
+const XGou_Seconds = "ms=0.001,s=1"
+`
 
-		require.Len(t, specs, 4)
-		assert.Equal(t, "m", specs[0].Name)
-		assert.Equal(t, "\u00b5s", specs[1].Name)
-		assert.Equal(t, "_step", specs[2].Name)
-		assert.Equal(t, "step2", specs[3].Name)
-	})
+func TestServerUnitsInDynamicKeywordArguments(t *testing.T) {
+	const declarations = `import unit "example.com/framework"
+type Options interface {
+	Set(string, interface{}) Options
+	Repeat(string) Options
+}
+type Builder struct{}
+`
+	const client = `type Client struct{}
+func (Client) Options() Builder { return Builder{} }
+func (Client) Run(options Options) {}
+var client Client
+client.Run distance = 2|cm`
+	for _, tt := range []struct{ name, methods, following string }{
+		{"TypedSet", "func (Builder) Set(key string, value unit.Distance) Options { return nil }\n", ""},
+		{"OverloadedSet", `type RepeatBuilder struct{}
+func (RepeatBuilder) Repeat(value unit.Distance) Options { return nil }
+func (Builder) setDelay(key string, value unit.Seconds) Options { return nil }
+func (Builder) setDistance(key string, value unit.Distance) RepeatBuilder { return RepeatBuilder{} }
+func (Builder).Set = (
+	(Builder).setDelay
+	(Builder).setDistance
+)
+`, ", repeat = 3m"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "main.xgo"
+			source, suffixStart := typeDisplayTestSource(t, declarations+tt.methods+client+tt.following+"\n")
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, keywordUnitTestTypes)
+			requireNoDiagnostics(t, s)
 
-	t.Run("InvalidName", func(t *testing.T) {
-		specs := parseXGoUnitDecl("bad`name=1,1m=2,bad-name=3,ok=4", gotypes.Typ[gotypes.Int])
+			doc := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+			suffixEnd := Position{Line: suffixStart.Line, Character: suffixStart.Character + 2}
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: doc, Position: suffixStart,
+			}})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Equal(t, Range{Start: suffixStart, End: suffixEnd}, hover.Range)
+			assert.Contains(t, hover.Contents.Value, "unit `cm` for `unit.Distance`")
+			assert.Contains(t, hover.Contents.Value, "Multiplier: `-1`")
 
-		require.Len(t, specs, 1)
-		assert.Equal(t, "ok", specs[0].Name)
-	})
+			completions := completionListAt(t, s, filename, suffixEnd)
+			assertCompletionItemTextEdit(t, completions.Items, "m", TextEdit{
+				Range: Range{Start: suffixStart, End: suffixEnd}, NewText: "m",
+			})
 
-	t.Run("InvalidFactor", func(t *testing.T) {
-		specs := parseXGoUnitDecl("negative=-1,unknown=abc,empty=,ok=0.5", gotypes.Typ[gotypes.Int])
+			slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: doc}})
+			require.NoError(t, err)
+			valueStart := Position{Line: suffixStart.Line, Character: suffixStart.Character - 1}
+			wantRange := Range{Start: valueStart, End: suffixStart}
+			index := slices.IndexFunc(slots, func(slot XGoInputSlot) bool { return slot.Range == wantRange })
+			require.GreaterOrEqual(t, index, 0)
+			assert.Equal(t, int64(2), slots[index].Input.Value)
+			if tt.following != "" {
+				beforeUnit := Position{Line: suffixEnd.Line, Character: suffixEnd.Character + uint32(len(tt.following)-1)}
+				afterUnit := Position{Line: beforeUnit.Line, Character: beforeUnit.Character + 1}
+				assertCompletionItemTextEdit(t, completionListAt(t, s, filename, afterUnit).Items, "cm", TextEdit{
+					Range: Range{Start: beforeUnit, End: afterUnit}, NewText: "cm",
+				})
+			}
+		})
+	}
+}
 
-		require.Len(t, specs, 1)
-		assert.Equal(t, "ok", specs[0].Name)
-		assert.Equal(t, "0.5", specs[0].Factor)
-	})
+func TestServerUnitsAfterKeywordLambda(t *testing.T) {
+	const filename = "main.xgo"
+	const program = `import unit "example.com/framework"
+type Options interface {
+	Prepare(func(bool)) Options
+	Count(string) Options
+}
+type Builder struct{}
+type Counter struct{}
+func (Builder) prepareText(callback func(string, string)) Options { return nil }
+func (Builder) prepareNumber(callback func(int)) Counter { return Counter{} }
+func (Builder).Prepare = (
+	(Builder).prepareText
+	(Builder).prepareNumber
+)
+func (Counter) Count(value unit.Distance) Options { return nil }
+type Client struct{}
+func (Client) Options() Builder { return Builder{} }
+func (Client) Run(options Options) {}
+var client Client
+client.Run prepare = value => {}, count = 2|`
+	for _, tt := range []struct {
+		name, suffix, want string
+		checked            bool
+	}{
+		{name: "Checked", suffix: "cm", want: "m", checked: true},
+		{name: "IncompleteSuffix", suffix: "c", want: "cm"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source, suffixStart := typeDisplayTestSource(t, program+tt.suffix+"\n")
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, keywordUnitTestTypes)
+
+			suffixEnd := Position{Line: suffixStart.Line, Character: suffixStart.Character + uint32(len(tt.suffix))}
+			if tt.checked {
+				requireNoDiagnostics(t, s)
+
+				proj := s.requestProject()
+				info, err := expressionTypeInfo(proj)
+				require.NoError(t, err)
+				file, err := proj.ASTFile(filename)
+				require.NoError(t, err)
+				expr, _ := enclosingCallExprAtPosition(info, file, PosAt(proj, file, suffixStart))
+				require.NotNil(t, expr)
+				require.Len(t, expr.Kwargs, 2)
+				arg, ok := xgoutil.ResolveCallExprArg(info, expr, expr.Kwargs[0].Value)
+				require.True(t, ok)
+				want := gotypes.NewSignatureType(nil, nil, nil, gotypes.NewTuple(
+					gotypes.NewParam(token.NoPos, nil, "", gotypes.Typ[gotypes.Int]),
+				), nil, false)
+				assert.True(t, gotypes.Identical(want, arg.ExpectedType), "%v", arg.ExpectedType)
+
+				doc := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+				hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+					TextDocument: doc, Position: suffixStart,
+				}})
+				require.NoError(t, err)
+				require.NotNil(t, hover)
+				assert.Contains(t, hover.Contents.Value, "unit `cm` for `unit.Distance`")
+				assert.Equal(t, Range{Start: suffixStart, End: suffixEnd}, hover.Range)
+			}
+			assertCompletionItemTextEdit(t, completionListAt(t, s, filename, suffixEnd).Items, tt.want, TextEdit{
+				Range: Range{Start: suffixStart, End: suffixEnd}, NewText: tt.want,
+			})
+		})
+	}
+}
+
+func TestServerUnitsInOverloadedKeywordInterfaces(t *testing.T) {
+	const filename = "main.xgo"
+	source, suffixStart := typeDisplayTestSource(t, `import unit "example.com/framework"
+type Options interface { Count(string) Options }
+type Builder struct{}
+type Client struct{}
+func (Client) Options() Builder { return Builder{} }
+func (Builder) Count(value unit.Distance) unit.Options { return nil }
+func (Client) runLocal(options Options) {}
+func (Client) runImported(options unit.Options) {}
+func (Client).Run = (
+	(Client).runLocal
+	(Client).runImported
+)
+var client Client
+client.Run count = 2|cm
+`)
+	s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+	t.Cleanup(s.Close)
+	setImportTestFrameworkMethods(t, s, keywordUnitTestTypes+"type Options interface { Set(string, interface{}) Options }\n")
+	requireNoDiagnostics(t, s)
+
+	proj := s.requestProject()
+	info, err := proj.TypeInfo()
+	require.NoError(t, err)
+	call := resourceTestCall(t, proj, filename)
+	implementation := xgoutil.CallExprImplementation(info, call)
+	require.NotNil(t, implementation)
+	require.Equal(t, "runImported", implementation.Name())
+	binding := xgoutil.ResolveCallExprKwarg(info, call)
+	require.NotNil(t, binding)
+	local := info.Pkg.Scope().Lookup("Options")
+	require.NotNil(t, local)
+	assert.Same(t, local.Type(), binding.ContainerType())
+	require.Len(t, call.Kwargs, 1)
+	target := binding.KeywordTarget(call.Kwargs[0])
+	require.NotNil(t, target)
+	method, _, _ := gotypes.LookupFieldOrMethod(local.Type(), false, info.Pkg, "Count")
+	require.NotNil(t, method)
+	assert.Same(t, method, target.Method)
+
+	doc := TextDocumentIdentifier{URI: s.toDocumentURI(filename)}
+	wantDefinition := s.objectDefinitionLocation(proj, info, method)
+	require.NotNil(t, wantDefinition)
+	definition, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+		TextDocument: doc, Position: RangeForNode(proj, call.Kwargs[0].Name).Start,
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, *wantDefinition, definition)
+	hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+		TextDocument: doc, Position: suffixStart,
+	}})
+	require.NoError(t, err)
+	require.NotNil(t, hover)
+	assert.Contains(t, hover.Contents.Value, "unit `cm` for `unit.Distance`")
 }

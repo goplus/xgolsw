@@ -7,6 +7,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgolsw/xgo"
+	"github.com/goplus/xgolsw/xgo/types"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -70,7 +71,7 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if ident == nil {
 		// Check if the position is within an import declaration.
 		// If so, return the package documentation.
-		pkgDoc, imp := ctx.importDocumentationAtPosition(astFile, position)
+		pkgDoc, imp := ctx.importDocumentationAtPosition(typeInfo, astFile, position)
 		if pkgDoc == nil {
 			return nil, nil
 		}
@@ -85,7 +86,34 @@ func (s *Server) textDocumentHover(params *HoverParams) (*Hover, error) {
 	if ident.Name == "this" && xgoutil.IsSyntheticThisIdent(proj.Fset, typeInfo, astPkg, ident) {
 		return nil, nil
 	}
-	return hoverForDefinitions(proj, ctx.definitionsForIdent(ident), ident, markupKind), nil
+	defs := ctx.definitionsForIdent(ident)
+	ctx.describeMethodExpression(typeInfo, astFile, ident, defs)
+	return hoverForDefinitions(proj, defs, ident, markupKind), nil
+}
+
+// describeMethodExpression shows the parameters of an unbound selector
+// while retaining the declaration's identity and documentation.
+func (r *definitionContext) describeMethodExpression(info *types.Info, file *ast.File, ident *ast.Ident, defs []symbolDefinition) {
+	if len(defs) == 0 || defs[0].Implementation == nil {
+		return
+	}
+	callee, selector := callableExprForIdent(file, ident)
+	if selector == nil {
+		return
+	}
+	if isType, _ := xgoutil.IsTypeExpr(info, selector.X); !isType {
+		return
+	}
+	call := &ast.CallExpr{Fun: callee}
+	for i := range defs {
+		def := &defs[i]
+		if def.staticMemberName != "" {
+			continue
+		}
+		if sig, params := xgoutil.ResolveCallableSignatureForCall(info, call, def.Implementation, def.parameterBinding); sig != nil {
+			def.Overview = r.functionOverview(ident.Name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(def.function(), params))
+		}
+	}
 }
 
 // hoverForDefinitions renders symbol definitions into a hover at node.

@@ -215,7 +215,7 @@ func resolveSpxSpriteContextFromCallExpr(proj *xgo.Project, result *spxAnalysis,
 		return nil
 	}
 
-	funcType := typeInfo.TypeOf(callExpr.Fun)
+	funcType := typeInfo.TypeOf(xgoutil.CallExprFun(callExpr))
 	if !xgoutil.IsValidType(funcType) {
 		return nil
 	}

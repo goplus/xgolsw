@@ -31,6 +31,25 @@ func TestBuildUTF16ColumnIndex(t *testing.T) {
 }
 
 func TestServerXGoGetInputSlots(t *testing.T) {
+	t.Run("ReservedPackageAlias", func(t *testing.T) {
+		const filename = "main.xgo"
+		s := newImportTestServer(t, map[string][]byte{
+			"functions.xgo": []byte(`func For() int { return 1 }
+func Count() int { return 2 }
+func use(value int) {}
+`),
+			filename: []byte("use 1\n"),
+		})
+		t.Cleanup(s.Close)
+		requireNoDiagnostics(t, s)
+
+		slots, err := s.xgoGetInputSlots([]XGoGetInputSlotsParams{{TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}}})
+		require.NoError(t, err)
+		require.Len(t, slots, 1)
+		assert.Contains(t, slots[0].PredefinedNames, "count")
+		assert.NotContains(t, slots[0].PredefinedNames, "for")
+	})
+
 	t.Run("StringConversions", func(t *testing.T) {
 		for _, tt := range []struct {
 			name string

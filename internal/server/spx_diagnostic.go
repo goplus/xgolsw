@@ -16,7 +16,7 @@ func spxDiagnosticPass(proj *xgo.Project, result *spxAnalysis) func(string, *pro
 		file, _ := proj.ASTFile(filename)
 		pass.IsPropertyNameType = result.isSpxPropertyNameType
 		pass.GetPropertyNamesForCall = func(call *ast.CallExpr) map[string]struct{} {
-			named := propertyTargetForCall(proj, file, call)
+			named := propertyTargetForCall(pass.TypesInfo, file, call)
 			if named == nil {
 				return nil
 			}

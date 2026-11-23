@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/goplus/gogen"
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -16,13 +15,15 @@ import (
 )
 
 // fileImports holds the effective package bindings for one source file. Named
-// imports include class framework auto-imports. Members come from class framework
-// lookup packages and explicit dot imports. Cached bindings must not be modified.
+// imports include class framework auto-imports. The member packages list
+// contains framework lookups followed by explicit dot imports. The cached
+// bindings are read-only.
 type fileImports struct {
-	named     map[string]*gotypes.PkgName
-	names     []*gotypes.PkgName
-	members   []*gotypes.Package
-	ambiguous map[string]bool
+	named          map[string]*gotypes.PkgName
+	names          []*gotypes.PkgName
+	members        []*gotypes.Package
+	dotImportStart int
+	ambiguous      map[string]bool
 }
 
 // fileImportsCacheKind identifies import bindings for one project revision.
@@ -50,10 +51,14 @@ func buildFileImportsCache(proj *xgo.Project) (any, error) {
 func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, file *ast.File) *fileImports {
 	imports := &fileImports{named: make(map[string]*gotypes.PkgName)}
 	if file.IsClass && !file.IsNormalGox {
-		if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok {
-			for _, path := range framework.PkgPaths {
-				if pkg, err := proj.Import(path); err == nil {
-					imports.members = append(imports.members, pkg)
+		if framework, ok := proj.Module().LookupClass(xgoutil.ClassfileExt(filename)); ok {
+			// Flat fragments receive named auto-imports, but the compiler
+			// only installs framework lookup packages on the project file.
+			if !framework.Flat || file.IsProj {
+				for _, path := range framework.PkgPaths {
+					if pkg, err := proj.Import(path); err == nil {
+						imports.members = append(imports.members, pkg)
+					}
 				}
 			}
 			for _, imp := range framework.Import {
@@ -71,15 +76,10 @@ func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, fi
 			}
 		}
 	}
+	imports.dotImportStart = len(imports.members)
 	for _, spec := range file.Imports {
-		var obj gotypes.Object
-		if spec.Name != nil {
-			obj = info.Defs[spec.Name]
-		} else {
-			obj = info.Implicits[spec]
-		}
-		name, ok := obj.(*gotypes.PkgName)
-		if !ok {
+		name := importPackageName(info, spec)
+		if name == nil {
 			continue
 		}
 		switch name.Name() {
@@ -109,7 +109,7 @@ func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, fi
 			}
 			add(name)
 			if gogen.IsFunc(obj.Type()) {
-				if alias := xgoutil.ToLowerCamelCase(name); alias != name {
+				if alias := xgoutil.FunctionAliasName(name); alias != name {
 					add(alias)
 				}
 			}
@@ -119,6 +119,16 @@ func resolveFileImports(proj *xgo.Project, info *types.Info, filename string, fi
 		return cmp.Compare(a.Name(), b.Name())
 	})
 	return imports
+}
+
+// importPackageName returns the compiler's binding for a source import.
+func importPackageName(info *types.Info, spec *ast.ImportSpec) *gotypes.PkgName {
+	obj := info.Implicits[spec]
+	if spec.Name != nil {
+		obj = info.Defs[spec.Name]
+	}
+	name, _ := obj.(*gotypes.PkgName)
+	return name
 }
 
 // importsForFile returns imports from the same snapshot as file. Files without

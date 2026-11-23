@@ -1,11 +1,12 @@
 package server
 
 import (
+	"cmp"
 	gotypes "go/types"
 	"iter"
+	"slices"
 
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
 	"github.com/goplus/xgolsw/internal/analysis/ast/astutil"
 	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/types"
@@ -38,17 +39,21 @@ func resolvedNamedType(typ gotypes.Type) *gotypes.Named {
 // memberForIdent resolves the selected member without discarding its declaration
 // or selector package.
 func (r *definitionContext) memberForIdent(ident *ast.Ident, obj gotypes.Object) *xgoutil.StructMember {
+	var hasReceiver bool
 	switch obj := obj.(type) {
 	case *gotypes.Var:
-		if !obj.IsField() {
-			return nil
-		}
+		hasReceiver = obj.IsField()
 	case *gotypes.Func:
-		if obj.Signature().Recv() == nil {
-			return nil
-		}
+		hasReceiver = obj.Signature().Recv() != nil
+	case *gotypes.Const:
+		// Static values are recorded as package declarations by the compiler.
 	default:
 		return nil
+	}
+	if !hasReceiver {
+		if _, _, static := xgoutil.SplitXGosMemberName(obj.Name()); !static || ident.Name == obj.Name() {
+			return nil
+		}
 	}
 	proj := r.proj
 	info, _ := expressionTypeInfo(proj)
@@ -57,9 +62,10 @@ func (r *definitionContext) memberForIdent(ident *ast.Ident, obj gotypes.Object)
 	if file == nil {
 		return nil
 	}
+	path, _ := xgoutil.PathEnclosingInterval(file, ident.Pos(), ident.End())
 	var fieldKey bool
 enclosing:
-	for node := range xgoutil.PathEnclosingIntervalNodes(file, ident.Pos(), ident.End(), false) {
+	for _, node := range path {
 		switch node := node.(type) {
 		case *ast.SelectorExpr:
 			if node.Sel == ident {
@@ -76,23 +82,47 @@ enclosing:
 			break enclosing
 		}
 	}
-	if class := classTypeForFile(proj, file); class != nil {
+	// Static declarations still belong to the file's class for navigation.
+	if class := info.ClassTypes[file]; class != nil && info.Defs[ident] != nil {
 		return r.memberForObject(class, obj)
 	}
-	return nil
+	receiver := xgoutil.EnclosingClassReceiver(info, file, ident.Pos(), slices.All(path))
+	return r.memberForObject(receiver, obj)
 }
 
 // memberForObject locates obj in the receiver's accessible members, including
 // instantiated fields and methods selected from an overload declaration.
 func (r *definitionContext) memberForObject(receiver gotypes.Type, obj gotypes.Object) *xgoutil.StructMember {
-	receiver = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(receiver)))
+	receiver = memberReceiverType(receiver)
 	if receiver == nil {
 		return nil
 	}
-	if selector, ok := r.memberSelectorsFor(receiver)[types.ObjectOrigin(obj)]; ok {
+	origin := types.ObjectOrigin(obj)
+	if selector, ok := r.memberSelectorsFor(receiver)[origin]; ok {
 		return &xgoutil.StructMember{Member: obj, Selector: selector}
 	}
+	if named, ok := receiver.(*gotypes.Named); ok {
+		for method := range named.Origin().Methods() {
+			if static := types.StaticMemberObject(method); static != nil &&
+				(method == origin || types.ObjectOrigin(static) == origin) {
+				return &xgoutil.StructMember{Member: method, Selector: named}
+			}
+		}
+	}
 	return nil
+}
+
+// memberReceiverType normalizes aliases and ordinary pointers for member lookup.
+// Named pointers retain their identity so fields can use the public selector.
+func memberReceiverType(receiver gotypes.Type) gotypes.Type {
+	typ := gotypes.Unalias(receiver)
+	if ptr, ok := typ.(*gotypes.Pointer); ok {
+		typ = gotypes.Unalias(ptr.Elem())
+		if _, nested := typ.Underlying().(*gotypes.Pointer); nested {
+			return nil
+		}
+	}
+	return typ
 }
 
 // memberSelectorsFor indexes accessible member origins in lookup order so a
@@ -108,7 +138,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 			selectors[origin] = selector
 		}
 	}
-	members := xgoutil.StructMembers(receiver, r.isFrameworkBaseType)
+	members := r.selectorMembers(receiver)
 	_, isInterface := receiver.Underlying().(*gotypes.Interface)
 	if isInterface {
 		members = importedInterfaceMembers(receiver)
@@ -116,7 +146,7 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 	for member := range members {
 		add(member.Member, member.Selector)
 		if method, ok := member.Member.(*gotypes.Func); ok && !isInterface {
-			for _, overload := range xgoutil.ExpandXGoOverloadableFunc(method) {
+			for _, overload := range xgoutil.ExpandXGoOverloads(method) {
 				add(overload, member.Selector)
 			}
 		}
@@ -126,6 +156,32 @@ func (r *definitionContext) memberSelectorsFor(receiver gotypes.Type) map[gotype
 	}
 	r.memberSelectors[receiver] = selectors
 	return selectors
+}
+
+// selectorMembers yields fields and methods available through a concrete type.
+func (r *definitionContext) selectorMembers(receiver gotypes.Type) iter.Seq[xgoutil.StructMember] {
+	if named, ok := receiver.(*gotypes.Named); ok && !xgoutil.IsNamedStructType(named) {
+		if ptr, ok := named.Underlying().(*gotypes.Pointer); ok {
+			fields := xgoutil.StructMembers(gotypes.Unalias(ptr.Elem()), r.isFrameworkBaseType)
+			return func(yield func(xgoutil.StructMember) bool) {
+				for member := range fields {
+					if _, field := member.Member.(*gotypes.Var); field &&
+						!yield(xgoutil.StructMember{Member: member.Member, Selector: named}) {
+						return
+					}
+				}
+			}
+		}
+		return func(yield func(xgoutil.StructMember) bool) {
+			for method := range named.Methods() {
+				if xgoutil.IsExportedOrInMainPkg(method) &&
+					!yield(xgoutil.StructMember{Member: method, Selector: named}) {
+					return
+				}
+			}
+		}
+	}
+	return xgoutil.StructMembers(receiver, r.isFrameworkBaseType)
 }
 
 // importedInterfaceMembers yields methods with their public imported selectors.
@@ -212,14 +268,15 @@ func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
 				}
 				structType = node
 			case *ast.TypeSpec:
-				if node.Type == structType {
+				if xgoutil.DeclaredMemberType(node) == structType {
 					return node.Name.Name
 				}
 				return ""
 			case *ast.GenDecl:
 				if structType == nil && node == astFile.ClassFields {
-					name, _ := cl.GetFileClassType(astFile, proj.Fset.PositionFor(astFile.Pos(), false).Filename, proj.Module().LookupClass)
-					return name
+					if owner := typeInfo.ClassTypes[astFile]; owner != nil {
+						return owner.Obj().Name()
+					}
 				}
 				return ""
 			}
@@ -227,40 +284,49 @@ func findFieldOwnerType(proj *xgo.Project, field *gotypes.Var) string {
 		return ""
 	}
 
-	// Imported fields have no project AST. Only a unique containing type can
-	// identify their owner without a receiver expression.
+	// Imported fields have no project AST. Resolve a unique named owner or a
+	// public alias that exposes the original anonymous struct.
 	pkg := field.Pkg()
 	if pkg == nil {
 		return ""
 	}
-	var owner *gotypes.Named
+	var owner, alias string
 	for _, name := range pkg.Scope().Names() {
 		obj, ok := pkg.Scope().Lookup(name).(*gotypes.TypeName)
 		if !ok {
 			continue
 		}
-		named, ok := obj.Type().(*gotypes.Named)
-		if !ok {
-			continue
-		}
-		structType, ok := named.Underlying().(*gotypes.Struct)
-		if !ok {
-			continue
-		}
-		for member := range structType.Fields() {
-			if member != field {
+		switch typ := obj.Type().(type) {
+		case *gotypes.Named:
+			structure, ok := typ.Underlying().(*gotypes.Struct)
+			if !ok {
 				continue
 			}
-			if owner != nil {
-				return ""
+			for member := range structure.Fields() {
+				if member == field {
+					if owner != "" {
+						return ""
+					}
+					owner = name
+				}
 			}
-			owner = named
+		case *gotypes.Alias:
+			if alias != "" || !obj.Exported() {
+				continue
+			}
+			structure, ok := gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ))).(*gotypes.Struct)
+			if !ok {
+				continue
+			}
+			for member := range structure.Fields() {
+				if member.Origin() == field {
+					alias = name
+					break
+				}
+			}
 		}
 	}
-	if owner == nil {
-		return ""
-	}
-	return extractTypeName(owner)
+	return cmp.Or(owner, alias)
 }
 
 // interfaceMethodDeclaration resolves the owner name and source field of an
@@ -292,7 +358,7 @@ func interfaceMethodDeclaration(proj *xgo.Project, method *gotypes.Func) (string
 			}
 			iface = node
 		case *ast.TypeSpec:
-			if node.Type == iface {
+			if astutil.Unparen(node.Type) == iface {
 				return node.Name.Name, field
 			}
 			return "", field
@@ -301,16 +367,51 @@ func interfaceMethodDeclaration(proj *xgo.Project, method *gotypes.Func) (string
 	return "", field
 }
 
-// propertyTargetForCall resolves an explicit receiver from type information or
-// the implicit receiver from its classfile. An unresolved explicit receiver does
-// not fall back to the classfile's type.
-func propertyTargetForCall(proj *xgo.Project, file *ast.File, call *ast.CallExpr) *gotypes.Named {
-	if sel, ok := astutil.Unparen(call.Fun).(*ast.SelectorExpr); ok {
-		info, _ := expressionTypeInfo(proj)
-		if info == nil {
-			return nil
+// interfaceMethodAliasName finds a public alias for an anonymous interface
+// method, preferring the alias that declares the interface.
+func interfaceMethodAliasName(method *gotypes.Func) string {
+	pkg := method.Pkg()
+	if pkg == nil {
+		return ""
+	}
+	method = method.Origin()
+	receiver := gotypes.Unalias(method.Signature().Recv().Type())
+	scope := pkg.Scope()
+	var declared, public string
+	for _, name := range scope.Names() {
+		obj, ok := scope.Lookup(name).(*gotypes.TypeName)
+		if !ok {
+			continue
 		}
+		alias, ok := obj.Type().(*gotypes.Alias)
+		if !ok {
+			continue
+		}
+		if alias.Rhs() == receiver {
+			if obj.Exported() {
+				return name
+			}
+			declared = name
+		}
+		if public != "" || !obj.Exported() {
+			continue
+		}
+		if iface, ok := gotypes.Unalias(alias).(*gotypes.Interface); ok {
+			for candidate := range iface.ExplicitMethods() {
+				if candidate.Origin() == method {
+					public = name
+					break
+				}
+			}
+		}
+	}
+	return cmp.Or(public, declared)
+}
+
+// propertyTargetForCall returns the named type whose properties a call addresses.
+func propertyTargetForCall(info *types.Info, file *ast.File, call *ast.CallExpr) *gotypes.Named {
+	if sel, ok := astutil.Unparen(xgoutil.CallExprFun(call)).(*ast.SelectorExpr); ok {
 		return resolvedNamedType(info.TypeOf(sel.X))
 	}
-	return classTypeForFile(proj, file)
+	return classReceiverTypeAt(info, file, call.Pos())
 }

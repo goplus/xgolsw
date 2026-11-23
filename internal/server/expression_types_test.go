@@ -181,6 +181,41 @@ func take(values []string) {}
 		}
 	})
 
+	t.Run("ClassReceiverReuse", func(t *testing.T) {
+		const filename = "Record.gox"
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(`var (
+	first int = label
+	second int = label
+)
+func Label() int { return 1 }
+func Read() int { return label }
+func Choose = (
+	func() int { return label }
+	func(flag bool) int { return label }
+)
+`)})
+		proj := s.requestProject()
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		file, err := proj.ASTFile(filename)
+		require.NoError(t, err)
+
+		view := *info
+		view.ImplicitCallTypes = make(map[ast.Expr]gotypes.Type)
+		resolver := expressionTypeResolver{
+			proj:      proj,
+			info:      &view,
+			receivers: make(map[propertyReceiverKey]*autoPropertyResolver),
+		}
+		resolver.collect(file)
+
+		assert.Len(t, resolver.receivers, 1)
+		assert.Len(t, view.ImplicitCallTypes, 5)
+		for _, typ := range view.ImplicitCallTypes {
+			assert.Same(t, gotypes.Typ[gotypes.Int], typ)
+		}
+	})
+
 	t.Run("ReceiverInstantiations", func(t *testing.T) {
 		s := newImportTestServer(t, map[string][]byte{
 			"number.xgo": []byte(`import f "example.com/framework"

@@ -58,7 +58,7 @@ func frameworkBaseTypes(proj *xgo.Project) map[*gotypes.Named]struct{} {
 	if astPkg, _ := proj.ASTPackage(); astPkg != nil {
 		for filename, file := range astPkg.Files {
 			if file.IsClass {
-				if framework, ok := proj.Module().LookupClass(modfile.ClassExt(filename)); ok && len(framework.PkgPaths) != 0 {
+				if framework, ok := proj.Module().LookupClass(xgoutil.ClassfileExt(filename)); ok && len(framework.PkgPaths) != 0 {
 					implicitPackages[framework.PkgPaths[0]] = struct{}{}
 				}
 			}

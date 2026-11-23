@@ -1,57 +1,50 @@
 package pkgdoc
 
 import (
-	"github.com/goplus/mod/modfile"
 	"github.com/goplus/xgo/ast"
-	"github.com/goplus/xgo/cl"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
-// collectXGoDirectives records package and class declarations from raw comments.
-func (p *PkgDoc) collectXGoDirectives(pkg *ast.Package, lookupClass func(string) (*modfile.Project, bool)) {
-	for filename, file := range pkg.Files {
-		var className string
-		if file.IsClass {
-			className, _ = cl.GetFileClassType(file, filename, lookupClass)
-		}
-		for _, decl := range file.Decls {
-			switch decl := decl.(type) {
-			case *ast.GenDecl:
-				if decl == file.ClassFields && className == "" {
-					continue
-				}
-				for _, spec := range decl.Specs {
-					switch spec := spec.(type) {
-					case *ast.ValueSpec:
-						metadata := ParseDirectives(decl.Doc, spec.Doc)
-						if decl == file.ClassFields && len(spec.Names) == 0 {
-							if name := embeddedFieldName(spec.Type); name != "" {
-								p.recordDirectives(className+"."+name, metadata)
-							}
-						}
-						for _, name := range spec.Names {
-							key := name.Name
-							if decl == file.ClassFields {
-								key = className + "." + key
-							}
-							p.recordDirectives(key, metadata)
-						}
-					case *ast.TypeSpec:
-						p.recordDirectives(spec.Name.Name, ParseDirectives(decl.Doc, spec.Doc))
-						switch typ := spec.Type.(type) {
-						case *ast.StructType:
-							p.collectXGoFieldDirectives(spec.Name.Name, typ.Fields)
-						case *ast.InterfaceType:
-							p.collectXGoFieldDirectives(spec.Name.Name, typ.Methods)
+// collectXGoFileDirectives records directives under the file's resolved class name.
+func (p *PkgDoc) collectXGoFileDirectives(file *ast.File, className string, classFields *ast.GenDecl) {
+	for _, decl := range file.Decls {
+		switch decl := decl.(type) {
+		case *ast.GenDecl:
+			if skipClassVarDecl(file, decl, classFields) {
+				continue
+			}
+			for _, spec := range decl.Specs {
+				switch spec := spec.(type) {
+				case *ast.ValueSpec:
+					metadata := ParseDirectives(decl.Doc, spec.Doc)
+					if decl == classFields && len(spec.Names) == 0 {
+						if field := xgoutil.EmbeddedFieldIdent(spec.Type); field != nil {
+							p.recordDirectives(className+"."+field.Name, metadata)
 						}
 					}
+					for _, name := range spec.Names {
+						key := name.Name
+						if decl == classFields {
+							key = className + "." + key
+						}
+						p.recordDirectives(key, metadata)
+					}
+				case *ast.TypeSpec:
+					p.recordDirectives(spec.Name.Name, ParseDirectives(decl.Doc, spec.Doc))
+					switch typ := xgoutil.DeclaredMemberType(spec).(type) {
+					case *ast.StructType:
+						p.collectXGoFieldDirectives(spec.Name.Name, typ.Fields)
+					case *ast.InterfaceType:
+						p.collectXGoFieldDirectives(spec.Name.Name, typ.Methods)
+					}
 				}
-			case *ast.FuncDecl:
-				if !decl.Shadow {
-					p.recordXGoFunctionDirectives(file, className, decl.Name.Name, decl.Recv, decl.Doc)
-				}
-			case *ast.OverloadFuncDecl:
+			}
+		case *ast.FuncDecl:
+			if !decl.Shadow && !decl.Static {
 				p.recordXGoFunctionDirectives(file, className, decl.Name.Name, decl.Recv, decl.Doc)
 			}
+		case *ast.OverloadFuncDecl:
+			p.recordXGoFunctionDirectives(file, className, decl.Name.Name, decl.Recv, decl.Doc)
 		}
 	}
 }
@@ -63,11 +56,11 @@ func (p *PkgDoc) recordXGoFunctionDirectives(file *ast.File, className, name str
 		if len(recv.List) != 1 {
 			return
 		}
-		owner := embeddedFieldName(recv.List[0].Type)
-		if owner == "" {
+		owner := xgoutil.EmbeddedFieldIdent(recv.List[0].Type)
+		if owner == nil {
 			return
 		}
-		name = owner + "." + name
+		name = owner.Name + "." + name
 	} else if file.IsClass || file.ClassFields != nil {
 		if className == "" {
 			return
@@ -82,8 +75,8 @@ func (p *PkgDoc) collectXGoFieldDirectives(owner string, fields *ast.FieldList) 
 	for _, field := range fields.List {
 		metadata := ParseDirectives(field.Doc)
 		if len(field.Names) == 0 {
-			if name := embeddedFieldName(field.Type); name != "" {
-				p.recordDirectives(owner+"."+name, metadata)
+			if ident := xgoutil.EmbeddedFieldIdent(field.Type); ident != nil {
+				p.recordDirectives(owner+"."+ident.Name, metadata)
 			}
 		}
 		for _, name := range field.Names {

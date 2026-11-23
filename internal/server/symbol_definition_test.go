@@ -21,7 +21,23 @@ func TestFieldDocumentation(t *testing.T) {
 		"Broken": {Fields: map[string]string{"Value": "Unresolved documentation."}},
 		"Record": {Fields: map[string]string{"Value": "Field documentation."}},
 	}}
-	assert.Equal(t, "Field documentation.", fieldDocumentation(field, doc))
+	assert.Equal(t, "Field documentation.", memberDocumentation(field, doc))
+}
+
+func TestSymbolDefinitionMethodReceiverAlias(t *testing.T) {
+	pkg := gotypes.NewPackage("example.com/types", "types")
+	owner := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Record", nil), gotypes.NewStruct(nil, nil), nil)
+	alias := gotypes.NewAlias(gotypes.NewTypeName(token.NoPos, pkg, "Alias", nil), owner)
+	recv := gotypes.NewParam(token.NoPos, pkg, "", gotypes.NewPointer(alias))
+	signature := gotypes.NewSignatureType(recv, nil, nil, nil, nil, false)
+	method := gotypes.NewFunc(token.NoPos, pkg, "Read", signature)
+	doc := &pkgdoc.PkgDoc{Types: map[string]*pkgdoc.TypeDoc{
+		"Record": {Methods: map[string]string{"Read": "Declaration documentation."}},
+	}}
+
+	def := (typeDisplay{}).definitionForFunc(method, "", doc)
+	assert.Equal(t, "xgo:example.com/types?Record.read", def.ID.String())
+	assert.Equal(t, "Declaration documentation.", def.Detail)
 }
 
 func TestSymbolDefinitionMemberPackage(t *testing.T) {
@@ -53,6 +69,29 @@ func TestSymbolDefinitionMemberPackage(t *testing.T) {
 					assert.Equal(t, "Declaration documentation.", methodDef.Detail)
 				})
 			}
+		})
+	}
+}
+
+func TestServerParenthesizedMemberDefinitions(t *testing.T) {
+	for _, tt := range []struct {
+		name, source, want string
+	}{
+		{name: "Field", source: "type Record ((struct { Va|lue int }))\n", want: "Record.Value"},
+		{name: "Method", source: "type Reader ((interface { Re|ad() int }))\n", want: "Reader.Read"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "main.xgo"
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			requireNoDiagnostics(t, s)
+			hover, err := s.textDocumentHover(&HoverParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(filename)}, Position: pos,
+			}})
+			require.NoError(t, err)
+			require.NotNil(t, hover)
+			assert.Contains(t, hover.Contents.Value, `def-id="xgo:main?`+tt.want+`"`)
 		})
 	}
 }
