@@ -122,6 +122,8 @@ func TestAnalyzeFrameworkCache(t *testing.T) {
 		files := maps.Collect(proj.Files())
 		s.fileMapGetter = func() map[string]*xgo.File { return maps.Clone(files) }
 		params := &DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main_fixture.gox"}}
+		beforeTypes, err := s.requestProject().TypeInfo()
+		require.NoError(t, err)
 		for version, tt := range []struct {
 			name      string
 			wantLinks bool
@@ -138,7 +140,23 @@ func TestAnalyzeFrameworkCache(t *testing.T) {
 				}))
 			}
 			assert.Equal(t, before+1, builds.Load())
+			afterTypes, err := s.requestProject().TypeInfo()
+			require.NoError(t, err)
+			assert.Same(t, beforeTypes, afterTypes)
 		}
+	})
+
+	t.Run("CompletionWithoutResources", func(t *testing.T) {
+		s := newFrameworkTestServer(t, map[string][]byte{"main.xgo": []byte("import \"example.com/framework\"\n")})
+		t.Cleanup(s.Close)
+		var builds int
+		s.getProj().RegisterCacheBuilder(frameworkAnalysisCacheKind{}, func(proj *xgo.Project) (any, error) {
+			builds++
+			return buildFrameworkAnalysisCache(proj)
+		})
+		items := completionItemsAt(t, s, "main.xgo", Position{Character: 20})
+		require.NotEmpty(t, items)
+		assert.Zero(t, builds)
 	})
 
 	t.Run("ReferencedConstantChanges", func(t *testing.T) {

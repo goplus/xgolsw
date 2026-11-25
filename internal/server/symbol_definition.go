@@ -57,6 +57,9 @@ func (def symbolDefinition) html() string {
 
 // markupContent constructs markup content from the definition.
 func (def symbolDefinition) markupContent(kind MarkupKind) MarkupContent {
+	if kind == Markdown {
+		return MarkupContent{Kind: Markdown, Value: def.html()}
+	}
 	plainText := def.Overview
 	if detail := strings.TrimSpace(def.Detail); detail != "" {
 		if plainText != "" {
@@ -64,20 +67,28 @@ func (def symbolDefinition) markupContent(kind MarkupKind) MarkupContent {
 		}
 		plainText += detail
 	}
-	return markupContent(kind, def.html(), plainText)
+	return MarkupContent{Kind: PlainText, Value: plainText}
 }
 
 // completionItem constructs a [CompletionItem] from the definition.
 func (def symbolDefinition) completionItem(documentationKind MarkupKind) CompletionItem {
+	// Keep the fields referenced by the completion item in one allocation.
+	data := struct {
+		definition XGoDefinitionIdentifier
+		format     InsertTextFormat
+		itemData   CompletionItemData
+	}{
+		definition: def.ID,
+		format:     def.CompletionItemInsertTextFormat,
+	}
+	data.itemData.Definition = &data.definition
 	return CompletionItem{
 		Label:            def.CompletionItemLabel,
 		Kind:             def.CompletionItemKind,
 		Documentation:    completionDocumentation(def.markupContent(documentationKind)),
 		InsertText:       def.CompletionItemInsertText,
-		InsertTextFormat: &def.CompletionItemInsertTextFormat,
-		Data: &CompletionItemData{
-			Definition: &def.ID,
-		},
+		InsertTextFormat: &data.format,
+		Data:             &data.itemData,
 	}
 }
 

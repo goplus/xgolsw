@@ -11,6 +11,7 @@ import (
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/scanner"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -90,7 +91,18 @@ func (s *Server) textDocumentSemanticTokensFull(params *SemanticTokensParams) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.requestProject()
+	proj, cache := s.requestDocument(filename)
+	if cache == nil {
+		return nil, nil
+	}
+	return cache.tokens.get(func() (*SemanticTokens, error) {
+		return semanticTokensFull(proj, filename)
+	})
+}
+
+// semanticTokensFull collects full semantic tokens for a document in proj.
+func semanticTokensFull(proj *xgo.Project, filename string) (*SemanticTokens, error) {
+	proj.TypeInfo()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil

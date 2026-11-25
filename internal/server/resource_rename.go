@@ -127,7 +127,7 @@ func (s *Server) renameResourcesAtRefs(proj *xgo.Project, result *resourceAnalys
 	seen := make(map[DocumentURI]map[TextEdit]bool)
 	addEdit := func(node ast.Node, name string, quoted bool) error {
 		if expr, ok := node.(ast.Expr); ok && quoted {
-			if literal, _ := resourceStringLiteral(expr, info); literal != nil {
+			if literal := resourceStringLiteral(expr, info); literal != nil {
 				node = literal
 			}
 		}

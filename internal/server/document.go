@@ -7,6 +7,7 @@ import (
 
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/xgo"
 	"github.com/goplus/xgolsw/xgo/xgoutil"
 )
 
@@ -16,7 +17,18 @@ func (s *Server) textDocumentDocumentLink(params *DocumentLinkParams) ([]Documen
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", params.TextDocument.URI, err)
 	}
-	proj := s.requestProject()
+	proj, cache := s.requestDocument(filename)
+	if cache == nil {
+		return nil, nil
+	}
+	return cache.links.get(func() ([]DocumentLink, error) {
+		return s.documentLinks(proj, filename)
+	})
+}
+
+// documentLinks collects links to symbols and resources in filename.
+func (s *Server) documentLinks(proj *xgo.Project, filename string) ([]DocumentLink, error) {
+	proj.TypeInfo()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil

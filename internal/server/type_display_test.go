@@ -319,6 +319,37 @@ run()
 			assert.Equal(t, tt.want, name)
 		})
 	}
+
+	t.Run("SourceQualifierWithCachedDisplay", func(t *testing.T) {
+		const filename = "main_fixture.gox"
+		source, position := typeDisplayTestSource(t, `import a "example.com/support/v2"
+import b "example.com/support/v2"
+var (
+	a int
+	value b.Name
+)
+echo |value
+`)
+		s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+		t.Cleanup(s.Close)
+		proj := s.requestProject()
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		file, err := proj.ASTFile(filename)
+		require.NoError(t, err)
+		_, obj, _ := objectAtPosition(proj, info, file, ToPosition(proj, file, position))
+		require.NotNil(t, obj)
+
+		display := newTypeDisplay(proj, file, PosAt(proj, file, position))
+		display.typeStrings = make(map[gotypes.Type]string)
+		typ := obj.Type()
+		assert.Equal(t, "a.Name", display.typeString(typ))
+		assert.Equal(t, "a.Name", display.typeStrings[typ])
+		name, ok := display.sourceTypeString(typ)
+		require.True(t, ok)
+		assert.Equal(t, "b.Name", name)
+		assert.Equal(t, "a.Name", display.typeString(typ))
+	})
 }
 
 func TestTypeDisplaySourceContexts(t *testing.T) {

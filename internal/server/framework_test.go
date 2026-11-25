@@ -155,7 +155,6 @@ func TestCompletionContextFrameworkEventHandlers(t *testing.T) {
 				ctx.framework = newFrameworkDefinitionTestContext(t, s).framework
 				ctx.frameworkResolved = true
 			}
-			require.Nil(t, ctx.frameworkResult)
 			ctx.analyze()
 			assert.Equal(t, tt.wantEvent, ctx.inFrameworkEventHandler)
 			require.NoError(t, ctx.collect())

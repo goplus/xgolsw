@@ -34,6 +34,12 @@ type FileCacheBuilder = func(proj *Project, path string, file *File) (any, error
 // CacheKind represents a kind of cache.
 type CacheKind = any
 
+// cacheRegistration describes how a project cache is built and invalidated.
+type cacheRegistration struct {
+	build      CacheBuilder
+	sourceOnly bool
+}
+
 // fileCacheKey represents a key for file-level cache entries.
 // It combines a cache kind with a file path to uniquely identify cached data.
 type fileCacheKey struct {
@@ -58,7 +64,18 @@ type cacheBuildResult struct {
 func (p *Project) RegisterCacheBuilder(kind CacheKind, builder func(root *Project) (any, error)) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.cacheBuilders[kind] = builder
+	p.cacheBuilders[kind] = cacheRegistration{build: builder}
+	p.sourceRevision = new(byte)
+}
+
+// RegisterSourceCacheBuilder registers a project cache that depends only on
+// source files and project configuration. Successful entries can be reused by
+// [Project.ForkWithSourceCaches], so their values must be safe to share.
+func (p *Project) RegisterSourceCacheBuilder(kind CacheKind, builder CacheBuilder) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cacheBuilders[kind] = cacheRegistration{build: builder, sourceOnly: true}
+	p.sourceRevision = new(byte)
 }
 
 // RegisterFileCacheBuilder registers a file level cache builder.
@@ -73,11 +90,13 @@ func (p *Project) RegisterFileCacheBuilder(kind CacheKind, builder func(proj *Pr
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.fileCacheBuilders[kind] = builder
+	p.sourceRevision = new(byte)
 }
 
 // Cache gets a project level cache. It builds the cache if it doesn't exist.
 //
-// The kind must be the same comparable value that was used with [Project.RegisterCacheBuilder].
+// The kind must be the same comparable value that was used with
+// [Project.RegisterCacheBuilder] or [Project.RegisterSourceCacheBuilder].
 func (p *Project) Cache(kind CacheKind) (any, error) {
 	for {
 		p.mu.RLock()
@@ -91,7 +110,7 @@ func (p *Project) Cache(kind CacheKind) (any, error) {
 		data, err, _ := p.cacheSFG.Do(fmt.Sprintf("%T-%v", kind, kind), func() (any, error) {
 			p.mu.RLock()
 			v, cached := p.caches[kind]
-			builder, ok := p.cacheBuilders[kind]
+			registration, ok := p.cacheBuilders[kind]
 			build := cacheBuildResult{revision: p.cacheRevision}
 			p.mu.RUnlock()
 			// Another call may have completed between the first lookup and singleflight.
@@ -105,7 +124,7 @@ func (p *Project) Cache(kind CacheKind) (any, error) {
 			}
 
 			var err error
-			build.data, err = builder(p)
+			build.data, err = registration.build(p)
 
 			p.mu.Lock()
 			// An edit during the build must not restore an invalidated cache entry.
@@ -176,10 +195,16 @@ func (p *Project) FileCache(kind CacheKind, path string) (any, error) {
 	}
 }
 
-// deleteFileCache deletes file-specific caches for the given path. It also
+// deleteFileCache deletes file-specific caches for the given paths. It also
 // clears project-level caches implicitly if necessary.
-func (p *Project) deleteFileCache(path string) {
+func (p *Project) deleteFileCache(paths ...string) {
 	p.cacheRevision++
+	for _, path := range paths {
+		if p.module.isSourceFile(path) {
+			p.sourceRevision = new(byte)
+			break
+		}
+	}
 	clear(p.caches)
 	if p.sharedAST {
 		// Discard this project's shared syntax so type checking rebuilds it
@@ -188,8 +213,10 @@ func (p *Project) deleteFileCache(path string) {
 		p.sharedAST = false
 		return
 	}
-	for kind := range p.fileCacheBuilders {
-		delete(p.fileCaches, fileCacheKey{kind, path})
+	for _, path := range paths {
+		for kind := range p.fileCacheBuilders {
+			delete(p.fileCaches, fileCacheKey{kind, path})
+		}
 	}
 }
 

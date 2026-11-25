@@ -37,7 +37,7 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 		inspect := func(value resourceValue) bool {
 			value.Expr = astutil.Unparen(value.Expr)
 			expr := value.Expr
-			literal, converted := resourceStringLiteral(expr, info)
+			literal := resourceStringLiteral(expr, info)
 			if literal != nil {
 				expr = literal
 			}
@@ -49,8 +49,13 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 			id, recognized := resolve(value)
 			if recognized {
 				contextual[value.Expr] = struct{}{}
-				for _, expr := range converted {
-					contextual[expr] = struct{}{}
+				// Each call on the path to a resolved literal has one argument
+				// and evaluates to a string constant.
+				if literal != nil {
+					for source := value.Expr; source != literal; {
+						source = astutil.Unparen(source.(*ast.CallExpr).Args[0])
+						contextual[source] = struct{}{}
+					}
 				}
 			}
 			if id == nil {
@@ -75,7 +80,7 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 					if call == nil {
 						return true
 					}
-					if literal, _ := resourceStringLiteral(call, info); literal != nil {
+					if resourceStringLiteral(call, info) != nil {
 						conversions = append(conversions, call)
 						return true
 					}
@@ -127,18 +132,15 @@ func resourceReferences(proj *xgo.Project, resolve func(resourceValue) (resource
 }
 
 // resourceStringLiteral finds a literal through single-argument calls that the
-// compiler evaluates to constant strings, including type conversions. The
-// returned nodes retain the expressions whose intrinsic types the reference supersedes.
+// compiler evaluates to constant strings, including type conversions.
 // Conversions of identifiers or numeric values are not literal references.
-func resourceStringLiteral(expr ast.Expr, info *types.Info) (*ast.BasicLit, []ast.Expr) {
-	var converted []ast.Expr
+func resourceStringLiteral(expr ast.Expr, info *types.Info) *ast.BasicLit {
 	for {
 		expr = astutil.Unparen(expr)
-		converted = append(converted, expr)
 		switch node := expr.(type) {
 		case *ast.BasicLit:
 			if node.Kind == token.STRING {
-				return node, converted
+				return node
 			}
 		case *ast.CallExpr:
 			value := info.Types[node].Value
@@ -147,6 +149,6 @@ func resourceStringLiteral(expr ast.Expr, info *types.Info) (*ast.BasicLit, []as
 				continue
 			}
 		}
-		return nil, nil
+		return nil
 	}
 }

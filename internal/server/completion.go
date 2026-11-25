@@ -59,10 +59,12 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	display := newTypeDisplay(proj, astFile, pos)
+	display.typeStrings = make(map[gotypes.Type]string)
 	ctx := &completionContext{
 		definitionContext: definitionContext{
 			proj:         proj,
-			typeDisplay:  newTypeDisplay(proj, astFile, pos),
+			typeDisplay:  display,
 			enumInfo:     enums,
 			lookupPkgDoc: s.lookupPkgDoc,
 		},
@@ -79,14 +81,6 @@ func (s *Server) textDocumentCompletion(params *CompletionParams) (any, error) {
 	}
 	ctx.itemSet.typeInfo = typeInfo
 	ctx.itemSet.notRecommended = newNotRecommendedDeclarations(proj, s.lookupPkgDoc).hasDefinition
-	ctx.frameworkResult, err = analyzeFramework(proj)
-	if err != nil {
-		return nil, err
-	}
-	if ctx.frameworkResult != nil {
-		ctx.framework = ctx.frameworkResult.adapter
-		ctx.frameworkResolved = true
-	}
 	ctx.analyze()
 	if err := ctx.collect(); err != nil {
 		return nil, fmt.Errorf("failed to collect completion items: %w", err)
@@ -130,15 +124,14 @@ type completionContext struct {
 	itemSet  *completionItemSet
 	listPkgs func() ([]string, error)
 
-	typeInfo        *types.Info
-	frameworkResult *frameworkAnalysis
-	filename        string
-	astFile         *ast.File
-	astFileScope    *gotypes.Scope
-	tokenFile       *token.File
-	pos             token.Pos // Position used for AST lookup.
-	sourcePos       token.Pos // Physical cursor position used for edits.
-	innermostScope  *gotypes.Scope
+	typeInfo       *types.Info
+	filename       string
+	astFile        *ast.File
+	astFileScope   *gotypes.Scope
+	tokenFile      *token.File
+	pos            token.Pos // Position used for AST lookup.
+	sourcePos      token.Pos // Physical cursor position used for edits.
+	innermostScope *gotypes.Scope
 
 	kind completionKind
 
@@ -789,8 +782,14 @@ func (ctx *completionContext) collectGeneral() error {
 	}
 	ctx.addVisibleEnumMembers(enumContext.expectedTypes...)
 
-	if ctx.frameworkResult != nil && ctx.frameworkResult.collectCompletions != nil {
-		ctx.frameworkResult.collectCompletions(ctx)
+	if ctx.stringLit != nil || len(ctx.expectedTypes) != 0 {
+		framework, err := analyzeFramework(ctx.proj)
+		if err != nil {
+			return err
+		}
+		if framework != nil && framework.collectCompletions != nil {
+			framework.collectCompletions(ctx)
+		}
 	}
 
 	if ctx.inStringLit {
@@ -879,7 +878,7 @@ func (ctx *completionContext) collectGeneral() error {
 		// over package declarations and imports.
 		if scope == pkg.Scope() && classType != nil &&
 			!ctx.typeExpression && !(ctx.kind == completionKindDecl && ctx.declValueSpec.Values == nil) {
-			resolver := autoPropertyResolver{proj: ctx.proj, receiver: receiver}
+			resolver := newClassAutoPropertyResolver(ctx.proj, receiver)
 			for member := range xgoutil.StructMembers(classType, ctx.isFrameworkBaseType) {
 				if ctx.inFrameworkEventHandler && ctx.isFrameworkEventHandler(member.Member) {
 					continue
@@ -895,7 +894,7 @@ func (ctx *completionContext) collectGeneral() error {
 					return ctx.isFrameworkEventHandler(def.SourceObject)
 				})
 			}
-			defs = ctx.appendAutoPropertyDefinitions(&resolver, defs)
+			defs = ctx.appendAutoPropertyDefinitions(resolver, defs)
 			for _, def := range defs {
 				if def.Implementation == nil {
 					continue
@@ -919,7 +918,7 @@ func (ctx *completionContext) collectGeneral() error {
 			}
 			for _, def := range defs {
 				var ok bool
-				if def, ok = ctx.instanceCompletionDefinition(&resolver, def, autoProperty); !ok {
+				if def, ok = ctx.instanceCompletionDefinition(resolver, def, autoProperty); !ok {
 					continue
 				}
 				addDefinitions(seenNames, def)

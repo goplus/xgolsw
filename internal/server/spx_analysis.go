@@ -160,7 +160,7 @@ func inspectForSpxResourceRefs(proj *xgo.Project, result *spxAnalysis) {
 			return sprite
 		})
 		if id != nil {
-			if literal, _ := resourceStringLiteral(value.Expr, info); literal != nil {
+			if literal := resourceStringLiteral(value.Expr, info); literal != nil {
 				result.resourceLiterals[literal] = value
 			}
 		}

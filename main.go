@@ -288,12 +288,14 @@ func ConvertJSFilesToMap(files js.Value, previous map[string]*xgo.File) map[stri
 	if files.Type() != js.TypeObject {
 		return nil
 	}
-	keys := js.Global().Get("Object").Call("keys", files)
-	result := make(map[string]*xgo.File, keys.Length())
-	for i := range keys.Length() {
+	object := js.Global().Get("Object")
+	keys := object.Call("keys", files)
+	count := keys.Length()
+	result := make(map[string]*xgo.File, count)
+	for i := range count {
 		key := keys.Index(i).String()
 		value := files.Get(key)
-		if value.InstanceOf(js.Global().Get("Object")) {
+		if value.InstanceOf(object) {
 			modTime := time.UnixMilli(int64(value.Get("modTime").Int()))
 			if old, ok := previous[key]; ok && old.ModTime.Equal(modTime) {
 				result[key] = old

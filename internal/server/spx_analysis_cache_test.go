@@ -24,6 +24,55 @@ func requireFrameworkAnalysis(t testing.TB, proj *xgo.Project) *frameworkAnalysi
 }
 
 func TestBuildFrameworkAnalysisCache(t *testing.T) {
+	t.Run("SDKImportRecovery", func(t *testing.T) {
+		files := newFileMap(map[string][]byte{
+			"main.spx":                       []byte("play \"Known\"\n"),
+			"assets/index.json":              []byte(`{}`),
+			"assets/sounds/Known/index.json": []byte(`{}`),
+		})
+		s := newSpxTestServer(t, nil)
+		t.Cleanup(s.Close)
+		s.fileMapGetter = func() map[string]*xgo.File { return files }
+		proj := s.getProj()
+		base := proj.Importer
+		unavailable := false
+		proj.Importer = &struct{ gotypes.Importer }{testImporterFunc(func(path string) (*gotypes.Package, error) {
+			if path == SpxPkgPath && unavailable {
+				return nil, assert.AnError
+			}
+			return base.Import(path)
+		})}
+		before := s.requestProject()
+		checked, err := before.TypeInfo()
+		require.NoError(t, err)
+		file, err := before.ASTFile("main.spx")
+		require.NoError(t, err)
+		params := &DocumentLinkParams{TextDocument: TextDocumentIdentifier{URI: "file:///main.spx"}}
+		const target = "spx://resources/sounds/Known"
+
+		unavailable = true
+		imports := importsForFile(before, file)
+		require.NotNil(t, imports)
+		assert.Empty(t, imports.members)
+		links, err := s.textDocumentDocumentLink(params)
+		require.NoError(t, err)
+		assert.NotContains(t, documentLinkTargets(t, links), target)
+
+		unavailable = false
+		files["assets/sounds/Other/index.json"] = &xgo.File{Content: []byte(`{}`)}
+		links, err = s.textDocumentDocumentLink(params)
+		require.NoError(t, err)
+		assert.Contains(t, documentLinkTargets(t, links), target)
+		after := s.requestProject()
+		current, err := after.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, checked, current)
+		imports = importsForFile(after, file)
+		require.NotNil(t, imports)
+		require.Len(t, imports.members, 1)
+		assert.Equal(t, SpxPkgPath, imports.members[0].Path())
+	})
+
 	t.Run("PreserveAnalyzedSyntax", func(t *testing.T) {
 		s := newSpxTestServer(t, map[string][]byte{
 			"main.spx": []byte(`func work() {
@@ -143,7 +192,6 @@ play "Missing"
 				})
 				proj := s.getProj()
 				first := requireFrameworkAnalysis(t, proj)
-				assert.Same(t, resolveFrameworkAdapter(proj), first.adapter)
 				oldLinks := first.resources.resourceDocumentLinks(proj, "main.spx")
 				require.Len(t, oldLinks, 1)
 				oldDiagnostics := resourceDiagnostics(s, first.resources)

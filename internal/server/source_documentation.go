@@ -62,21 +62,42 @@ func (r *definitionContext) sourceDocumentation(obj gotypes.Object) (string, boo
 			return doc.Text(), true
 		}
 	}
+	var fieldIdent *ast.Ident
+	if field, ok := obj.(*gotypes.Var); ok && field.IsField() && !field.Embedded() {
+		info, _ := r.proj.TypeInfo()
+		if ident := info.ObjToDef[field.Origin()]; ident != nil && !ident.Implicit() && ident.Pos() == pos {
+			if r.pendingStructFields != nil {
+				r.indexStructFields(r.pendingStructFields)
+				r.pendingStructFields = nil
+			}
+			if decl := r.structFields[ident]; decl != nil {
+				return fieldDocumentation(decl), true
+			}
+			fieldIdent = ident
+		}
+	}
 	declares := func(names []*ast.Ident) bool {
 		return slices.ContainsFunc(names, func(name *ast.Ident) bool { return name.Pos() == pos })
 	}
 	var spec ast.Spec
 	var trailing string
-	for node := range xgoutil.PathEnclosingIntervalNodes(file, pos, pos, false) {
+	path, _ := xgoutil.PathEnclosingInterval(file, pos, pos)
+	for i, node := range path {
 		switch node := node.(type) {
 		case *ast.Field:
 			if len(node.Names) != 0 && !declares(node.Names) {
 				return "", true
 			}
-			if doc := node.Doc.Text(); doc != "" {
-				return doc, true
+			if fieldIdent != nil && i+2 < len(path) && slices.Contains(node.Names, fieldIdent) {
+				if owner, ok := path[i+2].(*ast.StructType); ok && path[i+1] == owner.Fields {
+					if r.structFields == nil {
+						r.pendingStructFields = owner.Fields
+					} else {
+						r.indexStructFields(owner.Fields)
+					}
+				}
 			}
-			return node.Comment.Text(), true
+			return fieldDocumentation(node), true
 		case *ast.ValueSpec:
 			if len(node.Names) == 0 {
 				field := xgoutil.EmbeddedFieldIdent(node.Type)
@@ -122,6 +143,31 @@ func (r *definitionContext) sourceDocumentation(obj gotypes.Object) (string, boo
 		}
 	}
 	return "", true
+}
+
+// fieldDocumentation returns a field's leading or trailing documentation.
+func fieldDocumentation(field *ast.Field) string {
+	if doc := field.Doc.Text(); doc != "" {
+		return doc
+	}
+	return field.Comment.Text()
+}
+
+// indexStructFields records sibling fields so bulk requests can reuse the
+// declaration lookup without walking unrelated parts of the file.
+func (r *definitionContext) indexStructFields(fields *ast.FieldList) {
+	if r.structFields == nil {
+		r.structFields = make(map[*ast.Ident]*ast.Field, len(fields.List))
+	}
+	for _, field := range fields.List {
+		for _, name := range field.Names {
+			if previous, found := r.structFields[name]; found && previous != field {
+				r.structFields[name] = nil
+			} else {
+				r.structFields[name] = field
+			}
+		}
+	}
 }
 
 // sourceFunctionComment indexes top-level function declarations once per file

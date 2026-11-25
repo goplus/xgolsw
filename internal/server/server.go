@@ -77,15 +77,18 @@ func New(
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error),
 ) *Server {
 	ctx, cancel := context.WithCancelCause(context.Background())
+	proj.RegisterSourceCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
+	proj.RegisterSourceCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
+	proj.RegisterSourceCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
+	proj.RegisterSourceCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
+	proj.RegisterSourceCacheBuilder(classAutoPropertyCacheKind{}, buildClassAutoPropertyCache)
+	// These lookups can recover independently of the checked source.
 	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
-	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
-	proj.RegisterCacheBuilder(enumInfoCacheKind{}, buildEnumInfoCache)
-	proj.RegisterCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
-	proj.RegisterCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
 	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)
-	proj.RegisterCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
+	proj.RegisterCacheBuilder(frameworkAnalysisCacheKind{}, buildFrameworkAnalysisCache)
 	proj.RegisterCacheBuilder(diagnosticCacheKind{}, buildDiagnosticCache)
 	proj.RegisterFileCacheBuilder(notRecommendedFileCacheKind{}, buildNotRecommendedFileCache)
+	proj.RegisterFileCacheBuilder(documentCacheKind{}, buildDocumentCache)
 	return &Server{
 		ctx:              ctx,
 		cancel:           cancel,

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/goplus/xgo/token"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -174,6 +175,296 @@ func TestProjectFork(t *testing.T) {
 		assert.Equal(t, "changed", value)
 		_, err = fork.ASTPackage()
 		assert.ErrorIs(t, err, ErrUnknownCacheKind)
+	})
+}
+
+func TestProjectForkWithSourceCaches(t *testing.T) {
+	t.Run("ResourceChanges", func(t *testing.T) {
+		proj := newFrameworkTestProject(t, map[string]*File{
+			"main_fixture.gox": file(""),
+			"score.xgo":        file("var score int\n"),
+			"resources.json":   file("\"before\""),
+		}, FeatAll)
+		proj.RegisterSourceCacheBuilder("source", func(p *Project) (any, error) {
+			return p.TypeInfo()
+		})
+		proj.RegisterCacheBuilder("resource", func(p *Project) (any, error) {
+			resource, _ := p.File("resources.json")
+			return string(resource.Content), nil
+		})
+		before := proj.ForkWithSourceCaches(nil)
+		info, err := before.TypeInfo()
+		require.NoError(t, err)
+		syntax, err := before.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		sourceFile := before.Fset.File(syntax.Pos())
+		require.NotNil(t, sourceFile)
+		beforeBase := before.Fset.Base()
+		source, err := before.Cache("source")
+		require.NoError(t, err)
+		require.Same(t, info, source)
+		resource, err := before.Cache("resource")
+		require.NoError(t, err)
+		require.Equal(t, "\"before\"", resource)
+
+		proj.UpdateFiles(map[string]*File{
+			"main_fixture.gox": file(""),
+			"score.xgo":        file("var score int\n"),
+			"resources.json":   {Content: []byte("\"after\""), ModTime: time.Unix(1, 0)},
+		})
+		after := proj.ForkWithSourceCaches(before)
+		assert.NotSame(t, before.Fset, after.Fset)
+		assert.Same(t, sourceFile, after.Fset.File(syntax.Pos()))
+		afterInfo, err := after.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, info, afterInfo)
+		afterSyntax, err := after.ASTFile("main_fixture.gox")
+		require.NoError(t, err)
+		assert.Same(t, syntax, afterSyntax)
+		source, err = after.Cache("source")
+		require.NoError(t, err)
+		assert.Same(t, info, source)
+		resource, err = after.Cache("resource")
+		require.NoError(t, err)
+		assert.Equal(t, "\"after\"", resource)
+		resource, err = before.Cache("resource")
+		require.NoError(t, err)
+		assert.Equal(t, "\"before\"", resource)
+
+		after.PutFile("score.xgo", file("var score string\n"))
+		changed, err := after.TypeInfo()
+		require.NoError(t, err)
+		assert.NotSame(t, info, changed)
+		assert.Equal(t, beforeBase, before.Fset.Base())
+		beforeScore := info.Pkg.Scope().Lookup("score")
+		afterScore := changed.Pkg.Scope().Lookup("score")
+		require.NotNil(t, beforeScore)
+		require.NotNil(t, afterScore)
+		assert.Equal(t, "int", beforeScore.Type().String())
+		assert.Equal(t, "string", afterScore.Type().String())
+	})
+
+	t.Run("NoSourceFiles", func(t *testing.T) {
+		proj := newTestProject(t, nil, FeatAll)
+		before := proj.Fork()
+		info, err := before.TypeInfo()
+		require.NoError(t, err)
+
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		afterInfo, err := after.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, info, afterInfo)
+		assert.Equal(t, token.NewFileSet().Base(), after.Fset.Base())
+	})
+
+	t.Run("SourceCacheError", func(t *testing.T) {
+		proj := newTestProject(t, nil, FeatAll)
+		builds := 0
+		proj.RegisterSourceCacheBuilder("source", func(*Project) (any, error) {
+			builds++
+			if builds == 1 {
+				return nil, assert.AnError
+			}
+			return "ready", nil
+		})
+		before := proj.Fork()
+		info, err := before.TypeInfo()
+		require.NoError(t, err)
+		for range 2 {
+			_, err := before.Cache("source")
+			require.ErrorIs(t, err, assert.AnError)
+		}
+		assert.Equal(t, 1, builds)
+
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		afterInfo, err := after.TypeInfo()
+		require.NoError(t, err)
+		assert.Same(t, info, afterInfo)
+		value, err := after.Cache("source")
+		require.NoError(t, err)
+		assert.Equal(t, "ready", value)
+	})
+
+	t.Run("SourceTypeError", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("var score Missing\n")}, FeatAll)
+		before := proj.Fork()
+		info, err := before.TypeInfo()
+		require.ErrorContains(t, err, "Missing is not a type")
+
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		afterInfo, err := after.TypeInfo()
+		require.ErrorContains(t, err, "Missing is not a type")
+		assert.Same(t, info, afterInfo)
+	})
+
+	for _, tt := range []struct {
+		name, filename, source string
+	}{
+		{"ExplicitImportRecovery", "main.xgo", `import "example.com/framework"
+echo framework.High
+`},
+		{"ImplicitImportRecovery", "main_fixture.gox", "println measure(1)\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			proj := newFrameworkTestProject(t, map[string]*File{tt.filename: file(tt.source)}, FeatAll)
+			base := proj.Importer
+			available := false
+			proj.Importer = &struct{ gotypes.Importer }{pkgDocTestImporter(func(path string) (*gotypes.Package, error) {
+				if path == testframework.PkgPath && !available {
+					return nil, fs.ErrNotExist
+				}
+				return base.Import(path)
+			})}
+			before := proj.Fork()
+			info, err := before.TypeInfo()
+			require.NotNil(t, info)
+			require.ErrorContains(t, err, testframework.PkgPath)
+
+			available = true
+			proj.PutFile("metadata.json", file("{}"))
+			after := proj.ForkWithSourceCaches(before)
+			afterInfo, err := after.TypeInfo()
+			require.NoError(t, err)
+			assert.NotSame(t, info, afterInfo)
+		})
+	}
+
+	t.Run("UncheckedSyntax", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("echo 1\n")}, FeatAll)
+		before := proj.Fork()
+		syntax, err := before.ASTFile("main.xgo")
+		require.NoError(t, err)
+		proj.PutFile("metadata.json", file("{}"))
+
+		after := proj.ForkWithSourceCaches(before)
+		afterSyntax, err := after.ASTFile("main.xgo")
+		require.NoError(t, err)
+		assert.NotSame(t, syntax, afterSyntax)
+		assert.NotSame(t, before.Fset, after.Fset)
+	})
+
+	for _, tt := range []struct {
+		name   string
+		change func(*testing.T, *Project)
+	}{
+		{"SourceEdit", func(_ *testing.T, proj *Project) {
+			proj.PutFile("main.xgo", file("var score string\n"))
+		}},
+		{"MoveIntoSource", func(t *testing.T, proj *Project) {
+			require.NoError(t, proj.RenameFile("other.txt", "other.xgo"))
+		}},
+		{"MoveOutOfSource", func(t *testing.T, proj *Project) {
+			require.NoError(t, proj.RenameFile("main.xgo", "main.txt"))
+		}},
+		{"ModuleChange", func(_ *testing.T, proj *Project) {
+			proj.SetModule(defaultModule)
+		}},
+		{"BuilderChange", func(_ *testing.T, proj *Project) {
+			proj.RegisterCacheBuilder("source", func(*Project) (any, error) { return nil, nil })
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			proj := newTestProject(t, map[string]*File{
+				"main.xgo":  file("var score int\n"),
+				"other.txt": file("var score2 int\n"),
+			}, FeatAll)
+			before := proj.Fork()
+			info, err := before.TypeInfo()
+			require.NoError(t, err)
+			tt.change(t, proj)
+
+			after := proj.ForkWithSourceCaches(before)
+			afterInfo, err := after.TypeInfo()
+			require.NoError(t, err)
+			assert.NotSame(t, info, afterInfo)
+			assert.NotSame(t, before.Fset, after.Fset)
+		})
+	}
+
+	t.Run("PackagePathChange", func(t *testing.T) {
+		proj := newTestProject(t, map[string]*File{"main.xgo": file("var score int\n")}, FeatAll)
+		proj.PkgPath = "example.com/before"
+		before := proj.Fork()
+		info, err := before.TypeInfo()
+		require.NoError(t, err)
+		require.Equal(t, "example.com/before", info.Pkg.Path())
+
+		proj.PkgPath = "example.com/after"
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		info, err = after.TypeInfo()
+		require.NoError(t, err)
+		assert.Equal(t, "example.com/after", info.Pkg.Path())
+	})
+
+	t.Run("ImporterChange", func(t *testing.T) {
+		const dependency = "example.com/config"
+		proj := newTestProject(t, map[string]*File{"main.xgo": file(`import "example.com/config"
+var value = config.Value
+`)}, FeatAll)
+		fallback := proj.Importer
+		setImportedType := func(typ gotypes.Type) {
+			pkg := gotypes.NewPackage(dependency, "config")
+			pkg.Scope().Insert(gotypes.NewVar(token.NoPos, pkg, "Value", typ))
+			pkg.MarkComplete()
+			proj.Importer = pkgDocTestImporter(func(path string) (*gotypes.Package, error) {
+				if path == dependency {
+					return pkg, nil
+				}
+				return fallback.Import(path)
+			})
+		}
+		setImportedType(gotypes.Typ[gotypes.Int])
+		before := proj.Fork()
+		info, err := before.TypeInfo()
+		require.NoError(t, err)
+		value := info.Pkg.Scope().Lookup("value")
+		require.NotNil(t, value)
+		require.Equal(t, gotypes.Typ[gotypes.Int], value.Type())
+
+		setImportedType(gotypes.Typ[gotypes.String])
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		info, err = after.TypeInfo()
+		require.NoError(t, err)
+		value = info.Pkg.Scope().Lookup("value")
+		require.NotNil(t, value)
+		assert.Equal(t, gotypes.Typ[gotypes.String], value.Type())
+	})
+
+	t.Run("DefaultImporterPositions", func(t *testing.T) {
+		if runtime.GOARCH == "wasm" {
+			t.Skip("the default importer runs the host Go tool")
+		}
+		proj := NewProject(nil, map[string]*File{"main.xgo": file(`import "math"
+echo math.Pi
+`)}, FeatAll)
+		position := func(p *Project) token.Position {
+			t.Helper()
+
+			info, err := p.TypeInfo()
+			require.NoError(t, err)
+			var pi gotypes.Object
+			for ident, obj := range info.Uses {
+				if ident.Name == "Pi" {
+					pi = obj
+					break
+				}
+			}
+			require.NotNil(t, pi)
+			require.Equal(t, "math", pi.Pkg().Path())
+			return p.Fset.PositionFor(pi.Pos(), false)
+		}
+		before := proj.Fork()
+		want := position(before)
+		require.True(t, want.IsValid())
+
+		proj.PutFile("metadata.json", file("{}"))
+		after := proj.ForkWithSourceCaches(before)
+		assert.Equal(t, want, position(after))
 	})
 }
 

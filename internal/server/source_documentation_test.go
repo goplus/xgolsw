@@ -616,6 +616,43 @@ invoke()
 		})
 	}
 
+	t.Run("StructFieldSiblings", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Item struct {
+// Leading documentation.
+First, Second int
+Third int // Trailing documentation.
+}
+
+type Other struct {
+Unrelated int // Other documentation.
+}
+`)})
+		t.Cleanup(s.Close)
+		proj := s.requestProject()
+		info, err := proj.TypeInfo()
+		require.NoError(t, err)
+		item := info.Pkg.Scope().Lookup("Item")
+		require.NotNil(t, item)
+		fields := requireValueAs[*gotypes.Struct](t, item.Type().Underlying())
+		ctx := &definitionContext{proj: proj}
+		doc, ok := ctx.sourceDocumentation(fields.Field(1))
+		require.True(t, ok)
+		assert.Equal(t, "Leading documentation.\n", doc)
+		assert.Empty(t, ctx.structFields)
+		doc, ok = ctx.sourceDocumentation(fields.Field(2))
+		require.True(t, ok)
+		assert.Equal(t, "Trailing documentation.\n", doc)
+		assert.Len(t, ctx.structFields, 3)
+
+		other := info.Pkg.Scope().Lookup("Other")
+		require.NotNil(t, other)
+		otherFields := requireValueAs[*gotypes.Struct](t, other.Type().Underlying())
+		doc, ok = ctx.sourceDocumentation(otherFields.Field(0))
+		require.True(t, ok)
+		assert.Equal(t, "Other documentation.\n", doc)
+		assert.Len(t, ctx.structFields, 4)
+	})
+
 	t.Run("ForeignPackagePosition", func(t *testing.T) {
 		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`// Project documentation.
 var value int

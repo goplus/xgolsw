@@ -30,6 +30,12 @@ type definitionContext struct {
 	// functionComments indexes top-level function declarations by source position.
 	functionComments map[*ast.File]map[token.Pos]*ast.CommentGroup
 
+	// pendingStructFields defers indexing until a request looks up more than one field.
+	pendingStructFields *ast.FieldList
+
+	// structFields indexes explicit field declarations by their source identifiers.
+	structFields map[*ast.Ident]*ast.Field
+
 	// lookupPkgDoc resolves documentation for imported packages and builtins.
 	lookupPkgDoc func(string) (*pkgdoc.PkgDoc, error)
 }

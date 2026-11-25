@@ -74,6 +74,7 @@ echo "Item", "Item"
 			second := requireValueAs[*ast.BasicLit](t, call.Args[1])
 			result := newTestResourceAnalysis()
 			result.addResourceRef(resourceRef{ID: tt.id, Kind: XGoResourceRefKindStringLiteral, Node: second})
+			result.addResourceRef(resourceRef{ID: testResourceID{"other", "Item"}, Kind: XGoResourceRefKindStringLiteral, Node: second})
 			assert.Nil(t, result.createResourceInputSlot(ctx, first, gotypes.Typ[gotypes.String], testResourceInputType))
 			slot := result.createResourceInputSlot(ctx, second, gotypes.Typ[gotypes.String], testResourceInputType)
 			require.NotNil(t, slot)

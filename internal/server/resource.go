@@ -1,6 +1,8 @@
 package server
 
 import (
+	"sync"
+
 	"github.com/goplus/xgo/ast"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/xgo"
@@ -34,7 +36,7 @@ const (
 func resourceSourceNode(proj *xgo.Project, node ast.Node) ast.Node {
 	if call, ok := node.(*ast.CallExpr); ok {
 		if info, _ := proj.TypeInfo(); info != nil {
-			if literal, _ := resourceStringLiteral(call, info); literal != nil {
+			if literal := resourceStringLiteral(call, info); literal != nil {
 				return literal
 			}
 		}
@@ -76,6 +78,25 @@ type resourceAnalysis struct {
 	resourceRefs     []resourceRef
 	seenResourceRefs map[resourceRef]struct{}
 	contains         func(resourceID) bool
+
+	literalResourcesOnce sync.Once
+	literalResources     map[*ast.BasicLit]resourceID
+}
+
+// literalResource returns the first reference associated with a source literal.
+// The index is built once, after the resource references have been collected.
+func (r *resourceAnalysis) literalResource(proj *xgo.Project, literal *ast.BasicLit) resourceID {
+	r.literalResourcesOnce.Do(func() {
+		r.literalResources = make(map[*ast.BasicLit]resourceID)
+		for _, ref := range r.resourceRefs {
+			if source, ok := resourceSourceNode(proj, ref.Node).(*ast.BasicLit); ok {
+				if _, indexed := r.literalResources[source]; !indexed {
+					r.literalResources[source] = ref.ID
+				}
+			}
+		}
+	})
+	return r.literalResources[literal]
 }
 
 // resourceRefAtPosition returns the smallest resource reference containing

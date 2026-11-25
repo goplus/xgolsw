@@ -8,6 +8,7 @@ import (
 	"iter"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/token"
@@ -31,14 +32,60 @@ type autoProperty struct {
 }
 
 // autoPropertyResolver evaluates members and implicit package calls against
-// existing project types. Its builder and result cache belong to one request.
+// existing project types. Its mutable builder belongs to one request.
 type autoPropertyResolver struct {
 	proj           *xgo.Project
 	receiver       gotypes.Type
+	classCache     *classAutoPropertyCache
 	cb             *gogen.CodeBuilder
 	member         gotypes.Object
 	implementation gotypes.Object
 	results        map[autoPropertyKey]autoProperty
+}
+
+// classAutoPropertyCacheKind identifies alias resolutions for checked class receivers.
+type classAutoPropertyCacheKind struct{}
+
+// classAutoPropertyCache shares immutable alias results within a source revision.
+// Only the member names of class receivers are looked up in this cache.
+type classAutoPropertyCache struct {
+	results sync.Map // Map of classAutoPropertyKey to autoProperty.
+}
+
+// classAutoPropertyKey identifies an alias lookup on a class receiver.
+type classAutoPropertyKey struct {
+	receiver propertyReceiverKey
+	name     string
+}
+
+// propertyReceiverKey identifies a receiver, including independently
+// constructed pointers to the same element type.
+type propertyReceiverKey struct {
+	typ     gotypes.Type
+	pointer bool
+}
+
+// receiverKey returns a cache key for receiver while preserving named types and aliases.
+func receiverKey(receiver gotypes.Type) propertyReceiverKey {
+	if ptr, ok := receiver.(*gotypes.Pointer); ok {
+		return propertyReceiverKey{typ: ptr.Elem(), pointer: true}
+	}
+	return propertyReceiverKey{typ: receiver}
+}
+
+// buildClassAutoPropertyCache creates a cache for class member resolutions.
+func buildClassAutoPropertyCache(*xgo.Project) (any, error) {
+	return new(classAutoPropertyCache), nil
+}
+
+// newClassAutoPropertyResolver shares class member results between requests.
+func newClassAutoPropertyResolver(proj *xgo.Project, receiver gotypes.Type) *autoPropertyResolver {
+	data, _ := proj.Cache(classAutoPropertyCacheKind{})
+	return &autoPropertyResolver{
+		proj:       proj,
+		receiver:   receiver,
+		classCache: data.(*classAutoPropertyCache),
+	}
 }
 
 // autoPropertyKey distinguishes instance members, type selectors, and package functions.
@@ -63,12 +110,21 @@ func isAliasCallable(obj gotypes.Object) bool {
 
 // resolve evaluates a receiver member by its source name.
 func (r *autoPropertyResolver) resolve(name string) autoProperty {
-	return r.evaluate(autoPropertyKey{name: name})
+	key := autoPropertyKey{name: name}
+	if r.classCache == nil {
+		return r.resolveLocally(key)
+	}
+	cacheKey := classAutoPropertyKey{receiver: receiverKey(r.receiver), name: name}
+	if result, ok := r.classCache.results.Load(cacheKey); ok {
+		return result.(autoProperty)
+	}
+	result, _ := r.classCache.results.LoadOrStore(cacheKey, r.evaluate(key))
+	return result.(autoProperty)
 }
 
 // resolveTypeMember resolves a method expression or static member on a type.
 func (r *autoPropertyResolver) resolveTypeMember(name string) autoProperty {
-	return r.evaluate(autoPropertyKey{name: name, typeSelector: true})
+	return r.resolveLocally(autoPropertyKey{name: name, typeSelector: true})
 }
 
 // inferFunctionValue uses written type arguments and the expected parameter
@@ -98,7 +154,7 @@ func (r *autoPropertyResolver) inferFunctionValue(name string, sig *gotypes.Sign
 
 // resolvePackageObject evaluates a package function or function-valued variable alias.
 func (r *autoPropertyResolver) resolvePackageObject(obj gotypes.Object) autoProperty {
-	return r.evaluate(autoPropertyKey{name: xgoutil.FunctionAliasName(obj.Name()), callable: obj})
+	return r.resolveLocally(autoPropertyKey{name: xgoutil.FunctionAliasName(obj.Name()), callable: obj})
 }
 
 // codeBuilder returns the compiler builder for this request's lookups and inference.
@@ -115,7 +171,6 @@ func (r *autoPropertyResolver) codeBuilder() *gogen.CodeBuilder {
 			NoSkipConstant:  true,
 		})
 		r.cb = pkg.CB()
-		r.results = make(map[autoPropertyKey]autoProperty)
 	}
 	return r.cb
 }
@@ -221,12 +276,22 @@ func (r *autoPropertyResolver) conversionValue(typ gotypes.Type, operands []*gog
 	return gotypes.TypeAndValue{Type: result.Type, Value: result.CVal}, false
 }
 
-// evaluate uses the compiler's overload selection and generic inference without
-// parsing files, checking the project again, or declaring objects in its scopes.
-func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoProperty) {
+// resolveLocally reuses lookups whose results stay within the current request.
+func (r *autoPropertyResolver) resolveLocally(key autoPropertyKey) autoProperty {
 	if result, ok := r.results[key]; ok {
 		return result
 	}
+	if r.results == nil {
+		r.results = make(map[autoPropertyKey]autoProperty)
+	}
+	result := r.evaluate(key)
+	r.results[key] = result
+	return result
+}
+
+// evaluate uses the compiler's overload selection and generic inference without
+// parsing files, checking the project again, or declaring objects in its scopes.
+func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoProperty) {
 	cb := r.codeBuilder()
 	stack := cb.InternalStack()
 	depth := stack.Len()
@@ -239,7 +304,6 @@ func (r *autoPropertyResolver) evaluate(key autoPropertyKey) (result autoPropert
 		result.exists = r.member != nil && (method || key.callable != nil) && r.member.Name() != key.name
 		result.implementation = r.implementation
 		result.object = r.member
-		r.results[key] = result
 	}()
 	r.member = nil
 	r.implementation = nil
