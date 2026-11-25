@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"iter"
 	"maps"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,11 +85,14 @@ type Project struct {
 	// mutates syntax.
 	astMu *sync.Mutex
 
-	cacheBuilders map[CacheKind]CacheBuilder
+	cacheBuilders map[CacheKind]cacheRegistration
 	caches        map[CacheKind]dataOrErr
 	cacheSFG      singleflight.Group
 	cacheRevision uint64 // Changes whenever files or module configuration invalidate caches.
 	sharedAST     bool   // Cached syntax is shared with another project instance.
+
+	// sourceRevision is shared by forks with the same source and module.
+	sourceRevision *byte
 
 	fileCacheBuilders map[CacheKind]FileCacheBuilder
 	fileCaches        map[fileCacheKey]dataOrErr
@@ -106,8 +110,9 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 		Fset:              fset,
 		files:             make(map[string]*File),
 		astMu:             new(sync.Mutex),
-		cacheBuilders:     make(map[CacheKind]CacheBuilder),
+		cacheBuilders:     make(map[CacheKind]cacheRegistration),
 		caches:            make(map[CacheKind]dataOrErr),
+		sourceRevision:    new(byte),
 		fileCacheBuilders: make(map[CacheKind]FileCacheBuilder),
 		fileCaches:        make(map[fileCacheKey]dataOrErr),
 	}
@@ -117,11 +122,11 @@ func NewProject(fset *token.FileSet, files map[string]*File, feats uint) *Projec
 	proj.updateFilesSnapshot()
 	for _, feat := range builtinCacheFeatures {
 		if feat.flag&feats != 0 {
-			switch feat.builder.(type) {
+			switch builder := feat.builder.(type) {
 			case CacheBuilder:
-				proj.RegisterCacheBuilder(feat.kind, feat.builder.(CacheBuilder))
+				proj.cacheBuilders[feat.kind] = cacheRegistration{build: builder, sourceOnly: true}
 			case FileCacheBuilder:
-				proj.RegisterFileCacheBuilder(feat.kind, feat.builder.(FileCacheBuilder))
+				proj.fileCacheBuilders[feat.kind] = builder
 			}
 		}
 	}
@@ -144,6 +149,7 @@ func (p *Project) Snapshot() *Project {
 		astMu:             p.astMu,
 		cacheBuilders:     maps.Clone(p.cacheBuilders),
 		caches:            maps.Clone(p.caches),
+		sourceRevision:    p.sourceRevision,
 		fileCacheBuilders: maps.Clone(p.fileCacheBuilders),
 		fileCaches:        maps.Clone(p.fileCaches),
 	}
@@ -162,7 +168,7 @@ func (p *Project) Snapshot() *Project {
 			break
 		}
 	}
-	proj.updateFilesSnapshot()
+	proj.filesSnapshot.Store(p.filesSnapshot.Load())
 	return proj
 }
 
@@ -181,14 +187,75 @@ func (p *Project) SnapshotWithOverlay(overlay map[string]*File) *Project {
 func (p *Project) Fork() *Project {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	proj := NewProject(nil, p.files, 0)
-	proj.PkgPath = p.PkgPath
-	proj.module = p.module
-	proj.Importer = p.Importer
-	proj.astMu = p.astMu
-	proj.cacheBuilders = maps.Clone(p.cacheBuilders)
-	proj.fileCacheBuilders = maps.Clone(p.fileCacheBuilders)
+	proj := &Project{
+		PkgPath:           p.PkgPath,
+		Importer:          p.Importer,
+		Fset:              token.NewFileSet(),
+		module:            p.module,
+		files:             maps.Clone(p.files),
+		astMu:             p.astMu,
+		cacheBuilders:     maps.Clone(p.cacheBuilders),
+		caches:            make(map[CacheKind]dataOrErr),
+		sourceRevision:    p.sourceRevision,
+		fileCacheBuilders: maps.Clone(p.fileCacheBuilders),
+		fileCaches:        make(map[fileCacheKey]dataOrErr),
+	}
+	proj.filesSnapshot.Store(p.filesSnapshot.Load())
 	return proj
+}
+
+// ForkWithSourceCaches forks p and reuses checked source from an earlier fork of
+// p with the same source, module, package path, and comparable configured
+// importer. The default importer and failed imports prevent reuse.
+//
+// Each fork owns its file set and shares position records only for checked
+// source. Non-source caches are built afresh. After reuse, the next file change
+// in either fork discards that fork's cached syntax.
+func (p *Project) ForkWithSourceCaches(previous *Project) *Project {
+	proj := p.Fork()
+	if previous == nil {
+		return proj
+	}
+
+	previous.mu.Lock()
+	defer previous.mu.Unlock()
+	if previous.sourceRevision != proj.sourceRevision || previous.PkgPath != proj.PkgPath ||
+		!sameImporter(previous.Importer, proj.Importer) {
+		return proj
+	}
+	checked, ok := previous.caches[typeInfoCacheKind{}].(*typeInfoCache)
+	if !ok || checked.importFailed {
+		return proj
+	}
+
+	files := make([]*token.File, 0, len(checked.astPkg.Files))
+	for _, file := range checked.astPkg.Files {
+		if entry := previous.Fset.File(file.Pos()); entry != nil {
+			files = append(files, entry)
+		}
+	}
+	proj.Fset.AddExistingFiles(files...)
+	for kind, registration := range proj.cacheBuilders {
+		if data, ok := previous.caches[kind]; registration.sourceOnly && ok {
+			if _, err := decodeDataOrErr(data); err == nil {
+				proj.caches[kind] = data
+			}
+		}
+	}
+	for key, data := range previous.fileCaches {
+		if key.kind == (astFileCacheKind{}) && proj.module.isSourceFile(key.path) {
+			proj.fileCaches[key] = data
+		}
+	}
+	previous.sharedAST = true
+	proj.sharedAST = true
+	return proj
+}
+
+// sameImporter reports whether forks can share a configured importer. The
+// filesystem importer is recreated for each check and uses that fork's file set.
+func sameImporter(a, b gotypes.Importer) bool {
+	return a != nil && b != nil && reflect.ValueOf(a).Comparable() && reflect.ValueOf(b).Comparable() && a == b
 }
 
 // Revision returns this project instance's file and module revision.
@@ -250,7 +317,7 @@ func (p *Project) RenameFile(oldPath, newPath string) error {
 	p.files[newPath] = file
 	delete(p.files, oldPath)
 	p.updateFilesSnapshot()
-	p.deleteFileCache(oldPath)
+	p.deleteFileCache(oldPath, newPath)
 	return nil
 }
 
@@ -261,6 +328,7 @@ func (p *Project) UpdateFiles(newFiles map[string]*File) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	revision := p.cacheRevision
 	// Delete files that are not in the new map.
 	maps.DeleteFunc(p.files, func(path string, _ *File) bool {
 		_, ok := newFiles[path]
@@ -287,7 +355,9 @@ func (p *Project) UpdateFiles(newFiles map[string]*File) {
 		}
 	}
 
-	p.updateFilesSnapshot()
+	if p.cacheRevision != revision {
+		p.updateFilesSnapshot()
+	}
 }
 
 // updateFilesSnapshot updates the atomic snapshot of files.

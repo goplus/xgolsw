@@ -29,7 +29,6 @@ type frameworkAdapter interface {
 // Operations receive the requesting project or context so cached data can also
 // be used by snapshots without retaining a mutable project or server.
 type frameworkAnalysis struct {
-	adapter            frameworkAdapter
 	resources          *resourceAnalysis
 	configurePass      func(*xgo.Project) func(string, *protocol.Pass)
 	collectCompletions func(*completionContext)

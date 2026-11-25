@@ -131,11 +131,16 @@ func buildASTPackageCache(proj *Project) (any, error) {
 
 // IsSourceFile reports whether filename is XGo source or a registered classfile.
 func (p *Project) IsSourceFile(filename string) bool {
+	return p.Module().isSourceFile(filename)
+}
+
+// isSourceFile reports whether filename participates in package analysis.
+func (m *Module) isSourceFile(filename string) bool {
 	switch path.Ext(filename) {
 	case ".xgo", ".gop", ".gox":
 		return true
 	default:
-		_, _, ok := p.Module().ClassInfo(path.Base(filename))
+		_, _, ok := m.ClassInfo(path.Base(filename))
 		return ok
 	}
 }

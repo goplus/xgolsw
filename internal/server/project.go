@@ -51,9 +51,12 @@ func (s *Server) syncFilesLocked(snapshot providerSnapshot) {
 	if snapshot.sequence > s.providerSnapshot.sequence {
 		s.providerSnapshot = providerSnapshot{sequence: snapshot.sequence, files: maps.Clone(snapshot.files)}
 	}
-	provided := make(map[string]*xgo.File, len(s.providerSnapshot.files)+len(s.openFiles))
-	maps.Copy(provided, s.providerSnapshot.files)
-	maps.Copy(provided, s.openFiles)
+	provided := s.providerSnapshot.files
+	if len(s.openFiles) != 0 {
+		provided = make(map[string]*xgo.File, len(provided)+len(s.openFiles))
+		maps.Copy(provided, s.providerSnapshot.files)
+		maps.Copy(provided, s.openFiles)
+	}
 	proj := s.getProj()
 	revision := proj.Revision()
 	proj.UpdateFiles(provided)
@@ -63,13 +66,12 @@ func (s *Server) syncFilesLocked(snapshot providerSnapshot) {
 }
 
 // projectSnapshotLocked reuses the snapshot until workspace files or configuration
-// change. Each revision owns its file set so old source positions are retained
-// only by requests using that revision. The caller holds projectMu. Returned
-// snapshots must not be modified.
+// change. Resource edits can reuse checked syntax and its source positions.
+// The caller holds projectMu. Returned snapshots must not be modified.
 func (s *Server) projectSnapshotLocked() *xgo.Project {
 	proj := s.getProj()
 	if revision := proj.Revision(); s.analysisSnapshot == nil || s.analysisRevision != revision {
-		s.analysisSnapshot = proj.Fork()
+		s.analysisSnapshot = proj.ForkWithSourceCaches(s.analysisSnapshot)
 		s.analysisRevision = revision
 	}
 	return s.analysisSnapshot

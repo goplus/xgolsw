@@ -48,13 +48,6 @@ type expressionTypeResolver struct {
 	packageProperties autoPropertyResolver
 }
 
-// propertyReceiverKey shares lookups for pointers constructed separately for
-// the same element type while preserving named types and aliases.
-type propertyReceiverKey struct {
-	typ     gotypes.Type
-	pointer bool
-}
-
 // collect resolves children before their parents so chained getters read the
 // receiver's value type without rescanning its syntax.
 func (r *expressionTypeResolver) collect(file *ast.File) {
@@ -110,10 +103,7 @@ func (r *expressionTypeResolver) autoPropertyType(ident *ast.Ident, file *ast.Fi
 	}
 	source := info.SourceObjectOf(ident)
 	if xgoutil.IsValidType(receiver) {
-		key := propertyReceiverKey{typ: receiver}
-		if ptr, ok := receiver.(*gotypes.Pointer); ok {
-			key = propertyReceiverKey{typ: ptr.Elem(), pointer: true}
-		}
+		key := receiverKey(receiver)
 		resolver := r.receivers[key]
 		if resolver == nil {
 			resolver = &autoPropertyResolver{proj: r.proj, receiver: receiver}

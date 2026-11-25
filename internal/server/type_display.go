@@ -19,6 +19,9 @@ type typeDisplay struct {
 	unqualified  func(*gotypes.TypeName) bool
 	sourceLookup func(string) (gotypes.Object, gotypes.Type)
 	sourceName   func(*gotypes.TypeName) (string, bool)
+
+	// typeStrings memoizes formatted types within one completion request.
+	typeStrings map[gotypes.Type]string
 }
 
 // newTypeDisplay resolves package qualifiers at pos in file. The result belongs
@@ -147,6 +150,7 @@ func (d typeDisplay) sourceTypeString(typ gotypes.Type) (string, bool) {
 	}
 	d.unqualified = func(obj *gotypes.TypeName) bool { return unqualified[obj] }
 	d.qualifier = func(pkg *gotypes.Package) string { return qualifiers[pkg] }
+	d.typeStrings = nil
 	return d.typeString(typ), true
 }
 
@@ -162,6 +166,19 @@ func (d typeDisplay) typeString(typ gotypes.Type) string {
 	case *gotypes.TypeParam:
 		return typ.String()
 	}
+	if d.typeStrings == nil {
+		return d.qualifiedTypeString(typ)
+	}
+	name, ok := d.typeStrings[typ]
+	if !ok {
+		name = d.qualifiedTypeString(typ)
+		d.typeStrings[typ] = name
+	}
+	return name
+}
+
+// qualifiedTypeString formats types that may contain qualified names.
+func (d typeDisplay) qualifiedTypeString(typ gotypes.Type) string {
 	qualifier := d.qualifier
 	if qualifier == nil {
 		qualifier = func(pkg *gotypes.Package) string { return pkg.Name() }
@@ -281,12 +298,14 @@ func displayedTypeNames(typ gotypes.Type) iter.Seq[*gotypes.TypeName] {
 func (d typeDisplay) sourceParamLabel(sig *gotypes.Signature, params *gotypes.Tuple, paramIndex int) string {
 	param := params.At(paramIndex)
 	paramType := xgoutil.SourceParamType(param)
-	typeName := d.typeString(paramType)
+	var prefix string
 	if sig.Variadic() && paramIndex == params.Len()-1 {
 		if slice, ok := paramType.(*gotypes.Slice); ok {
-			typeName = "..." + d.typeString(slice.Elem())
+			prefix = "..."
+			paramType = slice.Elem()
 		}
 	}
+	typeName := prefix + d.typeString(paramType)
 	if name := xgoutil.SourceParamName(param); name != "" {
 		return name + " " + typeName
 	}

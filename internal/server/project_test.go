@@ -84,6 +84,53 @@ func TestServerRequestProject(t *testing.T) {
 		}
 	})
 
+	t.Run("NonSourcePositionLifetime", func(t *testing.T) {
+		const otherFile = "helper.go"
+		files := newFileMap(map[string][]byte{
+			"main.xgo": []byte("//line virtual.xgo:30:5\nvar score = 1\necho \"\U0001f600\", score\n"),
+		})
+		s := newTestServer(t, nil)
+		t.Cleanup(s.Close)
+		s.fileMapGetter = func() map[string]*xgo.File { return files }
+		initial := s.requestProject()
+		info, err := initial.TypeInfo()
+		require.NoError(t, err)
+		for version := 1; version <= 8; version++ {
+			files[otherFile] = &xgo.File{
+				Content: []byte(fmt.Sprintf("package main\nvar Revision = %d\n", version)),
+				ModTime: time.Unix(int64(version), 0),
+			}
+			result, err := s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: s.toDocumentURI(otherFile)},
+			}})
+			require.NoError(t, err)
+			assert.Nil(t, result)
+
+			current := s.requestProject()
+			currentInfo, err := current.TypeInfo()
+			require.NoError(t, err)
+			assert.Same(t, info, currentInfo)
+			var otherFiles int
+			current.Fset.Iterate(func(file *token.File) bool {
+				if file.Name() == otherFile {
+					otherFiles++
+				}
+				return true
+			})
+			assert.Equal(t, 1, otherFiles, "version %d", version)
+
+			result, err = s.textDocumentDefinition(&DefinitionParams{TextDocumentPositionParams: TextDocumentPositionParams{
+				TextDocument: TextDocumentIdentifier{URI: "file:///main.xgo"},
+				Position:     Position{Line: 2, Character: 13},
+			}})
+			require.NoError(t, err)
+			assert.Equal(t, Location{
+				URI:   "file:///main.xgo",
+				Range: Range{Start: Position{Line: 1, Character: 4}, End: Position{Line: 1, Character: 9}},
+			}, result)
+		}
+	})
+
 	t.Run("SharedAnalysis", func(t *testing.T) {
 		s, builds := newAnalysisTestServer(t)
 		const count = 16

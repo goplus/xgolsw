@@ -132,14 +132,15 @@ func TestTypeCheckDiagnostics(t *testing.T) {
 	detail := fmt.Errorf("compiler error")
 
 	t.Run("Unstructured", func(t *testing.T) {
-		diagnostics := typeCheckDiagnostics(fset, new(types.Info), detail)
+		diagnostics, importFailed := typeCheckDiagnostics(fset, new(types.Info), detail)
 		require.Len(t, diagnostics, 1)
 		assert.ErrorIs(t, diagnostics[0], detail)
+		assert.False(t, importFailed)
 	})
 
 	t.Run("StructuredList", func(t *testing.T) {
 		info := new(types.Info)
-		diagnostics := typeCheckDiagnostics(fset, info, errors.List{
+		diagnostics, importFailed := typeCheckDiagnostics(fset, info, errors.List{
 			detail,
 			&gogen.CodeError{Pos: pos, End: end, Msg: "undefined: missing"},
 			&gogen.ImportError{Pos: pos, End: end, Path: "example.com/missing", Err: detail},
@@ -149,6 +150,7 @@ func TestTypeCheckDiagnostics(t *testing.T) {
 			typesutil.Error{Fset: fset, Pos: pos, End: end, Msg: "compiler error"},
 		}, diagnostics)
 		assert.Equal(t, map[token.Pos]string{pos: "example.com/missing"}, info.FailedImportPaths)
+		assert.True(t, importFailed)
 	})
 }
 

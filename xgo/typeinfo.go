@@ -40,11 +40,12 @@ type typeInfoCacheKind struct{}
 
 // typeInfoCache is a cache for [types.Info].
 type typeInfoCache struct {
-	astPkg     *ast.Package
-	parserErr  error
-	module     *Module
-	typeInfo   *types.Info
-	checkerErr error
+	astPkg       *ast.Package
+	parserErr    error
+	module       *Module
+	typeInfo     *types.Info
+	checkerErr   error
+	importFailed bool
 }
 
 // buildTypeInfoCache implements [CacheBuilder] to build a [typeInfoCache] for
@@ -61,7 +62,7 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 
 	module := proj.Module()
 	recorder := &callTypeRecorder{Recorder: typesutil.NewRecorder(&typeInfo.Info), info: typeInfo}
-	checkerErrs := checkProjectTypes(proj, astPkg, module, recorder)
+	checkerErrs, importFailed := checkProjectTypes(proj, astPkg, module, recorder)
 
 	// Build reverse mapping for O(1) object-to-identifier lookup. For
 	// identifiers that do not denote objects, the object is nil and they
@@ -159,22 +160,23 @@ func buildTypeInfoCache(proj *Project) (any, error) {
 		checkerErrs.Add(err)
 	}
 	return &typeInfoCache{
-		astPkg:     astPkg,
-		parserErr:  astErr,
-		module:     module,
-		typeInfo:   typeInfo,
-		checkerErr: checkerErrs.ToError(),
+		astPkg:       astPkg,
+		parserErr:    astErr,
+		module:       module,
+		typeInfo:     typeInfo,
+		checkerErr:   checkerErrs.ToError(),
+		importFailed: importFailed,
 	}, nil
 }
 
-// checkProjectTypes uses the compiler recorder to keep source call information.
-func checkProjectTypes(proj *Project, astPkg *ast.Package, module *Module, recorder *callTypeRecorder) errors.List {
+// checkProjectTypes records source call information and reports failed imports.
+func checkProjectTypes(proj *Project, astPkg *ast.Package, module *Module, recorder *callTypeRecorder) (errors.List, bool) {
 	pkg := recorder.info.Pkg
 	if len(astPkg.Files) == 0 {
 		var errs errors.List
 		checker := gotypes.NewChecker(&gotypes.Config{}, proj.Fset, pkg, nil)
 		errs.Add(checker.Files(nil))
-		return errs
+		return errs, false
 	}
 	files := make(map[string]*ast.File, len(astPkg.Files))
 	for _, file := range astPkg.Files {
@@ -198,16 +200,18 @@ func checkProjectTypes(proj *Project, astPkg *ast.Package, module *Module, recor
 	return typeCheckDiagnostics(proj.Fset, recorder.info, err)
 }
 
-// typeCheckDiagnostics normalizes checker errors and retains failed import paths.
-func typeCheckDiagnostics(fset *token.FileSet, info *types.Info, err error) errors.List {
+// typeCheckDiagnostics normalizes checker errors and reports whether any imports
+// failed, including implicit imports without a source position.
+func typeCheckDiagnostics(fset *token.FileSet, info *types.Info, err error) (errors.List, bool) {
 	if err == nil {
-		return nil
+		return nil, false
 	}
 	errs, listed := err.(errors.List)
 	if !listed {
 		errs = errors.List{err}
 	}
 	var diagnostics errors.List
+	var importFailed bool
 	for _, err := range errs {
 		diagnostic := typesutil.Error{Fset: fset}
 		switch err := err.(type) {
@@ -219,6 +223,7 @@ func typeCheckDiagnostics(fset *token.FileSet, info *types.Info, err error) erro
 			}
 			diagnostic.Msg = matchErrorMessage(err)
 		case *gogen.ImportError:
+			importFailed = true
 			diagnostic.Pos, diagnostic.End, diagnostic.Msg = err.Pos, err.End, err.Err.Error()
 			if err.Pos.IsValid() {
 				if info.FailedImportPaths == nil {
@@ -234,7 +239,7 @@ func typeCheckDiagnostics(fset *token.FileSet, info *types.Info, err error) erro
 	if len(diagnostics) == 0 {
 		diagnostics.Add(err)
 	}
-	return diagnostics
+	return diagnostics, importFailed
 }
 
 // matchErrorMessage preserves the type mismatch if gogen cannot slice the

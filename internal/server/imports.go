@@ -5,6 +5,7 @@ import (
 	gotypes "go/types"
 	"maps"
 	"slices"
+	"sync"
 
 	"github.com/goplus/gogen"
 	"github.com/goplus/xgo/ast"
@@ -29,19 +30,21 @@ type fileImports struct {
 // fileImportsCacheKind identifies import bindings for one project revision.
 type fileImportsCacheKind struct{}
 
-// buildFileImportsCache resolves imports after type checking so explicit imports
-// retain compiler-recorded identities. Snapshots keep their own registrations.
+// buildFileImportsCache resolves imports on demand for files in a checked
+// snapshot so explicit imports retain compiler-recorded identities.
 func buildFileImportsCache(proj *xgo.Project) (any, error) {
 	proj.TypeInfo()
 	proj = proj.Snapshot()
 	info, _ := proj.TypeInfo()
 	astPkg, _ := proj.ASTPackage()
-	files := make(map[string]*fileImports)
 	if info == nil || astPkg == nil {
-		return files, nil
+		return (map[string]func() *fileImports)(nil), nil
 	}
+	files := make(map[string]func() *fileImports, len(astPkg.Files))
 	for filename, file := range astPkg.Files {
-		files[filename] = resolveFileImports(proj, info, filename, file)
+		files[filename] = sync.OnceValue(func() *fileImports {
+			return resolveFileImports(proj, info, filename, file)
+		})
 	}
 	return files, nil
 }
@@ -138,9 +141,9 @@ func importsForFile(proj *xgo.Project, file *ast.File) *fileImports {
 		return &fileImports{}
 	}
 	data, _ := proj.Cache(fileImportsCacheKind{})
-	files := data.(map[string]*fileImports)
-	if imports := files[proj.Fset.PositionFor(file.Pos(), false).Filename]; imports != nil {
-		return imports
+	files := data.(map[string]func() *fileImports)
+	if load := files[proj.Fset.PositionFor(file.Pos(), false).Filename]; load != nil {
+		return load()
 	}
 	return &fileImports{}
 }

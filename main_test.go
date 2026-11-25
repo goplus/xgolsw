@@ -682,6 +682,37 @@ func (Item) Read() int { return 1 }
 	}
 }
 
+func TestXGoLanguageServerReplyMessage(t *testing.T) {
+	notification, err := jsonrpc2.NewNotification("test", nil)
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name string
+		msg  jsonrpc2.Message
+		want string
+	}{
+		{name: "Nil", want: "null"},
+		{name: "NilNotification", msg: (*jsonrpc2.Notification)(nil), want: "null"},
+		{name: "NilResponse", msg: (*jsonrpc2.Response)(nil), want: "null"},
+		{name: "EmbeddedMessage", msg: struct {
+			jsonrpc2.Message `json:"message"`
+		}{notification}, want: `{"message":{"jsonrpc":"2.0","method":"test","params":null}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var received js.Value
+			reply := js.FuncOf(func(_ js.Value, args []js.Value) any {
+				received = args[0]
+				return nil
+			})
+			t.Cleanup(reply.Release)
+			s := &XGoLanguageServer{messageReplier: reply.Value}
+			var err error
+			require.NotPanics(t, func() { err = s.ReplyMessage(tt.msg) })
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, js.Global().Get("JSON").Call("stringify", received).String())
+		})
+	}
+}
+
 func TestXGoLanguageServerDispose(t *testing.T) {
 	t.Run("CopiedCallbackRevoked", func(t *testing.T) {
 		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}

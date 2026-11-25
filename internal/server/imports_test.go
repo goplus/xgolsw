@@ -1122,7 +1122,19 @@ func TestFileImportsCache(t *testing.T) {
 		assert.NotSame(t, results[0].named["helper"].Imported(), results[1].named["helper"].Imported())
 	})
 	t.Run("ConcurrentRequests", func(t *testing.T) {
-		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte("echo 1\n")}, &modfile.Import{Name: "helper", Path: importTestPkgPath})
+		s := newImportTestServer(t, map[string][]byte{
+			"main_fixture.gox":   []byte("echo 1\n"),
+			"Worker_fixture.gox": []byte("echo 2\n"),
+		}, &modfile.Import{Name: "helper", Path: importTestPkgPath})
+		t.Cleanup(s.Close)
+		var lookups atomic.Int32
+		base := s.getProj().Importer
+		s.getProj().Importer = testImporterFunc(func(path string) (*gotypes.Package, error) {
+			if path == importTestPkgPath {
+				lookups.Add(1)
+			}
+			return base.Import(path)
+		})
 		var builds atomic.Int32
 		s.getProj().RegisterCacheBuilder(fileImportsCacheKind{}, func(proj *xgo.Project) (any, error) {
 			builds.Add(1)
@@ -1131,6 +1143,7 @@ func TestFileImportsCache(t *testing.T) {
 		proj := s.requestProject()
 		file, err := proj.ASTFile("main_fixture.gox")
 		require.NoError(t, err)
+		lookups.Store(0)
 		results := make([]*fileImports, 12)
 		var wg sync.WaitGroup
 		for i := range results {
@@ -1138,11 +1151,18 @@ func TestFileImportsCache(t *testing.T) {
 		}
 		wg.Wait()
 		assert.EqualValues(t, 1, builds.Load())
+		assert.EqualValues(t, 1, lookups.Load())
 		for _, result := range results {
 			assert.Same(t, results[0], result)
 			require.NotNil(t, result.named["helper"])
 			assert.Equal(t, importTestPkgPath, result.named["helper"].Imported().Path())
 		}
+		worker, err := proj.ASTFile("Worker_fixture.gox")
+		require.NoError(t, err)
+		assert.Contains(t, importsForFile(proj, worker).named, "helper")
+		assert.EqualValues(t, 2, lookups.Load())
+		assert.Same(t, results[0], importsForFile(proj, file))
+		assert.EqualValues(t, 2, lookups.Load())
 	})
 	t.Run("ConfigurationAndSourceChanges", func(t *testing.T) {
 		s := newImportTestServer(t, map[string][]byte{"main_fixture.gox": []byte("echo 1\n")}, &modfile.Import{Name: "helper", Path: importTestPkgPath})

@@ -26,7 +26,6 @@ func buildFrameworkAnalysisCache(proj *xgo.Project) (any, error) {
 		return (*frameworkAnalysis)(nil), err
 	}
 	return &frameworkAnalysis{
-		adapter:   result.spxSymbols,
 		resources: result.resourceAnalysis,
 		configurePass: func(proj *xgo.Project) func(string, *protocol.Pass) {
 			return spxDiagnosticPass(proj, result)

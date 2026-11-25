@@ -33,7 +33,18 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file path from document URI %q: %w", param.TextDocument.URI, err)
 	}
-	proj := s.requestProject()
+	proj, cache := s.requestDocument(filename)
+	if cache == nil {
+		return nil, nil
+	}
+	return cache.slots.get(func() ([]XGoInputSlot, error) {
+		return s.inputSlots(proj, filename)
+	})
+}
+
+// inputSlots collects the slots for a document in proj.
+func (s *Server) inputSlots(proj *xgo.Project, filename string) ([]XGoInputSlot, error) {
+	proj.TypeInfo()
 	astPkg, _ := proj.ASTPackage()
 	if astPkg == nil {
 		return nil, nil
@@ -43,10 +54,11 @@ func (s *Server) xgoGetInputSlots(params []XGoGetInputSlotsParams) ([]XGoInputSl
 		return nil, nil
 	}
 	ctx := newInputSlotContext(proj, astFile, s.lookupPkgDoc)
-	ctx.frameworkResult, err = analyzeFramework(proj)
+	framework, err := analyzeFramework(proj)
 	if err != nil {
 		return nil, err
 	}
+	ctx.frameworkResult = framework
 	return findInputSlots(ctx), nil
 }
 
@@ -391,7 +403,7 @@ func findInputSlotsFromCallExpr(ctx *inputSlotContext, callExpr *ast.CallExpr) [
 	}
 	// Constant string conversions have no callable signature. Keep their
 	// literal editable without replacing the surrounding conversion.
-	if literal, _ := resourceStringLiteral(callExpr, ctx.typeInfo); literal != nil {
+	if literal := resourceStringLiteral(callExpr, ctx.typeInfo); literal != nil {
 		if slot := createValueInputSlotFromBasicLit(ctx, literal, ctx.typeInfo.TypeOf(callExpr)); slot != nil {
 			return []XGoInputSlot{*slot}
 		}
@@ -529,7 +541,7 @@ func collectPredefinedNames(ctx *inputSlotContext, kind XGoInputSlotKind, expr a
 		// Locals hide members, which in turn hide package declarations.
 		if scope == ctx.typeInfo.Pkg.Scope() && classType != nil {
 			if ctx.autoProperties == nil || !gotypes.Identical(ctx.autoProperties.receiver, receiver) {
-				ctx.autoProperties = &autoPropertyResolver{proj: ctx.proj, receiver: receiver}
+				ctx.autoProperties = newClassAutoPropertyResolver(ctx.proj, receiver)
 			}
 			for structMember := range xgoutil.StructMembers(classType, nil) {
 				switch member := structMember.Member.(type) {
