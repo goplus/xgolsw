@@ -81,7 +81,11 @@ func New(
 	proj.RegisterSourceCacheBuilder(sourceInfoCacheKind{}, buildSourceInfoCache)
 	proj.RegisterSourceCacheBuilder(methodInfoCacheKind{}, buildMethodInfoCache)
 	proj.RegisterSourceCacheBuilder(expressionTypesCacheKind{}, buildExpressionTypesCache)
-	proj.RegisterSourceCacheBuilder(classAutoPropertyCacheKind{}, buildClassAutoPropertyCache)
+	// Keep imported method results across rebuilds of the source cache.
+	var importedMethodResults sync.Map
+	proj.RegisterSourceCacheBuilder(classAutoPropertyCacheKind{}, func(*xgo.Project) (any, error) {
+		return &classAutoPropertyCache{importedResults: &importedMethodResults}, nil
+	})
 	// These lookups can recover independently of the checked source.
 	proj.RegisterCacheBuilder(frameworkAdapterCacheKind{}, buildFrameworkAdapterCache)
 	proj.RegisterCacheBuilder(fileImportsCacheKind{}, buildFileImportsCache)

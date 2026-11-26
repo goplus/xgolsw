@@ -37,6 +37,7 @@ type autoPropertyResolver struct {
 	proj           *xgo.Project
 	receiver       gotypes.Type
 	classCache     *classAutoPropertyCache
+	classMembers   classMemberIndex
 	cb             *gogen.CodeBuilder
 	member         gotypes.Object
 	implementation gotypes.Object
@@ -46,10 +47,13 @@ type autoPropertyResolver struct {
 // classAutoPropertyCacheKind identifies alias resolutions for checked class receivers.
 type classAutoPropertyCacheKind struct{}
 
-// classAutoPropertyCache shares immutable alias results within a source revision.
-// Only the member names of class receivers are looked up in this cache.
+// classAutoPropertyCache stores class selector results for one source revision.
+// Its importedResults map is shared across source revisions of the same server.
+// A shared entry is reused only when its selected method is the current
+// imported method object.
 type classAutoPropertyCache struct {
-	results sync.Map // Map of classAutoPropertyKey to autoProperty.
+	results         sync.Map  // Map of classAutoPropertyKey to autoProperty.
+	importedResults *sync.Map // Map of importedMethodKey to autoProperty.
 }
 
 // classAutoPropertyKey identifies an alias lookup on a class receiver.
@@ -71,11 +75,6 @@ func receiverKey(receiver gotypes.Type) propertyReceiverKey {
 		return propertyReceiverKey{typ: ptr.Elem(), pointer: true}
 	}
 	return propertyReceiverKey{typ: receiver}
-}
-
-// buildClassAutoPropertyCache creates a cache for class member resolutions.
-func buildClassAutoPropertyCache(*xgo.Project) (any, error) {
-	return new(classAutoPropertyCache), nil
 }
 
 // newClassAutoPropertyResolver shares class member results between requests.
@@ -118,7 +117,7 @@ func (r *autoPropertyResolver) resolve(name string) autoProperty {
 	if result, ok := r.classCache.results.Load(cacheKey); ok {
 		return result.(autoProperty)
 	}
-	result, _ := r.classCache.results.LoadOrStore(cacheKey, r.evaluate(key))
+	result, _ := r.classCache.results.LoadOrStore(cacheKey, r.evaluateClassMember(key))
 	return result.(autoProperty)
 }
 
