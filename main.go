@@ -213,10 +213,24 @@ func (s *XGoLanguageServer) HandleMessage(this js.Value, args []js.Value) any {
 	return nil
 }
 
+// minSplitResultBytes is the minimum encoded result size to parse separately
+// from the response envelope. Small results use one parse to limit JavaScript
+// calls.
+const minSplitResultBytes = 256
+
 // ReplyMessage sends a message back to the client via s.messageReplier.
 func (s *XGoLanguageServer) ReplyMessage(m jsonrpc2.Message) (err error) {
 	if s.disposed.Load() {
 		return server.ErrClosed
+	}
+
+	var result json.RawMessage
+	if response, ok := m.(*jsonrpc2.Response); ok && response != nil &&
+		response.Err() == nil && len(response.Result()) >= minSplitResultBytes {
+		// Use a null result when encoding the envelope to avoid rescanning
+		// and copying the already encoded payload.
+		result = response.Result()
+		m, _ = jsonrpc2.NewResponse(response.ID(), nil, nil)
 	}
 	rawMessage, err := json.Marshal(m)
 	if err != nil {
@@ -238,7 +252,11 @@ func (s *XGoLanguageServer) ReplyMessage(m jsonrpc2.Message) (err error) {
 		}
 	}()
 
-	message := js.Global().Get("JSON").Call("parse", string(rawMessage))
+	parser := js.Global().Get("JSON")
+	message := parser.Call("parse", string(rawMessage))
+	if result != nil && !s.disposed.Load() {
+		message.Set("result", parser.Call("parse", string(result)))
+	}
 	if s.disposed.Load() {
 		return server.ErrClosed
 	}

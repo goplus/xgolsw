@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 	"syscall/js"
 	"testing"
 	"time"
@@ -685,6 +686,13 @@ func (Item) Read() int { return 1 }
 func TestXGoLanguageServerReplyMessage(t *testing.T) {
 	notification, err := jsonrpc2.NewNotification("test", nil)
 	require.NoError(t, err)
+	newResponse := func(id jsonrpc2.ID, result any, replyErr error) *jsonrpc2.Response {
+		t.Helper()
+		response, err := jsonrpc2.NewResponse(id, result, replyErr)
+		require.NoError(t, err)
+		return response
+	}
+	padding := strings.Repeat("x", minSplitResultBytes)
 	for _, tt := range []struct {
 		name string
 		msg  jsonrpc2.Message
@@ -693,6 +701,36 @@ func TestXGoLanguageServerReplyMessage(t *testing.T) {
 		{name: "Nil", want: "null"},
 		{name: "NilNotification", msg: (*jsonrpc2.Notification)(nil), want: "null"},
 		{name: "NilResponse", msg: (*jsonrpc2.Response)(nil), want: "null"},
+		{name: "ZeroResponse", msg: new(jsonrpc2.Response), want: `{"jsonrpc":"2.0","result":null,"id":0}`},
+		{
+			name: "NullResult",
+			msg:  newResponse(jsonrpc2.NewIntID(-7), nil, nil),
+			want: `{"jsonrpc":"2.0","result":null,"id":-7}`,
+		},
+		{
+			name: "ArrayResult",
+			msg:  newResponse(jsonrpc2.NewIntID(9007199254740991), json.RawMessage(`[{"label":"&<>`+padding+`"},null,0,false]`), nil),
+			want: `{"jsonrpc":"2.0","result":[{"label":"&<>` + padding + `"},null,0,false],"id":9007199254740991}`,
+		},
+		{
+			name: "StringID",
+			msg:  newResponse(jsonrpc2.NewStringID("\ufeff\"\U0001f344"), "\u2028\U0001f344"+padding, nil),
+			want: `{"jsonrpc":"2.0","result":"\u2028\ud83c\udf44` + padding + `","id":"\ufeff\"\ud83c\udf44"}`,
+		},
+		{
+			name: "ErrorResponse",
+			msg: newResponse(jsonrpc2.NewStringID("request"), padding, &jsonrpc2.WireError{
+				Code:    -32602,
+				Message: "invalid params",
+				Data:    new(json.RawMessage(`{"field":"name"}`)),
+			}),
+			want: `{"jsonrpc":"2.0","error":{"code":-32602,"message":"invalid params","data":{"field":"name"}},"id":"request"}`,
+		},
+		{
+			name: "Notification",
+			msg:  notification,
+			want: `{"jsonrpc":"2.0","method":"test","params":null}`,
+		},
 		{name: "EmbeddedMessage", msg: struct {
 			jsonrpc2.Message `json:"message"`
 		}{notification}, want: `{"message":{"jsonrpc":"2.0","method":"test","params":null}}`},
@@ -711,6 +749,55 @@ func TestXGoLanguageServerReplyMessage(t *testing.T) {
 			assert.JSONEq(t, tt.want, js.Global().Get("JSON").Call("stringify", received).String())
 		})
 	}
+
+	t.Run("SplitThreshold", func(t *testing.T) {
+		for _, tt := range []struct {
+			name        string
+			resultBytes int
+			wantParses  int
+		}{
+			{name: "BelowThreshold", resultBytes: minSplitResultBytes - 1, wantParses: 1},
+			{name: "AtThreshold", resultBytes: minSplitResultBytes, wantParses: 2},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				// The encoded string includes two JSON quotes.
+				result := strings.Repeat("x", tt.resultBytes-2)
+				response, err := jsonrpc2.NewResponse(jsonrpc2.NewIntID(1), result, nil)
+				require.NoError(t, err)
+				require.Len(t, response.Result(), tt.resultBytes)
+
+				var parses int
+				interceptJSONParse(t, func() { parses++ })
+				s := &XGoLanguageServer{messageReplier: js.Global().Get("Function").New("")}
+				require.NoError(t, s.ReplyMessage(response))
+				assert.Equal(t, tt.wantParses, parses)
+			})
+		}
+	})
+
+	t.Run("ClientError", func(t *testing.T) {
+		response, err := jsonrpc2.NewResponse(jsonrpc2.NewIntID(1), padding, nil)
+		require.NoError(t, err)
+		reply := js.Global().Get("Function").New(`throw new Error("reply failed")`)
+		s := &XGoLanguageServer{messageReplier: reply}
+		var jsErr js.Error
+		require.ErrorAs(t, s.ReplyMessage(response), &jsErr)
+		assert.Equal(t, "reply failed", jsErr.Value.Get("message").String())
+	})
+}
+
+func interceptJSONParse(t *testing.T, beforeParse func()) {
+	t.Helper()
+
+	jsonValue := js.Global().Get("JSON")
+	originalParse := jsonValue.Get("parse")
+	parse := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		beforeParse()
+		return originalParse.Invoke(args[0])
+	})
+	t.Cleanup(parse.Release)
+	t.Cleanup(func() { jsonValue.Set("parse", originalParse) })
+	jsonValue.Set("parse", parse)
 }
 
 func TestXGoLanguageServerDispose(t *testing.T) {
@@ -863,22 +950,64 @@ func TestXGoLanguageServerDispose(t *testing.T) {
 	})
 
 	t.Run("DisposeDuringReplyConversion", func(t *testing.T) {
-		s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
-		value := s.jsValue()
-		t.Cleanup(func() { value.Call("dispose") })
-		jsonValue := js.Global().Get("JSON")
-		originalParse := jsonValue.Get("parse")
-		parse := js.FuncOf(func(_ js.Value, args []js.Value) any {
-			value.Call("dispose")
-			return originalParse.Invoke(args[0])
-		})
-		t.Cleanup(parse.Release)
-		t.Cleanup(func() { jsonValue.Set("parse", originalParse) })
-		jsonValue.Set("parse", parse)
 		notification, err := jsonrpc2.NewNotification("exit", nil)
 		require.NoError(t, err)
-		assert.ErrorIs(t, s.ReplyMessage(notification), server.ErrClosed)
+		response, err := jsonrpc2.NewResponse(jsonrpc2.NewIntID(1), strings.Repeat("x", minSplitResultBytes), nil)
+		require.NoError(t, err)
+		for _, tt := range []struct {
+			name      string
+			message   jsonrpc2.Message
+			disposeAt int
+		}{
+			{name: "Notification", message: notification, disposeAt: 1},
+			{name: "ResponseEnvelope", message: response, disposeAt: 1},
+			{name: "ResponseResult", message: response, disposeAt: 2},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				s := &XGoLanguageServer{server: server.New(xgo.NewProject(nil, nil, 0), nil, nil, nil, nil, nil)}
+				value := s.jsValue()
+				t.Cleanup(func() { value.Call("dispose") })
+				reply := js.FuncOf(func(_ js.Value, _ []js.Value) any {
+					assert.Fail(t, "received a reply after disposal")
+					return nil
+				})
+				t.Cleanup(reply.Release)
+				s.messageReplier = reply.Value
+				var parses int
+				interceptJSONParse(t, func() {
+					parses++
+					if parses == tt.disposeAt {
+						value.Call("dispose")
+					}
+				})
+
+				assert.ErrorIs(t, s.ReplyMessage(tt.message), server.ErrClosed)
+				assert.Equal(t, tt.disposeAt, parses)
+			})
+		}
 	})
+}
+
+func BenchmarkXGoLanguageServerReplyMessage(b *testing.B) {
+	for _, resultBytes := range []int{128, 255, 256, 1 << 10, 16 << 10, 256 << 10} {
+		b.Run(fmt.Sprintf("Bytes%d", resultBytes), func(b *testing.B) {
+			result := map[string]string{
+				"text": strings.Repeat("x", resultBytes-len(`{"text":""}`)),
+			}
+			response, err := jsonrpc2.NewResponse(jsonrpc2.NewIntID(1), result, nil)
+			require.NoError(b, err)
+			require.Len(b, response.Result(), resultBytes)
+			s := &XGoLanguageServer{messageReplier: js.Global().Get("Function").New("")}
+
+			b.SetBytes(int64(resultBytes))
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := s.ReplyMessage(response); err != nil {
+					require.NoError(b, err)
+				}
+			}
+		})
+	}
 }
 
 func BenchmarkXGoLanguageServerReadFiles(b *testing.B) {
