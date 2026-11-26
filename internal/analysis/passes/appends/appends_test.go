@@ -12,9 +12,12 @@ import (
 	"github.com/goplus/xgo/parser"
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgo/x/typesutil"
+	"github.com/goplus/xgolsw/internal"
 	"github.com/goplus/xgolsw/internal/analysis/ast/inspector"
 	"github.com/goplus/xgolsw/internal/analysis/passes/inspect"
 	"github.com/goplus/xgolsw/internal/analysis/protocol"
+	"github.com/goplus/xgolsw/internal/pkgdata"
+	"github.com/goplus/xgolsw/internal/testframework"
 	"github.com/goplus/xgolsw/xgo/types"
 )
 
@@ -39,6 +42,70 @@ var s []int
 _ = append(s, 1)
 `,
 			wantDiag: false,
+		},
+		{
+			name: "AppendWithMultipleResults",
+			src: `
+func pair() ([]int, int) {
+	return nil, 1
+}
+_ = append(pair())
+`,
+		},
+		{
+			name: "AppendWithParenthesizedMultipleResults",
+			src: `
+func pair() ([]int, int) {
+	return nil, 1
+}
+_ = append((pair()))
+`,
+		},
+		{
+			name: "AppendWithUnpackedTupleLiteral",
+			src: `
+var s []int
+_ = append((s, 1))
+`,
+		},
+		{
+			name: "AppendWithoutValuesFromCall",
+			src: `
+type Values []int
+type Alias = Values
+
+func values() Alias {
+	return nil
+}
+_ = append((values()))
+`,
+			wantDiag: true,
+		},
+		{
+			name: "AppendWithInvalidEllipsis",
+			src: `
+var s []int
+_ = append(s...)
+`,
+		},
+		{
+			name: "AppendWithNonSlice",
+			src:  "_ = append(1)\n",
+
+			// The current compiler can return an error without a source diagnostic.
+			wantDiag: true,
+		},
+		{
+			name: "AppendWithUnknownArgument",
+			src:  "_ = append(missing)\n",
+		},
+		{
+			name: "AppendWithSliceType",
+			src: `
+type Values []int
+_ = append(Values)
+`,
+			wantDiag: true,
 		},
 		{
 			name: "ShadowedAppend",
@@ -67,8 +134,10 @@ _ = append(s)
 				},
 			}
 
+			data, err := pkgdata.New(testframework.NewPkgDataZip(t))
+			require.NoError(t, err)
 			checker := typesutil.NewChecker(
-				&gotypes.Config{},
+				&gotypes.Config{Importer: internal.NewImporter(data.OpenExport)},
 				&typesutil.Config{
 					Fset:  fset,
 					Types: gotypes.NewPackage("test", "test"),

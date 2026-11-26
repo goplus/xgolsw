@@ -25,6 +25,7 @@ var Analyzer = &protocol.Analyzer{
 	Run:      run,
 }
 
+// run reports append calls that pass a destination without values to append.
 func run(pass *protocol.Pass) (any, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
@@ -33,7 +34,14 @@ func run(pass *protocol.Pass) (any, error) {
 	}
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
 		call := n.(*ast.CallExpr)
-		if isBuiltinAppend(typeutil.Callee(pass.TypesInfo, call)) && len(call.Args) == 1 {
+		if len(call.Args) != 1 || call.Ellipsis.IsValid() || !isBuiltinAppend(typeutil.Callee(pass.TypesInfo, call)) {
+			return
+		}
+		typ := pass.TypesInfo.TypeOf(call.Args[0])
+		if !xgoutil.IsValidType(typ) {
+			return
+		}
+		if _, ok := typ.(*gotypes.Tuple); !ok {
 			pass.ReportRangef(call, "append with no values")
 		}
 	})
