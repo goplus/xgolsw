@@ -321,13 +321,12 @@ func (r *definitionContext) definitionsForInstanceMembers(receiver gotypes.Type)
 			defs = append(defs, r.definitionsForMember(member)...)
 		}
 	}
-	return append(defs, r.definitionsForSelectorMethods(typ, false)...)
+	return r.appendSelectorMethodDefinitions(defs, typ, false)
 }
 
-// definitionsForSelectorMethods describes method candidates before resolving
-// aliases and shadowing for the source selector.
-func (r *definitionContext) definitionsForSelectorMethods(receiver gotypes.Type, isType bool) []symbolDefinition {
-	var defs []symbolDefinition
+// appendSelectorMethodDefinitions appends method candidates for a selector.
+// Callers resolve aliases and shadowing after collecting candidates.
+func (r *definitionContext) appendSelectorMethodDefinitions(defs []symbolDefinition, receiver gotypes.Type, isType bool) []symbolDefinition {
 	for obj := range memberCandidates(receiver) {
 		method, ok := obj.(*gotypes.Func)
 		if !ok || !xgoutil.IsExportedOrInMainPkg(method) {

@@ -124,20 +124,43 @@ type PublicFirst interface { f.PublicReader; f.CombinedReader }
 }
 
 func TestDefinitionContextSelectorMembers(t *testing.T) {
-	pkg := gotypes.NewPackage("example.com/dependency", "dependency")
-	first := gotypes.NewField(token.NoPos, pkg, "First", gotypes.Typ[gotypes.Int], false)
-	second := gotypes.NewField(token.NoPos, pkg, "Second", gotypes.Typ[gotypes.String], false)
-	structure := gotypes.NewStruct([]*gotypes.Var{first, second}, nil)
-	receiver := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Pointer", nil), gotypes.NewPointer(structure), nil)
-	ctx := new(definitionContext)
-	calls := 0
-	ctx.selectorMembers(receiver)(func(member xgoutil.StructMember) bool {
-		calls++
-		assert.Same(t, first, member.Member)
-		assert.Same(t, receiver, member.Selector)
-		return false
+	t.Run("NamedPointerFields", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/dependency", "dependency")
+		first := gotypes.NewField(token.NoPos, pkg, "First", gotypes.Typ[gotypes.Int], false)
+		second := gotypes.NewField(token.NoPos, pkg, "Second", gotypes.Typ[gotypes.String], false)
+		structure := gotypes.NewStruct([]*gotypes.Var{first, second}, nil)
+		receiver := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Pointer", nil), gotypes.NewPointer(structure), nil)
+		ctx := new(definitionContext)
+		calls := 0
+		for member := range ctx.selectorMembers(receiver) {
+			calls++
+			assert.Same(t, first, member.Member)
+			assert.Same(t, receiver, member.Selector)
+			break
+		}
+		assert.Equal(t, 1, calls)
 	})
-	assert.Equal(t, 1, calls)
+
+	t.Run("NamedTypeMethods", func(t *testing.T) {
+		s := newTestServer(t, map[string][]byte{"main.xgo": []byte(`type Count int
+func (Count) Value() int { return 0 }
+func (Count) Doubled() int { return 0 }
+`)})
+		t.Cleanup(s.Close)
+		info, err := s.getProj().TypeInfo()
+		require.NoError(t, err)
+		receiver := requirePropertyTestType(t, info.Pkg, "Count")
+		require.Equal(t, 2, receiver.NumMethods())
+		ctx := new(definitionContext)
+		calls := 0
+		for member := range ctx.selectorMembers(receiver) {
+			calls++
+			assert.Same(t, receiver.Method(0), member.Member)
+			assert.Same(t, receiver, member.Selector)
+			break
+		}
+		assert.Equal(t, 1, calls)
+	})
 }
 
 func TestImportedInterfaceMembers(t *testing.T) {
