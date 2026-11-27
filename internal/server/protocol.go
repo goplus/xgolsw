@@ -52,10 +52,8 @@ type (
 	PublishDiagnosticsParams              = protocol.PublishDiagnosticsParams
 	PropertyRenamedParams                 = protocol.PropertyRenamedParams
 
-	CompletionItem                  = protocol.CompletionItem
 	CompletionItemKind              = protocol.CompletionItemKind
 	CompletionClientCapabilities    = protocol.CompletionClientCapabilities
-	CompletionList                  = protocol.CompletionList
 	CompletionParams                = protocol.CompletionParams
 	Or_CompletionItem_documentation = protocol.Or_CompletionItem_documentation
 	Or_CompletionItem_textEdit      = protocol.Or_CompletionItem_textEdit
@@ -400,6 +398,29 @@ type XGoInputSpxColorValue struct {
 type XGoResourceRefDocumentLinkData struct {
 	// The kind of the XGo resource reference.
 	Kind XGoResourceRefKind `json:"kind"`
+}
+
+// CompletionItem is the subset of [protocol.CompletionItem] the server emits.
+// Keeping only these fields reduces memory use in candidate slices.
+// Add response fields here when the server starts emitting them.
+type CompletionItem struct {
+	Label               string                           `json:"label"`
+	Kind                CompletionItemKind               `json:"kind,omitempty"`
+	Detail              string                           `json:"detail,omitempty"`
+	Documentation       *Or_CompletionItem_documentation `json:"documentation,omitempty"`
+	FilterText          string                           `json:"filterText,omitempty"`
+	InsertText          string                           `json:"insertText,omitempty"`
+	InsertTextFormat    *InsertTextFormat                `json:"insertTextFormat,omitempty"`
+	TextEdit            *Or_CompletionItem_textEdit      `json:"textEdit,omitempty"`
+	AdditionalTextEdits []TextEdit                       `json:"additionalTextEdits,omitempty"`
+	Data                any                              `json:"data,omitempty"`
+}
+
+// CompletionList is the subset of [protocol.CompletionList] the server emits.
+// It stores candidates in the smaller [CompletionItem] type.
+type CompletionList struct {
+	IsIncomplete bool             `json:"isIncomplete"`
+	Items        []CompletionItem `json:"items"`
 }
 
 // XGoCompletionItemData represents data in a completion item.

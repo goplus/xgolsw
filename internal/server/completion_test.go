@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -9,6 +10,54 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCompletionListJSON(t *testing.T) {
+	item := CompletionItem{
+		Label:            "move",
+		Kind:             MethodCompletion,
+		Detail:           "func move(steps float64)",
+		Documentation:    completionDocumentation(MarkupContent{Kind: Markdown, Value: "Moves the sprite."}),
+		FilterText:       "move",
+		InsertText:       "move ${1:steps}",
+		InsertTextFormat: new(SnippetTextFormat),
+		TextEdit: &Or_CompletionItem_textEdit{
+			Value: TextEdit{
+				Range: Range{
+					Start: Position{Line: 2, Character: 1},
+					End:   Position{Line: 2, Character: 3},
+				},
+				NewText: "move ${1:steps}",
+			},
+		},
+		AdditionalTextEdits: []TextEdit{{NewText: "import \"math\"\n"}},
+		Data: &XGoCompletionItemData{
+			Definition: &XGoDefinitionIdentifier{
+				Package: new("github.com/goplus/spx/v4"),
+				Name:    new("Sprite.Move"),
+			},
+		},
+	}
+	wantItem := protocol.CompletionItem{
+		Label:               item.Label,
+		Kind:                item.Kind,
+		Detail:              item.Detail,
+		Documentation:       item.Documentation,
+		FilterText:          item.FilterText,
+		InsertText:          item.InsertText,
+		InsertTextFormat:    item.InsertTextFormat,
+		TextEdit:            item.TextEdit,
+		AdditionalTextEdits: item.AdditionalTextEdits,
+		Data:                item.Data,
+	}
+	list := CompletionList{Items: []CompletionItem{item, {Label: "stop"}}}
+	want := protocol.CompletionList{Items: []protocol.CompletionItem{wantItem, {Label: "stop"}}}
+
+	gotJSON, err := json.Marshal(list)
+	require.NoError(t, err)
+	wantJSON, err := json.Marshal(want)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(wantJSON), string(gotJSON))
+}
 
 func TestServerTextDocumentCompletion(t *testing.T) {
 	t.Run("ClassFieldInitializerError", func(t *testing.T) {
