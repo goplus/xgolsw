@@ -776,7 +776,8 @@ interface XGoDefinitionIdentifier {
   name?: string;
 
   /**
-   * Overload Identifier.
+   * Identifies an overload of the definition.
+   * It applies only when `name` is provided.
    */
   overloadId?: string;
 }

@@ -242,23 +242,25 @@ type XGoDefinitionIdentifier struct {
 	// - `for_statement_with_single_condition`
 	Name *string `json:"name,omitempty"`
 
-	// Overload Identifier.
+	// OverloadID identifies an overload of the definition.
+	// It applies only when Name is provided.
 	OverloadID *string `json:"overloadId,omitempty"`
 }
 
 // String implements [fmt.Stringer].
 func (id XGoDefinitionIdentifier) String() string {
-	s := "xgo:"
+	pkgPath := ""
 	if id.Package != nil {
-		s += *id.Package
+		pkgPath = *id.Package
 	}
-	if id.Name != nil {
-		s += "?" + url.QueryEscape(*id.Name)
-		if id.OverloadID != nil {
-			s += "#" + url.QueryEscape(*id.OverloadID)
-		}
+	if id.Name == nil {
+		return "xgo:" + pkgPath
 	}
-	return s
+	name := url.QueryEscape(*id.Name)
+	if id.OverloadID == nil {
+		return "xgo:" + pkgPath + "?" + name
+	}
+	return "xgo:" + pkgPath + "?" + name + "#" + url.QueryEscape(*id.OverloadID)
 }
 
 // XGoGetInputSlotsParams holds parameters to get XGo input slots for a
