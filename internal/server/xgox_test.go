@@ -62,8 +62,11 @@ func TestDisplayedFuncNameXGox(t *testing.T) {
 	fun, ok := pkg.Scope().Lookup("XGox_Convert").(*gotypes.Func)
 	require.True(t, ok)
 
-	overview, recvTypeName, name, overloadID := (typeDisplay{}).funcOverview(fun)
-	assert.Equal(t, "func convert(To Type, From Type, src From) To", overview)
+	recvTypeName, name, overloadID := displayedFuncName(fun)
+	display := typeDisplay{deferFunctionOverviews: true}
+	def := display.definitionForFunc(fun, "", nil)
+	def.renderOverview(&display)
+	assert.Equal(t, "func convert(To Type, From Type, src From) To", def.Overview)
 	assert.Empty(t, recvTypeName)
 	assert.Equal(t, "convert", name)
 	assert.Nil(t, overloadID)

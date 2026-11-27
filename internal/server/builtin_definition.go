@@ -152,8 +152,8 @@ func (d typeDisplay) definitionForBuiltin(obj gotypes.Object, importer gotypes.I
 		Detail:   detail,
 
 		CompletionItemLabel:            obj.Name(),
-		CompletionItemKind:             completionItemKind,
 		CompletionItemInsertText:       obj.Name(),
+		CompletionItemKind:             completionItemKind,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }

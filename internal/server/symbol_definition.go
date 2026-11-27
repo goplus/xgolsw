@@ -40,14 +40,37 @@ type symbolDefinition struct {
 	// It distinguishes a property returning a function from a method value.
 	AutoPropertyType gotypes.Type
 
-	ID       XGoDefinitionIdentifier
-	Overview string
-	Detail   string
+	ID XGoDefinitionIdentifier
 
-	CompletionItemLabel            string
+	// Overview holds the formatted declaration, or its display name when
+	// overviewFunction is set.
+	Overview string
+
+	// overviewFunction keeps the declaration for formatting even if completion
+	// selects a different Implementation.
+	overviewFunction *gotypes.Func
+
+	Detail string
+
+	CompletionItemLabel      string
+	CompletionItemInsertText string
+
+	// Keep these uint32 fields together to avoid padding.
 	CompletionItemKind             CompletionItemKind
-	CompletionItemInsertText       string
 	CompletionItemInsertTextFormat InsertTextFormat
+}
+
+// renderOverview formats a deferred declaration using the request's type names.
+func (def *symbolDefinition) renderOverview(display *typeDisplay) {
+	if def.overviewFunction != nil {
+		def.setOverview(display.declaredFunctionOverview(def.overviewFunction, def.Overview))
+	}
+}
+
+// setOverview replaces any deferred declaration with formatted text.
+func (def *symbolDefinition) setOverview(overview string) {
+	def.Overview = overview
+	def.overviewFunction = nil
 }
 
 // html returns the HTML representation of the definition.
@@ -70,7 +93,7 @@ func (def symbolDefinition) markupContent(kind MarkupKind) MarkupContent {
 	return MarkupContent{Kind: PlainText, Value: plainText}
 }
 
-// completionItem constructs a [CompletionItem] from the definition.
+// completionItem constructs a [CompletionItem] from a rendered definition.
 func (def symbolDefinition) completionItem(documentationKind MarkupKind) CompletionItem {
 	// Keep the fields referenced by the completion item in one allocation.
 	data := struct {
@@ -157,7 +180,7 @@ func (d typeDisplay) describeSourceCallable(def *symbolDefinition, source, bindi
 		def.parameterBinding = binding
 	}
 	if sig, params := xgoutil.ResolveSourceFuncSignature(def.Implementation, source, binding); sig != nil {
-		def.Overview = d.functionOverview(name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(def.function(), params))
+		def.setOverview(d.functionOverview(name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(def.function(), params)))
 	}
 }
 
@@ -200,8 +223,8 @@ func (d typeDisplay) definitionForVar(v *gotypes.Var, selectorTypeName string, f
 		Detail:   detail,
 
 		CompletionItemLabel:            v.Name(),
-		CompletionItemKind:             completionItemKind,
 		CompletionItemInsertText:       v.Name(),
+		CompletionItemKind:             completionItemKind,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
@@ -235,8 +258,8 @@ func (d typeDisplay) definitionForConst(c *gotypes.Const, pkgDoc *pkgdoc.PkgDoc)
 		Detail:   detail,
 
 		CompletionItemLabel:            c.Name(),
-		CompletionItemKind:             ConstantCompletion,
 		CompletionItemInsertText:       c.Name(),
+		CompletionItemKind:             ConstantCompletion,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
@@ -265,8 +288,8 @@ func (d typeDisplay) definitionForType(typeName *gotypes.TypeName, name string, 
 		Detail:   detail,
 
 		CompletionItemLabel:            name,
-		CompletionItemKind:             typeCompletionKind(typeName.Type()),
 		CompletionItemInsertText:       name,
+		CompletionItemKind:             typeCompletionKind(typeName.Type()),
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
@@ -289,7 +312,7 @@ func typeCompletionKind(typ gotypes.Type) CompletionItemKind {
 
 // definitionForFunc describes the provided function or method.
 func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, pkgDoc *pkgdoc.PkgDoc) symbolDefinition {
-	overview, parsedRecvTypeName, parsedName, overloadID := d.funcOverview(fun)
+	parsedRecvTypeName, parsedName, overloadID := displayedFuncName(fun)
 	if recvTypeName == "" {
 		recvTypeName = parsedRecvTypeName
 	}
@@ -299,6 +322,14 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 	idName := parsedName
 	if recvTypeName != "" {
 		idName = recvTypeName + "." + idName
+	}
+	var overview string
+	var overviewFunction *gotypes.Func
+	if d.deferFunctionOverviews {
+		overview = parsedName
+		overviewFunction = fun
+	} else {
+		overview = d.declaredFunctionOverview(fun, parsedName)
 	}
 	return symbolDefinition{
 		TypeHint:       fun.Type(),
@@ -310,19 +341,26 @@ func (d typeDisplay) definitionForFunc(fun *gotypes.Func, recvTypeName string, p
 			Name:       &idName,
 			OverloadID: overloadID,
 		},
-		Overview: overview,
-		Detail:   detail,
+		Overview:         overview,
+		overviewFunction: overviewFunction,
+		Detail:           detail,
 
 		CompletionItemLabel:            parsedName,
-		CompletionItemKind:             FunctionCompletion,
 		CompletionItemInsertText:       parsedName,
+		CompletionItemKind:             FunctionCompletion,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }
 
-// nameFunctionOverview displays the callable's name while leaving its
-// definition identifier and insertion spelling available to the caller.
+// nameFunctionOverview replaces the declaration name when it matches the
+// current completion label. Call it before changing the label.
 func (def *symbolDefinition) nameFunctionOverview(name string) {
+	if def.overviewFunction != nil {
+		if def.Overview == def.CompletionItemLabel {
+			def.Overview = name
+		}
+		return
+	}
 	if rest, ok := strings.CutPrefix(def.Overview, "func "+def.CompletionItemLabel); ok &&
 		(strings.HasPrefix(rest, "(") || strings.HasPrefix(rest, "[")) {
 		def.Overview = "func " + name + rest
@@ -389,8 +427,8 @@ func definitionForPkg(pkgName *gotypes.PkgName, pkgDoc *pkgdoc.PkgDoc) symbolDef
 		Detail:   detail,
 
 		CompletionItemLabel:            pkgName.Name(),
-		CompletionItemKind:             ModuleCompletion,
 		CompletionItemInsertText:       pkgName.Name(),
+		CompletionItemKind:             ModuleCompletion,
 		CompletionItemInsertTextFormat: PlainTextTextFormat,
 	}
 }

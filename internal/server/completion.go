@@ -744,6 +744,7 @@ func (ctx *completionContext) findReturnValueIndex(ret *ast.ReturnStmt) int {
 
 // collect collects completion items based on the completion context kind.
 func (ctx *completionContext) collect() error {
+	ctx.itemSet.display = &ctx.typeDisplay
 	if ctx.typeExpression {
 		ctx.itemSet.setSupportedKinds(ClassCompletion, EnumCompletion, InterfaceCompletion, StructCompletion, ModuleCompletion)
 	}
@@ -767,6 +768,12 @@ func (ctx *completionContext) collect() error {
 		return ctx.collectSelect()
 	}
 	return nil
+}
+
+// configureFunctionOverviews enables deferred formatting once expected-type
+// filtering has been configured for symbol collection.
+func (ctx *completionContext) configureFunctionOverviews() {
+	ctx.typeDisplay.deferFunctionOverviews = len(ctx.itemSet.expectedTypes) > 0
 }
 
 // collectGeneral collects general completions.
@@ -829,6 +836,7 @@ func (ctx *completionContext) collectGeneral() error {
 		ctx.itemSet.setExpectedFuncResultCount(ctx.expectedFuncResultCount)
 	}
 	ctx.itemSet.setExpectedTypes(ctx.expectedTypes)
+	ctx.configureFunctionOverviews()
 	ctx.itemSet.setEnumContext(enumContext)
 
 	// Add local definitions from innermost scope and its parents.
@@ -1055,8 +1063,8 @@ func (ctx *completionContext) collectImport() error {
 			Detail:   detail,
 
 			CompletionItemLabel:            pkgPath,
-			CompletionItemKind:             ModuleCompletion,
 			CompletionItemInsertText:       pkgPath,
+			CompletionItemKind:             ModuleCompletion,
 			CompletionItemInsertTextFormat: PlainTextTextFormat,
 		})
 	}
@@ -1077,7 +1085,9 @@ func (ctx *completionContext) collectDot() error {
 
 	if ident, ok := ctx.selectorExpr.X.(*ast.Ident); ok {
 		if pkgName := ctx.selectorPackage(ident, ctx.typeExpression); pkgName != nil {
-			ctx.collectPackageMembers(pkgName.Imported(), ctx.indexedCompletionTypeArguments(path))
+			typeArgs := ctx.indexedCompletionTypeArguments(path)
+			ctx.configureFunctionOverviews()
+			ctx.collectPackageMembers(pkgName.Imported(), typeArgs)
 			return nil
 		}
 	}
@@ -1089,9 +1099,15 @@ func (ctx *completionContext) collectDot() error {
 	receiver := typ
 	typ = gotypes.Unalias(xgoutil.DerefType(gotypes.Unalias(typ)))
 
-	var defs []symbolDefinition
 	_, isInterface := typ.Underlying().(*gotypes.Interface)
 	isType, _ := xgoutil.IsTypeExpr(ctx.typeInfo, ctx.selectorExpr.X)
+	var typeArgs []gotypes.Type
+	if isType {
+		typeArgs = ctx.indexedCompletionTypeArguments(path)
+	}
+	ctx.configureFunctionOverviews()
+
+	var defs []symbolDefinition
 	_, isAlias := receiver.(*gotypes.Alias)
 	// XGo unwraps a direct type alias for static value lookup only.
 	aliasSelector := isType && isAlias
@@ -1112,10 +1128,6 @@ func (ctx *completionContext) collectDot() error {
 		}
 	}
 	if len(defs) > 0 {
-		var typeArgs []gotypes.Type
-		if isType {
-			typeArgs = ctx.indexedCompletionTypeArguments(path)
-		}
 		ctx.addMemberCompletions(receiver, isType, typeArgs, defs...)
 	}
 	return nil
@@ -1714,6 +1726,7 @@ type completionItemSet struct {
 	items                       []CompletionItem
 	seenDefinitions             map[string]struct{}
 	documentationKind           MarkupKind
+	display                     *typeDisplay
 	supportedKinds              map[CompletionItemKind]struct{}
 	isCompatibleWithCallResults func(results *gotypes.Tuple) bool
 	notRecommended              func(symbolDefinition) bool
@@ -1922,6 +1935,7 @@ func (s *completionItemSet) addDefinitions(defs ...symbolDefinition) {
 		}
 		s.seenDefinitions[definitionKey] = struct{}{}
 
+		def.renderOverview(s.display)
 		s.add(def.completionItem(s.documentationKind))
 	}
 }

@@ -22,6 +22,9 @@ type typeDisplay struct {
 
 	// typeStrings memoizes formatted types within one completion request.
 	typeStrings map[gotypes.Type]string
+
+	// deferFunctionOverviews postpones formatting during completion with an expected type.
+	deferFunctionOverviews bool
 }
 
 // newTypeDisplay resolves package qualifiers at pos in file. The result belongs
@@ -399,16 +402,14 @@ func (d typeDisplay) functionOverview(name string, sig *gotypes.Signature, param
 	return "func " + name + "(" + strings.Join(labels, ", ") + ")" + d.displayedFuncResults(sig.Results())
 }
 
-// funcOverview formats the source-facing declaration of a function.
-func (d typeDisplay) funcOverview(fun *gotypes.Func) (overview, parsedRecvTypeName, parsedName string, overloadID *string) {
-	parsedRecvTypeName, parsedName, overloadID = displayedFuncName(fun)
+// declaredFunctionOverview formats a declared function with its source-facing name.
+func (d typeDisplay) declaredFunctionOverview(fun *gotypes.Func, name string) string {
 	sig, params := xgoutil.ResolveFuncSignature(fun)
 	if sig == nil {
 		sig = fun.Signature()
 		params = sig.Params()
 	}
-	overview = d.functionOverview(parsedName, sig, params, xgoutil.NormalizedCallExprTypeArgCount(fun, params))
-	return
+	return d.functionOverview(name, sig, params, xgoutil.NormalizedCallExprTypeArgCount(fun, params))
 }
 
 // typeOverview describes a type declaration, including its parameters and

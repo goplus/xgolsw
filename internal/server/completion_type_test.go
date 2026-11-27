@@ -168,6 +168,62 @@ func TestServerTextDocumentCompletionTypeArguments(t *testing.T) {
 	}
 }
 
+func TestCompletionContextCollectFunctionOverviews(t *testing.T) {
+	for _, tt := range []struct {
+		name, source, label, overview string
+	}{
+		{
+			name: "PackageSelector",
+			source: `import f "example.com/framework"
+var fn func(int) int = f.Ch|[int]
+`,
+			label: "Choose", overview: "func Choose(value int) int",
+		},
+		{
+			name: "TypeSelector",
+			source: `import f "example.com/framework"
+var fn func(f.Item, int) int = f.Item.Ch|[int]
+`,
+			label: "Choose", overview: "item f.Item",
+		},
+		{
+			name: "DotImport",
+			source: `import . "example.com/framework"
+var fn func(int) int = Ch|[int]
+`,
+			label: "Choose", overview: "func Choose(value int) int",
+		},
+		{
+			name: "ImportAlias",
+			source: `import f "example.com/framework"
+var fn func(f.Item) f.Item = f.Ta|
+`,
+			label: "Take", overview: "(value f.Item) f.Item",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const filename = "main.xgo"
+			source, pos := typeDisplayTestSource(t, tt.source)
+			s := newImportTestServer(t, map[string][]byte{filename: []byte(source)})
+			t.Cleanup(s.Close)
+			setImportTestFrameworkMethods(t, s, `
+func Choose[A any](value A) A { return value }
+func XGot_Item_Choose[A any](item Item, value A) A { return value }
+func Take(value Item) Item { return value }
+`)
+
+			ctx := newCompletionTestContext(t, s, filename, pos)
+			require.NoError(t, ctx.collect())
+			assert.True(t, ctx.typeDisplay.deferFunctionOverviews)
+			item := completionItemByLabel(ctx.itemSet.items, tt.label)
+			require.NotNil(t, item)
+			require.NotNil(t, item.Documentation)
+			doc := requireValueAs[MarkupContent](t, item.Documentation.Value)
+			assert.Contains(t, doc.Value, tt.overview)
+		})
+	}
+}
+
 func TestServerTextDocumentCompletionTypeArgumentValues(t *testing.T) {
 	for _, tt := range []struct{ name, source, want, absent string }{
 		{"ArrayLength", "var value string = api.Use[[candidate|Length]Candidate]([2]Candidate{})", "candidateLength", "Candidate"},

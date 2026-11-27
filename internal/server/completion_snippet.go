@@ -9,8 +9,8 @@ var (
 			Detail:   "Iterate within given set",
 
 			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "for ${1:v} in ${2:[]} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -19,8 +19,8 @@ var (
 			Detail:   "Iterate with index within given set",
 
 			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "for ${1:i}, ${2:v} in ${3:[]} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -29,8 +29,8 @@ var (
 			Detail:   "Loop with condition",
 
 			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "for ${1:true} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -39,8 +39,8 @@ var (
 			Detail:   "Loop with range",
 
 			CompletionItemLabel:            "for",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "for ${1:i} in ${2:1}:${3:5} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -49,8 +49,8 @@ var (
 			Detail:   "If statement",
 
 			CompletionItemLabel:            "if",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "if ${1:true} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -59,8 +59,8 @@ var (
 			Detail:   "If else statement",
 
 			CompletionItemLabel:            "if",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "if ${1:true} {\n\t$2\n} else {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -69,8 +69,8 @@ var (
 			Detail:   "Variable declaration, e.g., `var count int`",
 
 			CompletionItemLabel:            "var",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "var ${1:name} $0",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 	}
@@ -83,8 +83,8 @@ var (
 			Detail:   "Import package declaration, e.g., `import \"fmt\"`",
 
 			CompletionItemLabel:            "import",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "import \"${1:package}\"$0",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 		{
@@ -93,8 +93,8 @@ var (
 			Detail:   "Function declaration, e.g., `func add(a int, b int) int {}`",
 
 			CompletionItemLabel:            "func",
-			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertText:       "func ${1:name}(${2:params}) ${3:returnType} {\n\t$0\n}",
+			CompletionItemKind:             KeywordCompletion,
 			CompletionItemInsertTextFormat: SnippetTextFormat,
 		},
 	}

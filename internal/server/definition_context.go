@@ -137,6 +137,7 @@ func (r *definitionContext) staticMemberDefinitions(wrapper *gotypes.Func, obj g
 	groupDoc := r.overloadDocumentation(wrapper)
 	for i := range defs {
 		def := &defs[i]
+		def.renderOverview(&r.typeDisplay)
 		def.Overview = strings.Replace(def.Overview, def.CompletionItemLabel, label, 1)
 		r.describeSourceCallable(def, wrapper, binding, label, groupDoc)
 		def.staticMemberName = name
@@ -298,7 +299,7 @@ func (r *definitionContext) overloadDocumentation(obj gotypes.Object) string {
 func (r *definitionContext) encodedFunctionDefinition(obj gotypes.Object, name string) symbolDefinition {
 	def := r.definitionForOverload(obj, "", r.pkgDocForObject(obj))
 	sig := signatureType(obj.Type())
-	def.Overview = r.functionOverview(name, sig, sig.Params(), 0)
+	def.setOverview(r.functionOverview(name, sig, sig.Params(), 0))
 	def.ID.Name = new(name)
 	if xgoutil.IsXGoOverloadedFuncName(name) {
 		// The exact implementation name already includes its overload index.
