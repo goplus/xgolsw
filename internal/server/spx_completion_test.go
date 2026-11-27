@@ -142,8 +142,8 @@ onStart => {
 			Detail:   "GetWidget returns the widget instance (in given type) with given name. It panics if not found.\n",
 
 			CompletionItemLabel:            "getWidget",
-			CompletionItemKind:             FunctionCompletion,
 			CompletionItemInsertText:       "getWidget",
+			CompletionItemKind:             FunctionCompletion,
 			CompletionItemInsertTextFormat: PlainTextTextFormat,
 		}.completionItem(Markdown))
 

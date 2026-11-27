@@ -66,7 +66,7 @@ func (ctx *completionContext) indexedPackageDefinition(resolver *autoPropertyRes
 	def.TypeHint = typ
 	def.functionValueSpelling = name
 	sig := signatureType(typ)
-	def.Overview = ctx.functionOverview(name, sig, sig.Params(), 0)
+	def.setOverview(ctx.functionOverview(name, sig, sig.Params(), 0))
 	def.CompletionItemLabel = name
 	def.CompletionItemInsertText = name
 	return def, true
@@ -266,7 +266,7 @@ func (ctx *completionContext) formatMethodExpression(def *symbolDefinition, name
 			}
 		}
 	}
-	def.Overview = ctx.functionOverview(name, sig, params, 0)
+	def.setOverview(ctx.functionOverview(name, sig, params, 0))
 	return true
 }
 

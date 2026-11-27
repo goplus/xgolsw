@@ -2,11 +2,13 @@ package server
 
 import (
 	"fmt"
+	"go/constant"
 	gotypes "go/types"
 	"testing"
 
 	"github.com/goplus/xgo/token"
 	"github.com/goplus/xgolsw/pkgdoc"
+	"github.com/goplus/xgolsw/xgo/xgoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +40,36 @@ func TestSymbolDefinitionMethodReceiverAlias(t *testing.T) {
 	def := (typeDisplay{}).definitionForFunc(method, "", doc)
 	assert.Equal(t, "xgo:example.com/types?Record.read", def.ID.String())
 	assert.Equal(t, "Declaration documentation.", def.Detail)
+}
+
+func TestSymbolDefinitionRenderOverview(t *testing.T) {
+	t.Run("ReboundImplementation", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/types", "types")
+		fun := gotypes.NewFunc(token.NoPos, pkg, "Read", gotypes.NewSignatureType(nil, nil, nil, nil, nil, false))
+		display := typeDisplay{deferFunctionOverviews: true}
+		def := display.definitionForFunc(fun, "", nil)
+		assert.Same(t, fun, def.overviewFunction)
+		results := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Bool]))
+		def.Implementation = gotypes.NewFunc(token.NoPos, pkg, "ReadImpl", gotypes.NewSignatureType(nil, nil, nil, nil, results, false))
+
+		def.renderOverview(&display)
+		assert.Equal(t, "func read()", def.Overview)
+	})
+
+	t.Run("TemplateWithoutReceiver", func(t *testing.T) {
+		pkg := gotypes.NewPackage("example.com/types", "types")
+		marker := gotypes.NewConst(token.NoPos, pkg, xgoutil.XGoPackage, gotypes.Typ[gotypes.UntypedBool], constant.MakeBool(true))
+		require.Nil(t, pkg.Scope().Insert(marker))
+		record := gotypes.NewNamed(gotypes.NewTypeName(token.NoPos, pkg, "Record", nil), gotypes.NewStruct(nil, nil), nil)
+		require.Nil(t, pkg.Scope().Insert(record.Obj()))
+		results := gotypes.NewTuple(gotypes.NewParam(token.NoPos, pkg, "", gotypes.Typ[gotypes.Bool]))
+		fun := gotypes.NewFunc(token.NoPos, pkg, "XGot_Record_Read", gotypes.NewSignatureType(nil, nil, nil, nil, results, false))
+		display := typeDisplay{deferFunctionOverviews: true}
+		def := display.definitionForFunc(fun, "", nil)
+
+		def.renderOverview(&display)
+		assert.Equal(t, "func read() bool", def.Overview)
+	})
 }
 
 func TestSymbolDefinitionMemberPackage(t *testing.T) {
