@@ -21,7 +21,6 @@ import (
 	"go/constant"
 	gotypes "go/types"
 	"iter"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -135,11 +134,10 @@ func ReferencesEncodedFuncName(fun *gotypes.Func, name string) bool {
 	encodedName := fun.Name()
 	if name != encodedName && name != ToLowerCamelCase(encodedName) {
 		// The compiler records the selected implementation at an overload call.
-		match := xgoOverloadFuncNameRE.FindStringSubmatch(encodedName)
-		if match == nil {
+		group, _, ok := splitXGoOverloadName(encodedName)
+		if !ok {
 			return false
 		}
-		group := match[1]
 		if name != group && name != ToLowerCamelCase(group) {
 			return false
 		}
@@ -209,23 +207,32 @@ func SplitXGoxFuncName(name string) (funcName string, ok bool) {
 
 // ParseXGoFuncName parses the XGo overloaded function name.
 func ParseXGoFuncName(name string) (parsedName string, overloadID *string) {
-	parsedName = name
-	if matches := xgoOverloadFuncNameRE.FindStringSubmatch(parsedName); len(matches) == 3 {
-		parsedName = matches[1]
-		overloadID = &matches[2]
+	if base, id, ok := splitXGoOverloadName(name); ok {
+		return FunctionAliasName(base), &id
 	}
-	parsedName = FunctionAliasName(parsedName)
-	return
+	return FunctionAliasName(name), nil
 }
 
-// xgoOverloadFuncNameRE is the regular expression of the XGo overloaded
-// function name.
-var xgoOverloadFuncNameRE = regexp.MustCompile(`^(.+)__([0-9a-z])$`)
+// splitXGoOverloadName extracts the base name and the single base-36 digit
+// used by the XGo compiler as the overload index.
+func splitXGoOverloadName(name string) (base, id string, ok bool) {
+	suffixStart := len(name) - len("__0")
+	if suffixStart <= 0 || name[suffixStart:len(name)-1] != "__" {
+		return "", "", false
+	}
+	base, id = name[:suffixStart], name[len(name)-1:]
+	index := id[0]
+	if !(index >= '0' && index <= '9' || index >= 'a' && index <= 'z') || strings.ContainsRune(base, '\n') {
+		return "", "", false
+	}
+	return base, id, true
+}
 
 // IsXGoOverloadedFuncName reports whether the given function name is an XGo
 // overloaded function name.
 func IsXGoOverloadedFuncName(name string) bool {
-	return xgoOverloadFuncNameRE.MatchString(name)
+	_, _, ok := splitXGoOverloadName(name)
+	return ok
 }
 
 // OverloadGroupMarker returns the Go string constant that declares a
@@ -477,11 +484,10 @@ func (*memberLookupRecorder) Call(goast.Node, gotypes.Object) {}
 // OverloadGroupForImplementation returns the reconstructed group reached by
 // removing the index suffix of a package function or method.
 func OverloadGroupForImplementation(fun *gotypes.Func) *gotypes.Func {
-	match := xgoOverloadFuncNameRE.FindStringSubmatch(fun.Name())
-	if match == nil || fun.Pkg() == nil {
+	name, _, ok := splitXGoOverloadName(fun.Name())
+	if !ok || fun.Pkg() == nil {
 		return nil
 	}
-	name := match[1]
 	if fun.Signature().Recv() != nil {
 		if named := overloadReceiverType(fun); named != nil {
 			for method := range named.Origin().Methods() {

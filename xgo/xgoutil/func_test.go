@@ -221,9 +221,9 @@ func TestParseXGoFuncName(t *testing.T) {
 		assert.Equal(t, "1", *overloadID)
 	})
 
-	t.Run("OverloadedFunctionNameWithZero", func(t *testing.T) {
-		parsedName, overloadID := ParseXGoFuncName("MyFunction__0")
-		assert.Equal(t, "myFunction", parsedName)
+	t.Run("ShortestOverloadedFunctionName", func(t *testing.T) {
+		parsedName, overloadID := ParseXGoFuncName("a__0")
+		assert.Equal(t, "a", parsedName)
 		require.NotNil(t, overloadID)
 		assert.Equal(t, "0", *overloadID)
 	})
@@ -232,6 +232,13 @@ func TestParseXGoFuncName(t *testing.T) {
 		parsedName, overloadID := ParseXGoFuncName("My_Function")
 		assert.Equal(t, "my_Function", parsedName)
 		assert.Nil(t, overloadID)
+	})
+
+	t.Run("OverloadSuffixAfterUnderscore", func(t *testing.T) {
+		parsedName, overloadID := ParseXGoFuncName("MyFunction___z")
+		assert.Equal(t, "myFunction_", parsedName)
+		require.NotNil(t, overloadID)
+		assert.Equal(t, "z", *overloadID)
 	})
 
 	t.Run("FunctionNameWithDoubleUnderscoreButInvalidSuffix", func(t *testing.T) {
@@ -288,6 +295,18 @@ func TestIsXGoOverloadedFuncName(t *testing.T) {
 
 	t.Run("OnlyDoubleUnderscore", func(t *testing.T) {
 		assert.False(t, IsXGoOverloadedFuncName("__"))
+	})
+
+	t.Run("MissingBaseName", func(t *testing.T) {
+		assert.False(t, IsXGoOverloadedFuncName("__0"))
+	})
+
+	t.Run("UppercaseIndex", func(t *testing.T) {
+		assert.False(t, IsXGoOverloadedFuncName("MyFunction__A"))
+	})
+
+	t.Run("NewlineInBaseName", func(t *testing.T) {
+		assert.False(t, IsXGoOverloadedFuncName("My\nFunction__0"))
 	})
 }
 
