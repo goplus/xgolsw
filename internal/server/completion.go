@@ -1097,7 +1097,7 @@ func (ctx *completionContext) collectDot() error {
 	aliasSelector := isType && isAlias
 	if !aliasSelector {
 		if isInterface || isType {
-			defs = ctx.definitionsForSelectorMethods(receiver, isType)
+			defs = ctx.appendSelectorMethodDefinitions(nil, receiver, isType)
 		} else {
 			defs = ctx.definitionsForInstanceMembers(receiver)
 		}
